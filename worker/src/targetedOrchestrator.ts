@@ -29,7 +29,17 @@ function parseCliOutput(command: string, output: string): { severity: 'low' | 'm
     // FFuf silent output for matches is usually just the word itself.
     const cleanOutput = output.replace(/Fuzz Faster U Fool.*/gi, '').trim();
     // Filter out potential calibration warnings that might slip through
-    const lines = cleanOutput.split('\n').filter(line => line.trim().length > 0 && !line.includes('::') && !line.includes('Calibration'));
+    const lines = cleanOutput.split('\n').filter(line => {
+      const trimmed = line.trim();
+      return trimmed.length > 0 && 
+             !trimmed.includes('::') && 
+             !trimmed.toLowerCase().includes('calibration') &&
+             !trimmed.toLowerCase().includes('warning') &&
+             !trimmed.toLowerCase().includes('job') &&
+             !trimmed.toLowerCase().includes('duration') &&
+             !trimmed.toLowerCase().includes('req/sec') &&
+             !trimmed.toLowerCase().includes('errors');
+    });
     
     if (lines.length > 0) {
       return { severity: 'medium', finding: 'Se descubrieron rutas, secretos o configuraciones expuestas en el escaneo manual.' };
