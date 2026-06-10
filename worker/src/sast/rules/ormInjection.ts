@@ -1,4 +1,4 @@
-import { SastFinding, SastRule } from '../index';
+import type { SastFinding, SastRule } from '../index';
 
 export const checkOrmInjection: SastRule = (filePath, content) => {
   const findings: SastFinding[] = [];

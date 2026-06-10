@@ -1,4 +1,4 @@
-import { SastFinding, SastRule } from '../index';
+import type { SastFinding, SastRule } from '../index';
 
 export const checkServerActions: SastRule = (filePath, content) => {
   const findings: SastFinding[] = [];
