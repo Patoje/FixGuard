@@ -53,24 +53,48 @@ export async function runTechStackProfiler(targetUrl: string): Promise<TechStack
     if (poweredBy.includes('next.js')) {
       addStack('Node.js', 'Backend Framework', 80, 'Implied by Next.js', 'Entorno de ejecución');
     }
-    if (poweredBy.includes('php')) {
-      addStack('PHP', 'Backend Framework', 95, `X-Powered-By: ${headers['x-powered-by']}`, 'Procesador Backend');
+    if (poweredBy.includes('php') || html.includes('.php')) {
+      addStack('PHP', 'Backend Framework', 95, `X-Powered-By/Files PHP`, 'Procesador Backend');
     }
-    if (html.includes('wp-content')) {
+    if (html.includes('wp-content') || html.includes('wp-includes')) {
       addStack('WordPress', 'Backend Framework', 99, 'wp-content/ path found', 'CMS / Backend System');
       addStack('PHP', 'Backend Framework', 90, 'Implied by WordPress', 'Procesador Backend');
+      addStack('MySQL', 'Database', 70, 'Implied by WordPress', 'Base de Datos principal');
+    }
+    if (headers['x-aspnet-version'] || html.includes('__VIEWSTATE')) {
+      addStack('ASP.NET', 'Backend Framework', 95, 'ASP.NET Headers or ViewState found', 'Web Framework Microsoft');
+    }
+
+    // --- LIBRARIES & CSS ---
+    if (html.includes('jquery')) {
+      addStack('jQuery', 'Frontend Framework', 99, 'jQuery reference found', 'Librería de manipulación DOM');
+    }
+    if (html.includes('tailwindcss') || html.includes('tw-')) {
+      addStack('Tailwind CSS', 'Frontend Framework', 80, 'Tailwind classes/scripts found', 'Framework CSS Utilitario');
+    }
+    if (html.includes('bootstrap')) {
+      addStack('Bootstrap', 'Frontend Framework', 90, 'Bootstrap references found', 'Framework CSS / Componentes');
     }
 
     // --- HOSTING / INFRASTRUCTURE ---
     const serverHeader = headers['server'] ? String(headers['server']).toLowerCase() : '';
-    if (serverHeader.includes('cloudflare')) {
-      addStack('Cloudflare', 'Hosting / Infrastructure', 99, 'Server: cloudflare', 'WAF / CDN');
+    if (serverHeader.includes('cloudflare') || headers['cf-ray']) {
+      addStack('Cloudflare', 'Hosting / Infrastructure', 99, 'Server/Headers indicate Cloudflare', 'WAF / CDN / Proxy Inverso');
     }
     if (serverHeader.includes('vercel') || headers['x-vercel-id']) {
       addStack('Vercel', 'Hosting / Infrastructure', 95, 'Server/Headers indicate Vercel', 'Serverless Hosting / Edge');
     }
     if (serverHeader.includes('netlify') || headers['x-nf-request-id']) {
       addStack('Netlify', 'Hosting / Infrastructure', 95, 'Server/Headers indicate Netlify', 'Jamstack Hosting');
+    }
+    if (headers['x-amz-cf-id'] || serverHeader.includes('cloudfront')) {
+      addStack('AWS CloudFront', 'Hosting / Infrastructure', 95, 'AWS Headers found', 'CDN / Edge Network');
+    }
+    if (serverHeader.includes('nginx')) {
+      addStack('NGINX', 'Hosting / Infrastructure', 90, 'Server header contains nginx', 'Servidor Web / Proxy Inverso');
+    }
+    if (serverHeader.includes('apache')) {
+      addStack('Apache', 'Hosting / Infrastructure', 90, 'Server header contains apache', 'Servidor Web');
     }
 
     // --- AUTHENTICATION ---
@@ -89,8 +113,14 @@ export async function runTechStackProfiler(targetUrl: string): Promise<TechStack
     if (html.includes('stripe.com')) {
       addStack('Stripe', 'External Services', 90, 'Stripe SDK found', 'Procesamiento de pagos');
     }
-    if (html.includes('js.sentry-cdn.com')) {
-      addStack('Sentry', 'External Services', 95, 'Sentry CDN found', 'Monitoreo de errores y rendimiento');
+    if (html.includes('js.sentry-cdn.com') || html.includes('sentry.io')) {
+      addStack('Sentry', 'External Services', 95, 'Sentry CDN/URL found', 'Monitoreo de errores y rendimiento');
+    }
+    if (html.includes('google-analytics.com') || html.includes('G-')) {
+      addStack('Google Analytics', 'External Services', 95, 'GA tags found', 'Analítica de tráfico');
+    }
+    if (html.includes('googletagmanager.com') || html.includes('GTM-')) {
+      addStack('Google Tag Manager', 'External Services', 95, 'GTM script found', 'Gestión de tags y métricas');
     }
 
     return stack;

@@ -1,3 +1,5 @@
+import { Wordlists } from './wordlists';
+
 export type RiskLevel = 'CRÍTICO' | 'ALTO' | 'MEDIO' | 'BAJO';
 
 export interface AttackSurfaceItem {
@@ -10,27 +12,38 @@ export interface AttackSurfaceItem {
 function calculateRisk(path: string, type: string): RiskLevel {
   const p = path.toLowerCase();
   
-  if (p.includes('admin') || p.includes('graphql') || type.includes('WebSocket')) {
+  // Exact match or includes checking from wordlists
+  if (type.includes('WebSocket') || Wordlists.critical.some(w => p.includes(w.toLowerCase()))) {
     return 'CRÍTICO';
   }
-  if (p.includes('auth') || p.includes('login') || p.includes('upload') || p.includes('users') || p.includes('payment')) {
+  if (Wordlists.high.some(w => p.includes(w.toLowerCase()))) {
     return 'ALTO';
   }
-  if (p.includes('api')) {
+  if (Wordlists.medium.some(w => p.includes(w.toLowerCase()))) {
     return 'MEDIO';
+  }
+  // Si parece una ruta dinámica RESTful (ej. /league/pepito o /users/123) tiene riesgo de BOLA/IDOR
+  if (p.match(/\/(user|profile|account|order|league|item|product)\/[a-z0-9_-]+/)) {
+    return 'MEDIO';
+  }
+  if (Wordlists.low.some(w => p.includes(w.toLowerCase()))) {
+    return 'BAJO';
   }
   return 'BAJO';
 }
 
 function determineType(path: string): string {
   const p = path.toLowerCase();
+  
   if (p.includes('graphql')) return 'GraphQL Endpoint';
   if (p.includes('socket.io') || p.includes('ws')) return 'WebSocket';
-  if (p.includes('api')) return 'REST API';
-  if (p.includes('upload')) return 'File Upload';
-  if (p.includes('admin')) return 'Panel de Administración';
-  if (p.includes('auth') || p.includes('login') || p.includes('oauth')) return 'Autenticación';
-  if (p.endsWith('.js') || p.endsWith('.css') || p.endsWith('.png') || p.endsWith('.jpg')) return 'Recurso Estático';
+  if (p.includes('api') || p.includes('rest')) return 'REST API';
+  if (p.includes('upload') || p.includes('storage') || p.includes('s3')) return 'File Upload / Storage';
+  if (Wordlists.critical.some(w => p.includes(w.toLowerCase()))) return 'Ruta Sensible / Admin / Backup';
+  if (p.includes('auth') || p.includes('login') || p.includes('oauth') || p.includes('register')) return 'Autenticación';
+  if (Wordlists.high.some(w => p.endsWith(w.toLowerCase()))) return 'Archivo de Configuración / Secreto';
+  if (p.match(/\/(user|profile|account|order|league|item|product)\/[a-z0-9_-]+/)) return 'Vista Dinámica (Posible BOLA)';
+  if (Wordlists.low.some(w => p.includes(w.toLowerCase())) || p.endsWith('.js') || p.endsWith('.css') || p.endsWith('.png') || p.endsWith('.jpg') || p.endsWith('.svg')) return 'Recurso Estático / Config Pública';
   return 'Ruta General';
 }
 

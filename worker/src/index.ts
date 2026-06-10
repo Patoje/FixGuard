@@ -245,6 +245,36 @@ app.post('/api/sast', async (req, res) => {
   }
 });
 
+import { runTargetedAttack } from './targetedOrchestrator';
+
+app.post('/api/attack/targeted', async (req, res) => {
+  const { targetUrl, scanId, vectorId } = req.body;
+
+  if (!targetUrl || !scanId || !vectorId) {
+    return res.status(400).json({ error: 'Falta targetUrl, scanId o vectorId' });
+  }
+
+  res.json({ message: 'Ataque dirigido iniciado', scanId, vectorId });
+
+  try {
+    await db.update(scans).set({ status: 'in_progress', mode: 'targeted' }).where(eq(scans.id, scanId));
+    
+    // Execute just the single vector attack
+    await runTargetedAttack(scanId, targetUrl, vectorId);
+
+    await db.update(scans).set({ 
+      status: 'completed', 
+      completedAt: new Date() 
+    }).where(eq(scans.id, scanId));
+  } catch (error: any) {
+    console.error(`[Scan ${scanId}] Error en ataque dirigido:`, error);
+    await db.update(scans).set({ 
+      status: 'failed', 
+      completedAt: new Date() 
+    }).where(eq(scans.id, scanId));
+  }
+});
+
 const PORT = 4000;
 app.listen(PORT, () => {
   console.log(`🚀 FixGuard OSINT Worker ejecutándose en http://localhost:${PORT}`);

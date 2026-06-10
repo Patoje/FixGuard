@@ -11,6 +11,7 @@ export const scans = pgTable('scans', {
   userId: integer('user_id').references(() => users.id).notNull(),
   targetUrl: text('target_url').notNull(),
   status: varchar('status', { length: 50 }).notNull().default('pending'),
+  mode: varchar('mode', { enum: ['passive', 'active', 'aggressive', 'targeted'] }).default('passive').notNull(),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   completedAt: timestamp('completed_at'),
 });

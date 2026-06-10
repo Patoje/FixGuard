@@ -1,8 +1,14 @@
 import type { TechStackItem } from './TechStackProfiler';
 
+export interface VectorItem {
+  id: string;
+  name: string;
+  cliCommand: string;
+}
+
 export interface FrameworkVector {
   framework: string;
-  vectors: string[];
+  vectors: VectorItem[];
 }
 
 export function runFrameworkIntelligence(techStack: TechStackItem[]): FrameworkVector[] {
@@ -12,42 +18,79 @@ export function runFrameworkIntelligence(techStack: TechStackItem[]): FrameworkV
   if (stackNames.includes('next.js')) {
     intelligence.push({
       framework: 'Next.js',
-      vectors: ['Server Actions (BFLA/IDOR)', 'Middleware bypass', 'API Routes exposure', 'Build Data (_next/data)', 'Static Assets', 'Incremental Static Regeneration cache poisoning', 'Route Handlers', 'Edge Functions mapping']
+      vectors: [
+        { id: 'nextjs_bfla', name: 'Server Actions (BFLA/IDOR)', cliCommand: 'nuclei -id nextjs-bfla -u <TARGET>' },
+        { id: 'nextjs_middleware', name: 'Middleware bypass', cliCommand: 'curl -H "x-middleware-prefetch: 1" <TARGET>/admin' },
+        { id: 'nextjs_api', name: 'API Routes exposure', cliCommand: 'ffuf -w api_wordlist.txt -u <TARGET>/api/FUZZ' },
+        { id: 'nextjs_build_data', name: 'Build Data (_next/data)', cliCommand: 'nuclei -id nextjs-data-leak -u <TARGET>' },
+        { id: 'nextjs_static', name: 'Static Assets', cliCommand: 'nuclei -id nextjs-static-leak -u <TARGET>' },
+        { id: 'nextjs_isr', name: 'ISR cache poisoning', cliCommand: 'curl -X PURGE <TARGET>' },
+        { id: 'nextjs_route_handlers', name: 'Route Handlers', cliCommand: 'nuclei -id nextjs-route-handlers -u <TARGET>' },
+        { id: 'nextjs_edge', name: 'Edge Functions mapping', cliCommand: 'nuclei -id nextjs-edge -u <TARGET>' }
+      ]
     });
   }
 
   if (stackNames.includes('react')) {
     intelligence.push({
       framework: 'React',
-      vectors: ['Source Maps leak', 'Client Side Routing enumeration', 'Local Storage secrets', 'Session Storage secrets', 'DOM Injection Points (dangerouslySetInnerHTML)']
+      vectors: [
+        { id: 'react_sourcemaps', name: 'Source Maps leak', cliCommand: 'nuclei -id react-sourcemaps -u <TARGET>' },
+        { id: 'react_routing', name: 'Client Side Routing enumeration', cliCommand: 'nuclei -id react-routing -u <TARGET>' },
+        { id: 'react_localstorage', name: 'Local Storage secrets', cliCommand: 'grep -ri "localStorage.setItem" .' },
+        { id: 'react_sessionstorage', name: 'Session Storage secrets', cliCommand: 'grep -ri "sessionStorage.setItem" .' },
+        { id: 'react_dom_injection', name: 'DOM Injection Points (dangerouslySetInnerHTML)', cliCommand: 'grep -ri "dangerouslySetInnerHTML" .' }
+      ]
     });
   }
 
   if (stackNames.includes('node.js') || stackNames.includes('express')) {
     intelligence.push({
       framework: 'Node.js / Express',
-      vectors: ['Express Route enumeration', 'Prototype Pollution', 'Uncaught Exceptions DOS', 'Regex DOS (ReDoS)']
+      vectors: [
+        { id: 'express_routing', name: 'Express Route enumeration', cliCommand: 'ffuf -w routes.txt -u <TARGET>/FUZZ' },
+        { id: 'express_pollution', name: 'Prototype Pollution', cliCommand: 'nuclei -id prototype-pollution -u <TARGET>' },
+        { id: 'express_uncaught', name: 'Uncaught Exceptions DOS', cliCommand: 'curl -H "Content-Type: application/json" -d "{"badjson"}" <TARGET>' },
+        { id: 'express_redos', name: 'Regex DOS (ReDoS)', cliCommand: 'nuclei -id redos -u <TARGET>' }
+      ]
     });
   }
 
   if (stackNames.includes('postgres') || stackNames.includes('postgresql') || stackNames.includes('neon')) {
     intelligence.push({
       framework: 'PostgreSQL',
-      vectors: ['SQL Injection', 'Blind SQL Injection', 'Time Based SQL Injection', 'Connection String exposure', 'Role escalation']
+      vectors: [
+        { id: 'pg_sqli', name: 'SQL Injection', cliCommand: 'sqlmap -u <TARGET> --batch --dbs' },
+        { id: 'pg_blind_sqli', name: 'Blind SQL Injection', cliCommand: 'sqlmap -u <TARGET> --batch --level=5 --risk=3' },
+        { id: 'pg_time_sqli', name: 'Time Based SQL Injection', cliCommand: 'sqlmap -u <TARGET> --technique=T --batch' },
+        { id: 'pg_conn_str', name: 'Connection String exposure', cliCommand: 'nuclei -id db-connection-string -u <TARGET>' },
+        { id: 'pg_role_esc', name: 'Role escalation', cliCommand: 'nuclei -id pg-role-escalation -u <TARGET>' }
+      ]
     });
   }
 
   if (stackNames.includes('clerk')) {
     intelligence.push({
       framework: 'Clerk Auth',
-      vectors: ['Session Token hijacking', 'OAuth bypass', 'JWT validation bypass', 'User Metadata manipulation']
+      vectors: [
+        { id: 'clerk_session', name: 'Session Token hijacking', cliCommand: 'nuclei -id clerk-session-hijack -u <TARGET>' },
+        { id: 'clerk_oauth', name: 'OAuth bypass', cliCommand: 'nuclei -id clerk-oauth-bypass -u <TARGET>' },
+        { id: 'clerk_jwt', name: 'JWT validation bypass', cliCommand: 'nuclei -id jwt-none-alg -u <TARGET>' },
+        { id: 'clerk_metadata', name: 'User Metadata manipulation', cliCommand: 'curl -X PATCH -d "{"publicMetadata": {"role":"admin"}}" <TARGET>' }
+      ]
     });
   }
 
   if (stackNames.includes('supabase')) {
     intelligence.push({
       framework: 'Supabase',
-      vectors: ['Bucket enumeration', 'Realtime socket exposure', 'Row Level Security bypass', 'Edge Functions keys leak', 'Anon Key abuse']
+      vectors: [
+        { id: 'supabase_bucket', name: 'Bucket enumeration', cliCommand: 'nuclei -id supabase-bucket-enum -u <TARGET>' },
+        { id: 'supabase_realtime', name: 'Realtime socket exposure', cliCommand: 'wscat -c wss://<TARGET>/realtime/v1/websocket' },
+        { id: 'supabase_rls', name: 'Row Level Security bypass', cliCommand: 'nuclei -id supabase-rls-bypass -u <TARGET>' },
+        { id: 'supabase_edge', name: 'Edge Functions keys leak', cliCommand: 'nuclei -id supabase-edge-keys -u <TARGET>' },
+        { id: 'supabase_anon_key', name: 'Anon Key abuse', cliCommand: 'curl -H "apikey: ANON_KEY" <TARGET>/rest/v1/' }
+      ]
     });
   }
 
