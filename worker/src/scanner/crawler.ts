@@ -15,7 +15,7 @@ export async function runCrawler(scanId: number, targetUrl: string): Promise<str
   const queue = [targetUrl];
   const visited = new Set<string>();
 
-  console.log(`[Scan ${scanId}] Crawler: Iniciando mapeo SPA en ${targetUrl}...`);
+  console.log(`[Scan ${scanId}] Crawler: Iniciando mapeo SPA profundo en ${targetUrl}...`);
 
   while (queue.length > 0 && visited.size < maxPagesToVisit) {
     const currentUrl = queue.shift()!;
@@ -30,9 +30,10 @@ export async function runCrawler(scanId: number, targetUrl: string): Promise<str
       });
 
       if (typeof response.data !== 'string') continue;
+      const html = response.data;
 
-      // Usamos cheerio para parsear el DOM (mucho más rápido y preciso que regex)
-      const $ = cheerio.load(response.data);
+      // Usamos cheerio para parsear el DOM clásico
+      const $ = cheerio.load(html);
 
       $('a').each((_, element) => {
         const href = $(element).attr('href');
@@ -44,37 +45,54 @@ export async function runCrawler(scanId: number, targetUrl: string): Promise<str
         if (href.startsWith('mailto:') || href.startsWith('tel:')) return;
 
         try {
-          // Resolver la URL (maneja relativas como '/dashboard' y absolutas)
           const resolvedUrl = new URL(href, currentUrl);
-
-          // Solo guardar URLs del MISMO dominio (no queremos hackear google.com por accidente)
           if (resolvedUrl.origin === baseUrl) {
-            // Normalizar eliminando hashes al final
             resolvedUrl.hash = '';
             const finalUrl = resolvedUrl.toString();
-            
             if (!discoveredUrls.has(finalUrl)) {
               discoveredUrls.add(finalUrl);
               queue.push(finalUrl);
             }
           }
         } catch (e) {
-          // URL inválida, ignorar
+          // URL inválida
         }
       });
 
-      // Extraer Next.js data URLs (/_next/data/...) del código fuente
-      const nextDataMatches = response.data.matchAll(/"(\/_next\/data\/[^"]+)"/g);
+      // 1. Next.js Pages Router: Extraer data URLs (/_next/data/...)
+      const nextDataMatches = html.matchAll(/"(\/_next\/data\/[^"]+)"/g);
       for (const match of nextDataMatches) {
         const nextUrl = `${baseUrl}${match[1]}`;
         discoveredUrls.add(nextUrl);
       }
 
-      // EXTRA: Extracción agresiva por Regex para SPAs (React/Next.js) que inyectan rutas en el JS/JSON
-      const rawPathMatches = response.data.matchAll(/href=["'](\/[a-zA-Z0-9\-_/]+)["']/g);
+      // 2. Extracción Agresiva React/Next.js (App Router & Minified JS)
+      // Buscamos cualquier cadena que parezca una ruta interna (empieza con / y tiene caracteres de ruta válidos)
+      const rawPathMatches = html.matchAll(/(?<=['"`])(\/[a-zA-Z0-9\-_/]+)(?=['"`])/g);
       for (const match of rawPathMatches) {
         try {
-          const resolvedUrl = new URL(match[1], currentUrl).toString();
+          const path = match[1];
+          // Excluir rutas de assets estáticos que no son páginas
+          if (path.includes('_next/static') || path.includes('.js') || path.includes('.css') || path.includes('.woff') || path.includes('.png')) {
+            continue;
+          }
+
+          const resolvedUrl = new URL(path, currentUrl).toString();
+          if (!discoveredUrls.has(resolvedUrl)) {
+            discoveredUrls.add(resolvedUrl);
+            queue.push(resolvedUrl);
+          }
+        } catch(e) {}
+      }
+
+      // 3. Extracción desde JSON serializado (RSC Payload u otros)
+      const jsonLikePaths = html.matchAll(/\\"(?:\/)([a-zA-Z0-9\-_/]+)\\"/g);
+      for (const match of jsonLikePaths) {
+         try {
+          const path = `/${match[1]}`;
+          if (path.includes('_next/static') || path.includes('.js')) continue;
+
+          const resolvedUrl = new URL(path, currentUrl).toString();
           if (!discoveredUrls.has(resolvedUrl)) {
             discoveredUrls.add(resolvedUrl);
             queue.push(resolvedUrl);
@@ -83,12 +101,11 @@ export async function runCrawler(scanId: number, targetUrl: string): Promise<str
       }
 
     } catch (error: any) {
-      // Ignorar timeouts de páginas individuales
       console.log(`[Scan ${scanId}] Crawler: Timeout visitando ${currentUrl}`);
     }
   }
 
   const result = Array.from(discoveredUrls);
-  console.log(`[Scan ${scanId}] Crawler: Mapeo completado. ${result.length} rutas descubiertas.`);
+  console.log(`[Scan ${scanId}] Crawler: Mapeo profundo completado. ${result.length} rutas descubiertas.`);
   return result;
 }

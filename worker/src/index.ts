@@ -30,6 +30,7 @@ import { runUploadsScan } from './scanner/uploads';
 import { runBolaScan } from './scanner/bola';
 import { runSsrfScan } from './scanner/ssrf';
 import { runRedirectScan } from './scanner/redirect';
+import { runServerActionsScan } from './scanner/serveractions';
 
 import { db } from './db/db';
 import { scans } from './db/schema';
@@ -108,7 +109,8 @@ app.post('/api/scan', async (req, res) => {
            activeTasks.push(
              runBolaScan(scanId, url),
              runSsrfScan(scanId, url),
-             runRedirectScan(scanId, url)
+             runRedirectScan(scanId, url),
+             runServerActionsScan(scanId, url)
            );
         }
       }
