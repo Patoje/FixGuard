@@ -20,6 +20,12 @@ import { runJwtScan } from './scanner/jwt';
 import { runTraversalScan } from './scanner/traversal';
 import { runPollutionScan } from './scanner/pollution';
 
+// Recon Motores
+import { runTechStackProfiler } from './recon/TechStackProfiler';
+import { runAttackSurfaceMapper } from './recon/AttackSurfaceMapper';
+import { runFrameworkIntelligence } from './recon/FrameworkIntelligence';
+import { buildArchitectureTree } from './recon/ArchitectureBuilder';
+
 // Nuevos Motores Fase 6
 import { runCrawler } from './scanner/crawler';
 import { runJsReconScan } from './scanner/jsrecon';
@@ -33,7 +39,7 @@ import { runRedirectScan } from './scanner/redirect';
 import { runServerActionsScan } from './scanner/serveractions';
 
 import { db } from './db/db';
-import { scans } from './db/schema';
+import { scans, reconProfiles } from './db/schema';
 import { eq } from 'drizzle-orm';
 import 'dotenv/config';
 
@@ -55,7 +61,20 @@ app.post('/api/scan', async (req, res) => {
 
     console.log(`\n[Scan ${scanId}] Iniciando motores de escaneo (${mode || 'passive'}) para ${targetUrl}...`);
     
-    // Nivel 1: Tareas Base (Pasivas / OSINT)
+    // --- FASE 1: RECONOCIMIENTO INTELIGENTE ---
+    console.log(`[Scan ${scanId}] Ejecutando Inteligencia de Superficie de Ataque...`);
+    
+    // 1. Perfil del Tech Stack
+    const techStack = await runTechStackProfiler(targetUrl);
+    
+    // 2. Framework Intelligence basado en el Stack
+    const frameworkIntelligence = runFrameworkIntelligence(techStack);
+    
+    // 3. Reconstrucción de Arquitectura
+    const domain = new URL(targetUrl).hostname;
+    const architectureTree = buildArchitectureTree(domain, techStack);
+
+    // Ejecutar OSINT y JS Recon en paralelo
     const passiveTasks = [
       runHeaderScan(scanId, targetUrl),
       runTlsScan(scanId, targetUrl),
@@ -65,60 +84,107 @@ app.post('/api/scan', async (req, res) => {
       runWafScan(scanId, targetUrl),
       runFingerprintScan(scanId, targetUrl),
       runSecurityTxtScan(scanId, targetUrl),
-      // Reconocimiento Moderno
-      runJsReconScan(scanId, targetUrl),
       runNextJsScan(scanId, targetUrl),
       runCloudExposureScan(scanId, targetUrl),
       runWebSocketsScan(scanId, targetUrl),
       runUploadsScan(scanId, targetUrl)
     ];
 
-    await Promise.all(passiveTasks);
-    console.log(`[Scan ${scanId}] Análisis Pasivo/OSINT completado.`);
+    // JS Recon ahora retorna los endpoints encontrados
+    const [jsEndpoints] = await Promise.all([
+      runJsReconScan(scanId, targetUrl),
+      ...passiveTasks
+    ]);
 
-    // Nivel 2 y 3: Tareas Activas / Agresivas
+    let urlsToAttack = [targetUrl];
+    if (mode === 'aggressive') {
+      const crawlerEndpoints = await runCrawler(scanId, targetUrl);
+      urlsToAttack = Array.from(new Set([...urlsToAttack, ...crawlerEndpoints]));
+    }
+
+    // Unir endpoints JS y Crawler
+    const allDiscoveredPaths = Array.from(new Set([...jsEndpoints, ...urlsToAttack.map(u => {
+      try { return new URL(u).pathname; } catch { return u; }
+    })]));
+
+    // 4. Mapeo de Superficie y Ranking de Riesgo
+    const attackSurface = runAttackSurfaceMapper(allDiscoveredPaths);
+
+    // 5. Guardar Perfil de Reconocimiento
+    await db.insert(reconProfiles).values({
+      scanId,
+      techStack,
+      attackSurface,
+      frameworkIntelligence,
+      architectureTree
+    });
+
+    console.log(`[Scan ${scanId}] Análisis Pasivo y Reconocimiento completado. Guardado Perfil Tech Stack.`);
+
+    // --- FASE 2: ATAQUE ACTIVO / AGRESIVO ---
     if (mode === 'active' || mode === 'aggressive') {
-      console.log(`[Scan ${scanId}] ⚠️ ADVERTENCIA: Ejecutando suite de Ataque (${mode})...`);
-      
-      let urlsToAttack = [targetUrl];
+      console.log(`[Scan ${scanId}] ⚠️ ADVERTENCIA: Ejecutando suite de Ataque (${mode}) sobre TODA la superficie descubierta (${urlsToAttack.length} endpoints base)...`);
 
-      // En modo agresivo, usamos el Crawler Inteligente para encontrar más rutas
-      if (mode === 'aggressive') {
-        urlsToAttack = await runCrawler(scanId, targetUrl);
-      }
+      // Ampliar la lista de ataques con los descubiertos en JS si son URLs completas
+      const endpointsToAttack = Array.from(new Set([
+        ...urlsToAttack,
+        ...jsEndpoints.map(p => p.startsWith('http') ? p : `${new URL(targetUrl).origin}${p.startsWith('/') ? p : '/' + p}`)
+      ]));
 
-      const activeTasks: Promise<void>[] = [];
+      const activeTaskFactories: (() => Promise<void>)[] = [];
 
-      for (const url of urlsToAttack) {
+      for (const url of endpointsToAttack) {
         // Ataques comunes a todas las URLs descubiertas
-        activeTasks.push(
-          runSqliScan(scanId, url),
-          runXssScan(scanId, url),
-          runCorsScan(scanId, url),
-          runGraphqlScan(scanId, url),
-          runSourceMapScan(scanId, url),
-          runApiDiscoveryScan(scanId, url),
-          runSecretsScan(scanId, url),
-          runJwtScan(scanId, url),
-          runTraversalScan(scanId, url),
-          runPollutionScan(scanId, url)
+        activeTaskFactories.push(
+          () => runSqliScan(scanId, url),
+          () => runXssScan(scanId, url),
+          () => runCorsScan(scanId, url),
+          () => runGraphqlScan(scanId, url),
+          () => runSourceMapScan(scanId, url),
+          () => runApiDiscoveryScan(scanId, url),
+          () => runSecretsScan(scanId, url),
+          () => runJwtScan(scanId, url),
+          () => runTraversalScan(scanId, url),
+          () => runPollutionScan(scanId, url)
         );
 
         // Ataques extremos solo en agresivo
         if (mode === 'aggressive') {
-           activeTasks.push(
-             runBolaScan(scanId, url),
-             runSsrfScan(scanId, url),
-             runRedirectScan(scanId, url),
-             runServerActionsScan(scanId, url)
+           activeTaskFactories.push(
+             () => runBolaScan(scanId, url),
+             () => runSsrfScan(scanId, url),
+             () => runRedirectScan(scanId, url),
+             () => runServerActionsScan(scanId, url)
            );
         }
       }
 
       // El Rate Limit lo corremos solo 1 vez a la URL principal para no saturar la red local
-      activeTasks.push(runRateLimitScan(scanId, targetUrl));
+      const rateLimitTask = () => runRateLimitScan(scanId, targetUrl);
 
-      await Promise.all(activeTasks);
+      // Helper para ejecutar tareas con concurrencia controlada y "Jitter" (retraso aleatorio)
+      const runWithConcurrency = async (tasks: (() => Promise<void>)[], limit: number) => {
+        const executing: Promise<void>[] = [];
+        for (const task of tasks) {
+          const jitterTask = async () => {
+            // Retraso aleatorio (Jitter) entre 200ms y 600ms para parecer humano
+            await new Promise(resolve => setTimeout(resolve, 200 + Math.random() * 400));
+            await task();
+          };
+          
+          const p = jitterTask().then(() => {
+            executing.splice(executing.indexOf(p), 1);
+          });
+          executing.push(p);
+          if (executing.length >= limit) {
+            await Promise.race(executing);
+          }
+        }
+        await Promise.all(executing);
+      };
+
+      // Limitar a 5 peticiones simultáneas
+      await runWithConcurrency([rateLimitTask, ...activeTaskFactories], 5);
     }
 
     await db.update(scans).set({ 

@@ -3,7 +3,7 @@ import { db } from '../db/db';
 import { vulnerabilities } from '../db/schema';
 import * as cheerio from 'cheerio';
 
-export async function runJsReconScan(scanId: number, targetUrl: string) {
+export async function runJsReconScan(scanId: number, targetUrl: string): Promise<string[]> {
   try {
     const baseUrl = new URL(targetUrl).origin;
     
@@ -13,7 +13,7 @@ export async function runJsReconScan(scanId: number, targetUrl: string) {
       validateStatus: () => true
     });
 
-    if (typeof response.data !== 'string') return;
+    if (typeof response.data !== 'string') return [];
 
     // 2. Extraer scripts
     const $ = cheerio.load(response.data);
@@ -79,7 +79,9 @@ export async function runJsReconScan(scanId: number, targetUrl: string) {
       });
     }
 
+    return Array.from(foundEndpoints);
   } catch (error: any) {
     console.error(`[Scan ${scanId}] JS Recon error:`, error?.message || String(error));
+    return [];
   }
 }

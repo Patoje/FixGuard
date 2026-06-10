@@ -1,4 +1,4 @@
-import { pgTable, serial, text, timestamp, varchar, integer } from 'drizzle-orm/pg-core';
+import { pgTable, serial, text, timestamp, varchar, integer, json } from 'drizzle-orm/pg-core';
 
 export const users = pgTable('users', {
   id: serial('id').primaryKey(),
@@ -22,5 +22,15 @@ export const vulnerabilities = pgTable('vulnerabilities', {
   severity: varchar('severity', { length: 20 }).notNull(),
   description: text('description').notNull(),
   autoFixCode: text('auto_fix_code'),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+});
+
+export const reconProfiles = pgTable('recon_profiles', {
+  id: serial('id').primaryKey(),
+  scanId: integer('scan_id').references(() => scans.id).notNull(),
+  techStack: json('tech_stack').notNull(),
+  attackSurface: json('attack_surface').notNull(),
+  frameworkIntelligence: json('framework_intelligence').notNull(),
+  architectureTree: json('architecture_tree').notNull(),
   createdAt: timestamp('created_at').defaultNow().notNull(),
 });
