@@ -43,10 +43,11 @@ export async function runTargetedAttack(scanId: number, targetUrl: string, vecto
       throw new Error(`Vector ID ${vectorId} no encontrado en el registro o sin comando CLI.`);
     }
 
-    console.log(`[Scan ${scanId}] ⚙️ Ejecutando herramienta profesional CLI: ${vector.cliCommand.replace('<TARGET>', targetUrl)}`);
+    const cleanTargetUrl = targetUrl.replace(/\/+$/, '');
+    console.log(`[Scan ${scanId}] ⚙️ Ejecutando herramienta profesional CLI: ${vector.cliCommand.replace('<TARGET>', cleanTargetUrl)}`);
     
     // Run the actual CLI tool using the runner
-    const output = await runCliCommand(vector.cliCommand, targetUrl);
+    const output = await runCliCommand(vector.cliCommand, cleanTargetUrl);
     
     console.log(`[Scan ${scanId}] 📄 Output recibido (Longitud: ${output.length} bytes)`);
 
