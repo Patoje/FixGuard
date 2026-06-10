@@ -136,6 +136,49 @@ app.post('/api/scan', async (req, res) => {
   }
 });
 
+import { runSastScan } from './sast';
+import { vulnerabilities } from './db/schema';
+
+app.post('/api/sast', async (req, res) => {
+  const { targetDir, scanId } = req.body;
+
+  if (!targetDir || !scanId) {
+    return res.status(400).json({ error: 'Falta targetDir o scanId' });
+  }
+
+  res.json({ message: 'Escaneo SAST iniciado', scanId });
+
+  try {
+    await db.update(scans).set({ status: 'in_progress' }).where(eq(scans.id, scanId));
+    console.log(`\n[Scan ${scanId}] Iniciando motor SAST (Whitebox) en directorio: ${targetDir}...`);
+    
+    const findings = await runSastScan(targetDir);
+    
+    for (const finding of findings) {
+       await db.insert(vulnerabilities).values({
+         scanId,
+         type: finding.type,
+         severity: finding.severity,
+         description: `${finding.description}\n\nArchivo: ${finding.file}`,
+         autoFixCode: null,
+       });
+    }
+
+    await db.update(scans).set({ 
+      status: 'completed', 
+      completedAt: new Date() 
+    }).where(eq(scans.id, scanId));
+    console.log(`[Scan ${scanId}] 🎉 Escaneo SAST completado. Se encontraron ${findings.length} problemas.`);
+
+  } catch (error: any) {
+    console.error(`[Scan ${scanId}] Error global SAST:`, error);
+    await db.update(scans).set({ 
+      status: 'failed', 
+      completedAt: new Date() 
+    }).where(eq(scans.id, scanId));
+  }
+});
+
 const PORT = 4000;
 app.listen(PORT, () => {
   console.log(`🚀 FixGuard OSINT Worker ejecutándose en http://localhost:${PORT}`);
