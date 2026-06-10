@@ -96,3 +96,43 @@ export function runFrameworkIntelligence(techStack: TechStackItem[]): FrameworkV
 
   return intelligence;
 }
+
+export const VECTOR_REGISTRY: Record<string, VectorItem> = {
+  // Next.js
+  nextjs_bfla: { id: 'nextjs_bfla', name: 'Server Actions (BFLA/IDOR)', cliCommand: 'nuclei -id nextjs-bfla -u <TARGET>' },
+  nextjs_middleware: { id: 'nextjs_middleware', name: 'Middleware bypass', cliCommand: 'curl -H "x-middleware-prefetch: 1" <TARGET>/admin' },
+  nextjs_api: { id: 'nextjs_api', name: 'API Routes exposure', cliCommand: 'ffuf -w api_wordlist.txt -u <TARGET>/api/FUZZ' },
+  nextjs_build_data: { id: 'nextjs_build_data', name: 'Build Data (_next/data)', cliCommand: 'nuclei -id nextjs-data-leak -u <TARGET>' },
+  nextjs_static: { id: 'nextjs_static', name: 'Static Assets', cliCommand: 'nuclei -id nextjs-static-leak -u <TARGET>' },
+  nextjs_isr: { id: 'nextjs_isr', name: 'ISR cache poisoning', cliCommand: 'curl -X PURGE <TARGET>' },
+  nextjs_route_handlers: { id: 'nextjs_route_handlers', name: 'Route Handlers', cliCommand: 'nuclei -id nextjs-route-handlers -u <TARGET>' },
+  nextjs_edge: { id: 'nextjs_edge', name: 'Edge Functions mapping', cliCommand: 'nuclei -id nextjs-edge -u <TARGET>' },
+  // React
+  react_sourcemaps: { id: 'react_sourcemaps', name: 'Source Maps leak', cliCommand: 'nuclei -id react-sourcemaps -u <TARGET>' },
+  react_routing: { id: 'react_routing', name: 'Client Side Routing enumeration', cliCommand: 'nuclei -id react-routing -u <TARGET>' },
+  react_localstorage: { id: 'react_localstorage', name: 'Local Storage secrets', cliCommand: 'grep -ri "localStorage.setItem" .' },
+  react_sessionstorage: { id: 'react_sessionstorage', name: 'Session Storage secrets', cliCommand: 'grep -ri "sessionStorage.setItem" .' },
+  react_dom_injection: { id: 'react_dom_injection', name: 'DOM Injection Points (dangerouslySetInnerHTML)', cliCommand: 'grep -ri "dangerouslySetInnerHTML" .' },
+  // Node / Express
+  express_routing: { id: 'express_routing', name: 'Express Route enumeration', cliCommand: 'ffuf -w routes.txt -u <TARGET>/FUZZ' },
+  express_pollution: { id: 'express_pollution', name: 'Prototype Pollution', cliCommand: 'nuclei -id prototype-pollution -u <TARGET>' },
+  express_uncaught: { id: 'express_uncaught', name: 'Uncaught Exceptions DOS', cliCommand: 'curl -H "Content-Type: application/json" -d "{"badjson"}" <TARGET>' },
+  express_redos: { id: 'express_redos', name: 'Regex DOS (ReDoS)', cliCommand: 'nuclei -id redos -u <TARGET>' },
+  // Postgres
+  pg_sqli: { id: 'pg_sqli', name: 'SQL Injection', cliCommand: 'sqlmap -u <TARGET> --batch --dbs' },
+  pg_blind_sqli: { id: 'pg_blind_sqli', name: 'Blind SQL Injection', cliCommand: 'sqlmap -u <TARGET> --batch --level=5 --risk=3' },
+  pg_time_sqli: { id: 'pg_time_sqli', name: 'Time Based SQL Injection', cliCommand: 'sqlmap -u <TARGET> --technique=T --batch' },
+  pg_conn_str: { id: 'pg_conn_str', name: 'Connection String exposure', cliCommand: 'nuclei -id db-connection-string -u <TARGET>' },
+  pg_role_esc: { id: 'pg_role_esc', name: 'Role escalation', cliCommand: 'nuclei -id pg-role-escalation -u <TARGET>' },
+  // Clerk
+  clerk_session: { id: 'clerk_session', name: 'Session Token hijacking', cliCommand: 'nuclei -id clerk-session-hijack -u <TARGET>' },
+  clerk_oauth: { id: 'clerk_oauth', name: 'OAuth bypass', cliCommand: 'nuclei -id clerk-oauth-bypass -u <TARGET>' },
+  clerk_jwt: { id: 'clerk_jwt', name: 'JWT validation bypass', cliCommand: 'nuclei -id jwt-none-alg -u <TARGET>' },
+  clerk_metadata: { id: 'clerk_metadata', name: 'User Metadata manipulation', cliCommand: 'curl -X PATCH -d "{\\"publicMetadata\\": {\\"role\\":\\"admin\\"}}" <TARGET>' },
+  // Supabase
+  supabase_bucket: { id: 'supabase_bucket', name: 'Bucket enumeration', cliCommand: 'nuclei -id supabase-bucket-enum -u <TARGET>' },
+  supabase_realtime: { id: 'supabase_realtime', name: 'Realtime socket exposure', cliCommand: 'wscat -c wss://<TARGET>/realtime/v1/websocket' },
+  supabase_rls: { id: 'supabase_rls', name: 'Row Level Security bypass', cliCommand: 'nuclei -id supabase-rls-bypass -u <TARGET>' },
+  supabase_edge: { id: 'supabase_edge', name: 'Edge Functions keys leak', cliCommand: 'nuclei -id supabase-edge-keys -u <TARGET>' },
+  supabase_anon_key: { id: 'supabase_anon_key', name: 'Anon Key abuse', cliCommand: 'curl -H "apikey: ANON_KEY" <TARGET>/rest/v1/' }
+};

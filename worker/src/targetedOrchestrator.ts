@@ -1,79 +1,76 @@
-import { runSqliScan } from './scanner/sqli';
-import { runXssScan } from './scanner/xss';
-import { runBolaScan } from './scanner/bola';
+import { runCliCommand } from './scanner/cliRunner';
+import { VECTOR_REGISTRY } from './recon/FrameworkIntelligence';
+import { db } from './db/db';
+import { vulnerabilities } from './db/schema';
 
-import { runSsrfScan } from './scanner/ssrf';
-import { runJsReconScan } from './scanner/jsrecon';
-import { runPollutionScan } from './scanner/pollution';
-import { runTraversalScan } from './scanner/traversal';
+// Helper to parse the output and determine severity/findings
+function parseCliOutput(command: string, output: string): { severity: 'low' | 'medium' | 'high' | 'critical', finding: string } | null {
+  const lowerOut = output.toLowerCase();
+  
+  if (command.includes('nuclei')) {
+    if (lowerOut.includes('[critical]')) return { severity: 'critical', finding: 'Nuclei detectó una vulnerabilidad CRÍTICA.' };
+    if (lowerOut.includes('[high]')) return { severity: 'high', finding: 'Nuclei detectó una vulnerabilidad ALTA.' };
+    if (lowerOut.includes('[medium]')) return { severity: 'medium', finding: 'Nuclei detectó una vulnerabilidad MEDIA.' };
+    if (lowerOut.includes('[low]')) return { severity: 'low', finding: 'Nuclei detectó una vulnerabilidad BAJA.' };
+    return null;
+  }
+  
+  if (command.includes('sqlmap')) {
+    if (lowerOut.includes('is vulnerable') || lowerOut.includes('payload:')) {
+      return { severity: 'critical', finding: 'SQLMap confirmó inyección SQL en los parámetros analizados.' };
+    }
+    return null;
+  }
+  
+  if (command.includes('ffuf') || command.includes('curl') || command.includes('grep')) {
+    // If output is substantial or has matches
+    if (output.trim().split('\n').length > 2) {
+      return { severity: 'medium', finding: 'Se descubrieron rutas, secretos o configuraciones expuestas en el escaneo manual.' };
+    }
+    return null;
+  }
+  
+  return null;
+}
 
-// Maps a vector ID to an orchestrator function that executes a specific attack
 export async function runTargetedAttack(scanId: number, targetUrl: string, vectorId: string): Promise<void> {
-  console.log(`[Scan ${scanId}] Iniciando ataque dirigido [${vectorId}] contra ${targetUrl}`);
+  console.log(`[Scan ${scanId}] Iniciando ataque dirigido REAL [${vectorId}] contra ${targetUrl}`);
 
   try {
-    switch (vectorId) {
-      // --- SQL INJECTION / POSTGRES ---
-      case 'pg_sqli':
-      case 'pg_blind_sqli':
-      case 'pg_time_sqli':
-        console.log(`[Scan ${scanId}] Ejecutando suite de inyección SQL especializada...`);
-        await runSqliScan(scanId, targetUrl);
-        break;
+    const vector = VECTOR_REGISTRY[vectorId];
+    if (!vector || !vector.cliCommand) {
+      throw new Error(`Vector ID ${vectorId} no encontrado en el registro o sin comando CLI.`);
+    }
 
-      // --- NODE.JS / EXPRESS ---
-      case 'express_pollution':
-        console.log(`[Scan ${scanId}] Ejecutando ataque de Prototype Pollution...`);
-        await runPollutionScan(scanId, targetUrl);
-        break;
+    console.log(`[Scan ${scanId}] ⚙️ Ejecutando herramienta profesional CLI: ${vector.cliCommand.replace('<TARGET>', targetUrl)}`);
+    
+    // Run the actual CLI tool using the runner
+    const output = await runCliCommand(vector.cliCommand, targetUrl);
+    
+    console.log(`[Scan ${scanId}] 📄 Output recibido (Longitud: ${output.length} bytes)`);
+
+    // Parse output for vulnerabilities
+    const result = parseCliOutput(vector.cliCommand, output);
+
+    if (result) {
+      console.log(`[Scan ${scanId}] 🚨 VULNERABILIDAD CONFIRMADA: ${result.severity.toUpperCase()}`);
       
-      case 'express_routing':
-        console.log(`[Scan ${scanId}] Ejecutando enumeración de rutas (BOLA/IDOR)...`);
-        await runBolaScan(scanId, targetUrl);
-        break;
-
-      // --- NEXT.JS / REACT ---
-      case 'nextjs_bfla':
-      case 'nextjs_api':
-        console.log(`[Scan ${scanId}] Ejecutando suite BFLA/IDOR para Server Actions y APIs...`);
-        await runBolaScan(scanId, targetUrl);
-        break;
-
-      case 'nextjs_static':
-      case 'nextjs_build_data':
-      case 'nextjs_route_handlers':
-      case 'react_sourcemaps':
-        console.log(`[Scan ${scanId}] Ejecutando escáner de reconstrucción de JS y fuga de secretos...`);
-        await runJsReconScan(scanId, targetUrl);
-        await runTraversalScan(scanId, targetUrl);
-        break;
-      
-      // --- CLERK / SUPABASE / AUTH ---
-      case 'supabase_bucket':
-      case 'supabase_edge':
-      case 'supabase_rls':
-      case 'supabase_anon_key':
-        console.log(`[Scan ${scanId}] Iniciando ataque SSRF y Directory Traversal en infraestructura Cloud...`);
-        await runSsrfScan(scanId, targetUrl);
-        await runTraversalScan(scanId, targetUrl);
-        break;
-
-      case 'clerk_session':
-      case 'clerk_oauth':
-      case 'clerk_jwt':
-        console.log(`[Scan ${scanId}] Iniciando suite de ataques XSS para secuestro de sesión y JWT...`);
-        await runXssScan(scanId, targetUrl);
-        break;
-
-      default:
-        console.log(`[Scan ${scanId}] Vector ${vectorId} no tiene un módulo específico asignado. Ejecutando BOLA y XSS genérico...`);
-        await runBolaScan(scanId, targetUrl);
-        await runXssScan(scanId, targetUrl);
-        break;
+      // Save finding to database
+      await db.insert(vulnerabilities).values({
+        scanId,
+        type: vector.name,
+        severity: result.severity,
+        description: `${result.finding}\n\nComando ejecutado: \`${vector.cliCommand}\`\n\n**Output parcial:**\n\`\`\`\n${output.substring(0, 500)}...\n\`\`\``,
+        autoFixCode: null,
+      });
+    } else {
+      console.log(`[Scan ${scanId}] ✅ El objetivo parece estar seguro contra este vector (Ninguna coincidencia crítica en la salida de la herramienta).`);
     }
 
     console.log(`[Scan ${scanId}] Ataque dirigido [${vectorId}] completado exitosamente.`);
-  } catch (error) {
-    console.error(`[Scan ${scanId}] Error en ataque dirigido [${vectorId}]: ${error}`);
+  } catch (error: any) {
+    console.error(`[Scan ${scanId}] Error en ataque dirigido [${vectorId}]: ${error.message}`);
+    // Opcionalmente podemos registrar el fallo como un log, pero no romper la app
   }
 }
+
