@@ -101,7 +101,7 @@ export const VECTOR_REGISTRY: Record<string, VectorItem> = {
   // Next.js
   nextjs_bfla: { id: 'nextjs_bfla', name: 'Server Actions (BFLA/IDOR)', cliCommand: 'nuclei -t http/exposed-panels/ -t http/misconfiguration/ -u <TARGET>' },
   nextjs_middleware: { id: 'nextjs_middleware', name: 'Middleware bypass', cliCommand: 'curl -H "x-middleware-prefetch: 1" <TARGET>/admin' },
-  nextjs_api: { id: 'nextjs_api', name: 'API Routes exposure', cliCommand: 'ffuf -w ./wordlists/api_wordlist.txt -u <TARGET>/FUZZ' },
+  nextjs_api: { id: 'nextjs_api', name: 'API Routes exposure', cliCommand: 'ffuf -s -w ./wordlists/api_wordlist.txt -u <TARGET>/FUZZ' },
   nextjs_build_data: { id: 'nextjs_build_data', name: 'Build Data (_next/data)', cliCommand: 'nuclei -id nextjs-data-leak -u <TARGET>' },
   nextjs_static: { id: 'nextjs_static', name: 'Static Assets', cliCommand: 'nuclei -id nextjs-static-leak -u <TARGET>' },
   nextjs_isr: { id: 'nextjs_isr', name: 'ISR cache poisoning', cliCommand: 'curl -X PURGE <TARGET>' },
@@ -114,7 +114,7 @@ export const VECTOR_REGISTRY: Record<string, VectorItem> = {
   react_sessionstorage: { id: 'react_sessionstorage', name: 'Session Storage secrets', cliCommand: 'grep -ri "sessionStorage.setItem" .' },
   react_dom_injection: { id: 'react_dom_injection', name: 'DOM Injection Points (dangerouslySetInnerHTML)', cliCommand: 'grep -ri "dangerouslySetInnerHTML" .' },
   // Node / Express
-  express_routing: { id: 'express_routing', name: 'Express Route enumeration', cliCommand: 'ffuf -w ./wordlists/api_wordlist.txt -u <TARGET>/FUZZ' },
+  express_routing: { id: 'express_routing', name: 'Express Route enumeration', cliCommand: 'ffuf -s -w ./wordlists/api_wordlist.txt -u <TARGET>/FUZZ' },
   express_pollution: { id: 'express_pollution', name: 'Prototype Pollution', cliCommand: 'nuclei -t http/vulnerabilities/generic/prototype-pollution.yaml -u <TARGET>' },
   express_uncaught: { id: 'express_uncaught', name: 'Uncaught Exceptions DOS', cliCommand: 'curl -H "Content-Type: application/json" -d "{"badjson"}" <TARGET>' },
   express_redos: { id: 'express_redos', name: 'Regex DOS (ReDoS)', cliCommand: 'nuclei -id redos -u <TARGET>' },

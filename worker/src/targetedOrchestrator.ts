@@ -23,8 +23,9 @@ function parseCliOutput(command: string, output: string): { severity: 'low' | 'm
   }
   
   if (command.includes('ffuf') || command.includes('curl') || command.includes('grep')) {
-    // If output is substantial or has matches
-    if (output.trim().split('\n').length > 2) {
+    // If we use ffuf -s (silent), it only outputs the matched paths/words.
+    // If output has any length > 0, it means it found something.
+    if (output.trim().length > 0 && !output.includes('Fuzz Faster U Fool')) {
       return { severity: 'medium', finding: 'Se descubrieron rutas, secretos o configuraciones expuestas en el escaneo manual.' };
     }
     return null;
