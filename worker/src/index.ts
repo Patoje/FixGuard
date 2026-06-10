@@ -10,6 +10,15 @@ import { runFingerprintScan } from './scanner/fingerprint';
 import { runSecurityTxtScan } from './scanner/securityTxt';
 import { runSqliScan } from './scanner/sqli';
 import { runXssScan } from './scanner/xss';
+import { runCorsScan } from './scanner/cors';
+import { runGraphqlScan } from './scanner/graphql';
+import { runSourceMapScan } from './scanner/sourcemaps';
+import { runRateLimitScan } from './scanner/ratelimit';
+import { runApiDiscoveryScan } from './scanner/api-discovery';
+import { runSecretsScan } from './scanner/secrets';
+import { runJwtScan } from './scanner/jwt';
+import { runTraversalScan } from './scanner/traversal';
+import { runPollutionScan } from './scanner/pollution';
 import { db } from './db/db';
 import { scans } from './db/schema';
 import { eq } from 'drizzle-orm';
@@ -45,11 +54,20 @@ app.post('/api/scan', async (req, res) => {
       runSecurityTxtScan(scanId, targetUrl),
     ];
 
-    // Tareas Activas (Fuzzing)
+    // Tareas Activas (Fuzzing y Modern Web)
     if (mode === 'active') {
-      console.log(`[Scan ${scanId}] ⚠️ ADVERTENCIA: Ejecutando Fuzzing Activo (SQLi / XSS)...`);
+      console.log(`[Scan ${scanId}] ⚠️ ADVERTENCIA: Ejecutando Fuzzing Activo (SQLi / XSS / APIs)...`);
       scanTasks.push(runSqliScan(scanId, targetUrl));
       scanTasks.push(runXssScan(scanId, targetUrl));
+      scanTasks.push(runCorsScan(scanId, targetUrl));
+      scanTasks.push(runGraphqlScan(scanId, targetUrl));
+      scanTasks.push(runSourceMapScan(scanId, targetUrl));
+      scanTasks.push(runRateLimitScan(scanId, targetUrl));
+      scanTasks.push(runApiDiscoveryScan(scanId, targetUrl));
+      scanTasks.push(runSecretsScan(scanId, targetUrl));
+      scanTasks.push(runJwtScan(scanId, targetUrl));
+      scanTasks.push(runTraversalScan(scanId, targetUrl));
+      scanTasks.push(runPollutionScan(scanId, targetUrl));
     }
 
     await Promise.all(scanTasks);

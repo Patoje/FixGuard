@@ -46,7 +46,7 @@ export async function runFingerprintScan(scanId: number, targetUrl: string) {
       }
     }
 
-  } catch (error) {
-    console.error(`[Scan ${scanId}] Fingerprint scan error:`, error);
+  } catch (error: any) {
+    console.error(`[Scan ${scanId}] Fingerprint scan error:`, error?.message || String(error));
   }
 }
