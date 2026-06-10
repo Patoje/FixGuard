@@ -23,11 +23,11 @@ export async function runPollutionScan(scanId: number, targetUrl: string) {
         scanId,
         type: 'HTTP_PARAMETER_POLLUTION',
         severity: 'MEDIUM',
-        description: `Vulnerabilidad MEDIA de HTTP Parameter Pollution (HPP). El servidor generó un error 500 al recibir parámetros duplicados y cargas de asignación masiva (isAdmin=true). Esto indica que el backend no está validando correctamente las entradas de datos en la URL, lo que podría derivar en escalada de privilegios o Bypass de lógicas de negocio (BOLA).`,
+        description: `Vulnerabilidad MEDIA (HTTP Parameter Pollution / Tampering). El servidor aceptó y procesó parámetros contaminados (?id=1&id=2 o ?isAdmin=true). Esto indica que no hay validación estricta de parámetros o que un arreglo fue interpretado como string. Puede llevar a desvío de lógica de negocio o escalada de privilegios menores.`,
         autoFixCode: null,
       });
     }
-  } catch (error) {
-    console.error(`[Scan ${scanId}] Parameter Pollution scan error:`, error);
+  } catch (error: any) {
+    console.error(`[Scan ${scanId}] Parameter Pollution scan error:`, error?.message || String(error));
   }
 }

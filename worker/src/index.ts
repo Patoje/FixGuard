@@ -19,6 +19,18 @@ import { runSecretsScan } from './scanner/secrets';
 import { runJwtScan } from './scanner/jwt';
 import { runTraversalScan } from './scanner/traversal';
 import { runPollutionScan } from './scanner/pollution';
+
+// Nuevos Motores Fase 6
+import { runCrawler } from './scanner/crawler';
+import { runJsReconScan } from './scanner/jsrecon';
+import { runNextJsScan } from './scanner/nextjs';
+import { runCloudExposureScan } from './scanner/cloud';
+import { runWebSocketsScan } from './scanner/websockets';
+import { runUploadsScan } from './scanner/uploads';
+import { runBolaScan } from './scanner/bola';
+import { runSsrfScan } from './scanner/ssrf';
+import { runRedirectScan } from './scanner/redirect';
+
 import { db } from './db/db';
 import { scans } from './db/schema';
 import { eq } from 'drizzle-orm';
@@ -40,10 +52,10 @@ app.post('/api/scan', async (req, res) => {
   try {
     await db.update(scans).set({ status: 'in_progress' }).where(eq(scans.id, scanId));
 
-    console.log(`[Scan ${scanId}] Iniciando motores de escaneo (${mode || 'passive'}) para ${targetUrl}...`);
+    console.log(`\n[Scan ${scanId}] Iniciando motores de escaneo (${mode || 'passive'}) para ${targetUrl}...`);
     
-    // Tareas Base (Pasivas)
-    const scanTasks = [
+    // Nivel 1: Tareas Base (Pasivas / OSINT)
+    const passiveTasks = [
       runHeaderScan(scanId, targetUrl),
       runTlsScan(scanId, targetUrl),
       runDnsScan(scanId, targetUrl),
@@ -52,31 +64,66 @@ app.post('/api/scan', async (req, res) => {
       runWafScan(scanId, targetUrl),
       runFingerprintScan(scanId, targetUrl),
       runSecurityTxtScan(scanId, targetUrl),
+      // Reconocimiento Moderno
+      runJsReconScan(scanId, targetUrl),
+      runNextJsScan(scanId, targetUrl),
+      runCloudExposureScan(scanId, targetUrl),
+      runWebSocketsScan(scanId, targetUrl),
+      runUploadsScan(scanId, targetUrl)
     ];
 
-    // Tareas Activas (Fuzzing y Modern Web)
-    if (mode === 'active') {
-      console.log(`[Scan ${scanId}] ⚠️ ADVERTENCIA: Ejecutando Fuzzing Activo (SQLi / XSS / APIs)...`);
-      scanTasks.push(runSqliScan(scanId, targetUrl));
-      scanTasks.push(runXssScan(scanId, targetUrl));
-      scanTasks.push(runCorsScan(scanId, targetUrl));
-      scanTasks.push(runGraphqlScan(scanId, targetUrl));
-      scanTasks.push(runSourceMapScan(scanId, targetUrl));
-      scanTasks.push(runRateLimitScan(scanId, targetUrl));
-      scanTasks.push(runApiDiscoveryScan(scanId, targetUrl));
-      scanTasks.push(runSecretsScan(scanId, targetUrl));
-      scanTasks.push(runJwtScan(scanId, targetUrl));
-      scanTasks.push(runTraversalScan(scanId, targetUrl));
-      scanTasks.push(runPollutionScan(scanId, targetUrl));
-    }
+    await Promise.all(passiveTasks);
+    console.log(`[Scan ${scanId}] Análisis Pasivo/OSINT completado.`);
 
-    await Promise.all(scanTasks);
+    // Nivel 2 y 3: Tareas Activas / Agresivas
+    if (mode === 'active' || mode === 'aggressive') {
+      console.log(`[Scan ${scanId}] ⚠️ ADVERTENCIA: Ejecutando suite de Ataque (${mode})...`);
+      
+      let urlsToAttack = [targetUrl];
+
+      // En modo agresivo, usamos el Crawler Inteligente para encontrar más rutas
+      if (mode === 'aggressive') {
+        urlsToAttack = await runCrawler(scanId, targetUrl);
+      }
+
+      const activeTasks: Promise<void>[] = [];
+
+      for (const url of urlsToAttack) {
+        // Ataques comunes a todas las URLs descubiertas
+        activeTasks.push(
+          runSqliScan(scanId, url),
+          runXssScan(scanId, url),
+          runCorsScan(scanId, url),
+          runGraphqlScan(scanId, url),
+          runSourceMapScan(scanId, url),
+          runApiDiscoveryScan(scanId, url),
+          runSecretsScan(scanId, url),
+          runJwtScan(scanId, url),
+          runTraversalScan(scanId, url),
+          runPollutionScan(scanId, url)
+        );
+
+        // Ataques extremos solo en agresivo
+        if (mode === 'aggressive') {
+           activeTasks.push(
+             runBolaScan(scanId, url),
+             runSsrfScan(scanId, url),
+             runRedirectScan(scanId, url)
+           );
+        }
+      }
+
+      // El Rate Limit lo corremos solo 1 vez a la URL principal para no saturar la red local
+      activeTasks.push(runRateLimitScan(scanId, targetUrl));
+
+      await Promise.all(activeTasks);
+    }
 
     await db.update(scans).set({ 
       status: 'completed', 
       completedAt: new Date() 
     }).where(eq(scans.id, scanId));
-    console.log(`[Scan ${scanId}] Todos los motores finalizaron exitosamente.`);
+    console.log(`[Scan ${scanId}] 🎉 Todos los motores finalizaron exitosamente.`);
 
   } catch (error: any) {
     console.error(`[Scan ${scanId}] Error global de orquestación:`, error);
