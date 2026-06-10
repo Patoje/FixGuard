@@ -24,8 +24,14 @@ function parseCliOutput(command: string, output: string): { severity: 'low' | 'm
   
   if (command.includes('ffuf') || command.includes('curl') || command.includes('grep')) {
     // If we use ffuf -s (silent), it only outputs the matched paths/words.
-    // If output has any length > 0, it means it found something.
-    if (output.trim().length > 0 && !output.includes('Fuzz Faster U Fool')) {
+    // However, with -ac (auto-calibrate), it might print some calibration info even in silent mode.
+    // We only want to alert if it actually found a valid word from the wordlist.
+    // FFuf silent output for matches is usually just the word itself.
+    const cleanOutput = output.replace(/Fuzz Faster U Fool.*/gi, '').trim();
+    // Filter out potential calibration warnings that might slip through
+    const lines = cleanOutput.split('\n').filter(line => line.trim().length > 0 && !line.includes('::') && !line.includes('Calibration'));
+    
+    if (lines.length > 0) {
       return { severity: 'medium', finding: 'Se descubrieron rutas, secretos o configuraciones expuestas en el escaneo manual.' };
     }
     return null;
