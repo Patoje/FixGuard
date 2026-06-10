@@ -83,6 +83,7 @@ export async function runTechStackProfiler(targetUrl: string): Promise<TechStack
     }
     if (serverHeader.includes('vercel') || headers['x-vercel-id']) {
       addStack('Vercel', 'Hosting / Infrastructure', 95, 'Server/Headers indicate Vercel', 'Serverless Hosting / Edge');
+      addStack('Next.js', 'Frontend Framework', 80, 'Implied by Vercel deployment', 'Renderizado SSR/SSG y routing');
     }
     if (serverHeader.includes('netlify') || headers['x-nf-request-id']) {
       addStack('Netlify', 'Hosting / Infrastructure', 95, 'Server/Headers indicate Netlify', 'Jamstack Hosting');

@@ -15,13 +15,15 @@ export function runFrameworkIntelligence(techStack: TechStackItem[]): FrameworkV
   const intelligence: FrameworkVector[] = [];
   const stackNames = techStack.map(t => t.name.toLowerCase());
 
-  if (stackNames.includes('next.js')) {
+  // Si detectamos Next.js explícitamente, o si está en Vercel (que casi siempre implica Next.js),
+  // mostramos los vectores de Next.js.
+  if (stackNames.includes('next.js') || stackNames.includes('vercel') || stackNames.includes('react')) {
     intelligence.push({
       framework: 'Next.js',
       vectors: [
-        { id: 'nextjs_bfla', name: 'Server Actions (BFLA/IDOR)', cliCommand: 'nuclei -id nextjs-bfla -u <TARGET>' },
+        { id: 'nextjs_bfla', name: 'Server Actions (BFLA/IDOR)', cliCommand: 'nuclei -t http/exposed-panels/ -t http/misconfiguration/ -u <TARGET>' },
         { id: 'nextjs_middleware', name: 'Middleware bypass', cliCommand: 'curl -H "x-middleware-prefetch: 1" <TARGET>/admin' },
-        { id: 'nextjs_api', name: 'API Routes exposure', cliCommand: 'ffuf -w api_wordlist.txt -u <TARGET>/api/FUZZ' },
+        { id: 'nextjs_api', name: 'API Routes exposure', cliCommand: 'ffuf -s -ac -w ./wordlists/api_wordlist.txt -u <TARGET>/FUZZ' },
         { id: 'nextjs_build_data', name: 'Build Data (_next/data)', cliCommand: 'nuclei -id nextjs-data-leak -u <TARGET>' },
         { id: 'nextjs_static', name: 'Static Assets', cliCommand: 'nuclei -id nextjs-static-leak -u <TARGET>' },
         { id: 'nextjs_isr', name: 'ISR cache poisoning', cliCommand: 'curl -X PURGE <TARGET>' },
