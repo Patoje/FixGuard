@@ -31,9 +31,10 @@ export const vulnerabilities = pgTable('vulnerabilities', {
 export const reconProfiles = pgTable('recon_profiles', {
   id: serial('id').primaryKey(),
   scanId: integer('scan_id').references(() => scans.id).notNull(),
-  techStack: json('tech_stack').notNull(),
-  attackSurface: json('attack_surface').notNull(),
-  frameworkIntelligence: json('framework_intelligence').notNull(),
-  architectureTree: json('architecture_tree').notNull(),
+  subdomainIntelligence: jsonb('subdomainIntelligence'),
+  artifactIntelligence: jsonb('artifactIntelligence'),
+  parameterIntelligence: jsonb('parameterIntelligence'),
+  serverActionsIntelligence: jsonb('serverActionsIntelligence'),
+  aiIntelligence: jsonb('aiIntelligence'),
   createdAt: timestamp('created_at').defaultNow().notNull(),
 });

@@ -6,6 +6,7 @@ import type { CommunicationIntelligence } from './CommunicationIntelligenceEngin
 import type { BusinessDictionary } from './parsers/JsKnowledgeExtractor';
 import type { AttackSurfaceItem } from './AttackSurfaceMapper';
 import type { AIFingerprint } from './AIFingerprintEngine';
+import type { ServerActionsIntelligence } from './ServerActionsEngine';
 
 export interface AuditContext {
   name: string;
@@ -29,7 +30,8 @@ export class CorrelationEngine {
     comm: CommunicationIntelligence,
     business: BusinessDictionary,
     attackSurface: AttackSurfaceItem[],
-    ai: AIFingerprint
+    ai: AIFingerprint,
+    serverActions?: ServerActionsIntelligence
   ): AuditReport {
     const report: AuditReport = {
       summary: "El motor de correlación ha inferido los siguientes contextos funcionales basándose en las evidencias técnicas extraídas.",
@@ -170,6 +172,25 @@ export class CorrelationEngine {
         confidence: 'HIGH', // Tratamos 'HIGH' como crítico visualmente en la UI
         evidences: secretEvidences,
         inferredTechnologies: ['SecretFinder']
+      });
+    }
+
+    // 4.6 SERVER ACTIONS (NEXT.JS SPECIFIC CRITICAL VULN VECTOR)
+    if (serverActions && serverActions.extractedActionsCount > 0) {
+      const actionEvidences = serverActions.actions.slice(0, 10).map(a => 
+        `Hash: ${a.id} ${a.context ? `(Contexto: ${a.context.substring(0, 50)}...)` : ''}`
+      );
+      
+      if (serverActions.extractedActionsCount > 10) {
+        actionEvidences.push(`... y ${serverActions.extractedActionsCount - 10} acciones más.`);
+      }
+
+      report.contexts.push({
+        name: 'Next.js Server Actions (BOLA/IDOR Vector)',
+        description: 'ALERTA OFENSIVA: Hashes de Server Actions extraídos. Pueden ser invocados directamente vía POST saltando la UI para probar vulnerabilidades de Autorización Rota.',
+        confidence: 'HIGH',
+        evidences: actionEvidences,
+        inferredTechnologies: ['ServerActionsExtrator', 'Next.js App Router']
       });
     }
 

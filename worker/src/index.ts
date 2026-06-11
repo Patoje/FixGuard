@@ -29,6 +29,7 @@ import { JsKnowledgeExtractor } from './recon/parsers/JsKnowledgeExtractor';
 import { ExposureIntelligenceEngine } from './recon/ExposureIntelligenceEngine';
 import { AuthIntelligenceEngine } from './recon/parsers/AuthIntelligenceEngine';
 import { CloudIntelligenceEngine } from './recon/CloudIntelligenceEngine';
+import { ServerActionsEngine } from './recon/ServerActionsEngine';
 import { CommunicationIntelligenceEngine } from './recon/CommunicationIntelligenceEngine';
 import { SubdomainIntelligenceEngine } from './recon/SubdomainIntelligenceEngine';
 import { ArtifactIntelligenceEngine } from './recon/ArtifactIntelligenceEngine';
@@ -158,6 +159,14 @@ app.post('/api/scan', async (req, res) => {
     const subdomainIntelligence = await SubdomainIntelligenceEngine.discover(domain);
     // --- FASE 3: Análisis de Artefactos (NUEVO: Pasamos las URLs de los JS para detectar Source Maps) ---
     const artifactIntelligence = await ArtifactIntelligenceEngine.analyze(targetUrl, jsCodes, jsFilesFromCrawler);
+    
+    // --- FASE 3.5: Extracción de Server Actions (Next.js) ---
+    const isNextJs = techStack.some(t => t.name.toLowerCase().includes('next.js'));
+    let serverActionsIntelligence = undefined;
+    if (isNextJs) {
+      serverActionsIntelligence = ServerActionsEngine.analyze(jsCodes);
+    }
+
     const parameterIntelligence = ParameterIntelligenceEngine.analyze(attackSurface);
     const aiIntelligence = AIFingerprintEngine.analyze(jsCodes, baseHeaders);
 
@@ -190,9 +199,10 @@ app.post('/api/scan', async (req, res) => {
       subdomainIntelligence,
       artifactIntelligence,
       parameterIntelligence,
+      serverActionsIntelligence,
       aiIntelligence,
       auditReport
-    });
+    }).returning({ id: reconProfiles.id });
 
     console.log(`[Scan ${scanId}] Análisis Pasivo y Reconocimiento completado. Guardado Perfil Tech Stack.`);
 

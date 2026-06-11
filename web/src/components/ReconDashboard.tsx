@@ -490,6 +490,82 @@ export default function ReconDashboard({ profile, targetUrl, onLaunchAttack }: P
               </motion.div>
             )}
 
+            {/* --- NUEVO: Server Actions (Next.js) --- */}
+            {profile.serverActionsIntelligence && profile.serverActionsIntelligence.extractedActionsCount > 0 && (
+              <motion.div 
+                initial={{ opacity: 0, scale: 0.95 }}
+                animate={{ opacity: 1, scale: 1 }}
+                transition={{ delay: 0.45 }}
+                className="glass-panel p-6 border-rose-500/50 relative overflow-hidden group lg:col-span-3"
+              >
+                <div className="absolute top-0 right-0 p-4 opacity-10 pointer-events-none">
+                  <Activity className="w-32 h-32 text-rose-500" />
+                </div>
+                
+                <div className="flex items-center gap-3 mb-6 border-b border-rose-500/20 pb-4">
+                  <div className="bg-rose-500/20 p-2 rounded-lg">
+                    <Code className="w-6 h-6 text-rose-400" />
+                  </div>
+                  <div>
+                    <h3 className="text-xl font-bold text-zinc-100">Next.js Server Actions Extractor</h3>
+                    <p className="text-xs text-rose-300/70 mt-1">Hashes extraídos listos para inyección POST saltando validación de Frontend.</p>
+                  </div>
+                  <div className="ml-auto bg-rose-500/10 text-rose-400 border border-rose-500/20 px-3 py-1.5 rounded-md font-bold text-sm">
+                    {profile.serverActionsIntelligence.extractedActionsCount} Acciones
+                  </div>
+                </div>
+                
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 max-h-[400px] overflow-y-auto custom-scrollbar pr-2 relative z-10">
+                  {profile.serverActionsIntelligence.actions.map((action, i) => {
+                    // Generar un comando curl de ejemplo para probar el Server Action (IDOR/BOLA)
+                    const curlCommand = `curl -X POST '${targetUrl}' \\
+  -H 'Content-Type: text/plain;charset=UTF-8' \\
+  -H 'Next-Action: ${action.id}' \\
+  --data '[]'`;
+
+                    return (
+                      <div key={i} className="bg-zinc-950/80 p-4 rounded-xl border border-rose-500/30 hover:border-rose-400/50 transition-colors">
+                        <div className="flex justify-between items-start mb-3">
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs text-rose-500 font-bold uppercase tracking-widest">Hash ID</span>
+                            <code className="text-sm font-mono text-zinc-200 bg-rose-500/20 px-2 py-1 rounded">{action.id}</code>
+                          </div>
+                        </div>
+                        
+                        {action.context && (
+                          <div className="mb-4">
+                            <span className="text-[10px] text-zinc-500 uppercase font-bold tracking-wider">Contexto Cercano</span>
+                            <p className="text-xs text-zinc-400 mt-1 font-mono break-all line-clamp-2" title={action.context}>
+                              {action.context}
+                            </p>
+                          </div>
+                        )}
+                        
+                        <div className="mt-auto pt-3 border-t border-rose-500/10">
+                          <span className="text-[10px] text-rose-400 uppercase font-bold tracking-wider mb-2 block">Vector de Ataque (POST)</span>
+                          <div className="bg-black/80 rounded border border-rose-500/20 relative group/curl">
+                            <pre className="text-[10px] font-mono text-zinc-300 p-3 overflow-x-auto custom-scrollbar">
+                              {curlCommand}
+                            </pre>
+                            <button 
+                              onClick={() => {
+                                navigator.clipboard.writeText(curlCommand);
+                                setToast({ message: 'Comando cURL copiado al portapapeles', type: 'success' });
+                              }}
+                              className="absolute top-2 right-2 text-zinc-500 hover:text-white bg-black/50 p-1.5 rounded opacity-0 group-hover/curl:opacity-100 transition-all border border-white/10"
+                              title="Copiar Comando Payload"
+                            >
+                              <ClipboardCheck className="w-3 h-3" />
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </motion.div>
+            )}
+
           </div>
         )}
 

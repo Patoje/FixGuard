@@ -129,6 +129,13 @@ export interface ReconProfile {
     topParameters: Array<{ name: string; frequency: number }>;
     allParameters: string[];
   };
+  serverActionsIntelligence?: {
+    extractedActionsCount: number;
+    actions: Array<{
+      id: string;
+      context?: string;
+    }>;
+  };
   auditReport?: {
     summary: string;
     contexts: Array<{
