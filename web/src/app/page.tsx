@@ -14,8 +14,8 @@ type FlowStep = "setup" | "scanning" | "results";
 
 const ENGINES = {
   passive: ["Headers (OWASP)", "TLS/SSL", "DNS Records", "Ports", "Directories", "WAF Detection", "Fingerprint", "Security.txt", "JSRecon", "Next.js Data", "Cloud Exposure", "WebSockets", "Uploads"],
-  active: ["SQLi (Time-Based)", "XSS (Reflected/DOM)", "CORS Misconfig", "GraphQL Introspection", "SourceMaps Leak", "API Discovery", "Secrets Extraction", "JWT (alg: none)", "Path Traversal", "Parameter Pollution", "Rate Limiting"],
-  aggressive: ["Intelligent Crawler", "BOLA / IDOR", "SSRF", "Open Redirect", "Server Actions Exposed"],
+  active: ["SQLi (Time-Based)", "XSS (Reflected/DOM)", "CORS Misconfig", "GraphQL Introspection", "SourceMaps Leak", "API Discovery", "Secrets Extraction", "JWT (alg: none)", "Path Traversal", "Parameter Pollution", "Rate Limiting", "Server Actions Exposed"],
+  aggressive: ["Intelligent Crawler", "BOLA / IDOR", "SSRF", "Open Redirect"],
   sast: ["Client-Side Auth", "Dependency Confusion", "DOM XSS (React)", "Mass Assignment", "ORM Injection (Drizzle/Prisma)", "Server Actions (BFLA)"]
 };
 
