@@ -5,8 +5,9 @@ import * as cheerio from 'cheerio';
  * Realiza un Crawling Inteligente de la aplicación objetivo.
  * Extrae todas las rutas accesibles (mismo dominio) para que los motores ataquen la superficie completa.
  */
-export async function runCrawler(scanId: number, targetUrl: string): Promise<string[]> {
+export async function runCrawler(scanId: number, targetUrl: string): Promise<{endpoints: string[], jsFiles: string[]}> {
   const discoveredUrls = new Set<string>();
+  const discoveredJsFiles = new Set<string>();
   discoveredUrls.add(targetUrl);
   
   const baseUrl = new URL(targetUrl).origin;
@@ -59,6 +60,19 @@ export async function runCrawler(scanId: number, targetUrl: string): Promise<str
         }
       });
 
+      // Extraer tags <script>
+      $('script').each((_, element) => {
+        const src = $(element).attr('src');
+        if (src) {
+          try {
+            const resolvedUrl = new URL(src, currentUrl);
+            if (resolvedUrl.origin === baseUrl || src.startsWith('/')) {
+               discoveredJsFiles.add(resolvedUrl.toString());
+            }
+          } catch(e) {}
+        }
+      });
+
       // 1. Next.js Pages Router: Extraer data URLs (/_next/data/...)
       const nextDataMatches = html.matchAll(/"(\/_next\/data\/[^"]+)"/g);
       for (const match of nextDataMatches) {
@@ -106,6 +120,7 @@ export async function runCrawler(scanId: number, targetUrl: string): Promise<str
   }
 
   const result = Array.from(discoveredUrls);
-  console.log(`[Scan ${scanId}] Crawler: Mapeo profundo completado. ${result.length} rutas descubiertas.`);
-  return result;
+  const jsResult = Array.from(discoveredJsFiles);
+  console.log(`[Scan ${scanId}] Crawler: Mapeo profundo completado. ${result.length} rutas descubiertas, ${jsResult.length} archivos JS encontrados.`);
+  return { endpoints: result, jsFiles: jsResult };
 }

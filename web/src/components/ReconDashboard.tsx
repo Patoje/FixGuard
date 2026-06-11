@@ -1,9 +1,10 @@
 "use client";
 
 import { motion, AnimatePresence } from "framer-motion";
-import { Server, Database, Layers, Shield, Network, Activity, Zap, Code } from "lucide-react";
+import { Server, Database, Layers, Shield, Network, Activity, Zap, Code, Link2, BookOpen } from "lucide-react";
 import { useState, useEffect } from "react";
 import { ReconProfile, ArchitectureNode } from "../types";
+import ApplicationBlueprint from "./ApplicationBlueprint";
 
 interface Props {
   profile: ReconProfile;
@@ -81,18 +82,23 @@ export default function ReconDashboard({ profile, targetUrl, onLaunchAttack }: P
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         
-        {/* Architecture Tree */}
+        {/* Architecture Tree - Digital Twin Blueprint */}
         <motion.div 
           initial={{ opacity: 0, scale: 0.95 }}
           animate={{ opacity: 1, scale: 1 }}
-          className="glass-panel p-6 border-blue-500/20"
+          className="glass-panel p-6 border-blue-500/20 lg:col-span-2"
         >
-          <div className="flex items-center gap-3 mb-6 border-b border-white/5 pb-4">
-            <Network className="w-5 h-5 text-blue-400" />
-            <h3 className="text-xl font-semibold text-zinc-100">Arquitectura Estimada</h3>
+          <div className="flex items-center justify-between mb-6 border-b border-white/5 pb-4">
+            <div className="flex items-center gap-3">
+              <Network className="w-5 h-5 text-blue-400" />
+              <h3 className="text-xl font-semibold text-zinc-100">Application Blueprint (Gemelo Arquitectónico)</h3>
+            </div>
+            <div className="px-3 py-1 bg-blue-500/10 text-blue-400 rounded-full text-xs font-bold border border-blue-500/20">
+              Interactive
+            </div>
           </div>
-          <div className="bg-zinc-950/50 p-4 rounded-xl border border-white/5 font-mono text-sm overflow-x-auto text-zinc-300">
-            <ArchitectureRenderer node={profile.architectureTree} level={0} isLast={true} />
+          <div className="bg-zinc-950 rounded-xl border border-white/5">
+            <ApplicationBlueprint profile={profile} />
           </div>
         </motion.div>
 
@@ -129,6 +135,78 @@ export default function ReconDashboard({ profile, targetUrl, onLaunchAttack }: P
             ))}
           </div>
         </motion.div>
+
+        {/* Third Party Integrations */}
+        <motion.div 
+          initial={{ opacity: 0, scale: 0.95 }}
+          animate={{ opacity: 1, scale: 1 }}
+          transition={{ delay: 0.15 }}
+          className="glass-panel p-6 border-pink-500/20"
+        >
+          <div className="flex items-center gap-3 mb-6 border-b border-white/5 pb-4">
+            <Link2 className="w-5 h-5 text-pink-400" />
+            <h3 className="text-xl font-semibold text-zinc-100">Integraciones y Terceros</h3>
+          </div>
+          <div className="space-y-4">
+            {profile.techStack.filter(t => t.category === 'External Services').length === 0 && (
+              <p className="text-zinc-500 text-sm">No se detectaron integraciones de terceros.</p>
+            )}
+            {profile.techStack.filter(t => t.category === 'External Services').map((tech, i) => (
+              <div key={i} className="flex justify-between items-center bg-pink-950/20 p-3 rounded-lg border border-pink-500/10">
+                <div className="flex items-center gap-3">
+                  <div className="w-8 h-8 rounded bg-pink-500/10 flex items-center justify-center text-pink-400 font-bold text-xs">
+                    {tech.name.substring(0, 2).toUpperCase()}
+                  </div>
+                  <div>
+                    <span className="font-bold text-zinc-200 block leading-tight">{tech.name}</span>
+                    <span className="text-xs text-zinc-500">{tech.role}</span>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </motion.div>
+
+        {/* JS Knowledge Graph / Business Dictionary */}
+        {profile.businessDictionary && (
+          <motion.div 
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            transition={{ delay: 0.18 }}
+            className="glass-panel p-6 border-amber-500/20 lg:col-span-2"
+          >
+            <div className="flex items-center gap-3 mb-6 border-b border-white/5 pb-4">
+              <BookOpen className="w-5 h-5 text-amber-400" />
+              <h3 className="text-xl font-semibold text-zinc-100">Diccionario de Negocio (Mapeo JS)</h3>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+              <div className="bg-amber-950/20 p-4 rounded-xl border border-amber-500/10">
+                <h4 className="font-bold text-amber-300 mb-2 text-sm">Roles ({profile.businessDictionary.roles.length})</h4>
+                <div className="flex flex-wrap gap-2">
+                  {profile.businessDictionary.roles.map((r, i) => <span key={i} className="text-xs bg-amber-500/10 text-amber-400 px-2 py-1 rounded">{r}</span>)}
+                </div>
+              </div>
+              <div className="bg-amber-950/20 p-4 rounded-xl border border-amber-500/10">
+                <h4 className="font-bold text-amber-300 mb-2 text-sm">Entidades ({profile.businessDictionary.entities.length})</h4>
+                <div className="flex flex-wrap gap-2">
+                  {profile.businessDictionary.entities.map((e, i) => <span key={i} className="text-xs bg-amber-500/10 text-amber-400 px-2 py-1 rounded">{e}</span>)}
+                </div>
+              </div>
+              <div className="bg-amber-950/20 p-4 rounded-xl border border-amber-500/10">
+                <h4 className="font-bold text-amber-300 mb-2 text-sm">Permisos ({profile.businessDictionary.permissions.length})</h4>
+                <div className="flex flex-wrap gap-2">
+                  {profile.businessDictionary.permissions.map((p, i) => <span key={i} className="text-xs bg-amber-500/10 text-amber-400 px-2 py-1 rounded">{p}</span>)}
+                </div>
+              </div>
+              <div className="bg-amber-950/20 p-4 rounded-xl border border-amber-500/10">
+                <h4 className="font-bold text-amber-300 mb-2 text-sm">Feature Flags ({profile.businessDictionary.configFlags.length})</h4>
+                <div className="flex flex-wrap gap-2">
+                  {profile.businessDictionary.configFlags.map((f, i) => <span key={i} className="text-xs bg-amber-500/10 text-amber-400 px-2 py-1 rounded">{f}</span>)}
+                </div>
+              </div>
+            </div>
+          </motion.div>
+        )}
 
         {/* Framework Intelligence */}
         <motion.div 
@@ -203,15 +281,16 @@ export default function ReconDashboard({ profile, targetUrl, onLaunchAttack }: P
             <table className="w-full text-left text-sm">
               <thead className="bg-zinc-900/80 text-zinc-400">
                 <tr>
-                  <th className="p-3 font-medium rounded-tl-lg">Endpoint</th>
-                  <th className="p-3 font-medium">Método</th>
-                  <th className="p-3 font-medium">Tipo</th>
-                  <th className="p-3 font-medium">Riesgo</th>
-                  <th className="p-3 font-medium text-right rounded-tr-lg">Ofensiva</th>
+                    <th className="p-3 text-left font-medium text-gray-400">Endpoint / Params</th>
+                    <th className="p-3 text-left font-medium text-gray-400">Método</th>
+                    <th className="p-3 text-left font-medium text-gray-400">Tipo</th>
+                    <th className="p-3 text-left font-medium text-gray-400">Contexto</th>
+                    <th className="p-3 text-left font-medium text-gray-400">Riesgo</th>
+                    <th className="p-3 text-right font-medium text-gray-400">Ofensiva</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-white/5">
-                {profile.attackSurface.map((ep, i) => {
+                {profile.attackSurface.map((ep, idx) => {
                   const riskColors = {
                     'CRÍTICO': 'bg-rose-500/20 text-rose-400 border-rose-500/30',
                     'ALTO': 'bg-orange-500/20 text-orange-400 border-orange-500/30',
@@ -219,10 +298,21 @@ export default function ReconDashboard({ profile, targetUrl, onLaunchAttack }: P
                     'BAJO': 'bg-blue-500/20 text-blue-400 border-blue-500/30'
                   };
                   return (
-                    <tr key={i} className="hover:bg-white/[0.02] transition-colors">
-                      <td className="p-3 font-mono text-zinc-300">{ep.path}</td>
-                      <td className="p-3 font-mono text-zinc-500">{ep.method}</td>
-                      <td className="p-3 text-zinc-400">{ep.type}</td>
+                    <tr key={idx} className="border-b border-gray-800/50 hover:bg-gray-800/20 transition-colors">
+                      <td className="p-3">
+                        <code className="text-xs text-blue-300 font-mono break-all">{ep.path}</code>
+                        {ep.params && ep.params.length > 0 && (
+                          <div className="text-[10px] text-gray-500 mt-1">
+                            Params: {ep.params.join(', ')}
+                          </div>
+                        )}
+                      </td>
+                      <td className="p-3 text-xs text-gray-400 font-mono">{ep.method}</td>
+                      <td className="p-3 text-xs text-gray-400">{ep.type}</td>
+                      <td className="p-3 text-xs text-gray-400">
+                        {ep.framework && <span className="bg-purple-500/10 text-purple-400 px-1.5 py-0.5 rounded mr-1">{ep.framework}</span>}
+                        {ep.authType && <span className="bg-emerald-500/10 text-emerald-400 px-1.5 py-0.5 rounded">{ep.authType}</span>}
+                      </td>
                       <td className="p-3">
                         <span className={`px-2 py-1 text-xs font-bold rounded-md border ${riskColors[ep.riskLevel]}`}>
                           {ep.riskLevel}
@@ -261,30 +351,4 @@ export default function ReconDashboard({ profile, targetUrl, onLaunchAttack }: P
   );
 }
 
-function ArchitectureRenderer({ node, level, isLast }: { node: ArchitectureNode, level: number, isLast: boolean }) {
-  const isRoot = level === 0;
-  
-  return (
-    <div>
-      <div className="flex items-center">
-        {level > 0 && (
-          <span className="text-zinc-600">
-            {Array(level - 1).fill('│   ').join('')}
-            {isLast ? '└── ' : '├── '}
-          </span>
-        )}
-        <span className={`${isRoot ? 'text-blue-400 font-bold' : (node.children ? 'text-zinc-200' : 'text-zinc-500')}`}>
-          {node.name}
-        </span>
-      </div>
-      {node.children && node.children.map((child, i) => (
-        <ArchitectureRenderer 
-          key={i} 
-          node={child} 
-          level={level + 1} 
-          isLast={i === node.children!.length - 1} 
-        />
-      ))}
-    </div>
-  );
-}
+

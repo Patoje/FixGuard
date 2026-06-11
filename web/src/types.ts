@@ -47,6 +47,11 @@ export interface AttackSurfaceItem {
   method: string;
   riskLevel: 'CRÍTICO' | 'ALTO' | 'MEDIO' | 'BAJO';
   type: string;
+  params?: string[];
+  headers?: string[];
+  authType?: string;
+  framework?: string;
+  relationships?: string[];
 }
 
 export interface VectorItem {
@@ -72,4 +77,10 @@ export interface ReconProfile {
   attackSurface: AttackSurfaceItem[];
   frameworkIntelligence: FrameworkVector[];
   architectureTree: ArchitectureNode;
+  businessDictionary?: {
+    roles: string[];
+    entities: string[];
+    permissions: string[];
+    configFlags: string[];
+  };
 }

@@ -7,6 +7,12 @@ export interface AttackSurfaceItem {
   method: 'GET' | 'POST' | 'PUT' | 'DELETE' | 'WS' | 'ANY';
   riskLevel: RiskLevel;
   type: string;
+  // Nuevos campos del Módulo 2: Advanced API Catalog
+  params?: string[];
+  headers?: string[];
+  authType?: string;
+  framework?: string;
+  relationships?: string[];
 }
 
 function calculateRisk(path: string, type: string): RiskLevel {
@@ -58,10 +64,34 @@ export function runAttackSurfaceMapper(discoveredPaths: string[]): AttackSurface
     let method: AttackSurfaceItem['method'] = 'ANY';
     if (type === 'WebSocket') method = 'WS';
     else if (type === 'GraphQL Endpoint') method = 'POST';
-    else if (type === 'REST API') method = 'ANY'; // Could be GET/POST
+    else if (type === 'REST API') method = 'ANY'; 
     else if (type === 'Recurso Estático') method = 'GET';
+    else if (path.toLowerCase().includes('/api/')) method = 'POST'; // Asumimos que muchas APIs son POST
+
+    const params: string[] = [];
+    if (path.includes('?')) {
+      const qs = path.split('?')[1];
+      const urlParams = new URLSearchParams(qs);
+      for (const [key] of urlParams) {
+        if (!params.includes(key)) params.push(key);
+      }
+    }
     
-    surface.push({ path, method, riskLevel, type });
+    // Extraer path parameters (ej: /user/123 -> id estimado)
+    if (path.match(/\/([a-z0-9_-]+)\/(\d+|[a-f0-9-]{36})(\/|$)/i)) {
+      params.push('id_path_param');
+    }
+
+    surface.push({ 
+      path, 
+      method, 
+      riskLevel, 
+      type,
+      params: params.length > 0 ? params : undefined,
+      headers: ['User-Agent', 'Accept'], // Default inferred headers
+      authType: path.includes('/api/admin') ? 'Bearer/JWT' : 'None',
+      framework: path.includes('/_next/') ? 'Next.js' : undefined
+    });
   }
 
   // Sort by risk (CRÍTICO -> ALTO -> MEDIO -> BAJO)

@@ -113,7 +113,7 @@ export async function runTechStackProfiler(targetUrl: string): Promise<TechStack
       addStack('Supabase Auth', 'Authentication', 80, 'Implied by Supabase usage', 'Módulo de Autenticación');
     }
 
-    // --- EXTERNAL SERVICES ---
+    // --- EXTERNAL SERVICES & THIRD-PARTY INVENTORY ---
     if (html.includes('stripe.com')) {
       addStack('Stripe', 'External Services', 90, 'Stripe SDK found', 'Procesamiento de pagos');
     }
@@ -125,6 +125,45 @@ export async function runTechStackProfiler(targetUrl: string): Promise<TechStack
     }
     if (html.includes('googletagmanager.com') || html.includes('GTM-')) {
       addStack('Google Tag Manager', 'External Services', 95, 'GTM script found', 'Gestión de tags y métricas');
+    }
+    if (html.includes('intercom.io') || html.includes('Intercom(')) {
+      addStack('Intercom', 'External Services', 95, 'Intercom SDK found', 'Soporte y Chat de Clientes');
+    }
+    if (html.includes('posthog.com') || html.includes('posthog.init')) {
+      addStack('PostHog', 'External Services', 95, 'PostHog analytics found', 'Analítica de Producto');
+    }
+    if (html.includes('segment.com') || html.includes('analytics.js')) {
+      addStack('Segment', 'External Services', 90, 'Segment tracking found', 'Plataforma de Datos de Clientes');
+    }
+    if (html.includes('algolia.net') || html.includes('algoliasearch')) {
+      addStack('Algolia', 'External Services', 95, 'Algolia search script found', 'Motor de Búsqueda de Texto');
+    }
+    if (html.includes('twilio.com')) {
+      addStack('Twilio', 'External Services', 90, 'Twilio references found', 'Comunicaciones (SMS/Voz)');
+    }
+    if (html.includes('sendgrid.net') || html.includes('sendgrid.com')) {
+      addStack('SendGrid', 'External Services', 90, 'SendGrid found', 'Envío de Emails Transaccionales');
+    }
+    if (html.includes('resend.com')) {
+      addStack('Resend', 'External Services', 90, 'Resend found', 'API de Email para Desarrolladores');
+    }
+    if (html.includes('firebaseapp.com') || html.includes('firebase.js')) {
+      addStack('Firebase', 'External Services', 95, 'Firebase SDK found', 'BaaS / Autenticación / Base de Datos');
+    }
+    if (html.includes('openai.com') || html.includes('chatgpt')) {
+      addStack('OpenAI', 'External Services', 85, 'OpenAI API references found', 'Inteligencia Artificial (LLM)');
+    }
+    if (html.includes('anthropic.com') || html.includes('claude')) {
+      addStack('Anthropic', 'External Services', 85, 'Anthropic API references found', 'Inteligencia Artificial (LLM)');
+    }
+    if (html.includes('gemini') || html.includes('generativelanguage.googleapis.com')) {
+      addStack('Google Gemini', 'External Services', 85, 'Gemini API references found', 'Inteligencia Artificial (LLM)');
+    }
+    if (html.includes('mapbox.com')) {
+      addStack('Mapbox', 'External Services', 95, 'Mapbox SDK found', 'Mapas y Geolocalización');
+    }
+    if (html.includes('browser.sentry-cdn.com') || html.includes('datadoghq-browser-agent')) {
+      addStack('Datadog', 'External Services', 95, 'Datadog RUM/Logs found', 'Observabilidad y Monitoreo');
     }
 
     return stack;

@@ -25,6 +25,7 @@ import { runTechStackProfiler } from './recon/TechStackProfiler';
 import { runAttackSurfaceMapper } from './recon/AttackSurfaceMapper';
 import { runFrameworkIntelligence } from './recon/FrameworkIntelligence';
 import { buildArchitectureTree } from './recon/ArchitectureBuilder';
+import { JsKnowledgeExtractor } from './recon/parsers/JsKnowledgeExtractor';
 
 // Nuevos Motores Fase 6
 import { runCrawler } from './scanner/crawler';
@@ -97,9 +98,11 @@ app.post('/api/scan', async (req, res) => {
     ]);
 
     let urlsToAttack = [targetUrl];
+    let jsFilesFromCrawler: string[] = [];
     if (mode === 'aggressive') {
-      const crawlerEndpoints = await runCrawler(scanId, targetUrl);
-      urlsToAttack = Array.from(new Set([...urlsToAttack, ...crawlerEndpoints]));
+      const crawlerData = await runCrawler(scanId, targetUrl);
+      urlsToAttack = Array.from(new Set([...urlsToAttack, ...crawlerData.endpoints]));
+      jsFilesFromCrawler = crawlerData.jsFiles;
     }
 
     // Unir endpoints JS y Crawler
@@ -110,13 +113,17 @@ app.post('/api/scan', async (req, res) => {
     // 4. Mapeo de Superficie y Ranking de Riesgo
     const attackSurface = runAttackSurfaceMapper(allDiscoveredPaths);
 
+    // Extraer Conocimiento de JS (Módulo 3)
+    const businessDictionary = await JsKnowledgeExtractor.extractFromJsFiles(jsFilesFromCrawler);
+
     // 5. Guardar Perfil de Reconocimiento
     await db.insert(reconProfiles).values({
       scanId,
       techStack,
       attackSurface,
       frameworkIntelligence,
-      architectureTree
+      architectureTree,
+      businessDictionary
     });
 
     console.log(`[Scan ${scanId}] Análisis Pasivo y Reconocimiento completado. Guardado Perfil Tech Stack.`);
