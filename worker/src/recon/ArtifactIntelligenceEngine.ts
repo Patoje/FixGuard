@@ -10,16 +10,25 @@ export interface ArtifactIntelligence {
 }
 
 export class ArtifactIntelligenceEngine {
-  // Regex patterns para SecretFinder
+  // Regex patterns para SecretFinder (Prioridad: Precisión Extrema sobre Velocidad)
   private static SECRET_PATTERNS = [
     { type: 'AWS Access Key', regex: /(?:A3T[A-Z0-9]|AKIA|AGPA|AIDA|AROA|AIPA|ANPA|ANVA|ASIA)[A-Z0-9]{16}/g },
+    { type: 'AWS Secret Key', regex: /(?i)aws_secret_access_key\s*[:=]\s*["']?[0-9a-zA-Z\/+]{40}["']?/g },
     { type: 'Stripe Secret Key', regex: /sk_(live|test)_[0-9a-zA-Z]{24}/g },
+    { type: 'Stripe Restricted Key', regex: /rk_(live|test)_[0-9a-zA-Z]{24}/g },
     { type: 'Google API Key', regex: /AIza[0-9A-Za-z\-_]{35}/g },
+    { type: 'Google OAuth Access Token', regex: /ya29\.[0-9A-Za-z\-_]+/g },
     { type: 'Mailgun API Key', regex: /key-[0-9a-zA-Z]{32}/g },
     { type: 'Twilio API Key', regex: /SK[0-9a-fA-F]{32}/g },
     { type: 'Slack Webhook', regex: /https:\/\/hooks\.slack\.com\/services\/T[a-zA-Z0-9_]{8}\/B[a-zA-Z0-9_]{8}\/[a-zA-Z0-9_]{24}/g },
-    { type: 'Database URI', regex: /(?:mongodb(?:\+srv)?|postgres(?:ql)?|mysql):\/\/[a-zA-Z0-9_]+:[a-zA-Z0-9_]+@[^\s"']+/g },
-    { type: 'JSON Web Token (JWT)', regex: /eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}/g }
+    { type: 'Slack Bot Token', regex: /xoxb-[0-9]{11}-[0-9]{11}-[0-9a-zA-Z]{24}/g },
+    { type: 'Slack User Token', regex: /xoxp-[0-9]{11}-[0-9]{11}-[0-9a-zA-Z]{24}/g },
+    { type: 'GitHub Personal Access Token', regex: /ghp_[0-9a-zA-Z]{36}/g },
+    { type: 'GitHub OAuth Access Token', regex: /gho_[0-9a-zA-Z]{36}/g },
+    { type: 'Database URI', regex: /(?:mongodb(?:\+srv)?|postgres(?:ql)?|mysql|redis):\/\/[a-zA-Z0-9_]+:[a-zA-Z0-9_]+@[^\s"']+/g },
+    { type: 'JSON Web Token (JWT)', regex: /eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}/g },
+    { type: 'RSA Private Key', regex: /-----BEGIN RSA PRIVATE KEY-----/g },
+    { type: 'Generic API Key / Secret', regex: /(?i)(?:api_key|apikey|secret|token|password)\s*[:=]\s*["']?([a-zA-Z0-9\-_]{16,64})["']?/g }
   ];
 
   // Regex pattern para LinkFinder (simplificado)
