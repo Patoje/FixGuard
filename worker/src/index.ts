@@ -139,7 +139,7 @@ app.post('/api/scan', async (req, res) => {
     
     // Traer codigo fuente de JS
     const jsCodes: string[] = [];
-    for (const u of jsFilesFromCrawler.slice(0, 5)) {
+    for (const u of jsFilesFromCrawler) {
        try {
          const {data} = await axios.get(u, {timeout: 3000});
          if (typeof data === 'string') jsCodes.push(data);
