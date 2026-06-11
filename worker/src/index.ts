@@ -26,6 +26,10 @@ import { runAttackSurfaceMapper } from './recon/AttackSurfaceMapper';
 import { runFrameworkIntelligence } from './recon/FrameworkIntelligence';
 import { buildArchitectureTree } from './recon/ArchitectureBuilder';
 import { JsKnowledgeExtractor } from './recon/parsers/JsKnowledgeExtractor';
+import { ExposureIntelligenceEngine } from './recon/ExposureIntelligenceEngine';
+import { AuthIntelligenceEngine } from './recon/parsers/AuthIntelligenceEngine';
+import { CloudIntelligenceEngine } from './recon/CloudIntelligenceEngine';
+import axios from 'axios';
 
 // Nuevos Motores Fase 6
 import { runCrawler } from './scanner/crawler';
@@ -71,9 +75,7 @@ app.post('/api/scan', async (req, res) => {
     // 2. Framework Intelligence basado en el Stack
     const frameworkIntelligence = runFrameworkIntelligence(techStack);
     
-    // 3. Reconstrucción de Arquitectura
     const domain = new URL(targetUrl).hostname;
-    const architectureTree = buildArchitectureTree(domain, techStack);
 
     // Ejecutar OSINT y JS Recon en paralelo
     const passiveTasks = [
@@ -111,10 +113,40 @@ app.post('/api/scan', async (req, res) => {
     })]));
 
     // 4. Mapeo de Superficie y Ranking de Riesgo
-    const attackSurface = runAttackSurfaceMapper(allDiscoveredPaths);
+    let attackSurface = runAttackSurfaceMapper(allDiscoveredPaths);
 
     // Extraer Conocimiento de JS (Módulo 3)
     const businessDictionary = await JsKnowledgeExtractor.extractFromJsFiles(jsFilesFromCrawler);
+
+    // Módulo 10: Enriquecer con IA (solo endpoints críticos/altos)
+    attackSurface = await ExposureIntelligenceEngine.enrichAttackSurface(attackSurface, businessDictionary, techStack);
+
+    // Módulo 4: Auth Intelligence
+    // Obtener headers de una peticion base
+    let baseHeaders: Record<string, string | string[]> = {};
+    let baseHtml = '';
+    try {
+      const resp = await axios.get(targetUrl, { timeout: 3000 });
+      baseHeaders = resp.headers;
+      baseHtml = typeof resp.data === 'string' ? resp.data : '';
+    } catch(e) {}
+    
+    // Traer codigo fuente de JS
+    const jsCodes: string[] = [];
+    for (const u of jsFilesFromCrawler.slice(0, 5)) {
+       try {
+         const {data} = await axios.get(u, {timeout: 3000});
+         if (typeof data === 'string') jsCodes.push(data);
+       } catch(e) {}
+    }
+
+    const authIntelligence = AuthIntelligenceEngine.analyze(jsCodes, baseHeaders);
+
+    // Módulo 6: Cloud Intelligence
+    const cloudIntelligence = await CloudIntelligenceEngine.analyze(targetUrl, baseHtml, jsCodes);
+
+    // 3. Reconstrucción de Arquitectura Avanzada (Módulo 1)
+    const architectureTree = buildArchitectureTree(domain, techStack, attackSurface, businessDictionary);
 
     // 5. Guardar Perfil de Reconocimiento
     await db.insert(reconProfiles).values({
@@ -123,7 +155,9 @@ app.post('/api/scan', async (req, res) => {
       attackSurface,
       frameworkIntelligence,
       architectureTree,
-      businessDictionary
+      businessDictionary,
+      authIntelligence,
+      cloudIntelligence
     });
 
     console.log(`[Scan ${scanId}] Análisis Pasivo y Reconocimiento completado. Guardado Perfil Tech Stack.`);

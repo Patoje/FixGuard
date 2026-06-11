@@ -21,7 +21,9 @@ const nodeStyles = {
   frontend: { background: '#18181b', color: '#a78bfa', border: '1px solid #8b5cf6', borderRadius: '8px', padding: '10px', fontSize: '12px' },
   backend: { background: '#18181b', color: '#34d399', border: '1px solid #10b981', borderRadius: '8px', padding: '10px', fontSize: '12px' },
   database: { background: '#18181b', color: '#f87171', border: '1px solid #ef4444', borderRadius: '8px', padding: '10px', fontSize: '12px' },
-  external: { background: '#18181b', color: '#fbbf24', border: '1px solid #f59e0b', borderRadius: '8px', padding: '10px', fontSize: '12px' }
+  external: { background: '#18181b', color: '#fbbf24', border: '1px solid #f59e0b', borderRadius: '8px', padding: '10px', fontSize: '12px' },
+  business: { background: '#18181b', color: '#fb923c', border: '1px solid #f97316', borderRadius: '8px', padding: '10px', fontSize: '12px', borderStyle: 'dashed' },
+  api: { background: '#18181b', color: '#38bdf8', border: '1px solid #0ea5e9', borderRadius: '8px', padding: '10px', fontSize: '12px', borderStyle: 'dashed' }
 };
 
 const CustomNode = ({ data }: any) => {
@@ -62,8 +64,10 @@ const generateElements = (tree: ArchitectureNode, techStack: any[]) => {
     const id = `node-${i}`;
     let type = 'backend';
     if (child.name.includes('Frontend')) type = 'frontend';
-    else if (child.name.includes('Base de Datos')) type = 'database';
-    else if (child.name.includes('Servicios') || child.name.includes('Integracion')) type = 'external';
+    else if (child.name.includes('Base de Datos') || child.name.includes('Database')) type = 'database';
+    else if (child.name.includes('Servicios') || child.name.includes('External')) type = 'external';
+    else if (child.name.includes('Business')) type = 'business';
+    else if (child.name.includes('API')) type = 'api';
 
     nodes.push({
       id: id,
@@ -142,6 +146,8 @@ export default function ApplicationBlueprint({ profile }: { profile: ReconProfil
             if (n.data?.type === 'frontend') return '#8b5cf6';
             if (n.data?.type === 'database') return '#ef4444';
             if (n.data?.type === 'external') return '#f59e0b';
+            if (n.data?.type === 'business') return '#f97316';
+            if (n.data?.type === 'api') return '#0ea5e9';
             return '#10b981';
           }}
           maskColor="rgba(0,0,0,0.8)"

@@ -52,6 +52,7 @@ export interface AttackSurfaceItem {
   authType?: string;
   framework?: string;
   relationships?: string[];
+  aiExplanation?: string;
 }
 
 export interface VectorItem {
@@ -82,5 +83,17 @@ export interface ReconProfile {
     entities: string[];
     permissions: string[];
     configFlags: string[];
+  };
+  authIntelligence?: {
+    mechanisms: string[];
+    sessionStorage: boolean;
+    localStorage: boolean;
+    cookieNames: string[];
+  };
+  cloudIntelligence?: {
+    provider: string;
+    services: string[];
+    buckets: string[];
+    misconfigurations: string[];
   };
 }

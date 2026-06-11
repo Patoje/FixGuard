@@ -36,5 +36,7 @@ export const reconProfiles = pgTable('recon_profiles', {
   frameworkIntelligence: json('framework_intelligence').notNull(),
   architectureTree: json('architecture_tree').notNull(),
   businessDictionary: json('business_dictionary'),
+  authIntelligence: json('auth_intelligence'),
+  cloudIntelligence: json('cloud_intelligence'),
   createdAt: timestamp('created_at').defaultNow().notNull(),
 });

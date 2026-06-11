@@ -13,6 +13,7 @@ export interface AttackSurfaceItem {
   authType?: string;
   framework?: string;
   relationships?: string[];
+  aiExplanation?: string;
 }
 
 function calculateRisk(path: string, type: string): RiskLevel {

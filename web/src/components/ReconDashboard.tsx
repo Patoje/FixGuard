@@ -1,7 +1,7 @@
 "use client";
 
 import { motion, AnimatePresence } from "framer-motion";
-import { Server, Database, Layers, Shield, Network, Activity, Zap, Code, Link2, BookOpen } from "lucide-react";
+import { Server, Database, Layers, Shield, Network, Activity, Zap, Code, Link2, BookOpen, Cloud, Key } from "lucide-react";
 import { useState, useEffect } from "react";
 import { ReconProfile, ArchitectureNode } from "../types";
 import ApplicationBlueprint from "./ApplicationBlueprint";
@@ -208,6 +208,95 @@ export default function ReconDashboard({ profile, targetUrl, onLaunchAttack }: P
           </motion.div>
         )}
 
+        {/* Cloud & Auth Intelligence */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 lg:col-span-2">
+          {profile.cloudIntelligence && profile.cloudIntelligence.provider !== 'Unknown' && (
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              transition={{ delay: 0.2 }}
+              className="glass-panel p-6 border-cyan-500/20"
+            >
+              <div className="flex items-center gap-3 mb-6 border-b border-white/5 pb-4">
+                <Cloud className="w-5 h-5 text-cyan-400" />
+                <h3 className="text-xl font-semibold text-zinc-100">Cloud Intelligence ({profile.cloudIntelligence.provider})</h3>
+              </div>
+              <div className="space-y-4">
+                {profile.cloudIntelligence.services.length > 0 && (
+                  <div>
+                    <h4 className="text-sm font-bold text-cyan-300 mb-2">Servicios Detectados</h4>
+                    <div className="flex flex-wrap gap-2">
+                      {profile.cloudIntelligence.services.map((s, i) => <span key={i} className="text-xs bg-cyan-500/10 text-cyan-400 px-2 py-1 rounded">{s}</span>)}
+                    </div>
+                  </div>
+                )}
+                {profile.cloudIntelligence.buckets.length > 0 && (
+                  <div>
+                    <h4 className="text-sm font-bold text-cyan-300 mb-2">Buckets de Almacenamiento</h4>
+                    <div className="flex flex-wrap gap-2">
+                      {profile.cloudIntelligence.buckets.map((b, i) => <span key={i} className="text-xs font-mono bg-zinc-800 text-zinc-300 px-2 py-1 rounded">{b}</span>)}
+                    </div>
+                  </div>
+                )}
+                {profile.cloudIntelligence.misconfigurations.length > 0 && (
+                  <div>
+                    <h4 className="text-sm font-bold text-rose-400 mb-2">Riesgos Cloud</h4>
+                    <ul className="list-disc pl-5">
+                      {profile.cloudIntelligence.misconfigurations.map((m, i) => <li key={i} className="text-xs text-rose-300">{m}</li>)}
+                    </ul>
+                  </div>
+                )}
+              </div>
+            </motion.div>
+          )}
+
+          {profile.authIntelligence && (
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              transition={{ delay: 0.22 }}
+              className="glass-panel p-6 border-indigo-500/20"
+            >
+              <div className="flex items-center gap-3 mb-6 border-b border-white/5 pb-4">
+                <Key className="w-5 h-5 text-indigo-400" />
+                <h3 className="text-xl font-semibold text-zinc-100">Authentication Intelligence</h3>
+              </div>
+              <div className="space-y-4">
+                {profile.authIntelligence.mechanisms.length > 0 && (
+                  <div>
+                    <h4 className="text-sm font-bold text-indigo-300 mb-2">Mecanismos</h4>
+                    <div className="flex flex-wrap gap-2">
+                      {profile.authIntelligence.mechanisms.map((m, i) => <span key={i} className="text-xs bg-indigo-500/10 text-indigo-400 px-2 py-1 rounded">{m}</span>)}
+                    </div>
+                  </div>
+                )}
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="bg-zinc-900/50 p-3 rounded border border-white/5">
+                    <span className="text-xs text-zinc-400 block mb-1">Local Storage</span>
+                    <span className={`text-sm font-bold ${profile.authIntelligence.localStorage ? 'text-rose-400' : 'text-zinc-300'}`}>
+                      {profile.authIntelligence.localStorage ? 'SI (Riesgo XSS)' : 'NO'}
+                    </span>
+                  </div>
+                  <div className="bg-zinc-900/50 p-3 rounded border border-white/5">
+                    <span className="text-xs text-zinc-400 block mb-1">Session Storage</span>
+                    <span className={`text-sm font-bold ${profile.authIntelligence.sessionStorage ? 'text-amber-400' : 'text-zinc-300'}`}>
+                      {profile.authIntelligence.sessionStorage ? 'SI' : 'NO'}
+                    </span>
+                  </div>
+                </div>
+                {profile.authIntelligence.cookieNames.length > 0 && (
+                  <div>
+                    <h4 className="text-sm font-bold text-indigo-300 mb-2">Cookies Relevantes</h4>
+                    <div className="flex flex-wrap gap-2">
+                      {profile.authIntelligence.cookieNames.map((c, i) => <span key={i} className="text-xs font-mono bg-zinc-800 text-zinc-300 px-2 py-1 rounded">{c}</span>)}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </motion.div>
+          )}
+        </div>
+
         {/* Framework Intelligence */}
         <motion.div 
           initial={{ opacity: 0, scale: 0.95 }}
@@ -302,8 +391,13 @@ export default function ReconDashboard({ profile, targetUrl, onLaunchAttack }: P
                       <td className="p-3">
                         <code className="text-xs text-blue-300 font-mono break-all">{ep.path}</code>
                         {ep.params && ep.params.length > 0 && (
-                          <div className="text-[10px] text-gray-500 mt-1">
+                          <div className="text-[10px] text-zinc-500 mt-1">
                             Params: {ep.params.join(', ')}
+                          </div>
+                        )}
+                        {ep.aiExplanation && (
+                          <div className="mt-2 text-xs text-amber-300/80 bg-amber-500/10 p-2 rounded-md border border-amber-500/20 italic flex items-start gap-2">
+                            <span>🧠</span> <span>{ep.aiExplanation}</span>
                           </div>
                         )}
                       </td>
