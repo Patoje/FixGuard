@@ -1,7 +1,7 @@
 "use client";
 
 import { motion, AnimatePresence } from "framer-motion";
-import { Server, Database, Layers, Shield, Network, Activity, Zap, Code, Link2, BookOpen, Cloud, Key, Workflow, Radio, Globe, PackageSearch, DatabaseZap } from "lucide-react";
+import { Server, Database, Layers, Shield, Network, Activity, Zap, Code, Link2, BookOpen, Cloud, Key, Workflow, Radio, Globe, PackageSearch, DatabaseZap, ClipboardCheck } from "lucide-react";
 import { useState, useEffect } from "react";
 import { ReconProfile, ArchitectureNode } from "../types";
 import ApplicationBlueprint from "./ApplicationBlueprint";
@@ -81,6 +81,60 @@ export default function ReconDashboard({ profile, targetUrl, onLaunchAttack }: P
         </h2>
         <p className="text-zinc-400 mt-2">Perfil de reconocimiento y arquitectura estimada del objetivo</p>
       </div>
+
+      {/* --- NUEVO: Executive Audit Report --- */}
+      {profile.auditReport && profile.auditReport.contexts.length > 0 && (
+        <motion.div 
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="glass-panel p-6 border-emerald-500/30 bg-emerald-950/10 mb-8"
+        >
+          <div className="flex items-center gap-3 mb-4 border-b border-emerald-500/20 pb-4">
+            <ClipboardCheck className="w-6 h-6 text-emerald-400" />
+            <h2 className="text-2xl font-bold text-zinc-100">Executive Audit Report</h2>
+          </div>
+          <p className="text-zinc-300 text-sm mb-6">{profile.auditReport.summary}</p>
+          
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-6">
+            {profile.auditReport.contexts.map((ctx, idx) => (
+              <div key={idx} className="bg-zinc-900/50 p-4 rounded-xl border border-white/5 relative overflow-hidden group">
+                <div className={`absolute top-0 left-0 w-1 h-full ${
+                  ctx.confidence === 'HIGH' ? 'bg-rose-500' :
+                  ctx.confidence === 'MEDIUM' ? 'bg-amber-500' : 'bg-blue-500'
+                }`} />
+                <h3 className="font-bold text-zinc-200 mb-1 pl-2">{ctx.name}</h3>
+                <p className="text-xs text-zinc-400 mb-4 pl-2 h-10">{ctx.description}</p>
+                
+                <div className="space-y-3 pl-2">
+                  <div>
+                    <h4 className="text-[10px] uppercase text-zinc-500 font-bold mb-1 tracking-wider">Evidencia Correlacionada</h4>
+                    <ul className="space-y-1">
+                      {ctx.evidences.map((ev, i) => (
+                        <li key={i} className="text-xs text-zinc-300 bg-black/40 p-1.5 rounded border border-white/5">
+                          • {ev}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                  
+                  {ctx.inferredTechnologies.length > 0 && (
+                    <div>
+                      <h4 className="text-[10px] uppercase text-zinc-500 font-bold mb-1 tracking-wider">Tecnologías Inferidas</h4>
+                      <div className="flex flex-wrap gap-1">
+                        {ctx.inferredTechnologies.map((tech, i) => (
+                          <span key={i} className="text-[10px] bg-emerald-500/10 text-emerald-400 px-1.5 py-0.5 rounded font-mono">
+                            {tech}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        </motion.div>
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         
@@ -584,15 +638,14 @@ export default function ReconDashboard({ profile, targetUrl, onLaunchAttack }: P
             <h3 className="text-xl font-semibold text-zinc-100">Superficie de Ataque ({profile.attackSurface.length} Endpoints)</h3>
           </div>
           <div className="overflow-x-auto">
-            <table className="w-full text-left text-sm">
-              <thead className="bg-zinc-900/80 text-zinc-400">
-                <tr>
-                    <th className="p-3 text-left font-medium text-gray-400">Endpoint / Params</th>
-                    <th className="p-3 text-left font-medium text-gray-400">Método</th>
-                    <th className="p-3 text-left font-medium text-gray-400">Tipo</th>
-                    <th className="p-3 text-left font-medium text-gray-400">Contexto</th>
-                    <th className="p-3 text-left font-medium text-gray-400">Riesgo</th>
-                    <th className="p-3 text-right font-medium text-gray-400">Ofensiva</th>
+            <table className="w-full text-left text-sm border-separate border-spacing-0">
+              <thead>
+                <tr className="text-zinc-400 border-b border-zinc-800 bg-zinc-900/50">
+                  <th className="p-4 font-medium border-b border-zinc-800 rounded-tl-lg">Endpoint / Params</th>
+                  <th className="p-4 font-medium border-b border-zinc-800">Método</th>
+                  <th className="p-4 font-medium border-b border-zinc-800">Tipo</th>
+                  <th className="p-4 font-medium border-b border-zinc-800">Contexto</th>
+                  <th className="p-4 font-medium border-b border-zinc-800 rounded-tr-lg">Riesgo</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-white/5">
@@ -625,29 +678,9 @@ export default function ReconDashboard({ profile, targetUrl, onLaunchAttack }: P
                         {ep.authType && <span className="bg-emerald-500/10 text-emerald-400 px-1.5 py-0.5 rounded">{ep.authType}</span>}
                       </td>
                       <td className="p-3">
-                        <span className={`px-2 py-1 text-xs font-bold rounded-md border ${riskColors[ep.riskLevel]}`}>
+                        <span className={`px-2 py-1 text-xs font-bold rounded-md border ${riskColors[ep.riskLevel as keyof typeof riskColors] || 'bg-blue-500/20 text-blue-400 border-blue-500/30'}`}>
                           {ep.riskLevel}
                         </span>
-                      </td>
-                      <td className="p-3 text-right">
-                        <div className="flex gap-2 justify-end opacity-20 hover:opacity-100 transition-opacity">
-                          <button
-                            onClick={() => handlePivotAttack(ep.path, 'sqlmap')}
-                            disabled={isAttacking[`sqlmap-${ep.path}`]}
-                            className="flex items-center gap-1 px-2 py-1 bg-rose-500/10 text-rose-400 border border-rose-500/20 hover:bg-rose-500/20 rounded text-[10px] font-bold transition-colors disabled:opacity-50"
-                            title="Lanzar SQLMap"
-                          >
-                            <Database className="w-3 h-3" /> {isAttacking[`sqlmap-${ep.path}`] ? '...' : 'SQLi'}
-                          </button>
-                          <button
-                            onClick={() => handlePivotAttack(ep.path, 'xsstrike')}
-                            disabled={isAttacking[`xsstrike-${ep.path}`]}
-                            className="flex items-center gap-1 px-2 py-1 bg-amber-500/10 text-amber-400 border border-amber-500/20 hover:bg-amber-500/20 rounded text-[10px] font-bold transition-colors disabled:opacity-50"
-                            title="Lanzar XSStrike"
-                          >
-                            <Code className="w-3 h-3" /> {isAttacking[`xsstrike-${ep.path}`] ? '...' : 'XSS'}
-                          </button>
-                        </div>
                       </td>
                     </tr>
                   )

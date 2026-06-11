@@ -5,8 +5,9 @@ import HeroScanner from "@/components/HeroScanner";
 import ScanningState from "@/components/ScanningState";
 import VulnerabilityCard from "@/components/VulnerabilityCard";
 import ReconDashboard from "@/components/ReconDashboard";
+import OffensiveArsenal from "@/components/OffensiveArsenal";
 import AttackPathTree from "@/components/AttackPathTree";
-import { ScanMode, TerminalLog, Vulnerability, ReconProfile } from "@/types";
+import { ScanMode, TerminalLog, Vulnerability, ReconProfile, ScanStatus } from "@/types";
 import { AnimatePresence, motion } from "framer-motion";
 
 type FlowStep = "setup" | "scanning" | "results";
@@ -26,6 +27,7 @@ export default function Home() {
   const [scanId, setScanId] = useState<number | null>(null);
   const [scanStatus, setScanStatus] = useState<ScanStatus>("pending");
   const [targetUrl, setTargetUrl] = useState<string>("");
+  const [resultsTab, setResultsTab] = useState<"recon" | "offensive">("recon");
   
   // Ref to track if simulation is running
   const simulationRef = useRef<boolean>(false);
@@ -246,6 +248,7 @@ export default function Home() {
     setLogs([]);
     setVulnerabilities([]);
     setReconProfile(null);
+    setResultsTab("recon");
     simulationRef.current = false;
   };
 
@@ -334,10 +337,28 @@ export default function Home() {
             className="w-full max-w-4xl mx-auto mt-12 space-y-8 pt-10"
           >
             <div className="flex items-center justify-between border-b border-zinc-800 pb-6">
-              <h2 className="text-3xl font-bold text-zinc-100 flex items-center gap-3">
-                <span className="w-2 h-8 bg-emerald-500 rounded-full inline-block"></span>
-                Reporte de Auditoría
-              </h2>
+              <div className="flex gap-4">
+                <button
+                  onClick={() => setResultsTab("recon")}
+                  className={`px-4 py-2 rounded-lg font-bold transition-colors ${
+                    resultsTab === "recon" 
+                      ? "bg-blue-600 text-white shadow-[0_0_15px_rgba(37,99,235,0.3)]" 
+                      : "bg-zinc-900 text-zinc-400 hover:text-white"
+                  }`}
+                >
+                  Audit & Recon (Digital Twin)
+                </button>
+                <button
+                  onClick={() => setResultsTab("offensive")}
+                  className={`px-4 py-2 rounded-lg font-bold transition-colors border ${
+                    resultsTab === "offensive" 
+                      ? "bg-rose-600 text-white border-rose-500 shadow-[0_0_15px_rgba(244,63,94,0.3)]" 
+                      : "bg-zinc-900/50 text-rose-400/50 border-rose-500/20 hover:text-rose-300 hover:bg-rose-950/30"
+                  }`}
+                >
+                  Offensive Hub (Arsenal)
+                </button>
+              </div>
               <button
                 onClick={resetScan}
                 className="bg-zinc-900 border border-zinc-700 px-6 py-2 rounded-full font-mono text-zinc-300 hover:text-white hover:bg-zinc-800 transition-colors"
@@ -346,34 +367,49 @@ export default function Home() {
               </button>
             </div>
             
-            {reconProfile ? (
-              <ReconDashboard profile={reconProfile} targetUrl={targetUrl} onLaunchAttack={handleTargetedAttack} />
-            ) : (
-              <div className="bg-blue-500/10 border border-blue-500/20 p-6 rounded-xl text-center mb-8">
-                <h3 className="text-xl font-bold text-blue-400 mb-2">Ataque Dirigido Finalizado</h3>
-                <p className="text-zinc-400">Este reporte corresponde a la ejecución individual de una herramienta CLI profesional. No se realizó recolección de inteligencia de superficie (OSINT) al ser un ataque directo.</p>
-              </div>
-            )}
-
-            {vulnerabilities.length === 0 ? (
-              <div className="text-center p-12 glass-panel border-emerald-500/20 bg-emerald-500/5 mt-8">
-                <h3 className="text-2xl font-bold text-emerald-400 mb-2">¡Todo se ve seguro!</h3>
-                <p className="text-zinc-400">No se encontraron vulnerabilidades para el objetivo seleccionado.</p>
-              </div>
-            ) : (
+            {resultsTab === "recon" ? (
               <>
-                <AttackPathTree vulnerabilities={vulnerabilities} />
-                
-                <div className="space-y-4 mt-8">
-                  <h3 className="text-2xl font-bold text-zinc-100 flex items-center gap-3 border-b border-white/5 pb-4 mb-6">
-                    <span className="w-2 h-8 bg-rose-500 rounded-full inline-block"></span>
-                    Vulnerabilidades Detectadas
-                  </h3>
-                  {vulnerabilities.map((vuln, index) => (
-                    <VulnerabilityCard key={vuln.id} vuln={vuln} index={index} />
-                  ))}
-                </div>
+                {reconProfile ? (
+                  <ReconDashboard profile={reconProfile} targetUrl={targetUrl} onLaunchAttack={handleTargetedAttack} />
+                ) : (
+                  <div className="bg-blue-500/10 border border-blue-500/20 p-6 rounded-xl text-center mb-8 mt-8">
+                    <h3 className="text-xl font-bold text-blue-400 mb-2">Ataque Dirigido Finalizado</h3>
+                    <p className="text-zinc-400">Este reporte corresponde a la ejecución individual de una herramienta CLI profesional. No se realizó recolección de inteligencia de superficie (OSINT) al ser un ataque directo.</p>
+                  </div>
+                )}
+
+                {vulnerabilities.length === 0 ? (
+                  <div className="text-center p-12 glass-panel border-emerald-500/20 bg-emerald-500/5 mt-8">
+                    <h3 className="text-2xl font-bold text-emerald-400 mb-2">¡Todo se ve seguro!</h3>
+                    <p className="text-zinc-400">No se encontraron vulnerabilidades para el objetivo seleccionado.</p>
+                  </div>
+                ) : (
+                  <>
+                    <AttackPathTree vulnerabilities={vulnerabilities} />
+                    
+                    <div className="space-y-4 mt-8">
+                      <h3 className="text-2xl font-bold text-zinc-100 flex items-center gap-3 border-b border-white/5 pb-4 mb-6">
+                        <span className="w-2 h-8 bg-rose-500 rounded-full inline-block"></span>
+                        Vulnerabilidades Detectadas
+                      </h3>
+                      {vulnerabilities.map((vuln, index) => (
+                        <VulnerabilityCard key={vuln.id} vuln={vuln} index={index} />
+                      ))}
+                    </div>
+                  </>
+                )}
               </>
+            ) : (
+              <div className="mt-8">
+                {scanId ? (
+                  <OffensiveArsenal targetUrl={targetUrl} scanId={scanId} />
+                ) : (
+                  <div className="text-center p-12 glass-panel border-rose-500/20 bg-rose-500/5">
+                    <h3 className="text-2xl font-bold text-rose-400 mb-2">Arsenal Desactivado</h3>
+                    <p className="text-zinc-400">Debes realizar un escaneo completo primero para habilitar el arsenal ofensivo en este objetivo.</p>
+                  </div>
+                )}
+              </div>
             )}
 
             <div className="flex justify-center pt-8">

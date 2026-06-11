@@ -42,5 +42,7 @@ export const reconProfiles = pgTable('recon_profiles', {
   subdomainIntelligence: json('subdomain_intelligence'),
   artifactIntelligence: json('artifact_intelligence'),
   parameterIntelligence: json('parameter_intelligence'),
+  aiIntelligence: json('ai_intelligence'),
+  auditReport: json('audit_report'),
   createdAt: timestamp('created_at').defaultNow().notNull(),
 });

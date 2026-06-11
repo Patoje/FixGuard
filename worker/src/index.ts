@@ -33,6 +33,8 @@ import { CommunicationIntelligenceEngine } from './recon/CommunicationIntelligen
 import { SubdomainIntelligenceEngine } from './recon/SubdomainIntelligenceEngine';
 import { ArtifactIntelligenceEngine } from './recon/ArtifactIntelligenceEngine';
 import { ParameterIntelligenceEngine } from './recon/ParameterIntelligenceEngine';
+import { AIFingerprintEngine } from './recon/AIFingerprintEngine';
+import { CorrelationEngine } from './recon/CorrelationEngine';
 import axios from 'axios';
 
 // Nuevos Motores Fase 6
@@ -156,9 +158,22 @@ app.post('/api/scan', async (req, res) => {
     const subdomainIntelligence = await SubdomainIntelligenceEngine.discover(domain);
     const artifactIntelligence = await ArtifactIntelligenceEngine.analyze(targetUrl, jsCodes);
     const parameterIntelligence = ParameterIntelligenceEngine.analyze(attackSurface);
+    const aiIntelligence = AIFingerprintEngine.analyze(jsCodes, baseHeaders);
 
     // 3. Reconstrucción de Arquitectura Avanzada (Módulo 1)
     const architectureTree = buildArchitectureTree(domain, techStack, attackSurface, businessDictionary);
+
+    // NUEVO: Correlation Engine (Auditoría Inteligente)
+    const auditReport = CorrelationEngine.analyze(
+      authIntelligence,
+      cloudIntelligence,
+      parameterIntelligence,
+      artifactIntelligence,
+      communicationIntelligence,
+      businessDictionary,
+      attackSurface,
+      aiIntelligence
+    );
 
     // 5. Guardar Perfil de Reconocimiento
     await db.insert(reconProfiles).values({
@@ -173,7 +188,9 @@ app.post('/api/scan', async (req, res) => {
       communicationIntelligence,
       subdomainIntelligence,
       artifactIntelligence,
-      parameterIntelligence
+      parameterIntelligence,
+      aiIntelligence,
+      auditReport
     });
 
     console.log(`[Scan ${scanId}] Análisis Pasivo y Reconocimiento completado. Guardado Perfil Tech Stack.`);

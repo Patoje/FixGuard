@@ -128,4 +128,14 @@ export interface ReconProfile {
     topParameters: Array<{ name: string; frequency: number }>;
     allParameters: string[];
   };
+  auditReport?: {
+    summary: string;
+    contexts: Array<{
+      name: string;
+      description: string;
+      confidence: 'HIGH' | 'MEDIUM' | 'LOW';
+      evidences: string[];
+      inferredTechnologies: string[];
+    }>;
+  };
 }
