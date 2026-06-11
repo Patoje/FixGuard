@@ -110,4 +110,22 @@ export interface ReconProfile {
       namespaces: string[];
     };
   };
+  subdomainIntelligence?: {
+    discoveredCount: number;
+    interestingSubdomains: Array<{
+      subdomain: string;
+      type: 'STAGING' | 'DEV' | 'API' | 'ADMIN' | 'INTERNAL' | 'OTHER';
+    }>;
+    allSubdomains: string[];
+  };
+  artifactIntelligence?: {
+    discoveredRoutes: string[];
+    hiddenRoutes: string[];
+    manifestType?: string;
+  };
+  parameterIntelligence?: {
+    totalParameters: number;
+    topParameters: Array<{ name: string; frequency: number }>;
+    allParameters: string[];
+  };
 }

@@ -1,10 +1,11 @@
 "use client";
 
 import { motion, AnimatePresence } from "framer-motion";
-import { Server, Database, Layers, Shield, Network, Activity, Zap, Code, Link2, BookOpen, Cloud, Key, Workflow, Radio } from "lucide-react";
+import { Server, Database, Layers, Shield, Network, Activity, Zap, Code, Link2, BookOpen, Cloud, Key, Workflow, Radio, Globe, PackageSearch, DatabaseZap } from "lucide-react";
 import { useState, useEffect } from "react";
 import { ReconProfile, ArchitectureNode } from "../types";
 import ApplicationBlueprint from "./ApplicationBlueprint";
+import FunctionalBlueprint from "./FunctionalBlueprint";
 
 interface Props {
   profile: ReconProfile;
@@ -82,23 +83,41 @@ export default function ReconDashboard({ profile, targetUrl, onLaunchAttack }: P
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         
-        {/* Architecture Tree - Digital Twin Blueprint */}
+        {/* Blueprint Section (Technical vs Functional) */}
         <motion.div 
-          initial={{ opacity: 0, scale: 0.95 }}
-          animate={{ opacity: 1, scale: 1 }}
-          className="glass-panel p-6 border-blue-500/20 lg:col-span-2"
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="glass-panel p-6 mb-6 lg:col-span-2"
         >
-          <div className="flex items-center justify-between mb-6 border-b border-white/5 pb-4">
+          <div className="flex items-center justify-between mb-6">
             <div className="flex items-center gap-3">
-              <Network className="w-5 h-5 text-blue-400" />
-              <h3 className="text-xl font-semibold text-zinc-100">Application Blueprint (Gemelo Arquitectónico)</h3>
+              <Network className="w-6 h-6 text-blue-400" />
+              <h2 className="text-2xl font-bold text-zinc-100">
+                {blueprintView === 'architecture' ? 'Application Blueprint (Arquitectura)' : 'Functional Blueprint (Lógica de Negocio)'}
+              </h2>
             </div>
-            <div className="px-3 py-1 bg-blue-500/10 text-blue-400 rounded-full text-xs font-bold border border-blue-500/20">
-              Interactive
+            <div className="flex bg-black/40 rounded-lg p-1 border border-white/5">
+              <button 
+                onClick={() => setBlueprintView('architecture')}
+                className={`px-4 py-1.5 text-sm font-medium rounded-md transition-colors ${blueprintView === 'architecture' ? 'bg-blue-600 text-white' : 'text-zinc-400 hover:text-white hover:bg-white/5'}`}
+              >
+                Técnico
+              </button>
+              <button 
+                onClick={() => setBlueprintView('functional')}
+                className={`px-4 py-1.5 text-sm font-medium rounded-md transition-colors ${blueprintView === 'functional' ? 'bg-purple-600 text-white' : 'text-zinc-400 hover:text-white hover:bg-white/5'}`}
+              >
+                Funcional
+              </button>
             </div>
           </div>
-          <div className="bg-zinc-950 rounded-xl border border-white/5">
-            <ApplicationBlueprint profile={profile} />
+          
+          <div className="h-[500px] w-full rounded-xl overflow-hidden border border-white/5 bg-black/20">
+            {blueprintView === 'architecture' ? (
+              <ApplicationBlueprint profile={profile} />
+            ) : (
+              <FunctionalBlueprint profile={profile} />
+            )}
           </div>
         </motion.div>
 
@@ -296,6 +315,118 @@ export default function ReconDashboard({ profile, targetUrl, onLaunchAttack }: P
             </motion.div>
           )}
         </div>
+
+        {/* --- NUEVO: OSINT y Funcionalidad --- */}
+        {(profile.subdomainIntelligence || profile.artifactIntelligence || profile.parameterIntelligence) && (
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 lg:col-span-2">
+            
+            {/* Subdomain Intelligence */}
+            {profile.subdomainIntelligence && (
+              <motion.div 
+                initial={{ opacity: 0, scale: 0.95 }}
+                animate={{ opacity: 1, scale: 1 }}
+                transition={{ delay: 0.3 }}
+                className="glass-panel p-6 border-indigo-500/20"
+              >
+                <div className="flex items-center gap-3 mb-6 border-b border-white/5 pb-4">
+                  <Globe className="w-5 h-5 text-indigo-400" />
+                  <h3 className="text-xl font-semibold text-zinc-100">Hidden Assets (OSINT)</h3>
+                </div>
+                <div className="space-y-4">
+                  <div className="flex justify-between items-center bg-indigo-500/10 p-3 rounded border border-indigo-500/20">
+                    <span className="text-sm text-indigo-200">Subdominios Descubiertos</span>
+                    <span className="text-xl font-bold text-indigo-400">{profile.subdomainIntelligence.discoveredCount}</span>
+                  </div>
+                  
+                  {profile.subdomainIntelligence.interestingSubdomains.length > 0 && (
+                    <div>
+                      <h4 className="text-sm font-bold text-indigo-300 mb-2">Entornos Críticos</h4>
+                      <div className="space-y-2 max-h-40 overflow-y-auto custom-scrollbar">
+                        {profile.subdomainIntelligence.interestingSubdomains.map((sub, i) => (
+                          <div key={i} className="flex justify-between items-center text-xs p-2 bg-zinc-800/50 rounded border border-zinc-700/50">
+                            <span className="font-mono text-zinc-300 truncate w-3/4">{sub.subdomain}</span>
+                            <span className={`px-2 py-1 rounded font-bold ${
+                              sub.type === 'STAGING' || sub.type === 'DEV' ? 'bg-orange-500/20 text-orange-400' :
+                              sub.type === 'ADMIN' || sub.type === 'INTERNAL' ? 'bg-rose-500/20 text-rose-400' :
+                              'bg-blue-500/20 text-blue-400'
+                            }`}>{sub.type}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </motion.div>
+            )}
+
+            {/* Artifact Intelligence */}
+            {profile.artifactIntelligence && (
+              <motion.div 
+                initial={{ opacity: 0, scale: 0.95 }}
+                animate={{ opacity: 1, scale: 1 }}
+                transition={{ delay: 0.35 }}
+                className="glass-panel p-6 border-cyan-500/20"
+              >
+                <div className="flex items-center gap-3 mb-6 border-b border-white/5 pb-4">
+                  <PackageSearch className="w-5 h-5 text-cyan-400" />
+                  <h3 className="text-xl font-semibold text-zinc-100">Artifact Intelligence</h3>
+                </div>
+                <div className="space-y-4">
+                  {profile.artifactIntelligence.manifestType && (
+                    <div className="text-xs bg-cyan-500/10 text-cyan-300 p-2 rounded text-center border border-cyan-500/20">
+                      Detectado: <strong>{profile.artifactIntelligence.manifestType}</strong>
+                    </div>
+                  )}
+                  
+                  {profile.artifactIntelligence.hiddenRoutes.length > 0 ? (
+                    <div>
+                      <h4 className="text-sm font-bold text-cyan-300 mb-2">Rutas Ocultas Extraídas</h4>
+                      <ul className="space-y-1 max-h-40 overflow-y-auto custom-scrollbar">
+                        {profile.artifactIntelligence.hiddenRoutes.map((r, i) => (
+                          <li key={i} className="text-xs font-mono text-cyan-100 bg-zinc-800 p-1.5 rounded truncate">
+                            {r}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  ) : (
+                    <div className="text-xs text-zinc-500 italic text-center py-4">No se extrajeron rutas ocultas del manifiesto.</div>
+                  )}
+                </div>
+              </motion.div>
+            )}
+
+            {/* Parameter Intelligence Catalog */}
+            {profile.parameterIntelligence && (
+              <motion.div 
+                initial={{ opacity: 0, scale: 0.95 }}
+                animate={{ opacity: 1, scale: 1 }}
+                transition={{ delay: 0.4 }}
+                className="glass-panel p-6 border-violet-500/20"
+              >
+                <div className="flex items-center gap-3 mb-6 border-b border-white/5 pb-4">
+                  <DatabaseZap className="w-5 h-5 text-violet-400" />
+                  <h3 className="text-xl font-semibold text-zinc-100">Data Model Recon</h3>
+                </div>
+                <div className="space-y-4">
+                  <div className="text-xs text-zinc-400">
+                    Se infirió el modelo de datos a partir de <strong>{profile.parameterIntelligence.totalParameters}</strong> parámetros únicos.
+                  </div>
+                  
+                  <div className="flex flex-wrap gap-2 max-h-48 overflow-y-auto custom-scrollbar content-start">
+                    {profile.parameterIntelligence.topParameters.map((p, i) => (
+                      <div key={i} className="flex items-center text-xs bg-violet-500/10 border border-violet-500/20 rounded-full overflow-hidden">
+                        <span className="px-2 py-1 text-violet-300 font-mono">{p.name}</span>
+                        <span className="px-2 py-1 bg-violet-500/20 text-violet-200 font-bold border-l border-violet-500/20">{p.frequency}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </motion.div>
+            )}
+
+          </div>
+        )}
 
         {/* Communication Intelligence (GraphQL & WebSockets) */}
         {profile.communicationIntelligence && (profile.communicationIntelligence.graphql.enabled || profile.communicationIntelligence.websockets.detected) && (

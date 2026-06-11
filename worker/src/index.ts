@@ -30,6 +30,9 @@ import { ExposureIntelligenceEngine } from './recon/ExposureIntelligenceEngine';
 import { AuthIntelligenceEngine } from './recon/parsers/AuthIntelligenceEngine';
 import { CloudIntelligenceEngine } from './recon/CloudIntelligenceEngine';
 import { CommunicationIntelligenceEngine } from './recon/CommunicationIntelligenceEngine';
+import { SubdomainIntelligenceEngine } from './recon/SubdomainIntelligenceEngine';
+import { ArtifactIntelligenceEngine } from './recon/ArtifactIntelligenceEngine';
+import { ParameterIntelligenceEngine } from './recon/ParameterIntelligenceEngine';
 import axios from 'axios';
 
 // Nuevos Motores Fase 6
@@ -149,6 +152,11 @@ app.post('/api/scan', async (req, res) => {
     // Módulos 8 y 9: GraphQL & WebSocket Intelligence
     const communicationIntelligence = await CommunicationIntelligenceEngine.analyze(targetUrl, baseHtml, jsCodes);
 
+    // NUEVO: Motores Avanzados de Reconocimiento Funcional
+    const subdomainIntelligence = await SubdomainIntelligenceEngine.discover(domain);
+    const artifactIntelligence = await ArtifactIntelligenceEngine.analyze(targetUrl, jsCodes);
+    const parameterIntelligence = ParameterIntelligenceEngine.analyze(attackSurface);
+
     // 3. Reconstrucción de Arquitectura Avanzada (Módulo 1)
     const architectureTree = buildArchitectureTree(domain, techStack, attackSurface, businessDictionary);
 
@@ -162,7 +170,10 @@ app.post('/api/scan', async (req, res) => {
       businessDictionary,
       authIntelligence,
       cloudIntelligence,
-      communicationIntelligence
+      communicationIntelligence,
+      subdomainIntelligence,
+      artifactIntelligence,
+      parameterIntelligence
     });
 
     console.log(`[Scan ${scanId}] Análisis Pasivo y Reconocimiento completado. Guardado Perfil Tech Stack.`);
