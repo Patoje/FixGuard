@@ -13,7 +13,7 @@ export class ArtifactIntelligenceEngine {
   // Regex patterns para SecretFinder (Prioridad: Precisión Extrema sobre Velocidad)
   private static SECRET_PATTERNS = [
     { type: 'AWS Access Key', regex: /(?:A3T[A-Z0-9]|AKIA|AGPA|AIDA|AROA|AIPA|ANPA|ANVA|ASIA)[A-Z0-9]{16}/g },
-    { type: 'AWS Secret Key', regex: /(?i)aws_secret_access_key\s*[:=]\s*["']?[0-9a-zA-Z\/+]{40}["']?/g },
+    { type: 'AWS Secret Key', regex: /aws_secret_access_key\s*[:=]\s*["']?[0-9a-zA-Z\/+]{40}["']?/gi },
     { type: 'Stripe Secret Key', regex: /sk_(live|test)_[0-9a-zA-Z]{24}/g },
     { type: 'Stripe Restricted Key', regex: /rk_(live|test)_[0-9a-zA-Z]{24}/g },
     { type: 'Google API Key', regex: /AIza[0-9A-Za-z\-_]{35}/g },
@@ -28,7 +28,7 @@ export class ArtifactIntelligenceEngine {
     { type: 'Database URI', regex: /(?:mongodb(?:\+srv)?|postgres(?:ql)?|mysql|redis):\/\/[a-zA-Z0-9_]+:[a-zA-Z0-9_]+@[^\s"']+/g },
     { type: 'JSON Web Token (JWT)', regex: /eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}/g },
     { type: 'RSA Private Key', regex: /-----BEGIN RSA PRIVATE KEY-----/g },
-    { type: 'Generic API Key / Secret', regex: /(?i)(?:api_key|apikey|secret|token|password)\s*[:=]\s*["']?([a-zA-Z0-9\-_]{16,64})["']?/g }
+    { type: 'Generic API Key / Secret', regex: /(?:api_key|apikey|secret|token|password)\s*[:=]\s*["']?([a-zA-Z0-9\-_]{16,64})["']?/gi }
   ];
 
   // Regex pattern para LinkFinder (simplificado)
