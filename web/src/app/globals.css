@@ -1,0 +1,40 @@
+@import "tailwindcss";
+
+@theme {
+  --color-brand-safe: #10b981;
+  --color-brand-vulnerable: #f43f5e;
+  --color-brand-ai: #8b5cf6;
+  --color-brand-scanning: #3b82f6;
+  --color-brand-glass: #ffffff08;
+  
+  --animate-radar: radar 3s linear infinite;
+  
+  @keyframes radar {
+    from {
+      transform: rotate(0deg);
+    }
+    to {
+      transform: rotate(360deg);
+    }
+  }
+}
+
+:root {
+  --background: #09090b;
+  --foreground: #fafafa;
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-sans), Arial, Helvetica, sans-serif;
+  overflow-x: hidden;
+}
+
+/* Glassmorphism utility for easy application */
+.glass-panel {
+  background: var(--color-brand-glass);
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 1rem;
+}
