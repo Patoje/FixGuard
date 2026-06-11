@@ -97,8 +97,13 @@ export default function ReconDashboard({ profile, targetUrl, onLaunchAttack }: P
           
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-6">
             {profile.auditReport.contexts.map((ctx, idx) => (
-              <div key={idx} className="bg-zinc-900/50 p-4 rounded-xl border border-white/5 relative overflow-hidden group">
+              <div key={idx} className={`p-4 rounded-xl border relative overflow-hidden group ${
+                ctx.confidence === 'HIGH' && ctx.name.includes('Secrets') 
+                  ? 'bg-rose-950/20 border-rose-500/30' 
+                  : 'bg-zinc-900/50 border-white/5'
+              }`}>
                 <div className={`absolute top-0 left-0 w-1 h-full ${
+                  ctx.confidence === 'HIGH' && ctx.name.includes('Secrets') ? 'bg-rose-500 shadow-[0_0_10px_rgba(244,63,94,0.8)] animate-pulse' :
                   ctx.confidence === 'HIGH' ? 'bg-rose-500' :
                   ctx.confidence === 'MEDIUM' ? 'bg-amber-500' : 'bg-blue-500'
                 }`} />

@@ -114,6 +114,10 @@ export class CorrelationEngine {
       intTech.push('WebSockets / Socket.io');
       intEvidences.push(`Canales de comunicación en tiempo real detectados.`);
     }
+    if (artifacts.hiddenApiEndpoints && artifacts.hiddenApiEndpoints.length > 0) {
+      intConfidence = 'HIGH';
+      intEvidences.push(`APIs ocultas extraídas del código JS (LinkFinder): ${artifacts.hiddenApiEndpoints.length} rutas encontradas.`);
+    }
 
     if (intEvidences.length > 0) {
       report.contexts.push({
@@ -137,6 +141,10 @@ export class CorrelationEngine {
       adminConfidence = 'MEDIUM';
       adminEvidences.push(`Feature Flags ocultos detectados: ${business.configFlags.join(', ')}`);
     }
+    if (artifacts.exposedSourceMaps && artifacts.exposedSourceMaps.length > 0) {
+      adminConfidence = 'HIGH';
+      adminEvidences.push(`PELIGRO: Source Maps (.map) expuestos permitiendo extracción del código fuente original.`);
+    }
 
     if (adminEvidences.length > 0) {
       report.contexts.push({
@@ -145,6 +153,23 @@ export class CorrelationEngine {
         confidence: adminConfidence,
         evidences: adminEvidences,
         inferredTechnologies: []
+      });
+    }
+
+    // 4.5 EXPOSED SECRETS & CREDENTIALS (CRITICAL)
+    if (artifacts.exposedSecrets && artifacts.exposedSecrets.length > 0) {
+      const secretEvidences = artifacts.exposedSecrets.map(s => {
+        // Redactamos el secreto para el reporte visual
+        const safeValue = s.value.substring(0, 10) + '...';
+        return `[${s.type}] detectado en el JS cliente: ${safeValue}`;
+      });
+
+      report.contexts.push({
+        name: 'Exposed Secrets & API Keys',
+        description: 'ALERTA CRÍTICA: Credenciales, tokens o claves privadas embebidas en el código fuente de frontend.',
+        confidence: 'HIGH', // Tratamos 'HIGH' como crítico visualmente en la UI
+        evidences: secretEvidences,
+        inferredTechnologies: ['SecretFinder']
       });
     }
 
