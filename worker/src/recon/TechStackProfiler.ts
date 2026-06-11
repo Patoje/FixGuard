@@ -1,174 +1,61 @@
 import axios from 'axios';
 import * as cheerio from 'cheerio';
+import { HeadersAnalyzer } from './analyzers/HeadersAnalyzer';
+import { CookiesAnalyzer } from './analyzers/CookiesAnalyzer';
+import { HtmlAnalyzer } from './analyzers/HtmlAnalyzer';
+import { JsAnalyzer } from './analyzers/JsAnalyzer';
+import { DnsAnalyzer } from './analyzers/DnsAnalyzer';
+import { PlaywrightRuntimeAnalyzer } from './analyzers/PlaywrightRuntimeAnalyzer';
+import { TechStackCorrelationEngine } from './TechStackCorrelationEngine';
+import type { TechStackItem } from './TechStackItem';
 
-export interface TechStackItem {
-  name: string;
-  category: 'Frontend Framework' | 'Backend Framework' | 'Database' | 'Authentication' | 'Hosting / Infrastructure' | 'External Services';
-  confidence: number;
-  evidence: string[];
-  role: string;
-}
+
 
 export async function runTechStackProfiler(targetUrl: string): Promise<TechStackItem[]> {
-  const stack: TechStackItem[] = [];
   try {
     const response = await axios.get(targetUrl, { timeout: 10000, validateStatus: () => true });
     const html = typeof response.data === 'string' ? response.data : '';
     const headers = response.headers;
+    
+    // 1. Analizadores Pasivos (Ultra rápidos)
+    const headerFindings = HeadersAnalyzer.analyze(headers);
+    const cookieFindings = CookiesAnalyzer.analyze(headers);
+    const htmlFindings = HtmlAnalyzer.analyze(html);
+    const dnsFindings = await DnsAnalyzer.analyze(new URL(targetUrl).hostname);
+    
+    // Analizar scripts referenciados superficialmente
+    let jsFindings: TechStackItem[] = [];
     const $ = cheerio.load(html);
+    const scriptUrls: string[] = [];
+    $('script').each((_, el) => {
+      const src = $(el).attr('src');
+      if (src) scriptUrls.push(src);
+    });
 
-    // Helper function to add to stack
-    const addStack = (name: string, category: TechStackItem['category'], confidence: number, evidence: string, role: string) => {
-      const existing = stack.find(s => s.name === name);
-      if (existing) {
-        existing.confidence = Math.min(100, existing.confidence + confidence);
-        if (!existing.evidence.includes(evidence)) existing.evidence.push(evidence);
-      } else {
-        stack.push({ name, category, confidence, evidence: [evidence], role });
-      }
-    };
-
-    // --- FRONTEND FRAMEWORKS ---
-    if (html.includes('__NEXT_DATA__') || html.includes('_next/static')) {
-      addStack('Next.js', 'Frontend Framework', 95, '/_next/static or __NEXT_DATA__ found', 'Renderizado SSR/SSG y routing');
-    }
-    if ($('div[data-reactroot], div#root').length > 0 || html.includes('react-dom')) {
-      addStack('React', 'Frontend Framework', 80, 'React root div or library found', 'Librería de UI principal');
-    }
-    if (html.includes('data-v-') || html.includes('__VUE_SSR_CONTEXT__')) {
-      addStack('Vue', 'Frontend Framework', 90, 'Vue specific data attributes found', 'Framework UI principal');
-    }
-    if (html.includes('_nuxt/') || html.includes('window.__NUXT__')) {
-      addStack('Nuxt', 'Frontend Framework', 95, '/_nuxt/ path found', 'Renderizado SSR/SSG (Vue)');
-    }
-    if (html.includes('svelte-') || html.includes('__svelte')) {
-      addStack('Svelte', 'Frontend Framework', 90, 'Svelte specific classes found', 'Compilador UI');
+    for (const src of scriptUrls) {
+      // Simular JS Analyzer con la URL del script (para jQuery, etc.)
+      jsFindings = jsFindings.concat(JsAnalyzer.analyze('', src));
     }
 
-    // --- BACKEND FRAMEWORKS ---
-    const poweredBy = headers['x-powered-by'] ? String(headers['x-powered-by']).toLowerCase() : '';
-    if (poweredBy.includes('express')) {
-      addStack('Express', 'Backend Framework', 95, 'X-Powered-By: Express header', 'Servidor HTTP Node.js');
-    }
-    if (poweredBy.includes('next.js')) {
-      addStack('Node.js', 'Backend Framework', 80, 'Implied by Next.js', 'Entorno de ejecución');
-    }
-    if (poweredBy.includes('php') || html.includes('.php')) {
-      addStack('PHP', 'Backend Framework', 95, `X-Powered-By/Files PHP`, 'Procesador Backend');
-    }
-    if (html.includes('wp-content') || html.includes('wp-includes')) {
-      addStack('WordPress', 'Backend Framework', 99, 'wp-content/ path found', 'CMS / Backend System');
-      addStack('PHP', 'Backend Framework', 90, 'Implied by WordPress', 'Procesador Backend');
-      addStack('MySQL', 'Database', 70, 'Implied by WordPress', 'Base de Datos principal');
-    }
-    if (headers['x-aspnet-version'] || html.includes('__VIEWSTATE')) {
-      addStack('ASP.NET', 'Backend Framework', 95, 'ASP.NET Headers or ViewState found', 'Web Framework Microsoft');
-    }
+    // 2. Analizador Dinámico (El Santo Grial)
+    const runtimeFindings = await PlaywrightRuntimeAnalyzer.analyze(targetUrl);
 
-    // --- LIBRARIES & CSS ---
-    if (html.includes('jquery')) {
-      addStack('jQuery', 'Frontend Framework', 99, 'jQuery reference found', 'Librería de manipulación DOM');
-    }
-    if (html.includes('tailwindcss') || html.includes('tw-')) {
-      addStack('Tailwind CSS', 'Frontend Framework', 80, 'Tailwind classes/scripts found', 'Framework CSS Utilitario');
-    }
-    if (html.includes('bootstrap')) {
-      addStack('Bootstrap', 'Frontend Framework', 90, 'Bootstrap references found', 'Framework CSS / Componentes');
-    }
-    if (html.includes('wp-content') || html.includes('wp-includes') || html.includes('name="generator" content="wordpress')) {
-      addStack('WordPress', 'CMS', 95, 'WordPress paths/generator found', 'Gestor de contenido PHP');
-    }
+    // 3. Unir todos los hallazgos
+    const allFindings = [
+      ...headerFindings,
+      ...cookieFindings,
+      ...htmlFindings,
+      ...dnsFindings,
+      ...jsFindings,
+      ...runtimeFindings
+    ];
 
-    // --- HOSTING / INFRASTRUCTURE ---
-    const serverHeader = headers['server'] ? String(headers['server']).toLowerCase() : '';
-    if (serverHeader.includes('cloudflare') || headers['cf-ray']) {
-      addStack('Cloudflare', 'Hosting / Infrastructure', 99, 'Server/Headers indicate Cloudflare', 'WAF / CDN / Proxy Inverso');
-    }
-    if (serverHeader.includes('vercel') || headers['x-vercel-id']) {
-      addStack('Vercel', 'Hosting / Infrastructure', 95, 'Server/Headers indicate Vercel', 'Serverless Hosting / Edge');
-      addStack('Next.js', 'Frontend Framework', 80, 'Implied by Vercel deployment', 'Renderizado SSR/SSG y routing');
-    }
-    if (serverHeader.includes('netlify') || headers['x-nf-request-id']) {
-      addStack('Netlify', 'Hosting / Infrastructure', 95, 'Server/Headers indicate Netlify', 'Jamstack Hosting');
-    }
-    if (headers['x-amz-cf-id'] || serverHeader.includes('cloudfront')) {
-      addStack('AWS CloudFront', 'Hosting / Infrastructure', 95, 'AWS Headers found', 'CDN / Edge Network');
-    }
-    if (serverHeader.includes('nginx')) {
-      addStack('NGINX', 'Hosting / Infrastructure', 90, 'Server header contains nginx', 'Servidor Web / Proxy Inverso');
-    }
-    if (serverHeader.includes('apache')) {
-      addStack('Apache', 'Hosting / Infrastructure', 90, 'Server header contains apache', 'Servidor Web');
-    }
+    // 4. Correlacionar y consolidar
+    const finalStack = TechStackCorrelationEngine.correlate(allFindings);
 
-    // --- AUTHENTICATION ---
-    if (html.includes('clerk.com') || html.includes('ClerkProvider')) {
-      addStack('Clerk', 'Authentication', 95, 'Clerk SDK or URLs found', 'Gestión de identidad y usuarios');
-    }
-    if (html.includes('auth0.com')) {
-      addStack('Auth0', 'Authentication', 95, 'Auth0 SDK found', 'Proveedor de identidad');
-    }
-    if (html.includes('supabase.co')) {
-      addStack('Supabase', 'Database', 95, 'Supabase URL/SDK found', 'BaaS / Base de Datos PostgreSQL');
-      addStack('Supabase Auth', 'Authentication', 80, 'Implied by Supabase usage', 'Módulo de Autenticación');
-    }
-
-    // --- EXTERNAL SERVICES & THIRD-PARTY INVENTORY ---
-    if (html.includes('stripe.com')) {
-      addStack('Stripe', 'External Services', 90, 'Stripe SDK found', 'Procesamiento de pagos');
-    }
-    if (html.includes('js.sentry-cdn.com') || html.includes('sentry.io')) {
-      addStack('Sentry', 'External Services', 95, 'Sentry CDN/URL found', 'Monitoreo de errores y rendimiento');
-    }
-    if (html.includes('google-analytics.com') || html.includes('G-')) {
-      addStack('Google Analytics', 'External Services', 95, 'GA tags found', 'Analítica de tráfico');
-    }
-    if (html.includes('googletagmanager.com') || html.includes('GTM-')) {
-      addStack('Google Tag Manager', 'External Services', 95, 'GTM script found', 'Gestión de tags y métricas');
-    }
-    if (html.includes('intercom.io') || html.includes('Intercom(')) {
-      addStack('Intercom', 'External Services', 95, 'Intercom SDK found', 'Soporte y Chat de Clientes');
-    }
-    if (html.includes('posthog.com') || html.includes('posthog.init')) {
-      addStack('PostHog', 'External Services', 95, 'PostHog analytics found', 'Analítica de Producto');
-    }
-    if (html.includes('segment.com') || html.includes('analytics.js')) {
-      addStack('Segment', 'External Services', 90, 'Segment tracking found', 'Plataforma de Datos de Clientes');
-    }
-    if (html.includes('algolia.net') || html.includes('algoliasearch')) {
-      addStack('Algolia', 'External Services', 95, 'Algolia search script found', 'Motor de Búsqueda de Texto');
-    }
-    if (html.includes('twilio.com')) {
-      addStack('Twilio', 'External Services', 90, 'Twilio references found', 'Comunicaciones (SMS/Voz)');
-    }
-    if (html.includes('sendgrid.net') || html.includes('sendgrid.com')) {
-      addStack('SendGrid', 'External Services', 90, 'SendGrid found', 'Envío de Emails Transaccionales');
-    }
-    if (html.includes('resend.com')) {
-      addStack('Resend', 'External Services', 90, 'Resend found', 'API de Email para Desarrolladores');
-    }
-    if (html.includes('firebaseapp.com') || html.includes('firebase.js')) {
-      addStack('Firebase', 'External Services', 95, 'Firebase SDK found', 'BaaS / Autenticación / Base de Datos');
-    }
-    if (html.includes('openai.com') || html.includes('chatgpt')) {
-      addStack('OpenAI', 'External Services', 85, 'OpenAI API references found', 'Inteligencia Artificial (LLM)');
-    }
-    if (html.includes('anthropic.com') || html.includes('claude')) {
-      addStack('Anthropic', 'External Services', 85, 'Anthropic API references found', 'Inteligencia Artificial (LLM)');
-    }
-    if (html.includes('gemini') || html.includes('generativelanguage.googleapis.com')) {
-      addStack('Google Gemini', 'External Services', 85, 'Gemini API references found', 'Inteligencia Artificial (LLM)');
-    }
-    if (html.includes('mapbox.com')) {
-      addStack('Mapbox', 'External Services', 95, 'Mapbox SDK found', 'Mapas y Geolocalización');
-    }
-    if (html.includes('browser.sentry-cdn.com') || html.includes('datadoghq-browser-agent')) {
-      addStack('Datadog', 'External Services', 95, 'Datadog RUM/Logs found', 'Observabilidad y Monitoreo');
-    }
-
-    return stack;
+    return finalStack;
   } catch (error) {
     console.error('TechStackProfiler Error:', error);
-    return stack;
+    return [];
   }
 }

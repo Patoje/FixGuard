@@ -30,6 +30,8 @@
     "dotenv": "^17.4.2",
     "drizzle-orm": "^0.45.2",
     "express": "^5.2.1",
-    "playwright": "^1.60.0"
+    "playwright": "^1.60.0",
+    "wappalyzer": "^7.0.3",
+    "wappalyzer-core": "^7.0.3"
   }
 }

@@ -40,6 +40,7 @@ export interface TechStackItem {
   confidence: number;
   evidence: string[];
   role: string;
+  version?: string;
 }
 
 export interface AttackSurfaceItem {

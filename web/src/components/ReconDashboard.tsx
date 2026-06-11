@@ -193,6 +193,11 @@ export default function ReconDashboard({ profile, targetUrl, onLaunchAttack }: P
                 <div>
                   <div className="flex items-center gap-2">
                     <span className="font-bold text-zinc-200">{tech.name}</span>
+                    {tech.version && (
+                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-zinc-800 text-zinc-400 font-mono border border-white/10">
+                        v{tech.version}
+                      </span>
+                    )}
                     <span className="text-xs px-2 py-0.5 rounded-full bg-violet-500/20 text-violet-300">
                       {tech.category}
                     </span>
