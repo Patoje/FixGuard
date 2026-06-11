@@ -5,6 +5,7 @@ import HeroScanner from "@/components/HeroScanner";
 import ScanningState from "@/components/ScanningState";
 import VulnerabilityCard from "@/components/VulnerabilityCard";
 import ReconDashboard from "@/components/ReconDashboard";
+import AttackPathTree from "@/components/AttackPathTree";
 import { ScanMode, TerminalLog, Vulnerability, ReconProfile } from "@/types";
 import { AnimatePresence, motion } from "framer-motion";
 
@@ -360,15 +361,19 @@ export default function Home() {
                 <p className="text-zinc-400">No se encontraron vulnerabilidades para el objetivo seleccionado.</p>
               </div>
             ) : (
-              <div className="space-y-4 mt-8">
-                <h3 className="text-2xl font-bold text-zinc-100 flex items-center gap-3 border-b border-white/5 pb-4 mb-6">
-                  <span className="w-2 h-8 bg-rose-500 rounded-full inline-block"></span>
-                  Vulnerabilidades Detectadas
-                </h3>
-                {vulnerabilities.map((vuln, index) => (
-                  <VulnerabilityCard key={vuln.id} vuln={vuln} index={index} />
-                ))}
-              </div>
+              <>
+                <AttackPathTree vulnerabilities={vulnerabilities} />
+                
+                <div className="space-y-4 mt-8">
+                  <h3 className="text-2xl font-bold text-zinc-100 flex items-center gap-3 border-b border-white/5 pb-4 mb-6">
+                    <span className="w-2 h-8 bg-rose-500 rounded-full inline-block"></span>
+                    Vulnerabilidades Detectadas
+                  </h3>
+                  {vulnerabilities.map((vuln, index) => (
+                    <VulnerabilityCard key={vuln.id} vuln={vuln} index={index} />
+                  ))}
+                </div>
+              </>
             )}
 
             <div className="flex justify-center pt-8">

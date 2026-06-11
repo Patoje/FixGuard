@@ -22,6 +22,8 @@ export const vulnerabilities = pgTable('vulnerabilities', {
   type: varchar('type', { length: 100 }).notNull(),
   severity: varchar('severity', { length: 20 }).notNull(),
   description: text('description').notNull(),
+  metadata: json('metadata'),
+  parentId: integer('parent_id').references((): any => vulnerabilities.id),
   autoFixCode: text('auto_fix_code'),
   createdAt: timestamp('created_at').defaultNow().notNull(),
 });

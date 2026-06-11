@@ -333,7 +333,7 @@ app.post('/api/sast', async (req, res) => {
 import { runTargetedAttack } from './targetedOrchestrator';
 
 app.post('/api/attack/targeted', async (req, res) => {
-  const { targetUrl, scanId, vectorId } = req.body;
+  const { targetUrl, scanId, vectorId, parentId } = req.body;
 
   if (!targetUrl || !scanId || !vectorId) {
     return res.status(400).json({ error: 'Falta targetUrl, scanId o vectorId' });
@@ -345,7 +345,7 @@ app.post('/api/attack/targeted', async (req, res) => {
     await db.update(scans).set({ status: 'in_progress', mode: 'targeted' }).where(eq(scans.id, scanId));
     
     // Execute just the single vector attack
-    await runTargetedAttack(scanId, targetUrl, vectorId);
+    await runTargetedAttack(scanId, targetUrl, vectorId, parentId);
 
     await db.update(scans).set({ 
       status: 'completed', 

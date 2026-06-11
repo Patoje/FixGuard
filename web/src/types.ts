@@ -20,6 +20,11 @@ export interface Vulnerability {
   severity: Severity;
   description: string;
   autoFixCode: string | null;
+  parentId?: number | null;
+  metadata?: {
+    discovered_urls?: string[];
+    vulnerable_parameters?: string[];
+  };
 }
 
 export interface TerminalLog {

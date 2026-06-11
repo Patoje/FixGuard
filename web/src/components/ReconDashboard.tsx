@@ -1,7 +1,8 @@
 "use client";
 
-import { motion } from "framer-motion";
-import { Server, Database, Layers, Shield, Network, Activity, Zap } from "lucide-react";
+import { motion, AnimatePresence } from "framer-motion";
+import { Server, Database, Layers, Shield, Network, Activity, Zap, Code } from "lucide-react";
+import { useState, useEffect } from "react";
 import { ReconProfile, ArchitectureNode } from "../types";
 
 interface Props {
@@ -11,10 +12,66 @@ interface Props {
 }
 
 export default function ReconDashboard({ profile, targetUrl, onLaunchAttack }: Props) {
+  const [isAttacking, setIsAttacking] = useState<Record<string, boolean>>({});
+  const [toast, setToast] = useState<{message: string, type: 'success' | 'error'} | null>(null);
+
+  // Auto-hide toast after 3 seconds
+  useEffect(() => {
+    if (toast) {
+      const timer = setTimeout(() => setToast(null), 3000);
+      return () => clearTimeout(timer);
+    }
+  }, [toast]);
+
+  const handlePivotAttack = async (path: string, tool: 'sqlmap' | 'xsstrike') => {
+    const fullUrl = path.startsWith('http') ? path : `${new URL(targetUrl).origin}${path.startsWith('/') ? path : '/' + path}`;
+    const key = `${tool}-${path}`;
+    
+    setIsAttacking(prev => ({ ...prev, [key]: true }));
+    try {
+      await fetch('/api/scans/attack', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          scanId: profile.scanId,
+          targetUrl: fullUrl,
+          vectorId: tool,
+          parentId: null // Starts as a new root node from the surface
+        })
+      });
+      setToast({ message: `Ataque [${tool.toUpperCase()}] lanzado en segundo plano.`, type: 'success' });
+    } catch (e) {
+      console.error("Error launching pivot attack:", e);
+      setToast({ message: `Error al lanzar el ataque ${tool.toUpperCase()}.`, type: 'error' });
+    } finally {
+      setIsAttacking(prev => ({ ...prev, [key]: false }));
+    }
+  };
+
   if (!profile) return null;
 
   return (
-    <div className="space-y-8 mt-12 mb-16">
+    <div className="space-y-8 mt-12 mb-16 relative">
+      
+      {/* Toast Notification */}
+      <AnimatePresence>
+        {toast && (
+          <motion.div
+            initial={{ opacity: 0, y: 50, x: '-50%' }}
+            animate={{ opacity: 1, y: 0, x: '-50%' }}
+            exit={{ opacity: 0, y: 20, x: '-50%' }}
+            className={`fixed bottom-8 left-1/2 z-50 flex items-center gap-3 px-6 py-3 rounded-full border shadow-2xl backdrop-blur-md ${
+              toast.type === 'success' 
+                ? 'bg-emerald-500/20 border-emerald-500/50 text-emerald-100 shadow-emerald-500/20' 
+                : 'bg-rose-500/20 border-rose-500/50 text-rose-100 shadow-rose-500/20'
+            }`}
+          >
+            {toast.type === 'success' ? <Zap className="w-5 h-5 text-emerald-400" /> : <Shield className="w-5 h-5 text-rose-400" />}
+            <span className="font-medium text-sm">{toast.message}</span>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       <div className="text-center">
         <h2 className="text-3xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-blue-400 to-emerald-400">
           Intelligence & Attack Surface
@@ -149,7 +206,8 @@ export default function ReconDashboard({ profile, targetUrl, onLaunchAttack }: P
                   <th className="p-3 font-medium rounded-tl-lg">Endpoint</th>
                   <th className="p-3 font-medium">Método</th>
                   <th className="p-3 font-medium">Tipo</th>
-                  <th className="p-3 font-medium rounded-tr-lg">Riesgo</th>
+                  <th className="p-3 font-medium">Riesgo</th>
+                  <th className="p-3 font-medium text-right rounded-tr-lg">Ofensiva</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-white/5">
@@ -169,6 +227,26 @@ export default function ReconDashboard({ profile, targetUrl, onLaunchAttack }: P
                         <span className={`px-2 py-1 text-xs font-bold rounded-md border ${riskColors[ep.riskLevel]}`}>
                           {ep.riskLevel}
                         </span>
+                      </td>
+                      <td className="p-3 text-right">
+                        <div className="flex gap-2 justify-end opacity-20 hover:opacity-100 transition-opacity">
+                          <button
+                            onClick={() => handlePivotAttack(ep.path, 'sqlmap')}
+                            disabled={isAttacking[`sqlmap-${ep.path}`]}
+                            className="flex items-center gap-1 px-2 py-1 bg-rose-500/10 text-rose-400 border border-rose-500/20 hover:bg-rose-500/20 rounded text-[10px] font-bold transition-colors disabled:opacity-50"
+                            title="Lanzar SQLMap"
+                          >
+                            <Database className="w-3 h-3" /> {isAttacking[`sqlmap-${ep.path}`] ? '...' : 'SQLi'}
+                          </button>
+                          <button
+                            onClick={() => handlePivotAttack(ep.path, 'xsstrike')}
+                            disabled={isAttacking[`xsstrike-${ep.path}`]}
+                            className="flex items-center gap-1 px-2 py-1 bg-amber-500/10 text-amber-400 border border-amber-500/20 hover:bg-amber-500/20 rounded text-[10px] font-bold transition-colors disabled:opacity-50"
+                            title="Lanzar XSStrike"
+                          >
+                            <Code className="w-3 h-3" /> {isAttacking[`xsstrike-${ep.path}`] ? '...' : 'XSS'}
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   )

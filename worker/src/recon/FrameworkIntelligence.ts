@@ -169,5 +169,7 @@ export const VECTOR_REGISTRY: Record<string, VectorItem> = {
   nmap_full: { id: 'nmap_full', name: 'Escaneo de Puertos Total', cliCommand: 'nmap -sV -sC -Pn -T4 -p- <TARGET>' },
   subfinder_enum: { id: 'subfinder_enum', name: 'Enumeración de Subdominios', cliCommand: 'subfinder -d <TARGET> -all' },
   wpscan_full: { id: 'wpscan_full', name: 'WPScan Arsenal Completo', cliCommand: 'wpscan --url <TARGET> --enumerate u,p,t --random-user-agent' },
-  xsstrike_react: { id: 'xsstrike_react', name: 'XSS Automático (Mutación)', cliCommand: 'xsstrike -u <TARGET>' }
+  xsstrike_react: { id: 'xsstrike_react', name: 'XSS Automático (Mutación)', cliCommand: 'xsstrike -u <TARGET>' },
+  sqlmap: { id: 'sqlmap', name: 'Inyección SQL con SQLMap', cliCommand: 'sqlmap -u <TARGET> --batch --level=3 --risk=2' },
+  xsstrike: { id: 'xsstrike', name: 'Ataque XSS con XSStrike', cliCommand: 'xsstrike -u <TARGET>' }
 };

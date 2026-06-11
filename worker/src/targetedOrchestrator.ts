@@ -4,7 +4,7 @@ import { db } from './db/db';
 import { vulnerabilities } from './db/schema';
 
 // Helper to parse the output and determine severity/findings
-function parseCliOutput(command: string, output: string): { severity: 'low' | 'medium' | 'high' | 'critical', finding: string } | null {
+function parseCliOutput(command: string, output: string): { severity: 'low' | 'medium' | 'high' | 'critical', finding: string, metadata?: any } | null {
   const lowerOut = output.toLowerCase();
   
   if (command.includes('nuclei')) {
@@ -44,9 +44,34 @@ function parseCliOutput(command: string, output: string): { severity: 'low' | 'm
   }
 
   if (command.includes('katana') || command.includes('waybackurls') || command.includes('subfinder')) {
-    const lineCount = output.trim().split('\n').filter(l => l.length > 0).length;
-    if (lineCount > 0) {
-      return { severity: 'low', finding: `Se descubrieron ${lineCount} endpoints / subdominios en la superficie del objetivo.` };
+    const lines = output.trim().split('\n').filter(l => l.length > 0);
+    const discoveredUrls: string[] = [];
+    const vulnerableParameters: string[] = [];
+
+    const urlRegex = /(https?:\/\/[^\s]+)/g;
+    for (const line of lines) {
+      const match = line.match(urlRegex);
+      if (match) {
+        const url = match[0];
+        discoveredUrls.push(url);
+        if (url.includes('?') || url.includes('=')) {
+          vulnerableParameters.push(url);
+        }
+      } else if (line.includes('.') && !line.includes(' ')) {
+        // Fallback for tools like subfinder which might output domains without http
+        discoveredUrls.push(line);
+      }
+    }
+
+    if (discoveredUrls.length > 0) {
+      return { 
+        severity: vulnerableParameters.length > 0 ? 'medium' : 'low', 
+        finding: `Se descubrieron ${discoveredUrls.length} endpoints / subdominios en la superficie del objetivo. (${vulnerableParameters.length} de ellos contienen parámetros analizables).`,
+        metadata: {
+          discovered_urls: discoveredUrls,
+          vulnerable_parameters: vulnerableParameters
+        }
+      };
     }
     return null;
   }
@@ -79,7 +104,7 @@ function parseCliOutput(command: string, output: string): { severity: 'low' | 'm
   return null;
 }
 
-export async function runTargetedAttack(scanId: number, targetUrl: string, vectorId: string): Promise<void> {
+export async function runTargetedAttack(scanId: number, targetUrl: string, vectorId: string, parentId?: number): Promise<void> {
   console.log(`[Scan ${scanId}] Iniciando ataque dirigido REAL [${vectorId}] contra ${targetUrl}`);
 
   try {
@@ -109,6 +134,8 @@ export async function runTargetedAttack(scanId: number, targetUrl: string, vecto
         severity: result.severity,
         description: `${result.finding}\n\nComando ejecutado: \`${vector.cliCommand}\`\n\n**Output parcial:**\n\`\`\`\n${output.substring(0, 500)}...\n\`\`\``,
         autoFixCode: null,
+        metadata: result.metadata || null,
+        parentId: parentId || null,
       });
     } else {
       console.log(`[Scan ${scanId}] ✅ El objetivo parece estar seguro contra este vector (Ninguna coincidencia crítica en la salida de la herramienta).`);
