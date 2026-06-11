@@ -15,6 +15,23 @@ export function runFrameworkIntelligence(techStack: TechStackItem[]): FrameworkV
   const intelligence: FrameworkVector[] = [];
   const stackNames = techStack.map(t => t.name.toLowerCase());
 
+  // Deep Recon, Network & Subdomains (Always on)
+  intelligence.push({
+    framework: 'Reconocimiento Profundo',
+    vectors: [
+      { id: 'deep_katana', name: 'Crawling Avanzado JS/DOM', cliCommand: 'katana -u <TARGET> -d 5 -jc -kf' },
+      { id: 'deep_wayback', name: 'Historial Wayback Machine', cliCommand: 'waybackurls <TARGET>' }
+    ]
+  });
+
+  intelligence.push({
+    framework: 'Network & Infrastructure',
+    vectors: [
+      { id: 'nmap_full', name: 'Escaneo de Puertos Total', cliCommand: 'nmap -sV -sC -Pn -T4 -p- <TARGET>' },
+      { id: 'subfinder_enum', name: 'Enumeración de Subdominios', cliCommand: 'subfinder -d <TARGET> -all' }
+    ]
+  });
+
   // Si detectamos Next.js explícitamente, o si está en Vercel (que casi siempre implica Next.js),
   // mostramos los vectores de Next.js.
   if (stackNames.includes('next.js') || stackNames.includes('vercel') || stackNames.includes('react')) {
@@ -41,7 +58,8 @@ export function runFrameworkIntelligence(techStack: TechStackItem[]): FrameworkV
         { id: 'react_routing', name: 'Client Side Routing enumeration', cliCommand: 'nuclei -id react-routing -u <TARGET>' },
         { id: 'react_localstorage', name: 'Local Storage secrets', cliCommand: 'grep -ri "localStorage.setItem" .' },
         { id: 'react_sessionstorage', name: 'Session Storage secrets', cliCommand: 'grep -ri "sessionStorage.setItem" .' },
-        { id: 'react_dom_injection', name: 'DOM Injection Points (dangerouslySetInnerHTML)', cliCommand: 'grep -ri "dangerouslySetInnerHTML" .' }
+        { id: 'react_dom_injection', name: 'DOM Injection Points', cliCommand: 'grep -ri "dangerouslySetInnerHTML" .' },
+        { id: 'xsstrike_react', name: 'XSS Automático (Mutación)', cliCommand: 'xsstrike -u <TARGET>' }
       ]
     });
   }
@@ -95,6 +113,14 @@ export function runFrameworkIntelligence(techStack: TechStackItem[]): FrameworkV
       ]
     });
   }
+  if (stackNames.includes('wordpress')) {
+    intelligence.push({
+      framework: 'WordPress',
+      vectors: [
+        { id: 'wpscan_full', name: 'WPScan Arsenal Completo', cliCommand: 'wpscan --url <TARGET> --enumerate u,p,t --random-user-agent' }
+      ]
+    });
+  }
 
   return intelligence;
 }
@@ -136,5 +162,12 @@ export const VECTOR_REGISTRY: Record<string, VectorItem> = {
   supabase_realtime: { id: 'supabase_realtime', name: 'Realtime socket exposure', cliCommand: 'wscat -c wss://<TARGET>/realtime/v1/websocket' },
   supabase_rls: { id: 'supabase_rls', name: 'Row Level Security bypass', cliCommand: 'nuclei -id supabase-rls-bypass -u <TARGET>' },
   supabase_edge: { id: 'supabase_edge', name: 'Edge Functions keys leak', cliCommand: 'nuclei -id supabase-edge-keys -u <TARGET>' },
-  supabase_anon_key: { id: 'supabase_anon_key', name: 'Anon Key abuse', cliCommand: 'curl -H "apikey: ANON_KEY" <TARGET>/rest/v1/' }
+  supabase_anon_key: { id: 'supabase_anon_key', name: 'Anon Key abuse', cliCommand: 'curl -H "apikey: ANON_KEY" <TARGET>/rest/v1/' },
+  // Arsenal
+  deep_katana: { id: 'deep_katana', name: 'Crawling Avanzado JS/DOM', cliCommand: 'katana -u <TARGET> -d 5 -jc -kf' },
+  deep_wayback: { id: 'deep_wayback', name: 'Historial Wayback Machine', cliCommand: 'waybackurls <TARGET>' },
+  nmap_full: { id: 'nmap_full', name: 'Escaneo de Puertos Total', cliCommand: 'nmap -sV -sC -Pn -T4 -p- <TARGET>' },
+  subfinder_enum: { id: 'subfinder_enum', name: 'Enumeración de Subdominios', cliCommand: 'subfinder -d <TARGET> -all' },
+  wpscan_full: { id: 'wpscan_full', name: 'WPScan Arsenal Completo', cliCommand: 'wpscan --url <TARGET> --enumerate u,p,t --random-user-agent' },
+  xsstrike_react: { id: 'xsstrike_react', name: 'XSS Automático (Mutación)', cliCommand: 'xsstrike -u <TARGET>' }
 };

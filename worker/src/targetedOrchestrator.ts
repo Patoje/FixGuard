@@ -21,6 +21,35 @@ function parseCliOutput(command: string, output: string): { severity: 'low' | 'm
     }
     return null;
   }
+
+  if (command.includes('wpscan')) {
+    if (lowerOut.includes('[!]')) {
+      return { severity: 'high', finding: 'WPScan detectó vulnerabilidades conocidas o configuraciones expuestas en WordPress.' };
+    }
+    return null;
+  }
+
+  if (command.includes('nmap')) {
+    if (lowerOut.includes('open')) {
+      return { severity: 'medium', finding: 'Nmap descubrió puertos abiertos en el servidor.' };
+    }
+    return null;
+  }
+
+  if (command.includes('xsstrike')) {
+    if (lowerOut.includes('vulnerable') || lowerOut.includes('payload:')) {
+      return { severity: 'high', finding: 'XSStrike encontró y validó un vector de inyección XSS.' };
+    }
+    return null;
+  }
+
+  if (command.includes('katana') || command.includes('waybackurls') || command.includes('subfinder')) {
+    const lineCount = output.trim().split('\n').filter(l => l.length > 0).length;
+    if (lineCount > 0) {
+      return { severity: 'low', finding: `Se descubrieron ${lineCount} endpoints / subdominios en la superficie del objetivo.` };
+    }
+    return null;
+  }
   
   if (command.includes('ffuf') || command.includes('curl') || command.includes('grep')) {
     // If we use ffuf -s (silent), it only outputs the matched paths/words.

@@ -75,6 +75,9 @@ export async function runTechStackProfiler(targetUrl: string): Promise<TechStack
     if (html.includes('bootstrap')) {
       addStack('Bootstrap', 'Frontend Framework', 90, 'Bootstrap references found', 'Framework CSS / Componentes');
     }
+    if (html.includes('wp-content') || html.includes('wp-includes') || html.includes('name="generator" content="wordpress')) {
+      addStack('WordPress', 'CMS', 95, 'WordPress paths/generator found', 'Gestor de contenido PHP');
+    }
 
     // --- HOSTING / INFRASTRUCTURE ---
     const serverHeader = headers['server'] ? String(headers['server']).toLowerCase() : '';
