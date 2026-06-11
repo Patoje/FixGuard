@@ -1,9 +1,10 @@
-import axios from 'axios';
-import * as cheerio from 'cheerio';
+import { chromium } from 'playwright';
+import type { Browser } from 'playwright';
 
 /**
- * Realiza un Crawling Inteligente de la aplicación objetivo.
- * Extrae todas las rutas accesibles (mismo dominio) para que los motores ataquen la superficie completa.
+ * Realiza un Crawling Dinámico de la aplicación objetivo usando Playwright.
+ * Permite renderizar SPAs (React, Next.js, Vite) y escuchar peticiones de red (Fetch/XHR)
+ * en segundo plano para descubrir APIs ocultas.
  */
 export async function runCrawler(scanId: number, targetUrl: string): Promise<{endpoints: string[], jsFiles: string[]}> {
   const discoveredUrls = new Set<string>();
@@ -16,54 +17,71 @@ export async function runCrawler(scanId: number, targetUrl: string): Promise<{en
   const queue = [targetUrl];
   const visited = new Set<string>();
 
-  console.log(`[Scan ${scanId}] Crawler: Iniciando mapeo SPA profundo en ${targetUrl}...`);
+  console.log(`[Scan ${scanId}] Crawler: Iniciando SPA Headless Crawler (Playwright) en ${targetUrl}...`);
 
-  while (queue.length > 0 && visited.size < maxPagesToVisit) {
-    const currentUrl = queue.shift()!;
+  let browser: Browser | null = null;
+  try {
+    browser = await chromium.launch({ 
+      headless: true, 
+      args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-gpu'] 
+    });
+    const context = await browser.newContext({ ignoreHTTPSErrors: true });
     
-    if (visited.has(currentUrl)) continue;
-    visited.add(currentUrl);
-
-    try {
-      const response = await axios.get(currentUrl, {
-        timeout: 5000,
-        validateStatus: () => true, // Aceptar 404s también (pueden revelar info)
-      });
-
-      if (typeof response.data !== 'string') continue;
-      const html = response.data;
-
-      // Usamos cheerio para parsear el DOM clásico
-      const $ = cheerio.load(html);
-
-      $('a').each((_, element) => {
-        const href = $(element).attr('href');
-        if (!href) return;
-
-        // Ignorar anclas internas o javascript:
-        if (href.startsWith('#') || href.startsWith('javascript:')) return;
-        // Ignorar mails y telefonos
-        if (href.startsWith('mailto:') || href.startsWith('tel:')) return;
-
-        try {
-          const resolvedUrl = new URL(href, currentUrl);
-          if (resolvedUrl.origin === baseUrl) {
-            resolvedUrl.hash = '';
-            const finalUrl = resolvedUrl.toString();
-            if (!discoveredUrls.has(finalUrl)) {
-              discoveredUrls.add(finalUrl);
-              queue.push(finalUrl);
-            }
+    // Intercepción global para extraer peticiones de red
+    context.on('request', request => {
+      const reqUrl = request.url();
+      try {
+        const u = new URL(reqUrl);
+        if (u.origin === baseUrl) {
+          // Si es un script
+          if (u.pathname.endsWith('.js')) {
+            discoveredJsFiles.add(u.toString());
+          } else if (request.resourceType() === 'fetch' || request.resourceType() === 'xhr') {
+            // Es un endpoint de API u otro recurso REST
+            discoveredUrls.add(u.toString());
           }
-        } catch (e) {
-          // URL inválida
         }
-      });
+      } catch (e) {}
+    });
 
-      // Extraer tags <script>
-      $('script').each((_, element) => {
-        const src = $(element).attr('src');
-        if (src) {
+    const page = await context.newPage();
+
+    while (queue.length > 0 && visited.size < maxPagesToVisit) {
+      const currentUrl = queue.shift()!;
+      
+      if (visited.has(currentUrl)) continue;
+      visited.add(currentUrl);
+
+      // console.log(`[Scan ${scanId}] Crawler: Visitando ${currentUrl}...`);
+
+      try {
+        // networkidle puede fallar si la página hace polling infinito. 
+        // Primero vamos con domcontentloaded, y luego intentamos esperar a networkidle sin que explote.
+        await page.goto(currentUrl, { waitUntil: 'domcontentloaded', timeout: 10000 });
+        await page.waitForLoadState('networkidle', { timeout: 3000 }).catch(() => {});
+        
+        // Extraer todos los links hidratados dinámicamente
+        const links = await page.$$eval('a', (anchors) => 
+          anchors.map(a => a.href).filter(href => href && !href.startsWith('javascript:') && !href.startsWith('mailto:') && !href.startsWith('tel:'))
+        );
+
+        for (const href of links) {
+          try {
+            const resolvedUrl = new URL(href);
+            if (resolvedUrl.origin === baseUrl) {
+              resolvedUrl.hash = '';
+              const finalUrl = resolvedUrl.toString();
+              if (!discoveredUrls.has(finalUrl)) {
+                discoveredUrls.add(finalUrl);
+                queue.push(finalUrl);
+              }
+            }
+          } catch(e) {}
+        }
+
+        // Extraer scripts inyectados dinámicamente
+        const scripts = await page.$$eval('script', (tags) => tags.map(s => s.src).filter(src => src));
+        for (const src of scripts) {
           try {
             const resolvedUrl = new URL(src, currentUrl);
             if (resolvedUrl.origin === baseUrl || src.startsWith('/')) {
@@ -71,56 +89,23 @@ export async function runCrawler(scanId: number, targetUrl: string): Promise<{en
             }
           } catch(e) {}
         }
-      });
 
-      // 1. Next.js Pages Router: Extraer data URLs (/_next/data/...)
-      const nextDataMatches = html.matchAll(/"(\/_next\/data\/[^"]+)"/g);
-      for (const match of nextDataMatches) {
-        const nextUrl = `${baseUrl}${match[1]}`;
-        discoveredUrls.add(nextUrl);
+      } catch (error: any) {
+        // Ignorar timeouts por protección anti-bot o carga pesada
+        // console.log(`[Scan ${scanId}] Crawler: Timeout visitando ${currentUrl}`);
       }
+    }
 
-      // 2. Extracción Agresiva React/Next.js (App Router & Minified JS)
-      // Buscamos cualquier cadena que parezca una ruta interna (empieza con / y tiene caracteres de ruta válidos)
-      const rawPathMatches = html.matchAll(/(?<=['"`])(\/[a-zA-Z0-9\-_/]+)(?=['"`])/g);
-      for (const match of rawPathMatches) {
-        try {
-          const path = match[1];
-          // Excluir rutas de assets estáticos que no son páginas
-          if (path.includes('_next/static') || path.includes('.js') || path.includes('.css') || path.includes('.woff') || path.includes('.png')) {
-            continue;
-          }
-
-          const resolvedUrl = new URL(path, currentUrl).toString();
-          if (!discoveredUrls.has(resolvedUrl)) {
-            discoveredUrls.add(resolvedUrl);
-            queue.push(resolvedUrl);
-          }
-        } catch(e) {}
-      }
-
-      // 3. Extracción desde JSON serializado (RSC Payload u otros)
-      const jsonLikePaths = html.matchAll(/\\"(?:\/)([a-zA-Z0-9\-_/]+)\\"/g);
-      for (const match of jsonLikePaths) {
-         try {
-          const path = `/${match[1]}`;
-          if (path.includes('_next/static') || path.includes('.js')) continue;
-
-          const resolvedUrl = new URL(path, currentUrl).toString();
-          if (!discoveredUrls.has(resolvedUrl)) {
-            discoveredUrls.add(resolvedUrl);
-            queue.push(resolvedUrl);
-          }
-        } catch(e) {}
-      }
-
-    } catch (error: any) {
-      console.log(`[Scan ${scanId}] Crawler: Timeout visitando ${currentUrl}`);
+  } catch (err: any) {
+    console.error(`[Scan ${scanId}] Crawler Error crítico de Playwright: ${err.message}`);
+  } finally {
+    if (browser) {
+      await browser.close();
     }
   }
 
   const result = Array.from(discoveredUrls);
   const jsResult = Array.from(discoveredJsFiles);
-  console.log(`[Scan ${scanId}] Crawler: Mapeo profundo completado. ${result.length} rutas descubiertas, ${jsResult.length} archivos JS encontrados.`);
+  console.log(`[Scan ${scanId}] Crawler: Mapeo Headless completado. ${result.length} rutas/endpoints descubiertos, ${jsResult.length} archivos JS interceptados.`);
   return { endpoints: result, jsFiles: jsResult };
 }
