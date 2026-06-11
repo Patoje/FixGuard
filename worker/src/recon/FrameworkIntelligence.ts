@@ -164,7 +164,7 @@ export const VECTOR_REGISTRY: Record<string, VectorItem> = {
   supabase_edge: { id: 'supabase_edge', name: 'Edge Functions keys leak', cliCommand: 'nuclei -id supabase-edge-keys -u <TARGET>' },
   supabase_anon_key: { id: 'supabase_anon_key', name: 'Anon Key abuse', cliCommand: 'curl -H "apikey: ANON_KEY" <TARGET>/rest/v1/' },
   // Arsenal
-  deep_katana: { id: 'deep_katana', name: 'Crawling Avanzado JS/DOM', cliCommand: 'katana -u <TARGET> -d 5 -jc -kf' },
+  deep_katana: { id: 'deep_katana', name: 'Crawling Avanzado JS/DOM', cliCommand: 'katana -u <TARGET> -d 5 -jc -kf all' },
   deep_wayback: { id: 'deep_wayback', name: 'Historial Wayback Machine', cliCommand: 'waybackurls <TARGET>' },
   nmap_full: { id: 'nmap_full', name: 'Escaneo de Puertos Total', cliCommand: 'nmap -sV -sC -Pn -T4 -p- <TARGET>' },
   subfinder_enum: { id: 'subfinder_enum', name: 'Enumeración de Subdominios', cliCommand: 'subfinder -d <TARGET> -all' },
