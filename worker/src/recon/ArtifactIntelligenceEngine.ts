@@ -4,24 +4,42 @@ export interface ArtifactIntelligence {
   discoveredRoutes: string[];
   hiddenRoutes: string[];
   manifestType?: 'Next.js BuildManifest' | 'React AssetManifest' | 'Vite Manifest' | 'Angular chunks';
+  exposedSecrets: Array<{ type: string; value: string }>;
+  hiddenApiEndpoints: string[];
+  exposedSourceMaps: string[];
 }
 
 export class ArtifactIntelligenceEngine {
-  static async analyze(targetUrl: string, jsCodes: string[]): Promise<ArtifactIntelligence> {
+  // Regex patterns para SecretFinder
+  private static SECRET_PATTERNS = [
+    { type: 'AWS Access Key', regex: /(?:A3T[A-Z0-9]|AKIA|AGPA|AIDA|AROA|AIPA|ANPA|ANVA|ASIA)[A-Z0-9]{16}/g },
+    { type: 'Stripe Secret Key', regex: /sk_(live|test)_[0-9a-zA-Z]{24}/g },
+    { type: 'Google API Key', regex: /AIza[0-9A-Za-z\-_]{35}/g },
+    { type: 'Mailgun API Key', regex: /key-[0-9a-zA-Z]{32}/g },
+    { type: 'Twilio API Key', regex: /SK[0-9a-fA-F]{32}/g },
+    { type: 'Slack Webhook', regex: /https:\/\/hooks\.slack\.com\/services\/T[a-zA-Z0-9_]{8}\/B[a-zA-Z0-9_]{8}\/[a-zA-Z0-9_]{24}/g },
+    { type: 'Database URI', regex: /(?:mongodb(?:\+srv)?|postgres(?:ql)?|mysql):\/\/[a-zA-Z0-9_]+:[a-zA-Z0-9_]+@[^\s"']+/g },
+    { type: 'JSON Web Token (JWT)', regex: /eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}/g }
+  ];
+
+  // Regex pattern para LinkFinder (simplificado)
+  private static LINK_PATTERN = /(?:"|')(\/api\/[a-zA-Z0-9_\-\/]+|\/v[0-9]+\/[a-zA-Z0-9_\-\/]+|https?:\/\/[a-zA-Z0-9_\-\.]+\/api\/[a-zA-Z0-9_\-\/]+)(?:"|')/g;
+
+  static async analyze(targetUrl: string, jsCodes: string[], jsUrls: string[] = []): Promise<ArtifactIntelligence> {
     const intel: ArtifactIntelligence = {
       discoveredRoutes: [],
-      hiddenRoutes: []
+      hiddenRoutes: [],
+      exposedSecrets: [],
+      hiddenApiEndpoints: [],
+      exposedSourceMaps: []
     };
 
     const baseUrl = new URL(targetUrl).origin;
 
-    // 1. Buscar Next.js __BUILD_MANIFEST en los códigos JS (generalmente en _buildManifest.js)
+    // --- FASE 1: Análisis de Manifests Original ---
     for (const code of jsCodes) {
       if (code.includes('__BUILD_MANIFEST') || code.includes('sortedPages')) {
         intel.manifestType = 'Next.js BuildManifest';
-        
-        // Expresión regular para extraer las rutas del array de sortedPages
-        // Ejemplo: sortedPages:["/","/api/users","/dashboard"]
         const sortedPagesMatch = code.match(/sortedPages\s*:\s*\[(.*?)\]/);
         if (sortedPagesMatch && sortedPagesMatch[1]) {
           const routes = sortedPagesMatch[1]
@@ -39,7 +57,6 @@ export class ArtifactIntelligenceEngine {
       }
     }
 
-    // 2. Probar si existe asset-manifest.json (típico de Create React App)
     if (!intel.manifestType) {
       try {
         const response = await axios.get(`${baseUrl}/asset-manifest.json`, { timeout: 3000 });
@@ -51,6 +68,63 @@ export class ArtifactIntelligenceEngine {
           }
         }
       } catch (e) {}
+    }
+
+    // --- FASE 2: SecretFinder y LinkFinder ---
+    console.log(`[ArtifactIntelligence] Escaneando ${jsCodes.length} chunks de JS en busca de secretos y rutas ocultas...`);
+    
+    // Usaremos un Set para evitar secretos duplicados si aparecen en múltiples chunks
+    const foundSecrets = new Set<string>();
+    const foundApis = new Set<string>();
+
+    for (const code of jsCodes) {
+      // SecretFinder
+      for (const pattern of this.SECRET_PATTERNS) {
+        let match;
+        while ((match = pattern.regex.exec(code)) !== null) {
+          const secretValue = match[0];
+          const secretKey = `${pattern.type}::${secretValue}`;
+          if (!foundSecrets.has(secretKey)) {
+            foundSecrets.add(secretKey);
+            intel.exposedSecrets.push({ type: pattern.type, value: secretValue });
+            // Redactamos una parte del valor en consola para seguridad visual
+            const safeLog = secretValue.substring(0, 8) + '***';
+            console.log(`[ArtifactIntelligence] 🚨 Peligro: ${pattern.type} encontrado en el código fuente (${safeLog})`);
+          }
+        }
+      }
+
+      // LinkFinder
+      let linkMatch;
+      while ((linkMatch = this.LINK_PATTERN.exec(code)) !== null) {
+        const endpoint = linkMatch[1];
+        if (!foundApis.has(endpoint)) {
+          foundApis.add(endpoint);
+          intel.hiddenApiEndpoints.push(endpoint);
+        }
+      }
+    }
+
+    if (intel.hiddenApiEndpoints.length > 0) {
+      console.log(`[ArtifactIntelligence] 🔍 LinkFinder extrajo ${intel.hiddenApiEndpoints.length} endpoints de API ocultos en el código.`);
+    }
+
+    // --- FASE 2.5: Detector de Source Maps ---
+    // Por cada URL de un chunk JS interceptado, verificamos si existe su versión .map
+    for (const jsUrl of jsUrls) {
+      if (jsUrl.endsWith('.js')) {
+        const sourceMapUrl = `${jsUrl}.map`;
+        try {
+          // Petición HEAD muy rápida para no descargar megabytes de mapas inútilmente
+          const res = await axios.head(sourceMapUrl, { timeout: 3000 });
+          if (res.status === 200) {
+             console.log(`[ArtifactIntelligence] 🔥 CRÍTICO: Source Map expuesto en ${sourceMapUrl}`);
+             intel.exposedSourceMaps.push(sourceMapUrl);
+          }
+        } catch (e) {
+          // Si da 404 o timeout, ignoramos. El desarrollador hizo las cosas bien.
+        }
+      }
     }
 
     return intel;

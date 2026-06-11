@@ -156,7 +156,8 @@ app.post('/api/scan', async (req, res) => {
 
     // NUEVO: Motores Avanzados de Reconocimiento Funcional
     const subdomainIntelligence = await SubdomainIntelligenceEngine.discover(domain);
-    const artifactIntelligence = await ArtifactIntelligenceEngine.analyze(targetUrl, jsCodes);
+    // --- FASE 3: Análisis de Artefactos (NUEVO: Pasamos las URLs de los JS para detectar Source Maps) ---
+    const artifactIntelligence = await ArtifactIntelligenceEngine.analyze(targetUrl, jsCodes, jsUrls);
     const parameterIntelligence = ParameterIntelligenceEngine.analyze(attackSurface);
     const aiIntelligence = AIFingerprintEngine.analyze(jsCodes, baseHeaders);
 
