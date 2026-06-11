@@ -1,7 +1,7 @@
 "use client";
 
 import { motion, AnimatePresence } from "framer-motion";
-import { Server, Database, Layers, Shield, Network, Activity, Zap, Code, Link2, BookOpen, Cloud, Key } from "lucide-react";
+import { Server, Database, Layers, Shield, Network, Activity, Zap, Code, Link2, BookOpen, Cloud, Key, Workflow, Radio } from "lucide-react";
 import { useState, useEffect } from "react";
 import { ReconProfile, ArchitectureNode } from "../types";
 import ApplicationBlueprint from "./ApplicationBlueprint";
@@ -296,6 +296,91 @@ export default function ReconDashboard({ profile, targetUrl, onLaunchAttack }: P
             </motion.div>
           )}
         </div>
+
+        {/* Communication Intelligence (GraphQL & WebSockets) */}
+        {profile.communicationIntelligence && (profile.communicationIntelligence.graphql.enabled || profile.communicationIntelligence.websockets.detected) && (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 lg:col-span-2">
+            {profile.communicationIntelligence.graphql.enabled && (
+              <motion.div 
+                initial={{ opacity: 0, scale: 0.95 }}
+                animate={{ opacity: 1, scale: 1 }}
+                transition={{ delay: 0.24 }}
+                className="glass-panel p-6 border-pink-500/20"
+              >
+                <div className="flex items-center gap-3 mb-6 border-b border-white/5 pb-4">
+                  <Workflow className="w-5 h-5 text-pink-400" />
+                  <h3 className="text-xl font-semibold text-zinc-100">GraphQL Intelligence</h3>
+                </div>
+                <div className="space-y-4">
+                  <div>
+                    <h4 className="text-sm font-bold text-pink-300 mb-2">Endpoint de Introspección</h4>
+                    <span className="text-xs font-mono bg-zinc-800 text-zinc-300 px-2 py-1 rounded break-all">{profile.communicationIntelligence.graphql.endpoint}</span>
+                  </div>
+                  {profile.communicationIntelligence.graphql.queries.length > 0 && (
+                    <div>
+                      <h4 className="text-sm font-bold text-pink-300 mb-2">Queries Expuestas</h4>
+                      <div className="flex flex-wrap gap-2">
+                        {profile.communicationIntelligence.graphql.queries.slice(0, 10).map((q, i) => <span key={i} className="text-xs bg-pink-500/10 text-pink-400 px-2 py-1 rounded">{q}</span>)}
+                        {profile.communicationIntelligence.graphql.queries.length > 10 && <span className="text-xs text-zinc-500 py-1">+{profile.communicationIntelligence.graphql.queries.length - 10} más</span>}
+                      </div>
+                    </div>
+                  )}
+                  {profile.communicationIntelligence.graphql.mutations.length > 0 && (
+                    <div>
+                      <h4 className="text-sm font-bold text-pink-300 mb-2">Mutations (Crítico)</h4>
+                      <div className="flex flex-wrap gap-2">
+                        {profile.communicationIntelligence.graphql.mutations.slice(0, 5).map((m, i) => <span key={i} className="text-xs bg-rose-500/20 text-rose-400 px-2 py-1 rounded font-bold border border-rose-500/30">{m}</span>)}
+                      </div>
+                    </div>
+                  )}
+                  {profile.communicationIntelligence.graphql.types.length > 0 && (
+                    <div>
+                      <h4 className="text-sm font-bold text-pink-300 mb-2">Tipos de Datos (Entities)</h4>
+                      <div className="flex flex-wrap gap-2">
+                        {profile.communicationIntelligence.graphql.types.slice(0, 8).map((t, i) => <span key={i} className="text-xs bg-purple-500/10 text-purple-400 px-2 py-1 rounded">{t}</span>)}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </motion.div>
+            )}
+
+            {profile.communicationIntelligence.websockets.detected && (
+              <motion.div 
+                initial={{ opacity: 0, scale: 0.95 }}
+                animate={{ opacity: 1, scale: 1 }}
+                transition={{ delay: 0.25 }}
+                className="glass-panel p-6 border-emerald-500/20"
+              >
+                <div className="flex items-center gap-3 mb-6 border-b border-white/5 pb-4">
+                  <Radio className="w-5 h-5 text-emerald-400 animate-pulse" />
+                  <h3 className="text-xl font-semibold text-zinc-100">WebSocket Intelligence</h3>
+                </div>
+                <div className="space-y-4">
+                  {profile.communicationIntelligence.websockets.urls.length > 0 && (
+                    <div>
+                      <h4 className="text-sm font-bold text-emerald-300 mb-2">Conexiones Activas Detectadas</h4>
+                      <ul className="list-disc pl-5">
+                        {profile.communicationIntelligence.websockets.urls.map((u, i) => <li key={i} className="text-xs text-zinc-300 font-mono break-all">{u}</li>)}
+                      </ul>
+                    </div>
+                  )}
+                  {profile.communicationIntelligence.websockets.namespaces.length > 0 && (
+                    <div>
+                      <h4 className="text-sm font-bold text-emerald-300 mb-2">Socket.io Namespaces</h4>
+                      <div className="flex flex-wrap gap-2">
+                        {profile.communicationIntelligence.websockets.namespaces.map((ns, i) => <span key={i} className="text-xs font-mono bg-emerald-500/10 text-emerald-400 px-2 py-1 rounded">{ns}</span>)}
+                      </div>
+                    </div>
+                  )}
+                  {profile.communicationIntelligence.websockets.urls.length === 0 && profile.communicationIntelligence.websockets.namespaces.length === 0 && (
+                    <div className="text-xs text-emerald-400/80 italic">Se detectó uso de librerías en tiempo real (Socket.io / Websockets), pero los endpoints se construyen dinámicamente.</div>
+                  )}
+                </div>
+              </motion.div>
+            )}
+          </div>
+        )}
 
         {/* Framework Intelligence */}
         <motion.div 

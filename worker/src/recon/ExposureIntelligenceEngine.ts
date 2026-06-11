@@ -1,8 +1,8 @@
 import { generateObject } from 'ai';
 import { google } from '@ai-sdk/google';
 import { z } from 'zod';
-import { AttackSurfaceItem } from './AttackSurfaceMapper';
-import { BusinessDictionary } from './parsers/JsKnowledgeExtractor';
+import type { AttackSurfaceItem } from './AttackSurfaceMapper';
+import type { BusinessDictionary } from './parsers/JsKnowledgeExtractor';
 
 export class ExposureIntelligenceEngine {
   static async enrichAttackSurface(

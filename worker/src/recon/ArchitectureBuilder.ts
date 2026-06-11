@@ -5,8 +5,8 @@ export interface ArchitectureNode {
   children?: ArchitectureNode[];
 }
 
-import { AttackSurfaceItem } from './AttackSurfaceMapper';
-import { BusinessDictionary } from './parsers/JsKnowledgeExtractor';
+import type { AttackSurfaceItem } from './AttackSurfaceMapper';
+import type { BusinessDictionary } from './parsers/JsKnowledgeExtractor';
 
 export function buildArchitectureTree(
   domain: string, 

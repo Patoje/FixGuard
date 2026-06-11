@@ -29,6 +29,7 @@ import { JsKnowledgeExtractor } from './recon/parsers/JsKnowledgeExtractor';
 import { ExposureIntelligenceEngine } from './recon/ExposureIntelligenceEngine';
 import { AuthIntelligenceEngine } from './recon/parsers/AuthIntelligenceEngine';
 import { CloudIntelligenceEngine } from './recon/CloudIntelligenceEngine';
+import { CommunicationIntelligenceEngine } from './recon/CommunicationIntelligenceEngine';
 import axios from 'axios';
 
 // Nuevos Motores Fase 6
@@ -145,6 +146,9 @@ app.post('/api/scan', async (req, res) => {
     // Módulo 6: Cloud Intelligence
     const cloudIntelligence = await CloudIntelligenceEngine.analyze(targetUrl, baseHtml, jsCodes);
 
+    // Módulos 8 y 9: GraphQL & WebSocket Intelligence
+    const communicationIntelligence = await CommunicationIntelligenceEngine.analyze(targetUrl, baseHtml, jsCodes);
+
     // 3. Reconstrucción de Arquitectura Avanzada (Módulo 1)
     const architectureTree = buildArchitectureTree(domain, techStack, attackSurface, businessDictionary);
 
@@ -157,7 +161,8 @@ app.post('/api/scan', async (req, res) => {
       architectureTree,
       businessDictionary,
       authIntelligence,
-      cloudIntelligence
+      cloudIntelligence,
+      communicationIntelligence
     });
 
     console.log(`[Scan ${scanId}] Análisis Pasivo y Reconocimiento completado. Guardado Perfil Tech Stack.`);

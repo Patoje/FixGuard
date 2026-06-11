@@ -96,4 +96,18 @@ export interface ReconProfile {
     buckets: string[];
     misconfigurations: string[];
   };
+  communicationIntelligence?: {
+    graphql: {
+      enabled: boolean;
+      endpoint: string;
+      queries: string[];
+      mutations: string[];
+      types: string[];
+    };
+    websockets: {
+      detected: boolean;
+      urls: string[];
+      namespaces: string[];
+    };
+  };
 }

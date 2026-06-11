@@ -63,14 +63,14 @@ export class CloudIntelligenceEngine {
     // Verificar si algún bucket expuesto es público (Simple HEAD request)
     for (const bucket of intel.buckets) {
        let bucketUrl = '';
-       if (intel.provider === 'AWS') bucketUrl = \`https://\${bucket}.s3.amazonaws.com\`;
-       else if (intel.provider.includes('Google')) bucketUrl = \`https://storage.googleapis.com/\${bucket}\`;
+       if (intel.provider === 'AWS') bucketUrl = `https://${bucket}.s3.amazonaws.com`;
+       else if (intel.provider.includes('Google')) bucketUrl = `https://storage.googleapis.com/${bucket}`;
        
        if (bucketUrl) {
          try {
            const res = await axios.head(bucketUrl, { timeout: 3000 });
            if (res.status === 200 || res.status === 403) { // 403 means it exists but we don't have list access. 200 means public!
-             if (res.status === 200) intel.misconfigurations.push(\`Bucket público detectado: \${bucket}\`);
+             if (res.status === 200) intel.misconfigurations.push(`Bucket público detectado: ${bucket}`);
            }
          } catch(e) {}
        }
