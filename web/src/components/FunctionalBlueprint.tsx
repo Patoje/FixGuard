@@ -56,8 +56,8 @@ export default function FunctionalBlueprint({ profile }: FunctionalBlueprintProp
     // 1. Modulo de Autenticación
     const authChildren = [];
     if (profile.authIntelligence) {
-      if (profile.authIntelligence.cookies.length > 0) authChildren.push('Cookies de Sesión');
-      if (profile.authIntelligence.usesLocalStorage) authChildren.push('LocalStorage Auth');
+      if (profile.authIntelligence.cookieNames && profile.authIntelligence.cookieNames.length > 0) authChildren.push('Cookies de Sesión');
+      if (profile.authIntelligence.localStorage) authChildren.push('LocalStorage Auth');
     }
     const hasAuthEndpoints = profile.attackSurface.some(e => e.path.includes('auth') || e.path.includes('login') || e.path.includes('register'));
     if (hasAuthEndpoints || authChildren.length > 0) {

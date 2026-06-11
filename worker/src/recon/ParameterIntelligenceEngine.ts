@@ -1,4 +1,4 @@
-import { AttackSurfaceItem } from './AttackSurfaceMapper';
+import type { AttackSurfaceItem } from './AttackSurfaceMapper';
 
 export interface ParameterIntelligence {
   totalParameters: number;

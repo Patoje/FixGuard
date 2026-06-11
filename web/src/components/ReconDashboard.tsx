@@ -16,6 +16,7 @@ interface Props {
 export default function ReconDashboard({ profile, targetUrl, onLaunchAttack }: Props) {
   const [isAttacking, setIsAttacking] = useState<Record<string, boolean>>({});
   const [toast, setToast] = useState<{message: string, type: 'success' | 'error'} | null>(null);
+  const [blueprintView, setBlueprintView] = useState<'architecture' | 'functional'>('architecture');
 
   // Auto-hide toast after 3 seconds
   useEffect(() => {
