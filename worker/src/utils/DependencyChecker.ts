@@ -44,6 +44,102 @@ const DEPENDENCIES: Dependency[] = [
     macInstall: 'brew install semgrep',
     winInstall: 'python -m pip install semgrep',
     linuxInstall: 'python3 -m pip install semgrep'
+  },
+  {
+    name: 'amass',
+    macInstall: 'brew tap owasp/amass && brew install amass',
+    winInstall: 'go install -v github.com/owasp-amass/amass/v4/...@master',
+    linuxInstall: 'snap install amass'
+  },
+  {
+    name: 'shodan',
+    macInstall: 'easy_install shodan',
+    winInstall: 'pip install shodan',
+    linuxInstall: 'pip install shodan'
+  },
+  {
+    name: 'httpx',
+    macInstall: 'brew install httpx',
+    winInstall: 'go install -v github.com/projectdiscovery/httpx/cmd/httpx@latest',
+    linuxInstall: 'go install -v github.com/projectdiscovery/httpx/cmd/httpx@latest'
+  },
+  {
+    name: 'whatweb',
+    macInstall: 'brew install whatweb',
+    winInstall: 'gem install whatweb (Requiere Ruby)',
+    linuxInstall: 'apt-get install whatweb'
+  },
+  {
+    name: 'wappalyzer',
+    macInstall: 'npm i -g wappalyzer',
+    winInstall: 'npm i -g wappalyzer',
+    linuxInstall: 'npm i -g wappalyzer'
+  },
+  {
+    name: 'feroxbuster',
+    macInstall: 'brew install feroxbuster',
+    winInstall: 'cargo install feroxbuster',
+    linuxInstall: 'apt install feroxbuster'
+  },
+  {
+    name: 'gospider',
+    macInstall: 'go install github.com/jaeles-project/gospider@latest',
+    winInstall: 'go install github.com/jaeles-project/gospider@latest',
+    linuxInstall: 'go install github.com/jaeles-project/gospider@latest'
+  },
+  {
+    name: 'trufflehog',
+    macInstall: 'brew install trufflehog',
+    winInstall: 'go install github.com/trufflesecurity/trufflehog/v3@latest',
+    linuxInstall: 'curl -sSfL https://raw.githubusercontent.com/trufflesecurity/trufflehog/main/scripts/install.sh | sh -s -- -b /usr/local/bin'
+  },
+  {
+    name: 'gitleaks',
+    macInstall: 'brew install gitleaks',
+    winInstall: 'go install github.com/gitleaks/gitleaks/v8@latest',
+    linuxInstall: 'go install github.com/gitleaks/gitleaks/v8@latest'
+  },
+  {
+    name: 'source-map-explorer',
+    macInstall: 'npm install -g source-map-explorer',
+    winInstall: 'npm install -g source-map-explorer',
+    linuxInstall: 'npm install -g source-map-explorer'
+  },
+  {
+    name: 'retire',
+    macInstall: 'npm install -g retire',
+    winInstall: 'npm install -g retire',
+    linuxInstall: 'npm install -g retire'
+  },
+  {
+    name: 'shcheck',
+    macInstall: 'pip install shcheck',
+    winInstall: 'pip install shcheck',
+    linuxInstall: 'pip install shcheck'
+  },
+  {
+    name: 'commix',
+    macInstall: 'brew install commix',
+    winInstall: 'git clone https://github.com/commixproject/commix.git commix',
+    linuxInstall: 'apt-get install commix'
+  },
+  {
+    name: 'nosqlmap',
+    macInstall: 'git clone https://github.com/codingo/NoSQLMap.git',
+    winInstall: 'git clone https://github.com/codingo/NoSQLMap.git',
+    linuxInstall: 'git clone https://github.com/codingo/NoSQLMap.git'
+  },
+  {
+    name: 'crlfuzz',
+    macInstall: 'go install github.com/dwisiswant0/crlfuzz/cmd/crlfuzz@latest',
+    winInstall: 'go install github.com/dwisiswant0/crlfuzz/cmd/crlfuzz@latest',
+    linuxInstall: 'go install github.com/dwisiswant0/crlfuzz/cmd/crlfuzz@latest'
+  },
+  {
+    name: 'kxss',
+    macInstall: 'go install github.com/Emoe/kxss@latest',
+    winInstall: 'go install github.com/Emoe/kxss@latest',
+    linuxInstall: 'go install github.com/Emoe/kxss@latest'
   }
 ];
 

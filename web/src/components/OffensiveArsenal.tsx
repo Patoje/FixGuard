@@ -20,7 +20,28 @@ export default function OffensiveArsenal({ targetUrl, scanId, profile }: Offensi
   const [isAttacking, setIsAttacking] = useState(false);
   const [activeTab, setActiveTab] = useState<'modules'>('modules');
 
-  const launchModule = async (vectorId: string, moduleName: string, vectorTargetUrl: string) => {
+  const launchModule = async (vectorId: string, moduleName: string, vectorTargetUrl: string, cliCommand?: string) => {
+    // Para herramientas pesadas o interactivas (Fase 5), mostrar el comando directamente
+    if (cliCommand && (
+        cliCommand.includes('commix') || 
+        cliCommand.includes('nosqlmap') || 
+        cliCommand.includes('sqlmap')
+    )) {
+      const finalCommand = cliCommand.replace('<TARGET>', vectorTargetUrl);
+      setLogs(prev => [
+        ...prev, 
+        `[System] ⚠️ La herramienta ${moduleName} es interactiva o pesada.`,
+        `[Terminal] Ejecuta manualmente este comando en tu terminal:`,
+        `>> ${finalCommand}`,
+      ]);
+      // Copiar al portapapeles
+      try {
+        await navigator.clipboard.writeText(finalCommand);
+        setLogs(prev => [...prev, `[System] ✅ Comando copiado al portapapeles.`]);
+      } catch(e) {}
+      return;
+    }
+
     setIsAttacking(true);
     setLogs(prev => [
       ...prev, 
@@ -111,8 +132,8 @@ export default function OffensiveArsenal({ targetUrl, scanId, profile }: Offensi
                         vector.attackType.includes('Workflow') ? <Cpu className="w-5 h-5 text-rose-400" /> :
                         <Zap className="w-5 h-5 text-rose-400" />
                       }
-                      targetInfo={`${vector.method} ${vector.targetUrl.split('?')[0].slice(0, 40)}${vector.targetUrl.length > 40 ? '...' : ''}`}
-                      onClick={() => launchModule(`vector-${i}`, vector.attackType, vector.targetUrl)}
+                      targetInfo={`${vector.method || 'CLI'} ${vector.targetUrl.split('?')[0].slice(0, 40)}${vector.targetUrl.length > 40 ? '...' : ''}`}
+                      onClick={() => launchModule(vector.id || `vector-${i}`, vector.attackType, vector.targetUrl, (vector as any).cliCommand)}
                       disabled={isAttacking}
                     />
                   ))}

@@ -192,5 +192,23 @@ export const VECTOR_REGISTRY: Record<string, VectorItem> = {
   wpscan_full: { id: 'wpscan_full', name: 'WPScan Arsenal Completo', cliCommand: 'wpscan --url <TARGET> --enumerate u,p,t --random-user-agent' },
   dalfox_react: { id: 'dalfox_react', name: 'XSS Automático (Verificación DOM)', cliCommand: 'dalfox url <TARGET>' },
   sqlmap: { id: 'sqlmap', name: 'Inyección SQL con SQLMap', cliCommand: 'sqlmap -u <TARGET> --batch --level=3 --risk=2' },
-  dalfox: { id: 'dalfox', name: 'Ataque XSS con Dalfox', cliCommand: 'dalfox url <TARGET>' }
+  dalfox: { id: 'dalfox', name: 'Ataque XSS con Dalfox', cliCommand: 'dalfox url <TARGET>' },
+
+  // Arsenal Extendido (Cero Humo)
+  amass: { id: 'amass', name: 'Amass (Subdomain Enum)', cliCommand: 'amass enum -d <TARGET>' },
+  shodan: { id: 'shodan', name: 'Shodan CLI (Recon)', cliCommand: 'shodan domain <TARGET>' },
+  httpx: { id: 'httpx', name: 'HTTPX (Tech Detect)', cliCommand: 'httpx -u <TARGET> -tech-detect -status-code -title' },
+  whatweb: { id: 'whatweb', name: 'WhatWeb (Fingerprint)', cliCommand: 'whatweb -v -a 3 <TARGET>' },
+  wappalyzer: { id: 'wappalyzer', name: 'Wappalyzer CLI', cliCommand: 'wappalyzer <TARGET>' },
+  feroxbuster: { id: 'feroxbuster', name: 'Feroxbuster (Dir Brute)', cliCommand: 'feroxbuster -u <TARGET> --silent' },
+  gospider: { id: 'gospider', name: 'GoSpider (Crawling)', cliCommand: 'gospider -s <TARGET> -c 10' },
+  trufflehog: { id: 'trufflehog', name: 'TruffleHog (Secretos)', cliCommand: 'trufflehog endpoint <TARGET>' },
+  gitleaks: { id: 'gitleaks', name: 'Gitleaks (Git Secrets)', cliCommand: 'gitleaks detect -v --source=.' },
+  source_map_explorer: { id: 'source_map_explorer', name: 'Source Map Explorer', cliCommand: 'source-map-explorer <TARGET>' },
+  retire: { id: 'retire', name: 'Retire.js (Vuln JS)', cliCommand: 'retire --jspath <TARGET>' },
+  shcheck: { id: 'shcheck', name: 'SHCheck (Security Headers)', cliCommand: 'shcheck <TARGET>' },
+  commix: { id: 'commix', name: 'Commix (OS Injection)', cliCommand: 'commix --url="<TARGET>" --level=3' },
+  nosqlmap: { id: 'nosqlmap', name: 'NoSQLMap (NoSQL Injection)', cliCommand: 'python nosqlmap.py' },
+  crlfuzz: { id: 'crlfuzz', name: 'CRLFuzz (CRLF Injection)', cliCommand: 'crlfuzz -u <TARGET>' },
+  kxss: { id: 'kxss', name: 'KXSS (XSS Finder)', cliCommand: 'gau <TARGET> | kxss' }
 };
