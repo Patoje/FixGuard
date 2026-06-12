@@ -1,4 +1,4 @@
-import { pgTable, serial, text, timestamp, varchar, integer, json, jsonb } from 'drizzle-orm/pg-core';
+import { pgTable, serial, text, timestamp, varchar, integer, json } from 'drizzle-orm/pg-core';
 
 export const users = pgTable('users', {
   id: serial('id').primaryKey(),
@@ -31,10 +31,19 @@ export const vulnerabilities = pgTable('vulnerabilities', {
 export const reconProfiles = pgTable('recon_profiles', {
   id: serial('id').primaryKey(),
   scanId: integer('scan_id').references(() => scans.id).notNull(),
-  subdomainIntelligence: jsonb('subdomainIntelligence'),
-  artifactIntelligence: jsonb('artifactIntelligence'),
-  parameterIntelligence: jsonb('parameterIntelligence'),
-  serverActionsIntelligence: jsonb('serverActionsIntelligence'),
-  aiIntelligence: jsonb('aiIntelligence'),
+  techStack: json('tech_stack').notNull(),
+  attackSurface: json('attack_surface').notNull(),
+  frameworkIntelligence: json('framework_intelligence').notNull(),
+  architectureTree: json('architecture_tree').notNull(),
+  businessDictionary: json('business_dictionary'),
+  authIntelligence: json('auth_intelligence'),
+  cloudIntelligence: json('cloud_intelligence'),
+  communicationIntelligence: json('communication_intelligence'),
+  subdomainIntelligence: json('subdomain_intelligence'),
+  artifactIntelligence: json('artifact_intelligence'),
+  parameterIntelligence: json('parameter_intelligence'),
+  serverActionsIntelligence: json('server_actions_intelligence'),
+  aiIntelligence: json('ai_intelligence'),
+  auditReport: json('audit_report'),
   createdAt: timestamp('created_at').defaultNow().notNull(),
 });
