@@ -1,9 +1,9 @@
 "use client";
 
 import { motion, AnimatePresence } from "framer-motion";
-import { Server, Database, Layers, Shield, Network, Activity, Zap, Code, Link2, BookOpen, Cloud, Key, Workflow, Radio, Globe, PackageSearch, DatabaseZap, ClipboardCheck } from "lucide-react";
-import { useState, useEffect } from "react";
-import { ReconProfile, ArchitectureNode } from "../types";
+import { Server, Database, Layers, Shield, Network, Activity, Zap, Code, Link2, BookOpen, Cloud, Key, Workflow, Radio, Globe, PackageSearch, DatabaseZap, ClipboardCheck, Compass, Eye, Map, Box, Lock, FileJson } from "lucide-react";
+import { useState, useEffect, useMemo } from "react";
+import { ReconProfile, AttackSurfaceItem } from "../types";
 import ApplicationBlueprint from "./ApplicationBlueprint";
 import FunctionalBlueprint from "./FunctionalBlueprint";
 
@@ -13,12 +13,44 @@ interface Props {
   onLaunchAttack?: (vectorId: string) => void;
 }
 
-export default function ReconDashboard({ profile, targetUrl, onLaunchAttack }: Props) {
-  const [isAttacking, setIsAttacking] = useState<Record<string, boolean>>({});
-  const [toast, setToast] = useState<{message: string, type: 'success' | 'error'} | null>(null);
-  const [blueprintView, setBlueprintView] = useState<'architecture' | 'functional'>('architecture');
+// Helper to group endpoints into functional entities
+function groupEndpoints(endpoints: AttackSurfaceItem[]) {
+  const groups: Record<string, AttackSurfaceItem[]> = {
+    Auth: [],
+    Users: [],
+    Billing: [],
+    Projects: [],
+    Admin: [],
+    GraphQL: [],
+    Other: []
+  };
 
-  // Auto-hide toast after 3 seconds
+  endpoints.forEach(ep => {
+    const path = ep.path.toLowerCase();
+    if (ep.type === 'GraphQL' || path.includes('graphql')) {
+      groups.GraphQL.push(ep);
+    } else if (path.includes('auth') || path.includes('login') || path.includes('register') || path.includes('oauth') || path.includes('session')) {
+      groups.Auth.push(ep);
+    } else if (path.includes('user') || path.includes('profile') || path.includes('account')) {
+      groups.Users.push(ep);
+    } else if (path.includes('bill') || path.includes('pay') || path.includes('invoice') || path.includes('stripe') || path.includes('checkout') || path.includes('subscription')) {
+      groups.Billing.push(ep);
+    } else if (path.includes('project') || path.includes('workspace') || path.includes('team') || path.includes('org')) {
+      groups.Projects.push(ep);
+    } else if (path.includes('admin') || path.includes('dashboard') || path.includes('config') || path.includes('setting')) {
+      groups.Admin.push(ep);
+    } else {
+      groups.Other.push(ep);
+    }
+  });
+
+  return groups;
+}
+
+export default function ReconDashboard({ profile, targetUrl, onLaunchAttack }: Props) {
+  const [toast, setToast] = useState<{message: string, type: 'success' | 'error'} | null>(null);
+  const [openEntity, setOpenEntity] = useState<string | null>(null);
+
   useEffect(() => {
     if (toast) {
       const timer = setTimeout(() => setToast(null), 3000);
@@ -26,37 +58,16 @@ export default function ReconDashboard({ profile, targetUrl, onLaunchAttack }: P
     }
   }, [toast]);
 
-  const handlePivotAttack = async (path: string, tool: 'sqlmap' | 'xsstrike') => {
-    const fullUrl = path.startsWith('http') ? path : `${new URL(targetUrl).origin}${path.startsWith('/') ? path : '/' + path}`;
-    const key = `${tool}-${path}`;
-    
-    setIsAttacking(prev => ({ ...prev, [key]: true }));
-    try {
-      await fetch('/api/scans/attack', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          scanId: profile.scanId,
-          targetUrl: fullUrl,
-          vectorId: tool,
-          parentId: null // Starts as a new root node from the surface
-        })
-      });
-      setToast({ message: `Ataque [${tool.toUpperCase()}] lanzado en segundo plano.`, type: 'success' });
-    } catch (e) {
-      console.error("Error launching pivot attack:", e);
-      setToast({ message: `Error al lanzar el ataque ${tool.toUpperCase()}.`, type: 'error' });
-    } finally {
-      setIsAttacking(prev => ({ ...prev, [key]: false }));
-    }
-  };
-
   if (!profile) return null;
 
+  const externalServices = profile.techStack.filter(t => t.category === 'External Services');
+  const mainFrameworks = profile.techStack.filter(t => ['Frontend', 'Backend'].includes(t.category));
+  const hiddenAssetsCount = (profile.subdomainIntelligence?.discoveredCount || 0) + (profile.artifactIntelligence?.hiddenRoutes.length || 0);
+  
+  const endpointGroups = useMemo(() => groupEndpoints(profile.attackSurface), [profile.attackSurface]);
+
   return (
-    <div className="space-y-8 mt-12 mb-16 relative">
-      
-      {/* Toast Notification */}
+    <div className="space-y-12 mt-12 mb-16 relative">
       <AnimatePresence>
         {toast && (
           <motion.div
@@ -76,767 +87,282 @@ export default function ReconDashboard({ profile, targetUrl, onLaunchAttack }: P
       </AnimatePresence>
 
       <div className="text-center">
-        <h2 className="text-3xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-blue-400 to-emerald-400">
-          Intelligence & Attack Surface
+        <h2 className="text-4xl font-black uppercase tracking-tight bg-clip-text text-transparent bg-gradient-to-r from-indigo-400 via-purple-400 to-pink-400">
+          Actionable Knowledge Report
         </h2>
-        <p className="text-zinc-400 mt-2">Perfil de reconocimiento y arquitectura estimada del objetivo</p>
+        <p className="text-zinc-400 mt-3 text-lg max-w-2xl mx-auto">De hallazgos aislados a un mapa relacional y de inteligencia completa de la aplicación objetivo.</p>
       </div>
 
-      {/* --- NUEVO: Executive Audit Report --- */}
-      {profile.auditReport && profile.auditReport.contexts.length > 0 && (
-        <motion.div 
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="glass-panel p-6 border-emerald-500/30 bg-emerald-950/10 mb-8"
-        >
-          <div className="flex items-center gap-3 mb-4 border-b border-emerald-500/20 pb-4">
-            <ClipboardCheck className="w-6 h-6 text-emerald-400" />
-            <h2 className="text-2xl font-bold text-zinc-100">Executive Audit Report</h2>
+      {/* SECTION 1: EXECUTIVE SUMMARY */}
+      <motion.section initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="space-y-4">
+        <h3 className="text-2xl font-bold flex items-center gap-2 border-b border-white/10 pb-2"><Compass className="text-blue-400" /> Executive Summary</h3>
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+          <div className="glass-panel p-6 border-blue-500/20">
+            <p className="text-zinc-400 text-sm uppercase font-bold tracking-wider mb-2">Stack Principal</p>
+            <div className="flex flex-wrap gap-2">
+              {mainFrameworks.length > 0 ? mainFrameworks.map(f => <span key={f.name} className="bg-blue-500/20 text-blue-300 px-2 py-1 rounded text-sm font-bold">{f.name}</span>) : <span className="text-zinc-500 text-sm">Unknown</span>}
+            </div>
           </div>
-          <p className="text-zinc-300 text-sm mb-6">{profile.auditReport.summary}</p>
-          
-          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-6">
-            {profile.auditReport.contexts.map((ctx, idx) => (
-              <div key={idx} className={`p-4 rounded-xl border relative overflow-hidden group ${
-                ctx.confidence === 'HIGH' && (ctx.name.includes('Secrets') || ctx.name.includes('Server Actions'))
-                  ? 'bg-rose-950/20 border-rose-500/30' 
-                  : 'bg-zinc-900/50 border-white/5'
-              }`}>
-                <div className={`absolute top-0 left-0 w-1 h-full ${
-                  ctx.confidence === 'HIGH' && (ctx.name.includes('Secrets') || ctx.name.includes('Server Actions')) ? 'bg-rose-500 shadow-[0_0_10px_rgba(244,63,94,0.8)] animate-pulse' :
-                  ctx.confidence === 'HIGH' ? 'bg-rose-500' :
-                  ctx.confidence === 'MEDIUM' ? 'bg-amber-500' : 'bg-blue-500'
-                }`} />
-                <h3 className="font-bold text-zinc-200 mb-1 pl-2">{ctx.name}</h3>
-                <p className="text-xs text-zinc-400 mb-4 pl-2 h-10">{ctx.description}</p>
-                
-                <div className="space-y-3 pl-2">
-                  <div>
-                    <h4 className="text-[10px] uppercase text-zinc-500 font-bold mb-1 tracking-wider">Evidencia Correlacionada</h4>
-                    <ul className="space-y-1">
-                      {ctx.evidences.map((ev, i) => (
-                        <li key={i} className="text-xs text-zinc-300 bg-black/40 p-1.5 rounded border border-white/5">
-                          • {ev}
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                  
-                  {ctx.inferredTechnologies.length > 0 && (
-                    <div>
-                      <h4 className="text-[10px] uppercase text-zinc-500 font-bold mb-1 tracking-wider">Tecnologías Inferidas</h4>
-                      <div className="flex flex-wrap gap-1">
-                        {ctx.inferredTechnologies.map((tech, i) => (
-                          <span key={i} className="text-[10px] bg-emerald-500/10 text-emerald-400 px-1.5 py-0.5 rounded font-mono">
-                            {tech}
-                          </span>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                </div>
-              </div>
-            ))}
+          <div className="glass-panel p-6 border-fuchsia-500/20">
+            <p className="text-zinc-400 text-sm uppercase font-bold tracking-wider mb-2">Total Endpoints</p>
+            <div className="text-4xl font-black text-fuchsia-400">{profile.attackSurface.length}</div>
           </div>
-        </motion.div>
+          <div className="glass-panel p-6 border-amber-500/20">
+            <p className="text-zinc-400 text-sm uppercase font-bold tracking-wider mb-2">Activos Ocultos (OSINT)</p>
+            <div className="text-4xl font-black text-amber-400">{hiddenAssetsCount}</div>
+          </div>
+          <div className="glass-panel p-6 border-pink-500/20">
+            <p className="text-zinc-400 text-sm uppercase font-bold tracking-wider mb-2">Servicios Externos</p>
+            <div className="flex flex-wrap gap-2">
+              {externalServices.length > 0 ? externalServices.map(s => <span key={s.name} className="bg-pink-500/20 text-pink-300 px-2 py-1 rounded text-sm font-bold">{s.name}</span>) : <span className="text-zinc-500 text-sm">Ninguno Detectado</span>}
+            </div>
+          </div>
+        </div>
+      </motion.section>
+
+      {/* SECTION 8: RUNTIME DISCOVERY (CRAWLER STATS) */}
+      {profile.runtimeIntelligence && (
+        <motion.section initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{delay: 0.1}}>
+          <h3 className="text-2xl font-bold flex items-center gap-2 border-b border-white/10 pb-2"><Activity className="text-emerald-400" /> Runtime Discovery</h3>
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mt-4">
+            <div className="bg-emerald-950/20 p-4 rounded-xl border border-emerald-500/20 text-center">
+              <div className="text-3xl font-black text-emerald-400">{profile.runtimeIntelligence.totalClicks}</div>
+              <div className="text-xs text-emerald-200/50 uppercase mt-1">Clicks Automáticos</div>
+            </div>
+            <div className="bg-emerald-950/20 p-4 rounded-xl border border-emerald-500/20 text-center">
+              <div className="text-3xl font-black text-emerald-400">{profile.runtimeIntelligence.totalScrolls}</div>
+              <div className="text-xs text-emerald-200/50 uppercase mt-1">Scrolls (Lazy Load)</div>
+            </div>
+            <div className="bg-emerald-950/20 p-4 rounded-xl border border-emerald-500/20 text-center">
+              <div className="text-3xl font-black text-emerald-400">{profile.runtimeIntelligence.totalFormsFilled}</div>
+              <div className="text-xs text-emerald-200/50 uppercase mt-1">Formularios Inyectados</div>
+            </div>
+            <div className="bg-emerald-950/20 p-4 rounded-xl border border-emerald-500/20 text-center">
+              <div className="text-3xl font-black text-emerald-400">{profile.runtimeIntelligence.requestsIntercepted}</div>
+              <div className="text-xs text-emerald-200/50 uppercase mt-1">Requests Observadas</div>
+            </div>
+            <div className="bg-emerald-950/20 p-4 rounded-xl border border-emerald-500/20 text-center relative overflow-hidden">
+              <div className="absolute inset-0 bg-emerald-500/10 animate-pulse"></div>
+              <div className="text-3xl font-black text-white relative z-10">{profile.runtimeIntelligence.endpointsDiscovered}</div>
+              <div className="text-xs text-emerald-200/80 uppercase mt-1 font-bold relative z-10">Rutas Interceptadas</div>
+            </div>
+          </div>
+        </motion.section>
       )}
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        
-        {/* Blueprint Section (Technical vs Functional) */}
-        <motion.div 
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="glass-panel p-6 mb-6 lg:col-span-2"
-        >
-          <div className="flex items-center justify-between mb-6">
-            <div className="flex items-center gap-3">
-              <Network className="w-6 h-6 text-blue-400" />
-              <h2 className="text-2xl font-bold text-zinc-100">
-                {blueprintView === 'architecture' ? 'Application Blueprint (Arquitectura)' : 'Functional Blueprint (Lógica de Negocio)'}
-              </h2>
-            </div>
-            <div className="flex bg-black/40 rounded-lg p-1 border border-white/5">
-              <button 
-                onClick={() => setBlueprintView('architecture')}
-                className={`px-4 py-1.5 text-sm font-medium rounded-md transition-colors ${blueprintView === 'architecture' ? 'bg-blue-600 text-white' : 'text-zinc-400 hover:text-white hover:bg-white/5'}`}
-              >
-                Técnico
-              </button>
-              <button 
-                onClick={() => setBlueprintView('functional')}
-                className={`px-4 py-1.5 text-sm font-medium rounded-md transition-colors ${blueprintView === 'functional' ? 'bg-purple-600 text-white' : 'text-zinc-400 hover:text-white hover:bg-white/5'}`}
-              >
-                Funcional
-              </button>
-            </div>
-          </div>
-          
-          <div className="h-[500px] w-full rounded-xl overflow-hidden border border-white/5 bg-black/20">
-            {blueprintView === 'architecture' ? (
-              <ApplicationBlueprint profile={profile} />
-            ) : (
-              <FunctionalBlueprint profile={profile} />
-            )}
+      {/* SECTION 2 & 3: ARCHITECTURE & FUNCTIONAL BLUEPRINT */}
+      <section className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{delay: 0.2}}>
+          <h3 className="text-xl font-bold flex items-center gap-2 border-b border-white/10 pb-2 mb-4"><Network className="text-indigo-400" /> Architecture Blueprint</h3>
+          <div className="h-[400px] w-full rounded-xl overflow-hidden border border-white/5 bg-black/20">
+             <ApplicationBlueprint profile={profile} />
           </div>
         </motion.div>
-
-        {/* Tech Stack Profiler */}
-        <motion.div 
-          initial={{ opacity: 0, scale: 0.95 }}
-          animate={{ opacity: 1, scale: 1 }}
-          transition={{ delay: 0.1 }}
-          className="glass-panel p-6 border-violet-500/20"
-        >
-          <div className="flex items-center gap-3 mb-6 border-b border-white/5 pb-4">
-            <Layers className="w-5 h-5 text-violet-400" />
-            <h3 className="text-xl font-semibold text-zinc-100">Tech Stack Detectado</h3>
+        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{delay: 0.3}}>
+          <h3 className="text-xl font-bold flex items-center gap-2 border-b border-white/10 pb-2 mb-4"><Box className="text-purple-400" /> Functional Blueprint</h3>
+          <div className="h-[400px] w-full rounded-xl overflow-hidden border border-white/5 bg-black/20">
+             <FunctionalBlueprint profile={profile} />
           </div>
-          <div className="space-y-4">
+        </motion.div>
+      </section>
+
+      {/* SECTION 4 & 5: TECH PROFILE & ENTITY MAP */}
+      <section className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{delay: 0.4}}>
+          <h3 className="text-xl font-bold flex items-center gap-2 border-b border-white/10 pb-2 mb-4"><Layers className="text-violet-400" /> Technology Profile</h3>
+          <div className="space-y-3 max-h-[400px] overflow-y-auto custom-scrollbar pr-2">
             {profile.techStack.map((tech, i) => (
-              <div key={i} className="flex justify-between items-center bg-zinc-900/50 p-3 rounded-lg border border-white/5">
-                <div>
-                  <div className="flex items-center gap-2">
-                    <span className="font-bold text-zinc-200">{tech.name}</span>
-                    {tech.version && (
-                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-zinc-800 text-zinc-400 font-mono border border-white/10">
-                        v{tech.version}
-                      </span>
-                    )}
-                    <span className="text-xs px-2 py-0.5 rounded-full bg-violet-500/20 text-violet-300">
-                      {tech.category}
-                    </span>
-                  </div>
-                  <p className="text-xs text-zinc-500 mt-1">{tech.role}</p>
+              <div key={i} className="bg-zinc-900/50 p-4 rounded-xl border border-white/5">
+                <div className="flex justify-between items-center mb-2">
+                  <div className="font-bold text-zinc-200 flex items-center gap-2">{tech.name} <span className="text-[10px] bg-violet-500/20 text-violet-300 px-1.5 py-0.5 rounded">{tech.category}</span></div>
+                  <div className="text-xs font-mono text-emerald-400">{tech.confidence}% Confianza</div>
                 </div>
-                <div className="text-right">
-                  <div className="text-sm font-mono text-emerald-400">{tech.confidence}% Confianza</div>
-                  <div className="w-24 h-1.5 bg-zinc-800 rounded-full mt-1 overflow-hidden">
-                    <div className="h-full bg-emerald-500" style={{ width: `${tech.confidence}%` }} />
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-        </motion.div>
-
-        {/* Third Party Integrations */}
-        <motion.div 
-          initial={{ opacity: 0, scale: 0.95 }}
-          animate={{ opacity: 1, scale: 1 }}
-          transition={{ delay: 0.15 }}
-          className="glass-panel p-6 border-pink-500/20"
-        >
-          <div className="flex items-center gap-3 mb-6 border-b border-white/5 pb-4">
-            <Link2 className="w-5 h-5 text-pink-400" />
-            <h3 className="text-xl font-semibold text-zinc-100">Integraciones y Terceros</h3>
-          </div>
-          <div className="space-y-4">
-            {profile.techStack.filter(t => t.category === 'External Services').length === 0 && (
-              <p className="text-zinc-500 text-sm">No se detectaron integraciones de terceros.</p>
-            )}
-            {profile.techStack.filter(t => t.category === 'External Services').map((tech, i) => (
-              <div key={i} className="flex justify-between items-center bg-pink-950/20 p-3 rounded-lg border border-pink-500/10">
-                <div className="flex items-center gap-3">
-                  <div className="w-8 h-8 rounded bg-pink-500/10 flex items-center justify-center text-pink-400 font-bold text-xs">
-                    {tech.name.substring(0, 2).toUpperCase()}
-                  </div>
-                  <div>
-                    <span className="font-bold text-zinc-200 block leading-tight">{tech.name}</span>
-                    <span className="text-xs text-zinc-500">{tech.role}</span>
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-        </motion.div>
-
-        {/* JS Knowledge Graph / Business Dictionary */}
-        {profile.businessDictionary && (
-          <motion.div 
-            initial={{ opacity: 0, scale: 0.95 }}
-            animate={{ opacity: 1, scale: 1 }}
-            transition={{ delay: 0.18 }}
-            className="glass-panel p-6 border-amber-500/20 lg:col-span-2"
-          >
-            <div className="flex items-center gap-3 mb-6 border-b border-white/5 pb-4">
-              <BookOpen className="w-5 h-5 text-amber-400" />
-              <h3 className="text-xl font-semibold text-zinc-100">Diccionario de Negocio (Mapeo JS)</h3>
-            </div>
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-              <div className="bg-amber-950/20 p-4 rounded-xl border border-amber-500/10">
-                <h4 className="font-bold text-amber-300 mb-2 text-sm">Roles ({profile.businessDictionary.roles.length})</h4>
-                <div className="flex flex-wrap gap-2">
-                  {profile.businessDictionary.roles.map((r, i) => <span key={i} className="text-xs bg-amber-500/10 text-amber-400 px-2 py-1 rounded">{r}</span>)}
-                </div>
-              </div>
-              <div className="bg-amber-950/20 p-4 rounded-xl border border-amber-500/10">
-                <h4 className="font-bold text-amber-300 mb-2 text-sm">Entidades ({profile.businessDictionary.entities.length})</h4>
-                <div className="flex flex-wrap gap-2">
-                  {profile.businessDictionary.entities.map((e, i) => <span key={i} className="text-xs bg-amber-500/10 text-amber-400 px-2 py-1 rounded">{e}</span>)}
-                </div>
-              </div>
-              <div className="bg-amber-950/20 p-4 rounded-xl border border-amber-500/10">
-                <h4 className="font-bold text-amber-300 mb-2 text-sm">Permisos ({profile.businessDictionary.permissions.length})</h4>
-                <div className="flex flex-wrap gap-2">
-                  {profile.businessDictionary.permissions.map((p, i) => <span key={i} className="text-xs bg-amber-500/10 text-amber-400 px-2 py-1 rounded">{p}</span>)}
-                </div>
-              </div>
-              <div className="bg-amber-950/20 p-4 rounded-xl border border-amber-500/10">
-                <h4 className="font-bold text-amber-300 mb-2 text-sm">Feature Flags ({profile.businessDictionary.configFlags.length})</h4>
-                <div className="flex flex-wrap gap-2">
-                  {profile.businessDictionary.configFlags.map((f, i) => <span key={i} className="text-xs bg-amber-500/10 text-amber-400 px-2 py-1 rounded">{f}</span>)}
-                </div>
-              </div>
-            </div>
-          </motion.div>
-        )}
-
-        {/* Cloud & Auth Intelligence */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 lg:col-span-2">
-          {profile.cloudIntelligence && profile.cloudIntelligence.provider !== 'Unknown' && (
-            <motion.div 
-              initial={{ opacity: 0, scale: 0.95 }}
-              animate={{ opacity: 1, scale: 1 }}
-              transition={{ delay: 0.2 }}
-              className="glass-panel p-6 border-cyan-500/20"
-            >
-              <div className="flex items-center gap-3 mb-6 border-b border-white/5 pb-4">
-                <Cloud className="w-5 h-5 text-cyan-400" />
-                <h3 className="text-xl font-semibold text-zinc-100">Cloud Intelligence ({profile.cloudIntelligence.provider})</h3>
-              </div>
-              <div className="space-y-4">
-                {profile.cloudIntelligence.services.length > 0 && (
-                  <div>
-                    <h4 className="text-sm font-bold text-cyan-300 mb-2">Servicios Detectados</h4>
-                    <div className="flex flex-wrap gap-2">
-                      {profile.cloudIntelligence.services.map((s, i) => <span key={i} className="text-xs bg-cyan-500/10 text-cyan-400 px-2 py-1 rounded">{s}</span>)}
-                    </div>
-                  </div>
-                )}
-                {profile.cloudIntelligence.buckets.length > 0 && (
-                  <div>
-                    <h4 className="text-sm font-bold text-cyan-300 mb-2">Buckets de Almacenamiento</h4>
-                    <div className="flex flex-wrap gap-2">
-                      {profile.cloudIntelligence.buckets.map((b, i) => <span key={i} className="text-xs font-mono bg-zinc-800 text-zinc-300 px-2 py-1 rounded">{b}</span>)}
-                    </div>
-                  </div>
-                )}
-                {profile.cloudIntelligence.misconfigurations.length > 0 && (
-                  <div>
-                    <h4 className="text-sm font-bold text-rose-400 mb-2">Riesgos Cloud</h4>
-                    <ul className="list-disc pl-5">
-                      {profile.cloudIntelligence.misconfigurations.map((m, i) => <li key={i} className="text-xs text-rose-300">{m}</li>)}
+                <div className="text-xs text-zinc-500 mb-2">{tech.role}</div>
+                {tech.evidence && tech.evidence.length > 0 && (
+                  <div className="mt-2 bg-black/30 p-2 rounded border border-white/5">
+                    <span className="text-[10px] uppercase text-zinc-600 font-bold">Evidencias:</span>
+                    <ul className="mt-1 space-y-1">
+                      {tech.evidence.map((ev, idx) => <li key={idx} className="text-[10px] text-zinc-400 font-mono">• {ev}</li>)}
                     </ul>
                   </div>
                 )}
               </div>
-            </motion.div>
-          )}
-
-          {profile.authIntelligence && (
-            <motion.div 
-              initial={{ opacity: 0, scale: 0.95 }}
-              animate={{ opacity: 1, scale: 1 }}
-              transition={{ delay: 0.22 }}
-              className="glass-panel p-6 border-indigo-500/20"
-            >
-              <div className="flex items-center gap-3 mb-6 border-b border-white/5 pb-4">
-                <Key className="w-5 h-5 text-indigo-400" />
-                <h3 className="text-xl font-semibold text-zinc-100">Authentication Intelligence</h3>
-              </div>
-              <div className="space-y-4">
-                {profile.authIntelligence.mechanisms.length > 0 && (
-                  <div>
-                    <h4 className="text-sm font-bold text-indigo-300 mb-2">Mecanismos</h4>
-                    <div className="flex flex-wrap gap-2">
-                      {profile.authIntelligence.mechanisms.map((m, i) => <span key={i} className="text-xs bg-indigo-500/10 text-indigo-400 px-2 py-1 rounded">{m}</span>)}
-                    </div>
-                  </div>
-                )}
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="bg-zinc-900/50 p-3 rounded border border-white/5">
-                    <span className="text-xs text-zinc-400 block mb-1">Local Storage</span>
-                    <span className={`text-sm font-bold ${profile.authIntelligence.localStorage ? 'text-rose-400' : 'text-zinc-300'}`}>
-                      {profile.authIntelligence.localStorage ? 'SI (Riesgo XSS)' : 'NO'}
-                    </span>
-                  </div>
-                  <div className="bg-zinc-900/50 p-3 rounded border border-white/5">
-                    <span className="text-xs text-zinc-400 block mb-1">Session Storage</span>
-                    <span className={`text-sm font-bold ${profile.authIntelligence.sessionStorage ? 'text-amber-400' : 'text-zinc-300'}`}>
-                      {profile.authIntelligence.sessionStorage ? 'SI' : 'NO'}
-                    </span>
-                  </div>
-                </div>
-                {profile.authIntelligence.cookieNames.length > 0 && (
-                  <div>
-                    <h4 className="text-sm font-bold text-indigo-300 mb-2">Cookies Relevantes</h4>
-                    <div className="flex flex-wrap gap-2">
-                      {profile.authIntelligence.cookieNames.map((c, i) => <span key={i} className="text-xs font-mono bg-zinc-800 text-zinc-300 px-2 py-1 rounded">{c}</span>)}
-                    </div>
-                  </div>
-                )}
-              </div>
-            </motion.div>
-          )}
-        </div>
-
-        {/* --- NUEVO: OSINT y Funcionalidad --- */}
-        {(profile.subdomainIntelligence || profile.artifactIntelligence || profile.parameterIntelligence) && (
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 lg:col-span-2">
-            
-            {/* Subdomain Intelligence */}
-            {profile.subdomainIntelligence && (
-              <motion.div 
-                initial={{ opacity: 0, scale: 0.95 }}
-                animate={{ opacity: 1, scale: 1 }}
-                transition={{ delay: 0.3 }}
-                className="glass-panel p-6 border-indigo-500/20"
-              >
-                <div className="flex items-center gap-3 mb-6 border-b border-white/5 pb-4">
-                  <Globe className="w-5 h-5 text-indigo-400" />
-                  <h3 className="text-xl font-semibold text-zinc-100">Hidden Assets (OSINT)</h3>
-                </div>
-                <div className="space-y-4">
-                  <div className="flex justify-between items-center bg-indigo-500/10 p-3 rounded border border-indigo-500/20">
-                    <span className="text-sm text-indigo-200">Subdominios Descubiertos</span>
-                    <span className="text-xl font-bold text-indigo-400">{profile.subdomainIntelligence.discoveredCount}</span>
-                  </div>
-                  
-                  {profile.subdomainIntelligence.interestingSubdomains.length > 0 && (
-                    <div>
-                      <h4 className="text-sm font-bold text-indigo-300 mb-2">Entornos Críticos</h4>
-                      <div className="space-y-2 max-h-40 overflow-y-auto custom-scrollbar">
-                        {profile.subdomainIntelligence.interestingSubdomains.map((sub, i) => (
-                          <div key={i} className="flex justify-between items-center text-xs p-2 bg-zinc-800/50 rounded border border-zinc-700/50">
-                            <span className="font-mono text-zinc-300 truncate w-3/4">{sub.subdomain}</span>
-                            <span className={`px-2 py-1 rounded font-bold ${
-                              sub.type === 'STAGING' || sub.type === 'DEV' ? 'bg-orange-500/20 text-orange-400' :
-                              sub.type === 'ADMIN' || sub.type === 'INTERNAL' ? 'bg-rose-500/20 text-rose-400' :
-                              'bg-blue-500/20 text-blue-400'
-                            }`}>{sub.type}</span>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                </div>
-              </motion.div>
-            )}
-
-            {/* Artifact Intelligence */}
-            {profile.artifactIntelligence && (
-              <motion.div 
-                initial={{ opacity: 0, scale: 0.95 }}
-                animate={{ opacity: 1, scale: 1 }}
-                transition={{ delay: 0.35 }}
-                className="glass-panel p-6 border-cyan-500/20"
-              >
-                <div className="flex items-center gap-3 mb-6 border-b border-white/5 pb-4">
-                  <PackageSearch className="w-5 h-5 text-cyan-400" />
-                  <h3 className="text-xl font-semibold text-zinc-100">Artifact Intelligence</h3>
-                </div>
-                <div className="space-y-4">
-                  {profile.artifactIntelligence.manifestType && (
-                    <div className="text-xs bg-cyan-500/10 text-cyan-300 p-2 rounded text-center border border-cyan-500/20">
-                      Detectado: <strong>{profile.artifactIntelligence.manifestType}</strong>
-                    </div>
-                  )}
-                  
-                  {profile.artifactIntelligence.hiddenRoutes.length > 0 ? (
-                    <div>
-                      <h4 className="text-sm font-bold text-cyan-300 mb-2">Rutas Ocultas Extraídas</h4>
-                      <ul className="space-y-1 max-h-40 overflow-y-auto custom-scrollbar">
-                        {profile.artifactIntelligence.hiddenRoutes.map((r, i) => (
-                          <li key={i} className="text-xs font-mono text-cyan-100 bg-zinc-800 p-1.5 rounded truncate">
-                            {r}
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                  ) : (
-                    <div className="text-xs text-zinc-500 italic text-center py-4">No se extrajeron rutas ocultas del manifiesto.</div>
-                  )}
-                </div>
-              </motion.div>
-            )}
-
-            {/* Parameter Intelligence */}
-            {profile.parameterIntelligence && (
-              <motion.div 
-                initial={{ opacity: 0, scale: 0.95 }}
-                animate={{ opacity: 1, scale: 1 }}
-                transition={{ delay: 0.4 }}
-                className="glass-panel p-6 border-fuchsia-500/20"
-              >
-                <div className="flex items-center gap-3 mb-6 border-b border-white/5 pb-4">
-                  <Database className="w-5 h-5 text-fuchsia-400" />
-                  <h3 className="text-xl font-semibold text-zinc-100">Parameter Mapping</h3>
-                </div>
-                <div className="space-y-4">
-                  <div className="flex justify-between items-center bg-fuchsia-500/10 p-3 rounded border border-fuchsia-500/20">
-                    <span className="text-sm text-fuchsia-200">Parámetros Únicos</span>
-                    <span className="text-xl font-bold text-fuchsia-400">{profile.parameterIntelligence.totalParameters}</span>
-                  </div>
-                  
-                  {profile.parameterIntelligence.topParameters.length > 0 && (
-                    <div>
-                      <h4 className="text-sm font-bold text-fuchsia-300 mb-2">Más Frecuentes</h4>
-                      <div className="flex flex-wrap gap-2">
-                        {profile.parameterIntelligence.topParameters.map((p, i) => (
-                          <span key={i} className="text-xs font-mono bg-fuchsia-500/10 text-fuchsia-300 px-2 py-1 rounded flex items-center gap-2">
-                            {p.name} <span className="bg-fuchsia-500/20 px-1 rounded text-[10px]">{p.frequency}</span>
-                          </span>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                </div>
-              </motion.div>
-            )}
-
-            {/* AI Fingerprint Intelligence */}
-            {profile.aiIntelligence && profile.aiIntelligence.detected && (
-              <motion.div 
-                initial={{ opacity: 0, scale: 0.95 }}
-                animate={{ opacity: 1, scale: 1 }}
-                transition={{ delay: 0.45 }}
-                className="glass-panel p-6 border-yellow-500/20"
-              >
-                <div className="flex items-center gap-3 mb-6 border-b border-white/5 pb-4">
-                  <span className="text-yellow-400 text-xl">🧠</span>
-                  <h3 className="text-xl font-semibold text-zinc-100">AI Intelligence</h3>
-                </div>
-                <div className="space-y-4">
-                  {profile.aiIntelligence.providers.length > 0 && (
-                    <div>
-                      <h4 className="text-sm font-bold text-yellow-300 mb-2">Proveedores LLM</h4>
-                      <div className="flex flex-wrap gap-2">
-                        {profile.aiIntelligence.providers.map((p, i) => (
-                          <span key={i} className="text-xs font-mono bg-yellow-500/20 text-yellow-400 font-bold border border-yellow-500/30 px-2 py-1 rounded">
-                            {p}
-                          </span>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                  {profile.aiIntelligence.frameworks.length > 0 && (
-                    <div>
-                      <h4 className="text-sm font-bold text-yellow-300 mb-2">SDKs / Frameworks</h4>
-                      <div className="flex flex-wrap gap-2">
-                        {profile.aiIntelligence.frameworks.map((f, i) => (
-                          <span key={i} className="text-xs bg-yellow-500/10 text-yellow-300 px-2 py-1 rounded">
-                            {f}
-                          </span>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                  {profile.aiIntelligence.features.length > 0 && (
-                    <div>
-                      <h4 className="text-sm font-bold text-yellow-300 mb-2">Capacidades Detectadas</h4>
-                      <div className="flex flex-wrap gap-2">
-                        {profile.aiIntelligence.features.map((f, i) => (
-                          <span key={i} className="text-xs bg-zinc-800/80 text-zinc-300 px-2 py-1 rounded">
-                            {f}
-                          </span>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                </div>
-              </motion.div>
-            )}
-
-            {/* --- NUEVO: Server Actions (Next.js) --- */}
-            {profile.serverActionsIntelligence && profile.serverActionsIntelligence.extractedActionsCount > 0 && (
-              <motion.div 
-                initial={{ opacity: 0, scale: 0.95 }}
-                animate={{ opacity: 1, scale: 1 }}
-                transition={{ delay: 0.45 }}
-                className="glass-panel p-6 border-rose-500/50 relative overflow-hidden group lg:col-span-3"
-              >
-                <div className="absolute top-0 right-0 p-4 opacity-10 pointer-events-none">
-                  <Activity className="w-32 h-32 text-rose-500" />
-                </div>
-                
-                <div className="flex items-center gap-3 mb-6 border-b border-rose-500/20 pb-4">
-                  <div className="bg-rose-500/20 p-2 rounded-lg">
-                    <Code className="w-6 h-6 text-rose-400" />
-                  </div>
-                  <div>
-                    <h3 className="text-xl font-bold text-zinc-100">Next.js Server Actions Extractor</h3>
-                    <p className="text-xs text-rose-300/70 mt-1">Hashes extraídos listos para inyección POST saltando validación de Frontend.</p>
-                  </div>
-                  <div className="ml-auto bg-rose-500/10 text-rose-400 border border-rose-500/20 px-3 py-1.5 rounded-md font-bold text-sm">
-                    {profile.serverActionsIntelligence.extractedActionsCount} Acciones
-                  </div>
-                </div>
-                
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 max-h-[400px] overflow-y-auto custom-scrollbar pr-2 relative z-10">
-                  {profile.serverActionsIntelligence.actions.map((action, i) => {
-                    // Generar un comando curl de ejemplo para probar el Server Action (IDOR/BOLA)
-                    const curlCommand = `curl -X POST '${targetUrl}' \\
-  -H 'Content-Type: text/plain;charset=UTF-8' \\
-  -H 'Next-Action: ${action.id}' \\
-  --data '[]'`;
-
-                    return (
-                      <div key={i} className="bg-zinc-950/80 p-4 rounded-xl border border-rose-500/30 hover:border-rose-400/50 transition-colors">
-                        <div className="flex justify-between items-start mb-3">
-                          <div className="flex items-center gap-2">
-                            <span className="text-xs text-rose-500 font-bold uppercase tracking-widest">Hash ID</span>
-                            <code className="text-sm font-mono text-zinc-200 bg-rose-500/20 px-2 py-1 rounded">{action.id}</code>
-                          </div>
-                        </div>
-                        
-                        {action.context && (
-                          <div className="mb-4">
-                            <span className="text-[10px] text-zinc-500 uppercase font-bold tracking-wider">Contexto Cercano</span>
-                            <p className="text-xs text-zinc-400 mt-1 font-mono break-all line-clamp-2" title={action.context}>
-                              {action.context}
-                            </p>
-                          </div>
-                        )}
-                        
-                        <div className="mt-auto pt-3 border-t border-rose-500/10">
-                          <span className="text-[10px] text-rose-400 uppercase font-bold tracking-wider mb-2 block">Vector de Ataque (POST)</span>
-                          <div className="bg-black/80 rounded border border-rose-500/20 relative group/curl">
-                            <pre className="text-[10px] font-mono text-zinc-300 p-3 overflow-x-auto custom-scrollbar">
-                              {curlCommand}
-                            </pre>
-                            <button 
-                              onClick={() => {
-                                navigator.clipboard.writeText(curlCommand);
-                                setToast({ message: 'Comando cURL copiado al portapapeles', type: 'success' });
-                              }}
-                              className="absolute top-2 right-2 text-zinc-500 hover:text-white bg-black/50 p-1.5 rounded opacity-0 group-hover/curl:opacity-100 transition-all border border-white/10"
-                              title="Copiar Comando Payload"
-                            >
-                              <ClipboardCheck className="w-3 h-3" />
-                            </button>
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </motion.div>
-            )}
-
-          </div>
-        )}
-
-        {/* Communication Intelligence (GraphQL & WebSockets) */}
-        {profile.communicationIntelligence && (profile.communicationIntelligence.graphql.enabled || profile.communicationIntelligence.websockets.detected) && (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 lg:col-span-2">
-            {profile.communicationIntelligence.graphql.enabled && (
-              <motion.div 
-                initial={{ opacity: 0, scale: 0.95 }}
-                animate={{ opacity: 1, scale: 1 }}
-                transition={{ delay: 0.24 }}
-                className="glass-panel p-6 border-pink-500/20"
-              >
-                <div className="flex items-center gap-3 mb-6 border-b border-white/5 pb-4">
-                  <Workflow className="w-5 h-5 text-pink-400" />
-                  <h3 className="text-xl font-semibold text-zinc-100">GraphQL Intelligence</h3>
-                </div>
-                <div className="space-y-4">
-                  <div>
-                    <h4 className="text-sm font-bold text-pink-300 mb-2">Endpoint de Introspección</h4>
-                    <span className="text-xs font-mono bg-zinc-800 text-zinc-300 px-2 py-1 rounded break-all">{profile.communicationIntelligence.graphql.endpoint}</span>
-                  </div>
-                  {profile.communicationIntelligence.graphql.queries.length > 0 && (
-                    <div>
-                      <h4 className="text-sm font-bold text-pink-300 mb-2">Queries Expuestas</h4>
-                      <div className="flex flex-wrap gap-2">
-                        {profile.communicationIntelligence.graphql.queries.slice(0, 10).map((q, i) => <span key={i} className="text-xs bg-pink-500/10 text-pink-400 px-2 py-1 rounded">{q}</span>)}
-                        {profile.communicationIntelligence.graphql.queries.length > 10 && <span className="text-xs text-zinc-500 py-1">+{profile.communicationIntelligence.graphql.queries.length - 10} más</span>}
-                      </div>
-                    </div>
-                  )}
-                  {profile.communicationIntelligence.graphql.mutations.length > 0 && (
-                    <div>
-                      <h4 className="text-sm font-bold text-pink-300 mb-2">Mutations (Crítico)</h4>
-                      <div className="flex flex-wrap gap-2">
-                        {profile.communicationIntelligence.graphql.mutations.slice(0, 5).map((m, i) => <span key={i} className="text-xs bg-rose-500/20 text-rose-400 px-2 py-1 rounded font-bold border border-rose-500/30">{m}</span>)}
-                      </div>
-                    </div>
-                  )}
-                  {profile.communicationIntelligence.graphql.types.length > 0 && (
-                    <div>
-                      <h4 className="text-sm font-bold text-pink-300 mb-2">Tipos de Datos (Entities)</h4>
-                      <div className="flex flex-wrap gap-2">
-                        {profile.communicationIntelligence.graphql.types.slice(0, 8).map((t, i) => <span key={i} className="text-xs bg-purple-500/10 text-purple-400 px-2 py-1 rounded">{t}</span>)}
-                      </div>
-                    </div>
-                  )}
-                </div>
-              </motion.div>
-            )}
-
-            {profile.communicationIntelligence.websockets.detected && (
-              <motion.div 
-                initial={{ opacity: 0, scale: 0.95 }}
-                animate={{ opacity: 1, scale: 1 }}
-                transition={{ delay: 0.25 }}
-                className="glass-panel p-6 border-emerald-500/20"
-              >
-                <div className="flex items-center gap-3 mb-6 border-b border-white/5 pb-4">
-                  <Radio className="w-5 h-5 text-emerald-400 animate-pulse" />
-                  <h3 className="text-xl font-semibold text-zinc-100">WebSocket Intelligence</h3>
-                </div>
-                <div className="space-y-4">
-                  {profile.communicationIntelligence.websockets.urls.length > 0 && (
-                    <div>
-                      <h4 className="text-sm font-bold text-emerald-300 mb-2">Conexiones Activas Detectadas</h4>
-                      <ul className="list-disc pl-5">
-                        {profile.communicationIntelligence.websockets.urls.map((u, i) => <li key={i} className="text-xs text-zinc-300 font-mono break-all">{u}</li>)}
-                      </ul>
-                    </div>
-                  )}
-                  {profile.communicationIntelligence.websockets.namespaces.length > 0 && (
-                    <div>
-                      <h4 className="text-sm font-bold text-emerald-300 mb-2">Socket.io Namespaces</h4>
-                      <div className="flex flex-wrap gap-2">
-                        {profile.communicationIntelligence.websockets.namespaces.map((ns, i) => <span key={i} className="text-xs font-mono bg-emerald-500/10 text-emerald-400 px-2 py-1 rounded">{ns}</span>)}
-                      </div>
-                    </div>
-                  )}
-                  {profile.communicationIntelligence.websockets.urls.length === 0 && profile.communicationIntelligence.websockets.namespaces.length === 0 && (
-                    <div className="text-xs text-emerald-400/80 italic">Se detectó uso de librerías en tiempo real (Socket.io / Websockets), pero los endpoints se construyen dinámicamente.</div>
-                  )}
-                </div>
-              </motion.div>
-            )}
-          </div>
-        )}
-
-        {/* Framework Intelligence */}
-        <motion.div 
-          initial={{ opacity: 0, scale: 0.95 }}
-          animate={{ opacity: 1, scale: 1 }}
-          transition={{ delay: 0.2 }}
-          className="glass-panel p-6 border-emerald-500/20 lg:col-span-2"
-        >
-          <div className="flex items-center gap-3 mb-6 border-b border-white/5 pb-4">
-            <Zap className="w-5 h-5 text-emerald-400" />
-            <h3 className="text-xl font-semibold text-zinc-100">Vectores de Framework</h3>
-          </div>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {profile.frameworkIntelligence.map((fw, i) => (
-              <div key={i} className="bg-emerald-950/20 p-4 rounded-xl border border-emerald-500/10">
-                <h4 className="font-bold text-emerald-300 mb-3 flex items-center gap-2">
-                  <Server className="w-4 h-4" /> {fw.framework}
-                </h4>
-                <ul className="space-y-2">
-                  {fw.vectors.map((vec, j) => (
-                    <li key={j} className="text-sm text-zinc-400 flex flex-col gap-2 p-3 bg-white/5 rounded-lg border border-white/5 group hover:bg-white/10 transition-colors">
-                      <div className="flex items-start gap-2 justify-between">
-                        <div className="flex items-center gap-2">
-                          <span className="text-emerald-500 mt-0.5">✓</span>
-                          <span className="font-medium text-zinc-200">{vec.name}</span>
-                        </div>
-                        <button 
-                          onClick={() => {
-                            if (onLaunchAttack) {
-                              onLaunchAttack(vec.id);
-                            } else {
-                              window.location.href = `/?targetUrl=${encodeURIComponent(targetUrl)}&mode=targeted&vectorId=${vec.id}`;
-                            }
-                          }}
-                          className="px-3 py-1 bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-400 rounded-md text-xs font-bold transition-colors opacity-0 group-hover:opacity-100"
-                        >
-                          Lanzar Ataque
-                        </button>
-                      </div>
-                      {vec.cliCommand && (
-                        <div className="bg-black/50 p-2 rounded flex justify-between items-center group/cmd">
-                          <code className="text-xs font-mono text-zinc-500">{vec.cliCommand}</code>
-                          <button 
-                            onClick={() => navigator.clipboard.writeText(vec.cliCommand)}
-                            className="text-zinc-600 hover:text-zinc-300 opacity-0 group-hover/cmd:opacity-100 transition-opacity p-1"
-                            title="Copiar Comando"
-                          >
-                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg>
-                          </button>
-                        </div>
-                      )}
-                    </li>
-                  ))}
-                </ul>
-              </div>
             ))}
           </div>
         </motion.div>
-
-        {/* Attack Surface Map */}
-        <motion.div 
-          initial={{ opacity: 0, scale: 0.95 }}
-          animate={{ opacity: 1, scale: 1 }}
-          transition={{ delay: 0.3 }}
-          className="glass-panel p-6 border-rose-500/20 lg:col-span-2"
-        >
-          <div className="flex items-center gap-3 mb-6 border-b border-white/5 pb-4">
-            <Activity className="w-5 h-5 text-rose-400" />
-            <h3 className="text-xl font-semibold text-zinc-100">Superficie de Ataque ({profile.attackSurface.length} Endpoints)</h3>
-          </div>
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-sm border-separate border-spacing-0">
-              <thead>
-                <tr className="text-zinc-400 border-b border-zinc-800 bg-zinc-900/50">
-                  <th className="p-4 font-medium border-b border-zinc-800 rounded-tl-lg">Endpoint / Params</th>
-                  <th className="p-4 font-medium border-b border-zinc-800">Método</th>
-                  <th className="p-4 font-medium border-b border-zinc-800">Tipo</th>
-                  <th className="p-4 font-medium border-b border-zinc-800">Contexto</th>
-                  <th className="p-4 font-medium border-b border-zinc-800 rounded-tr-lg">Riesgo</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-white/5">
-                {profile.attackSurface.map((ep, idx) => {
-                  const riskColors = {
-                    'CRÍTICO': 'bg-rose-500/20 text-rose-400 border-rose-500/30',
-                    'ALTO': 'bg-orange-500/20 text-orange-400 border-orange-500/30',
-                    'MEDIO': 'bg-amber-500/20 text-amber-400 border-amber-500/30',
-                    'BAJO': 'bg-blue-500/20 text-blue-400 border-blue-500/30'
-                  };
-                  return (
-                    <tr key={idx} className="border-b border-gray-800/50 hover:bg-gray-800/20 transition-colors">
-                      <td className="p-3">
-                        <code className="text-xs text-blue-300 font-mono break-all">{ep.path}</code>
-                        {ep.params && ep.params.length > 0 && (
-                          <div className="text-[10px] text-zinc-500 mt-1">
-                            Params: {ep.params.join(', ')}
-                          </div>
-                        )}
-                        {ep.aiExplanation && (
-                          <div className="mt-2 text-xs text-amber-300/80 bg-amber-500/10 p-2 rounded-md border border-amber-500/20 italic flex items-start gap-2">
-                            <span>🧠</span> <span>{ep.aiExplanation}</span>
-                          </div>
-                        )}
-                      </td>
-                      <td className="p-3 text-xs text-gray-400 font-mono">{ep.method}</td>
-                      <td className="p-3 text-xs text-gray-400">{ep.type}</td>
-                      <td className="p-3 text-xs text-gray-400">
-                        {ep.framework && <span className="bg-purple-500/10 text-purple-400 px-1.5 py-0.5 rounded mr-1">{ep.framework}</span>}
-                        {ep.authType && <span className="bg-emerald-500/10 text-emerald-400 px-1.5 py-0.5 rounded">{ep.authType}</span>}
-                      </td>
-                      <td className="p-3">
-                        <span className={`px-2 py-1 text-xs font-bold rounded-md border ${riskColors[ep.riskLevel as keyof typeof riskColors] || 'bg-blue-500/20 text-blue-400 border-blue-500/30'}`}>
-                          {ep.riskLevel}
-                        </span>
-                      </td>
-                    </tr>
-                  )
-                })}
-              </tbody>
-            </table>
-          </div>
+        
+        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{delay: 0.5}}>
+          <h3 className="text-xl font-bold flex items-center gap-2 border-b border-white/10 pb-2 mb-4"><DatabaseZap className="text-amber-400" /> Entity Map</h3>
+          {profile.businessDictionary ? (
+            <div className="grid grid-cols-2 gap-4">
+               <div className="bg-amber-950/10 p-4 rounded-xl border border-amber-500/20">
+                 <h4 className="text-amber-400 font-bold text-sm mb-3">Entities</h4>
+                 <div className="flex flex-wrap gap-2">
+                   {profile.businessDictionary.entities.map((e, i) => <span key={i} className="text-xs bg-amber-500/20 text-amber-200 px-2 py-1 rounded-full border border-amber-500/30">{e}</span>)}
+                 </div>
+               </div>
+               <div className="bg-orange-950/10 p-4 rounded-xl border border-orange-500/20">
+                 <h4 className="text-orange-400 font-bold text-sm mb-3">Roles / Actors</h4>
+                 <div className="flex flex-wrap gap-2">
+                   {profile.businessDictionary.roles.map((e, i) => <span key={i} className="text-xs bg-orange-500/20 text-orange-200 px-2 py-1 rounded-full border border-orange-500/30">{e}</span>)}
+                 </div>
+               </div>
+               <div className="bg-yellow-950/10 p-4 rounded-xl border border-yellow-500/20 col-span-2">
+                 <h4 className="text-yellow-400 font-bold text-sm mb-3">Feature Flags & Configs</h4>
+                 <div className="flex flex-wrap gap-2">
+                   {profile.businessDictionary.configFlags.map((e, i) => <span key={i} className="text-[10px] font-mono bg-yellow-500/10 text-yellow-500/80 px-1.5 py-0.5 rounded border border-yellow-500/20">{e}</span>)}
+                 </div>
+               </div>
+            </div>
+          ) : (
+            <div className="text-zinc-500 text-sm p-4 text-center border border-dashed border-white/10 rounded-xl">No JS Entity Map extracted.</div>
+          )}
         </motion.div>
+      </section>
 
-      </div>
+      {/* SECTION 6: ENDPOINT CATALOG */}
+      <motion.section initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{delay: 0.6}}>
+        <h3 className="text-2xl font-bold flex items-center gap-2 border-b border-white/10 pb-2"><Map className="text-cyan-400" /> Endpoint Catalog</h3>
+        <p className="text-sm text-zinc-400 mb-4">Endpoints descubiertos agrupados por módulo funcional (Reconstrucción Semántica).</p>
+        <div className="space-y-3">
+          {Object.entries(endpointGroups).filter(([_, eps]) => eps.length > 0).map(([groupName, eps]) => (
+            <div key={groupName} className="glass-panel border-cyan-500/20 overflow-hidden">
+              <button 
+                onClick={() => setOpenEntity(openEntity === groupName ? null : groupName)}
+                className="w-full p-4 flex justify-between items-center hover:bg-white/5 transition-colors"
+              >
+                <div className="flex items-center gap-3">
+                  <span className="font-bold text-zinc-100">{groupName}</span>
+                  <span className="bg-cyan-500/20 text-cyan-300 text-xs px-2 py-1 rounded-full">{eps.length} endpoints</span>
+                </div>
+                <span className="text-zinc-500 text-sm">{openEntity === groupName ? 'Contraer' : 'Expandir'}</span>
+              </button>
+              
+              <AnimatePresence>
+                {openEntity === groupName && (
+                  <motion.div 
+                    initial={{ height: 0, opacity: 0 }}
+                    animate={{ height: 'auto', opacity: 1 }}
+                    exit={{ height: 0, opacity: 0 }}
+                    className="border-t border-white/5 bg-black/20"
+                  >
+                    <div className="max-h-[300px] overflow-y-auto custom-scrollbar p-2">
+                      <table className="w-full text-left text-sm">
+                        <tbody className="divide-y divide-white/5">
+                          {eps.map((ep, idx) => {
+                            const riskColors: Record<string, string> = {
+                              'CRÍTICO': 'bg-rose-500/20 text-rose-400 border-rose-500/30',
+                              'ALTO': 'bg-orange-500/20 text-orange-400 border-orange-500/30',
+                              'MEDIO': 'bg-amber-500/20 text-amber-400 border-amber-500/30',
+                              'BAJO': 'bg-blue-500/20 text-blue-400 border-blue-500/30'
+                            };
+                            return (
+                              <tr key={idx} className="hover:bg-white/5">
+                                <td className="p-2 text-xs text-zinc-400 font-mono w-20">{ep.method}</td>
+                                <td className="p-2 text-xs text-blue-300 font-mono break-all">{ep.path}</td>
+                                <td className="p-2 w-24">
+                                  <span className={`px-2 py-0.5 text-[10px] font-bold rounded border ${riskColors[ep.riskLevel] || 'bg-zinc-800 text-zinc-400'}`}>
+                                    {ep.riskLevel}
+                                  </span>
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </div>
+          ))}
+        </div>
+      </motion.section>
+
+      {/* SECTION 7: DATA EXPOSURE */}
+      <motion.section initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{delay: 0.7}}>
+        <h3 className="text-2xl font-bold flex items-center gap-2 border-b border-white/10 pb-2"><Eye className="text-rose-400" /> Data Exposure</h3>
+        <p className="text-sm text-zinc-400 mb-4">Centralización de activos críticos expuestos que representan riesgo de fuga de datos.</p>
+        
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          {/* JWT / Tokens / Auth */}
+          {profile.authIntelligence && profile.authIntelligence.localStorage && (
+            <div className="bg-rose-950/20 p-5 rounded-xl border border-rose-500/30 relative overflow-hidden">
+              <div className="absolute top-0 right-0 p-3 opacity-10"><Lock className="w-16 h-16" /></div>
+              <h4 className="font-bold text-rose-400 mb-2 flex items-center gap-2">Token Storage Exposure</h4>
+              <p className="text-xs text-rose-200/70 mb-4">La aplicación almacena tokens de sesión en el LocalStorage. Si existe vulnerabilidad XSS, un atacante puede robar las sesiones mediante Javascript.</p>
+              <div className="bg-black/50 p-2 rounded text-xs font-mono text-zinc-400 border border-white/5">Storage: LocalStorage</div>
+            </div>
+          )}
+
+          {/* GraphQL */}
+          {profile.communicationIntelligence?.graphql.enabled && (
+            <div className="bg-pink-950/20 p-5 rounded-xl border border-pink-500/30 relative overflow-hidden">
+               <div className="absolute top-0 right-0 p-3 opacity-10"><Workflow className="w-16 h-16" /></div>
+               <h4 className="font-bold text-pink-400 mb-2 flex items-center gap-2">GraphQL Introspection</h4>
+               <p className="text-xs text-pink-200/70 mb-4">El servidor expone su esquema completo de base de datos a través de GraphQL. Permite a un atacante mapear todas las consultas y tipos de datos posibles.</p>
+               <div className="bg-black/50 p-2 rounded text-xs font-mono text-zinc-400 border border-white/5 truncate">{profile.communicationIntelligence.graphql.endpoint}</div>
+            </div>
+          )}
+
+          {/* Server Actions / Source Maps */}
+          {profile.serverActionsIntelligence && profile.serverActionsIntelligence.extractedActionsCount > 0 && (
+            <div className="bg-orange-950/20 p-5 rounded-xl border border-orange-500/30 relative overflow-hidden">
+              <div className="absolute top-0 right-0 p-3 opacity-10"><Code className="w-16 h-16" /></div>
+              <h4 className="font-bold text-orange-400 mb-2 flex items-center gap-2">Server Actions (Next.js)</h4>
+              <p className="text-xs text-orange-200/70 mb-4">Se extrajeron hashes RPC de Next.js. Esto permite bypass de UI e inyecciones directas a la base de datos backend.</p>
+              <div className="bg-black/50 p-2 rounded text-xs font-mono text-zinc-400 border border-white/5">{profile.serverActionsIntelligence.extractedActionsCount} Acciones Críticas</div>
+            </div>
+          )}
+        </div>
+      </motion.section>
+
+      {/* SECTION 10: CORRELATION CENTER */}
+      <motion.section initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{delay: 0.8}} className="glass-panel p-8 border-indigo-500/30 bg-indigo-950/10">
+        <h3 className="text-2xl font-bold flex items-center gap-2 border-b border-indigo-500/20 pb-2 mb-6"><ClipboardCheck className="text-indigo-400" /> Correlation Center</h3>
+        <p className="text-sm text-zinc-300 mb-8 max-w-3xl">Auditoría inteligente. FixGuard cruza Tecnologías, Entidades y Endpoints para reconstruir la lógica de la aplicación completa.</p>
+        
+        {profile.auditReport && profile.auditReport.contexts.length > 0 ? (
+           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+             {profile.auditReport.contexts.map((ctx, idx) => (
+               <div key={idx} className="bg-zinc-950/50 p-5 rounded-xl border border-indigo-500/20">
+                 <h4 className="font-bold text-indigo-300 text-lg mb-2">{ctx.name}</h4>
+                 <p className="text-xs text-zinc-400 mb-4 min-h-[40px]">{ctx.description}</p>
+                 
+                 <div className="space-y-4">
+                   <div>
+                     <span className="text-[10px] uppercase text-zinc-500 font-bold mb-1 block">Ruta Relacional:</span>
+                     <div className="flex flex-col gap-2 relative">
+                        <div className="absolute left-2.5 top-2 bottom-2 w-0.5 bg-indigo-500/20"></div>
+                        {ctx.inferredTechnologies.length > 0 && (
+                          <div className="flex items-center gap-3 relative z-10">
+                            <div className="w-5 h-5 rounded-full bg-indigo-500/20 flex items-center justify-center border border-indigo-500/50 text-[10px]">T</div>
+                            <span className="text-xs font-mono text-indigo-200">{ctx.inferredTechnologies[0]}</span>
+                          </div>
+                        )}
+                        <div className="flex items-center gap-3 relative z-10">
+                           <div className="w-5 h-5 rounded-full bg-purple-500/20 flex items-center justify-center border border-purple-500/50 text-[10px]">E</div>
+                           <span className="text-xs font-mono text-purple-200">Entidad de Negocio</span>
+                        </div>
+                        {ctx.evidences.length > 0 && (
+                          <div className="flex items-center gap-3 relative z-10">
+                            <div className="w-5 h-5 rounded-full bg-rose-500/20 flex items-center justify-center border border-rose-500/50 text-[10px]">A</div>
+                            <span className="text-xs font-mono text-rose-200 truncate" title={ctx.evidences[0]}>{ctx.evidences[0]}</span>
+                          </div>
+                        )}
+                     </div>
+                   </div>
+                 </div>
+               </div>
+             ))}
+           </div>
+        ) : (
+           <div className="text-center p-8 bg-black/20 rounded-xl border border-white/5 text-zinc-500">
+             No se pudo generar suficiente correlación cruzada en este objetivo.
+           </div>
+        )}
+      </motion.section>
+
     </div>
   );
 }
-
-

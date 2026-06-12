@@ -142,6 +142,13 @@ export interface ReconProfile {
     frameworks: string[];
     features: string[];
   };
+  runtimeIntelligence?: {
+    totalClicks: number;
+    totalFormsFilled: number;
+    totalScrolls: number;
+    requestsIntercepted: number;
+    endpointsDiscovered: number;
+  };
   auditReport?: {
     summary: string;
     contexts: Array<{

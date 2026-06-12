@@ -6,7 +6,7 @@ import ScanningState from "@/components/ScanningState";
 import VulnerabilityCard from "@/components/VulnerabilityCard";
 import ReconDashboard from "@/components/ReconDashboard";
 import OffensiveArsenal from "@/components/OffensiveArsenal";
-import AttackPathTree from "@/components/AttackPathTree";
+
 import { ScanMode, TerminalLog, Vulnerability, ReconProfile, ScanStatus } from "@/types";
 import { AnimatePresence, motion } from "framer-motion";
 
@@ -385,7 +385,7 @@ export default function Home() {
                   </div>
                 ) : (
                   <>
-                    <AttackPathTree vulnerabilities={vulnerabilities} />
+
                     
                     <div className="space-y-4 mt-8">
                       <h3 className="text-2xl font-bold text-zinc-100 flex items-center gap-3 border-b border-white/5 pb-4 mb-6">
