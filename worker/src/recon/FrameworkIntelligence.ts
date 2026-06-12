@@ -50,16 +50,30 @@ export function runFrameworkIntelligence(techStack: TechStackItem[]): FrameworkV
     });
   }
 
-  if (stackNames.includes('react')) {
+  if (stackNames.includes('react') || stackNames.includes('vue') || stackNames.includes('angular') || stackNames.includes('svelte')) {
     intelligence.push({
-      framework: 'React',
+      framework: 'SPA Frontend (React/Vue/Angular)',
       vectors: [
-        { id: 'react_sourcemaps', name: 'Source Maps leak', cliCommand: 'nuclei -id react-sourcemaps -u <TARGET>' },
-        { id: 'react_routing', name: 'Client Side Routing enumeration', cliCommand: 'nuclei -id react-routing -u <TARGET>' },
-        { id: 'react_localstorage', name: 'Local Storage secrets', cliCommand: 'grep -ri "localStorage.setItem" .' },
-        { id: 'react_sessionstorage', name: 'Session Storage secrets', cliCommand: 'grep -ri "sessionStorage.setItem" .' },
-        { id: 'react_dom_injection', name: 'DOM Injection Points', cliCommand: 'grep -ri "dangerouslySetInnerHTML" .' },
-        { id: 'xsstrike_react', name: 'XSS Automático (Mutación)', cliCommand: 'xsstrike -u <TARGET>' }
+        { id: 'spa_sourcemaps', name: 'Source Maps leak', cliCommand: 'nuclei -id react-sourcemaps -u <TARGET>' },
+        { id: 'spa_routing', name: 'Client Side Routing enum', cliCommand: 'nuclei -id react-routing -u <TARGET>' },
+        { id: 'spa_localstorage', name: 'Local Storage secrets', cliCommand: 'grep -ri "localStorage.setItem" .' },
+        { id: 'spa_secrets_scan', name: 'JS Secrets Analyzer', cliCommand: 'nuclei -t exposed-tokens/ -u <TARGET>' },
+        { id: 'spa_dom_injection', name: 'DOM Injection Points', cliCommand: 'grep -riE "dangerouslySetInnerHTML|innerHTML|v-html" .' },
+        { id: 'xsstrike_spa', name: 'XSS Automático (Mutación)', cliCommand: 'xsstrike -u <TARGET>' }
+      ]
+    });
+  }
+
+  // Identificar Static Sites (ej. no detectamos node, python, php, pero sí html/js)
+  const isStatic = !techStack.some(t => ['node.js', 'express', 'django', 'flask', 'laravel', 'php', 'spring'].includes(t.name.toLowerCase()));
+  if (isStatic || stackNames.includes('vercel') || stackNames.includes('netlify') || stackNames.includes('github pages')) {
+    intelligence.push({
+      framework: 'Static & JAMStack',
+      vectors: [
+        { id: 'static_takeover', name: 'Subdomain Takeover', cliCommand: 'nuclei -t takeovers/ -u <TARGET>' },
+        { id: 'static_secrets', name: 'Hardcoded Secrets Scanner', cliCommand: 'nuclei -tags keys,tokens,credentials -u <TARGET>' },
+        { id: 'static_cors', name: 'CORS Misconfiguration', cliCommand: 'nuclei -id cors-misconfig -u <TARGET>' },
+        { id: 'static_s3', name: 'S3 Bucket Exposure', cliCommand: 'nuclei -id s3-detect -u <TARGET>' }
       ]
     });
   }
@@ -135,12 +149,19 @@ export const VECTOR_REGISTRY: Record<string, VectorItem> = {
   nextjs_isr: { id: 'nextjs_isr', name: 'ISR cache poisoning', cliCommand: 'curl -X PURGE <TARGET>' },
   nextjs_route_handlers: { id: 'nextjs_route_handlers', name: 'Route Handlers', cliCommand: 'nuclei -id nextjs-route-handlers -u <TARGET>' },
   nextjs_edge: { id: 'nextjs_edge', name: 'Edge Functions mapping', cliCommand: 'nuclei -id nextjs-edge -u <TARGET>' },
-  // React
-  react_sourcemaps: { id: 'react_sourcemaps', name: 'Source Maps leak', cliCommand: 'nuclei -id react-sourcemaps -u <TARGET>' },
-  react_routing: { id: 'react_routing', name: 'Client Side Routing enumeration', cliCommand: 'nuclei -id react-routing -u <TARGET>' },
-  react_localstorage: { id: 'react_localstorage', name: 'Local Storage secrets', cliCommand: 'grep -ri "localStorage.setItem" .' },
-  react_sessionstorage: { id: 'react_sessionstorage', name: 'Session Storage secrets', cliCommand: 'grep -ri "sessionStorage.setItem" .' },
-  react_dom_injection: { id: 'react_dom_injection', name: 'DOM Injection Points (dangerouslySetInnerHTML)', cliCommand: 'grep -ri "dangerouslySetInnerHTML" .' },
+  // SPA Frontend
+  spa_sourcemaps: { id: 'spa_sourcemaps', name: 'Source Maps leak', cliCommand: 'nuclei -id react-sourcemaps -u <TARGET>' },
+  spa_routing: { id: 'spa_routing', name: 'Client Side Routing enum', cliCommand: 'nuclei -id react-routing -u <TARGET>' },
+  spa_localstorage: { id: 'spa_localstorage', name: 'Local Storage secrets', cliCommand: 'grep -ri "localStorage.setItem" .' },
+  spa_secrets_scan: { id: 'spa_secrets_scan', name: 'JS Secrets Analyzer', cliCommand: 'nuclei -t exposed-tokens/ -u <TARGET>' },
+  spa_dom_injection: { id: 'spa_dom_injection', name: 'DOM Injection Points', cliCommand: 'grep -riE "dangerouslySetInnerHTML|innerHTML|v-html" .' },
+  xsstrike_spa: { id: 'xsstrike_spa', name: 'XSS Automático (Mutación)', cliCommand: 'xsstrike -u <TARGET>' },
+  
+  // Static & JAMStack
+  static_takeover: { id: 'static_takeover', name: 'Subdomain Takeover', cliCommand: 'nuclei -t takeovers/ -u <TARGET>' },
+  static_secrets: { id: 'static_secrets', name: 'Hardcoded Secrets Scanner', cliCommand: 'nuclei -tags keys,tokens,credentials -u <TARGET>' },
+  static_cors: { id: 'static_cors', name: 'CORS Misconfiguration', cliCommand: 'nuclei -id cors-misconfig -u <TARGET>' },
+  static_s3: { id: 'static_s3', name: 'S3 Bucket Exposure', cliCommand: 'nuclei -id s3-detect -u <TARGET>' },
   // Node / Express
   express_routing: { id: 'express_routing', name: 'Express Route enumeration', cliCommand: 'ffuf -s -ac -w ./wordlists/api_wordlist.txt -u <TARGET>/FUZZ' },
   express_pollution: { id: 'express_pollution', name: 'Prototype Pollution', cliCommand: 'nuclei -t http/vulnerabilities/generic/prototype-pollution.yaml -u <TARGET>' },
