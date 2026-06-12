@@ -36,6 +36,8 @@ import { ArtifactIntelligenceEngine } from './recon/ArtifactIntelligenceEngine';
 import { ParameterIntelligenceEngine } from './recon/ParameterIntelligenceEngine';
 import { AIFingerprintEngine } from './recon/AIFingerprintEngine';
 import { CorrelationEngine } from './recon/CorrelationEngine';
+import { EntityRelationshipEngine } from './scanner/entityEngine';
+import { WorkflowReconstructionEngine } from './recon/WorkflowReconstructionEngine';
 import axios from 'axios';
 
 // Nuevos Motores Fase 6
@@ -108,10 +110,12 @@ app.post('/api/scan', async (req, res) => {
 
     let urlsToAttack = [targetUrl];
     let jsFilesFromCrawler: string[] = [];
+    let runtimeIntelligence = undefined;
     if (mode === 'aggressive') {
       const crawlerData = await runCrawler(scanId, targetUrl);
       urlsToAttack = Array.from(new Set([...urlsToAttack, ...crawlerData.endpoints]));
       jsFilesFromCrawler = crawlerData.jsFiles;
+      runtimeIntelligence = crawlerData.runtimeIntelligence;
     }
 
     // Unir endpoints JS y Crawler
@@ -172,6 +176,12 @@ app.post('/api/scan', async (req, res) => {
 
     // 3. Reconstrucción de Arquitectura Avanzada (Módulo 1)
     const architectureTree = buildArchitectureTree(domain, techStack, attackSurface, businessDictionary);
+    
+    // NUEVO: Entity Relationship Engine (ERE)
+    const entityGraph = await EntityRelationshipEngine.analyze(allDiscoveredPaths, jsCodes, businessDictionary);
+
+    // NUEVO: Workflow Reconstruction
+    const workflowIntelligence = WorkflowReconstructionEngine.analyze(allDiscoveredPaths);
 
     // NUEVO: Correlation Engine (Auditoría Inteligente)
     const auditReport = CorrelationEngine.analyze(
@@ -201,6 +211,9 @@ app.post('/api/scan', async (req, res) => {
       parameterIntelligence,
       serverActionsIntelligence,
       aiIntelligence,
+      runtimeIntelligence,
+      entityGraph,
+      workflowIntelligence,
       auditReport
     }).returning({ id: reconProfiles.id });
 

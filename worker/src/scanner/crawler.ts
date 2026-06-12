@@ -12,7 +12,17 @@ import path from 'path';
  * - Llena formularios "fantasma"
  * - Extrae APIs de Fetch/XHR, GraphQL, WebSockets y Service Workers
  */
-export async function runCrawler(scanId: number, targetUrl: string): Promise<{endpoints: string[], jsFiles: string[]}> {
+export async function runCrawler(scanId: number, targetUrl: string): Promise<{
+  endpoints: string[], 
+  jsFiles: string[],
+  runtimeIntelligence: {
+    totalClicks: number;
+    totalFormsFilled: number;
+    totalScrolls: number;
+    requestsIntercepted: number;
+    endpointsDiscovered: number;
+  }
+}> {
   const discoveredUrls = new Set<string>();
   const discoveredJsFiles = new Set<string>();
   discoveredUrls.add(targetUrl);
@@ -22,6 +32,12 @@ export async function runCrawler(scanId: number, targetUrl: string): Promise<{en
   
   const queue = [targetUrl];
   const visited = new Set<string>();
+
+  // Metrics
+  let totalClicks = 0;
+  let totalFormsFilled = 0;
+  let totalScrolls = 0;
+  let requestsIntercepted = 0;
 
   console.log(`[Scan ${scanId}] Crawler: Iniciando User Journey Explorer en ${targetUrl}...`);
 
@@ -62,6 +78,7 @@ export async function runCrawler(scanId: number, targetUrl: string): Promise<{en
     
     // Intercepción global (Network Intelligence)
     context.on('request', request => {
+      requestsIntercepted++;
       const reqUrl = request.url();
       try {
         const u = new URL(reqUrl);
@@ -110,8 +127,8 @@ export async function runCrawler(scanId: number, targetUrl: string): Promise<{en
         } catch(e) {}
 
         // 3. Scroll Infinito Automático (Lazy Loading Discovery)
-        await page.evaluate(async () => {
-            await new Promise<void>((resolve) => {
+        const scrollsDone = await page.evaluate(async () => {
+            return await new Promise<number>((resolve) => {
                 let totalHeight = 0;
                 const distance = 500;
                 const maxScrolls = 4; // Bajar 4 veces
@@ -123,11 +140,12 @@ export async function runCrawler(scanId: number, targetUrl: string): Promise<{en
                     scrolls++;
                     if(totalHeight >= scrollHeight - window.innerHeight || scrolls >= maxScrolls){
                         clearInterval(timer);
-                        resolve();
+                        resolve(scrolls);
                     }
                 }, 800); // 800ms entre scrolls para dar tiempo a peticiones
             });
         });
+        totalScrolls += (scrollsDone as number || 0);
         await page.waitForTimeout(1000); // Dar un respiro a la red
 
         // 4. Component Discovery & Auto-Clickeador
@@ -143,6 +161,7 @@ export async function runCrawler(scanId: number, targetUrl: string): Promise<{en
               const box = await interactables[i].boundingBox();
               if (box) {
                  await interactables[i].click({ timeout: 1000, delay: 50 }).catch(()=>{});
+                 totalClicks++;
                  // Esperamos medio segundo tras cada clic para interceptar fetches
                  await page.waitForTimeout(500); 
               }
@@ -170,6 +189,7 @@ export async function runCrawler(scanId: number, targetUrl: string): Promise<{en
                 if (submitBtn) {
                    // Clickeamos el submit sin esperar navegación para atrapar el POST en la red
                    submitBtn.click().catch(()=>{});
+                   totalFormsFilled++;
                    await page.waitForTimeout(1000);
                 }
               } catch(e) {}
@@ -221,6 +241,17 @@ export async function runCrawler(scanId: number, targetUrl: string): Promise<{en
 
   const result = Array.from(discoveredUrls);
   const jsResult = Array.from(discoveredJsFiles);
-  console.log(`[Scan ${scanId}] Crawler: Exploración de Viaje completada. ${result.length} rutas/endpoints descubiertos, ${jsResult.length} archivos JS interceptados.`);
-  return { endpoints: result, jsFiles: jsResult };
+  console.log(`[Scan ${scanId}] Crawler: Exploración de Viaje completada. ${result.length} rutas/endpoints descubiertos, ${jsResult.length} archivos JS interceptados. (${totalClicks} clics, ${totalFormsFilled} forms, ${requestsIntercepted} reqs)`);
+  
+  return { 
+    endpoints: result, 
+    jsFiles: jsResult,
+    runtimeIntelligence: {
+      totalClicks,
+      totalFormsFilled,
+      totalScrolls,
+      requestsIntercepted,
+      endpointsDiscovered: result.length
+    }
+  };
 }

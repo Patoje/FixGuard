@@ -106,12 +106,14 @@ export class WorkflowReconstructionEngine {
     
     endpoints.forEach(url => {
       try {
-        const parsedUrl = new URL(url);
+        const parsedUrl = new URL(url.startsWith('http') ? url : `http://localhost${url.startsWith('/') ? url : '/' + url}`);
         if (parsedUrl.pathname.match(/\.(js|css|png|jpg|jpeg|gif|woff2?|ttf|svg|ico)$/i)) return;
         const segments = parsedUrl.pathname.split('/').filter(p => p.length > 0 && p !== 'api' && p !== 'v1' && p !== 'v2');
         
         if (segments.length > 0) {
-          const rootResource = segments[0].toLowerCase();
+          const rootSegment = segments[0];
+          if (!rootSegment) return;
+          const rootResource = rootSegment.toLowerCase();
           // Ignorar los ya procesados
           if (['auth', 'login', 'billing', 'stripe'].includes(rootResource)) return;
           
@@ -127,7 +129,7 @@ export class WorkflowReconstructionEngine {
 
     // Convertir recursos con múltiples endpoints en flujos
     for (const [resource, urls] of resourceMap.entries()) {
-      if (urls.length >= 2) {
+      if (urls.length >= 1) {
         journeys.push({
           name: `${resource.charAt(0).toUpperCase() + resource.slice(1)} Management Flow`,
           category: 'Core',
