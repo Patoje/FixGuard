@@ -33,3 +33,13 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
   }
 }
+
+export async function GET(request: Request) {
+  try {
+    const allScans = await db.select().from(scans).orderBy(scans.createdAt);
+    return NextResponse.json(allScans);
+  } catch (error) {
+    console.error('Error fetching scans:', error);
+    return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
+  }
+}

@@ -27,7 +27,19 @@ export default function RootLayout({
       lang="en"
       className={`dark ${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
-      <body className="min-h-full flex flex-col">
+      <body className="min-h-full flex flex-col bg-black text-white">
+        <nav className="w-full border-b border-zinc-800 bg-black/50 backdrop-blur-xl sticky top-0 z-50">
+          <div className="max-w-6xl mx-auto px-6 h-14 flex items-center justify-between">
+            <a href="/" className="font-bold tracking-tight text-xl">Fix<span className="text-zinc-500">Guard</span></a>
+            <div className="flex items-center gap-6 text-sm font-medium">
+              <a href="/" className="text-zinc-400 hover:text-white transition-colors">Scanner</a>
+              <a href="/diff" className="text-zinc-400 hover:text-white transition-colors flex items-center gap-2">
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="18" cy="18" r="3"></circle><circle cx="6" cy="6" r="3"></circle><path d="M13 6h3a2 2 0 0 1 2 2v7"></path><line x1="6" y1="9" x2="6" y2="21"></line></svg>
+                Scan Diffing
+              </a>
+            </div>
+          </div>
+        </nav>
         {children}
       </body>
     </html>
