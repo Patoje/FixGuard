@@ -53,3 +53,22 @@ export const reconProfiles = pgTable('recon_profiles', {
   smartVectors: json('smart_vectors'),
   createdAt: timestamp('created_at').defaultNow().notNull(),
 });
+
+export const findings = pgTable('findings', {
+  id: serial('id').primaryKey(),
+  scanId: integer('scan_id').references(() => scans.id).notNull(),
+  fingerprint: varchar('fingerprint', { length: 255 }).notNull().unique(),
+  title: text('title').notNull(),
+  severity: varchar('severity', { enum: ['critical', 'high', 'medium', 'low', 'info'] }).notNull(),
+  status: varchar('status', { enum: ['open', 'accepted', 'fixed', 'false_positive'] }).notNull().default('open'),
+  endpoint: text('endpoint'),
+  method: varchar('method', { length: 10 }),
+  requestRaw: text('request_raw'),
+  responseRaw: text('response_raw'),
+  payloadUsed: text('payload_used'),
+  cweId: varchar('cwe_id', { length: 20 }),
+  owaspCategory: varchar('owasp_category', { length: 100 }),
+  toolSource: varchar('tool_source', { length: 50 }).notNull(),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().notNull(),
+});

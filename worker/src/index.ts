@@ -8,11 +8,6 @@ import { runDirectoryScan } from './scanner/directories';
 import { runWafScan } from './scanner/waf';
 import { runFingerprintScan } from './scanner/fingerprint';
 import { runSecurityTxtScan } from './scanner/securityTxt';
-import { runSqliScan } from './scanner/sqli';
-import { runXssScan } from './scanner/xss';
-import { runCorsScan } from './scanner/cors';
-import { runGraphqlScan } from './scanner/graphql';
-import { runSourceMapScan } from './scanner/sourcemaps';
 import { runRateLimitScan } from './scanner/ratelimit';
 import { runApiDiscoveryScan } from './scanner/api-discovery';
 import { runSecretsScan } from './scanner/secrets';
@@ -245,67 +240,9 @@ app.post('/api/scan', async (req, res) => {
 
     console.log(`[Scan ${scanId}] Análisis Pasivo y Reconocimiento completado. Guardado Perfil Tech Stack.`);
 
-    // --- FASE 2: ATAQUE ACTIVO / AGRESIVO ---
-    if (mode === 'active' || mode === 'aggressive') {
-      if (mode === 'aggressive') {
-        console.log(`[Scan ${scanId}] ⏸️ Escaneo Agresivo pausado esperando confirmación manual para explotar toda la superficie.`);
-        await db.update(scans).set({ status: 'paused_for_approval' }).where(eq(scans.id, scanId));
-        return; // Terminamos la ejecución por ahora. Se reanudará desde /api/scan/resume
-      }
-
-      console.log(`[Scan ${scanId}] ⚠️ ADVERTENCIA: Ejecutando suite de Ataque (${mode}) sobre TODA la superficie descubierta (${urlsToAttack.length} endpoints base)...`);
-
-      // Ampliar la lista de ataques con los descubiertos en JS si son URLs completas
-      const endpointsToAttack = Array.from(new Set([
-        ...urlsToAttack,
-        ...jsEndpoints.map(p => p.startsWith('http') ? p : `${new URL(targetUrl).origin}${p.startsWith('/') ? p : '/' + p}`)
-      ]));
-
-      const activeTaskFactories: (() => Promise<void>)[] = [];
-
-      for (const url of endpointsToAttack) {
-        // Ataques comunes a todas las URLs descubiertas
-        activeTaskFactories.push(
-          () => runSqliScan(scanId, url),
-          () => runXssScan(scanId, url),
-          () => runCorsScan(scanId, url),
-          () => runGraphqlScan(scanId, url),
-          () => runSourceMapScan(scanId, url),
-          () => runApiDiscoveryScan(scanId, url),
-          () => runSecretsScan(scanId, url),
-          () => runJwtScan(scanId, url),
-          () => runTraversalScan(scanId, url),
-          () => runPollutionScan(scanId, url)
-        );
-      }
-
-      // El Rate Limit lo corremos solo 1 vez a la URL principal para no saturar la red local
-      const rateLimitTask = () => runRateLimitScan(scanId, targetUrl);
-
-      // Helper para ejecutar tareas con concurrencia controlada y "Jitter" (retraso aleatorio)
-      const runWithConcurrency = async (tasks: (() => Promise<void>)[], limit: number) => {
-        const executing: Promise<void>[] = [];
-        for (const task of tasks) {
-          const jitterTask = async () => {
-            // Retraso aleatorio (Jitter) entre 200ms y 600ms para parecer humano
-            await new Promise(resolve => setTimeout(resolve, 200 + Math.random() * 400));
-            await task();
-          };
-          
-          const p = jitterTask().then(() => {
-            executing.splice(executing.indexOf(p), 1);
-          });
-          executing.push(p);
-          if (executing.length >= limit) {
-            await Promise.race(executing);
-          }
-        }
-        await Promise.all(executing);
-      };
-
-      // Limitar a 5 peticiones simultáneas
-      await runWithConcurrency([rateLimitTask, ...activeTaskFactories], 5);
-    }
+    // --- FASE 2: ATAQUE DIRIGIDO (Eliminada fase activa masiva obsoleta) ---
+    // FixGuard ahora depende del orquestador dirigido en /api/attack/targeted
+    // Este index solo procesa la fase de reconocimiento e inteligencia.
 
     await db.update(scans).set({ 
       status: 'completed', 
@@ -325,94 +262,9 @@ app.post('/api/scan', async (req, res) => {
 import { runSastScan } from './sast';
 import { vulnerabilities } from './db/schema';
 
-app.post('/api/scan/resume', async (req, res) => {
-  const { scanId, targetUrl, decision } = req.body;
-
-  if (!scanId || !targetUrl || !decision) {
-    return res.status(400).json({ error: 'Falta scanId, targetUrl o decision' });
-  }
-
-  res.json({ message: 'Resumiendo escaneo', scanId });
-
-  try {
-    if (decision === 'skip') {
-      console.log(`[Scan ${scanId}] ⏭️ Fase ofensiva masiva omitida por el usuario.`);
-      await db.update(scans).set({ 
-        status: 'completed', 
-        completedAt: new Date() 
-      }).where(eq(scans.id, scanId));
-      return;
-    }
-
-    await db.update(scans).set({ status: 'in_progress' }).where(eq(scans.id, scanId));
-    console.log(`[Scan ${scanId}] 🔫 Reanudando escaneo Agresivo Masivo aprobado por el usuario...`);
-
-    const [profile] = await db.select().from(reconProfiles).where(eq(reconProfiles.scanId, scanId));
-    if (!profile) throw new Error("No recon profile found to resume");
-
-    const attackSurface = profile.attackSurface as any[];
-    const endpointsToAttack = Array.from(new Set([
-      targetUrl,
-      ...attackSurface.map(ep => ep.path.startsWith('http') ? ep.path : `${new URL(targetUrl).origin}${ep.path.startsWith('/') ? ep.path : '/' + ep.path}`)
-    ]));
-
-    console.log(`[Scan ${scanId}] ⚠️ ADVERTENCIA: Ejecutando suite de Ataque (aggressive) sobre TODA la superficie descubierta (${endpointsToAttack.length} endpoints)...`);
-
-    const activeTaskFactories: (() => Promise<void>)[] = [];
-
-    for (const url of endpointsToAttack) {
-      activeTaskFactories.push(
-        () => runSqliScan(scanId, url),
-        () => runXssScan(scanId, url),
-        () => runCorsScan(scanId, url),
-        () => runGraphqlScan(scanId, url),
-        () => runSourceMapScan(scanId, url),
-        () => runApiDiscoveryScan(scanId, url),
-        () => runSecretsScan(scanId, url),
-        () => runJwtScan(scanId, url),
-        () => runTraversalScan(scanId, url),
-        () => runPollutionScan(scanId, url),
-        () => runBolaScan(scanId, url),
-        () => runSsrfScan(scanId, url),
-        () => runRedirectScan(scanId, url),
-        () => runServerActionsScan(scanId, url)
-      );
-    }
-
-    const rateLimitTask = () => runRateLimitScan(scanId, targetUrl);
-
-    const runWithConcurrency = async (tasks: (() => Promise<void>)[], limit: number) => {
-      const executing: Promise<void>[] = [];
-      for (const task of tasks) {
-        const jitterTask = async () => {
-          await new Promise(resolve => setTimeout(resolve, 200 + Math.random() * 400));
-          await task();
-        };
-        const p = jitterTask().then(() => {
-          executing.splice(executing.indexOf(p), 1);
-        });
-        executing.push(p);
-        if (executing.length >= limit) await Promise.race(executing);
-      }
-      await Promise.all(executing);
-    };
-
-    await runWithConcurrency([rateLimitTask, ...activeTaskFactories], 5);
-
-    await db.update(scans).set({ 
-      status: 'completed', 
-      completedAt: new Date() 
-    }).where(eq(scans.id, scanId));
-    console.log(`[Scan ${scanId}] 🎉 Escaneo Agresivo Masivo finalizado exitosamente.`);
-
-  } catch (error: any) {
-    console.error(`[Scan ${scanId}] Error global al reanudar:`, error);
-    await db.update(scans).set({ 
-      status: 'failed', 
-      completedAt: new Date() 
-    }).where(eq(scans.id, scanId));
-  }
-});
+// El endpoint /api/scan/resume se ha eliminado porque la fase de escaneo 
+// "agresivo" y masivo a ciegas ha sido reemplazada por el modelo de 
+// Vectores Inteligentes dirigidos a través de la Consola Táctica.
 
 app.post('/api/sast', async (req, res) => {
   const { targetDir, scanId } = req.body;

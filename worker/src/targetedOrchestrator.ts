@@ -1,7 +1,6 @@
 import { runCliCommand } from './scanner/cliRunner';
 import { VECTOR_REGISTRY } from './recon/FrameworkIntelligence';
-import { db } from './db/db';
-import { vulnerabilities } from './db/schema';
+import { IssueManager } from './scanner/IssueManager';
 
 // Helper to parse the output and determine severity/findings
 function parseCliOutput(command: string, output: string): { severity: 'low' | 'medium' | 'high' | 'critical', finding: string, metadata?: any } | null {
@@ -127,15 +126,15 @@ export async function runTargetedAttack(scanId: number, targetUrl: string, vecto
     if (result) {
       console.log(`[Scan ${scanId}] 🚨 VULNERABILIDAD CONFIRMADA: ${result.severity.toUpperCase()}`);
       
-      // Save finding to database
-      await db.insert(vulnerabilities).values({
+      // Save finding to database using IssueManager for deduplication
+      await IssueManager.reportFinding({
         scanId,
-        type: vector.name,
+        title: result.finding,
         severity: result.severity,
-        description: `${result.finding}\n\nComando ejecutado: \`${vector.cliCommand}\`\n\n**Output parcial:**\n\`\`\`\n${output.substring(0, 500)}...\n\`\`\``,
-        autoFixCode: null,
-        metadata: result.metadata || null,
-        parentId: parentId || null,
+        endpoint: targetUrl,
+        method: 'GET', // Default, we might extract this later
+        payloadUsed: vector.cliCommand,
+        toolSource: vector.id
       });
     } else {
       console.log(`[Scan ${scanId}] ✅ El objetivo parece estar seguro contra este vector (Ninguna coincidencia crítica en la salida de la herramienta).`);
@@ -145,76 +144,6 @@ export async function runTargetedAttack(scanId: number, targetUrl: string, vecto
   } catch (error: any) {
     console.error(`[Scan ${scanId}] Error en ataque dirigido [${vectorId}]: ${error.message}`);
     // Opcionalmente podemos registrar el fallo como un log, pero no romper la app
-  }
-}
-
-/**
- * Execute a manual HTTP request from the Interactive Replayer (Kali Web mode).
- * Emits real-time logs simulating a Repeater tool.
- */
-export async function runCustomAttackReplayer(scanId: number, targetUrl: string, method: string, headers: Record<string, string>, body: string): Promise<any> {
-  console.log(`[Replayer ${scanId}] ---------------------------------------------------`);
-  console.log(`[Replayer ${scanId}] ⚡ INICIANDO ATAQUE INTERACTIVO (REPEATER)`);
-  console.log(`[Replayer ${scanId}] Objetivo: ${method.toUpperCase()} ${targetUrl}`);
-  console.log(`[Replayer ${scanId}] Cabeceras inyectadas: ${Object.keys(headers).length}`);
-  
-  if (body) {
-    console.log(`[Replayer ${scanId}] Payload Body (${body.length} bytes) cargado.`);
-  }
-
-  try {
-    // Para simplificar la demo interactiva, usamos fetch nativo
-    console.log(`[Replayer ${scanId}] ⚙️ Ejecutando petición cruda al socket...`);
-    const startTime = Date.now();
-    
-    // Convert fetch Headers
-    const reqHeaders = new Headers();
-    for (const [k, v] of Object.entries(headers)) {
-      reqHeaders.set(k, v);
-    }
-    
-    // User-Agent por defecto si no existe
-    if (!reqHeaders.has('User-Agent')) {
-      reqHeaders.set('User-Agent', 'FixGuard-Tactical-Replayer/1.0');
-    }
-
-    const response = await fetch(targetUrl, {
-      method,
-      headers: reqHeaders,
-      body: (method !== 'GET' && method !== 'HEAD' && body) ? body : undefined,
-      // Evitamos seguir redirects automáticamente para ver la respuesta cruda del server
-      redirect: 'manual' 
-    });
-
-    const elapsed = Date.now() - startTime;
-    console.log(`[Replayer ${scanId}] 📩 Respuesta recibida en ${elapsed}ms`);
-    console.log(`[Replayer ${scanId}] Status Code: ${response.status} ${response.statusText}`);
-    
-    const resHeaders: Record<string, string> = {};
-    response.headers.forEach((v, k) => { resHeaders[k] = v; });
-    console.log(`[Replayer ${scanId}] Server response headers: ${Object.keys(resHeaders).length} encontrados`);
-
-    const text = await response.text();
-    console.log(`[Replayer ${scanId}] Body Length: ${text.length} bytes`);
-    
-    if (response.status >= 500) {
-      console.log(`[Replayer ${scanId}] 🚨 ALERTA: Error interno del servidor detectado (Posible vulnerabilidad)`);
-    } else if (response.status === 200 && text.toLowerCase().includes('syntax error')) {
-      console.log(`[Replayer ${scanId}] 🚨 ALERTA: Sintaxis de error expuesta en el cuerpo de la respuesta!`);
-    }
-
-    console.log(`[Replayer ${scanId}] ---------------------------------------------------`);
-
-    return {
-      status: response.status,
-      statusText: response.statusText,
-      headers: resHeaders,
-      body: text,
-      elapsed
-    };
-  } catch (error: any) {
-    console.error(`[Replayer ${scanId}] ❌ Error crítico en ejecución: ${error.message}`);
-    return { error: error.message };
   }
 }
 
