@@ -142,6 +142,10 @@ export interface ReconProfile {
     frameworks: string[];
     features: string[];
   };
+  entityGraph?: {
+    nodes: Array<{id: string, label: string, type: string}>;
+    edges: Array<{id: string, source: string, target: string, label: string}>;
+  };
   runtimeIntelligence?: {
     totalClicks: number;
     totalFormsFilled: number;

@@ -6,6 +6,7 @@ import { useState, useEffect, useMemo } from "react";
 import { ReconProfile, AttackSurfaceItem } from "../types";
 import ApplicationBlueprint from "./ApplicationBlueprint";
 import FunctionalBlueprint from "./FunctionalBlueprint";
+import EntityGraphViewer from "./EntityGraphViewer";
 
 interface Props {
   profile: ReconProfile;
@@ -193,30 +194,32 @@ export default function ReconDashboard({ profile, targetUrl, onLaunchAttack }: P
         
         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{delay: 0.5}}>
           <h3 className="text-xl font-bold flex items-center gap-2 border-b border-white/10 pb-2 mb-4"><DatabaseZap className="text-amber-400" /> Entity Map</h3>
-          {profile.businessDictionary ? (
-            <div className="grid grid-cols-2 gap-4">
-               <div className="bg-amber-950/10 p-4 rounded-xl border border-amber-500/20">
-                 <h4 className="text-amber-400 font-bold text-sm mb-3">Entities</h4>
-                 <div className="flex flex-wrap gap-2">
-                   {profile.businessDictionary.entities.map((e, i) => <span key={i} className="text-xs bg-amber-500/20 text-amber-200 px-2 py-1 rounded-full border border-amber-500/30">{e}</span>)}
+          <div className="flex flex-col gap-4">
+             {profile.entityGraph && profile.entityGraph.nodes.length > 0 ? (
+               <div className="h-[300px] w-full rounded-xl overflow-hidden border border-white/5 bg-black/20">
+                 <EntityGraphViewer entityGraph={profile.entityGraph} />
+               </div>
+             ) : (
+               <div className="text-zinc-500 text-sm p-4 text-center border border-dashed border-white/10 rounded-xl">No Entity Graph could be reconstructed.</div>
+             )}
+             
+             {profile.businessDictionary && (
+               <div className="grid grid-cols-2 gap-4">
+                 <div className="bg-orange-950/10 p-4 rounded-xl border border-orange-500/20">
+                   <h4 className="text-orange-400 font-bold text-sm mb-3">Roles / Actors</h4>
+                   <div className="flex flex-wrap gap-2">
+                     {profile.businessDictionary.roles.map((e, i) => <span key={i} className="text-xs bg-orange-500/20 text-orange-200 px-2 py-1 rounded-full border border-orange-500/30">{e}</span>)}
+                   </div>
+                 </div>
+                 <div className="bg-yellow-950/10 p-4 rounded-xl border border-yellow-500/20">
+                   <h4 className="text-yellow-400 font-bold text-sm mb-3">Feature Flags</h4>
+                   <div className="flex flex-wrap gap-2">
+                     {profile.businessDictionary.configFlags.map((e, i) => <span key={i} className="text-[10px] font-mono bg-yellow-500/10 text-yellow-500/80 px-1.5 py-0.5 rounded border border-yellow-500/20">{e}</span>)}
+                   </div>
                  </div>
                </div>
-               <div className="bg-orange-950/10 p-4 rounded-xl border border-orange-500/20">
-                 <h4 className="text-orange-400 font-bold text-sm mb-3">Roles / Actors</h4>
-                 <div className="flex flex-wrap gap-2">
-                   {profile.businessDictionary.roles.map((e, i) => <span key={i} className="text-xs bg-orange-500/20 text-orange-200 px-2 py-1 rounded-full border border-orange-500/30">{e}</span>)}
-                 </div>
-               </div>
-               <div className="bg-yellow-950/10 p-4 rounded-xl border border-yellow-500/20 col-span-2">
-                 <h4 className="text-yellow-400 font-bold text-sm mb-3">Feature Flags & Configs</h4>
-                 <div className="flex flex-wrap gap-2">
-                   {profile.businessDictionary.configFlags.map((e, i) => <span key={i} className="text-[10px] font-mono bg-yellow-500/10 text-yellow-500/80 px-1.5 py-0.5 rounded border border-yellow-500/20">{e}</span>)}
-                 </div>
-               </div>
-            </div>
-          ) : (
-            <div className="text-zinc-500 text-sm p-4 text-center border border-dashed border-white/10 rounded-xl">No JS Entity Map extracted.</div>
-          )}
+             )}
+          </div>
         </motion.div>
       </section>
 
