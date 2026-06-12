@@ -1,4 +1,4 @@
-import { SmartVector } from '../AttackExecutor';
+import type { SmartVector } from '../AttackExecutor';
 
 export class React2ShellVector {
   /**

@@ -45,7 +45,6 @@ import { runCrawler } from './scanner/crawler';
 import { runJsReconScan } from './scanner/jsrecon';
 import { runNextJsScan } from './scanner/nextjs';
 import { runCloudExposureScan } from './scanner/cloud';
-import { runWebSocketsScan } from './scanner/websockets';
 import { runUploadsScan } from './scanner/uploads';
 import { runBolaScan } from './scanner/bola';
 import { runSsrfScan } from './scanner/ssrf';
