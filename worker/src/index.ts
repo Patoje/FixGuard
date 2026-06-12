@@ -278,8 +278,8 @@ app.post('/api/scan', async (req, res) => {
   }
 });
 
-import { runSastScan } from './sast';
 import { vulnerabilities } from './db/schema';
+import { SemgrepEngine } from './scanner/sast/SemgrepEngine';
 
 // El endpoint /api/scan/resume se ha eliminado porque la fase de escaneo 
 // "agresivo" y masivo a ciegas ha sido reemplazada por el modelo de 
@@ -296,9 +296,9 @@ app.post('/api/sast', async (req, res) => {
 
   try {
     await db.update(scans).set({ status: 'in_progress' }).where(eq(scans.id, scanId));
-    console.log(`\n[Scan ${scanId}] Iniciando motor SAST (Whitebox) en directorio: ${targetDir}...`);
+    console.log(`\n[Scan ${scanId}] Iniciando motor SAST (Semgrep) en directorio local: ${targetDir}...`);
     
-    const findings = await runSastScan(targetDir);
+    const findings = await SemgrepEngine.scanDirectory(targetDir);
     
     for (const finding of findings) {
        await db.insert(vulnerabilities).values({
@@ -355,7 +355,10 @@ app.post('/api/attack/targeted', async (req, res) => {
   }
 });
 
+import { DependencyChecker } from './utils/DependencyChecker';
+
 const PORT = 4000;
 app.listen(PORT, () => {
   console.log(`🚀 FixGuard OSINT Worker ejecutándose en http://localhost:${PORT}`);
+  DependencyChecker.checkAll();
 });

@@ -421,7 +421,29 @@ export default function Home() {
               </div>
             )}
 
-            <div className="flex justify-center pt-8">
+            <div className="flex justify-center pt-8 gap-4">
+              <button
+                onClick={async () => {
+                  if (!scanId) return;
+                  try {
+                    const res = await fetch(`/api/export/markdown?scanId=${scanId}`);
+                    const data = await res.json();
+                    if (data.markdown) {
+                      const blob = new Blob([data.markdown], { type: 'text/markdown' });
+                      const url = window.URL.createObjectURL(blob);
+                      const a = document.createElement('a');
+                      a.href = url;
+                      a.download = `FixGuard_Report_${scanId}.md`;
+                      a.click();
+                      window.URL.revokeObjectURL(url);
+                    }
+                  } catch(e) { console.error('Error exporting', e); }
+                }}
+                className="bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-400 border border-emerald-500/50 px-8 py-3 rounded-full font-bold transition-colors"
+              >
+                Exportar a Markdown
+              </button>
+
               <button
                 onClick={resetScan}
                 className="bg-blue-600 hover:bg-blue-500 text-white px-8 py-3 rounded-full font-bold transition-colors shadow-lg shadow-blue-500/20"
