@@ -72,6 +72,20 @@ export interface ArchitectureNode {
   children?: ArchitectureNode[];
 }
 
+export interface WorkflowStep {
+  name: string;
+  endpoint: string;
+  method: string;
+  description: string;
+}
+
+export interface WorkflowJourney {
+  name: string;
+  category: string;
+  steps: WorkflowStep[];
+  confidence: number;
+}
+
 export interface ReconProfile {
   id: number;
   scanId: number;
@@ -146,6 +160,7 @@ export interface ReconProfile {
     nodes: Array<{id: string, label: string, type: string}>;
     edges: Array<{id: string, source: string, target: string, label: string}>;
   };
+  workflowIntelligence?: WorkflowJourney[];
   runtimeIntelligence?: {
     totalClicks: number;
     totalFormsFilled: number;

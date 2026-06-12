@@ -7,6 +7,7 @@ import { ReconProfile, AttackSurfaceItem } from "../types";
 import ApplicationBlueprint from "./ApplicationBlueprint";
 import FunctionalBlueprint from "./FunctionalBlueprint";
 import EntityGraphViewer from "./EntityGraphViewer";
+import WorkflowVisualizer from "./WorkflowVisualizer";
 
 interface Props {
   profile: ReconProfile;
@@ -222,6 +223,18 @@ export default function ReconDashboard({ profile, targetUrl, onLaunchAttack }: P
           </div>
         </motion.div>
       </section>
+
+      {/* SECTION 5.5: WORKFLOW RECONSTRUCTION */}
+      <motion.section initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{delay: 0.55}} className="mt-8">
+        <h3 className="text-2xl font-bold flex items-center gap-2 border-b border-white/10 pb-2 mb-4">
+          <Workflow className="text-emerald-400" /> Workflow Reconstruction
+        </h3>
+        <p className="text-sm text-zinc-400 mb-6">
+          Flujos de usuario inferidos lógicamente a partir de las rutas descubiertas.
+        </p>
+        
+        <WorkflowVisualizer workflows={profile.workflowIntelligence || []} />
+      </motion.section>
 
       {/* SECTION 6: ENDPOINT CATALOG */}
       <motion.section initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{delay: 0.6}}>
