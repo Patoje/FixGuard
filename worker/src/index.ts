@@ -36,6 +36,8 @@ import { WorkflowReconstructionEngine } from './recon/WorkflowReconstructionEngi
 import { BolaExploiter } from './scanner/logic/BolaExploiter';
 import { MassAssignmentExploiter } from './scanner/logic/MassAssignmentExploiter';
 import { WorkflowBypassExploiter } from './scanner/logic/WorkflowBypassExploiter';
+import { AttackExecutor } from './scanner/AttackExecutor';
+import { React2ShellVector } from './scanner/vectors/React2ShellVector';
 import axios from 'axios';
 
 // Nuevos Motores Fase 6
@@ -249,6 +251,16 @@ app.post('/api/scan', async (req, res) => {
       completedAt: new Date() 
     }).where(eq(scans.id, scanId));
     console.log(`[Scan ${scanId}] 🎉 Todos los motores finalizaron exitosamente.`);
+
+    // --- EXECUTE AUTO-EXPLOITS DE ALTA SEVERIDAD SI EL STACK ES VULNERABLE ---
+    if (isNextJs) {
+      console.log(`[Scan ${scanId}] ⚠️ Framework Next.js detectado. Lanzando ataque automático de verificación React2Shell (CVE-2025-55182)...`);
+      const react2shell = React2ShellVector.generateVector(targetUrl, targetUrl); // Usamos targetUrl como raíz
+      const success = await AttackExecutor.executeAndCompare(scanId, targetUrl, react2shell);
+      if (success) {
+        console.log(`[Scan ${scanId}] 🚨 CRÍTICO: Vulnerabilidad React2Shell (RCE) confirmada en el servidor de Next.js.`);
+      }
+    }
 
   } catch (error: any) {
     console.error(`[Scan ${scanId}] Error global de orquestación:`, error);

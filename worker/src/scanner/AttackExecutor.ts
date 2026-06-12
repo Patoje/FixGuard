@@ -11,6 +11,8 @@ export interface SmartVector {
   baselinePayload?: Record<string, any> | string;
   attackPayload: Record<string, any> | string;
   attackType: string;
+  customHeaders?: Record<string, string>;
+  customEvaluate?: (responseHeaders: Record<string, string>, responseData: any) => boolean;
 }
 
 export class AttackExecutor {
@@ -27,6 +29,7 @@ export class AttackExecutor {
         headers: {
           ...authHeaders,
           'Content-Type': typeof vector.baselinePayload === 'object' ? 'application/json' : 'application/x-www-form-urlencoded',
+          ...(vector.customHeaders || {})
         },
         validateStatus: () => true, // Capturar todos los status sin tirar excepción
         timeout: 10000,
@@ -48,7 +51,13 @@ export class AttackExecutor {
       });
 
       // 3. Evaluar resultados usando lógica heurística
-      const findingConfirmed = this.evaluateResponse(baselineRes, attackRes, vector);
+      let findingConfirmed = false;
+      
+      if (vector.customEvaluate) {
+        findingConfirmed = vector.customEvaluate(attackRes.headers as Record<string, string>, attackRes.data);
+      } else {
+        findingConfirmed = this.evaluateResponse(baselineRes, attackRes, vector);
+      }
 
       if (findingConfirmed) {
         await IssueManager.reportFinding({

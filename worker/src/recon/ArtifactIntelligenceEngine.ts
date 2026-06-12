@@ -7,6 +7,7 @@ export interface ArtifactIntelligence {
   exposedSecrets: Array<{ type: string; value: string }>;
   hiddenApiEndpoints: string[];
   exposedSourceMaps: string[];
+  nextJsData?: any; // Para guardar el state extraído
 }
 
 export class ArtifactIntelligenceEngine {
@@ -31,8 +32,8 @@ export class ArtifactIntelligenceEngine {
     { type: 'Generic API Key / Secret', regex: /(?:api_key|apikey|secret|token|password)\s*[:=]\s*["']?([a-zA-Z0-9\-_]{16,64})["']?/gi }
   ];
 
-  // Regex pattern para LinkFinder (simplificado)
-  private static LINK_PATTERN = /(?:"|')(\/api\/[a-zA-Z0-9_\-\/]+|\/v[0-9]+\/[a-zA-Z0-9_\-\/]+|https?:\/\/[a-zA-Z0-9_\-\.]+\/api\/[a-zA-Z0-9_\-\/]+)(?:"|')/g;
+  // Regex pattern para LinkFinder ampliado a Literal Clustering
+  private static LINK_PATTERN = /(?:"|')(\/api\/[a-zA-Z0-9_\-\/]+|\/v[0-9]+\/[a-zA-Z0-9_\-\/]+|\/graphql[a-zA-Z0-9_\-\/]*|https?:\/\/[a-zA-Z0-9_\-\.]+\/api\/[a-zA-Z0-9_\-\/]+|[a-zA-Z0-9_\-\/]+\.json)(?:"|')/g;
 
   static async analyze(targetUrl: string, jsCodes: string[], jsUrls: string[] = []): Promise<ArtifactIntelligence> {
     const intel: ArtifactIntelligence = {
@@ -44,6 +45,23 @@ export class ArtifactIntelligenceEngine {
     };
 
     const baseUrl = new URL(targetUrl).origin;
+
+    // --- FASE 0.5: Extracción de window.__NEXT_DATA__ (Next.js Introspection) ---
+    try {
+      const { data: htmlBody } = await axios.get(targetUrl, { timeout: 3000 });
+      const nextDataMatch = htmlBody.match(/id="__NEXT_DATA__" type="application\/json">([^<]+)<\/script>/);
+      if (nextDataMatch && nextDataMatch[1]) {
+        intel.nextJsData = JSON.parse(nextDataMatch[1]);
+        console.log(`[ArtifactIntelligence] 💡 Next.js State interceptado (window.__NEXT_DATA__)`);
+        
+        // Extraer endpoints que puedan estar hardcodeados en el estado inicial de la app
+        const stateString = JSON.stringify(intel.nextJsData);
+        let linkMatch;
+        while ((linkMatch = this.LINK_PATTERN.exec(stateString)) !== null) {
+            intel.hiddenApiEndpoints.push(linkMatch[1]);
+        }
+      }
+    } catch (e) {}
 
     // --- FASE 1: Análisis de Manifests Original ---
     for (const code of jsCodes) {
@@ -118,23 +136,36 @@ export class ArtifactIntelligenceEngine {
       console.log(`[ArtifactIntelligence] 🔍 LinkFinder extrajo ${intel.hiddenApiEndpoints.length} endpoints de API ocultos en el código.`);
     }
 
-    // --- FASE 2.5: Detector de Source Maps ---
+    // --- FASE 2.5: Detector y Extractor de Source Maps ---
     // Por cada URL de un chunk JS interceptado, verificamos si existe su versión .map
     for (const jsUrl of jsUrls) {
       if (jsUrl.endsWith('.js')) {
         const sourceMapUrl = `${jsUrl}.map`;
         try {
-          // Petición HEAD muy rápida para no descargar megabytes de mapas inútilmente
-          const res = await axios.head(sourceMapUrl, { timeout: 3000 });
-          if (res.status === 200) {
-             console.log(`[ArtifactIntelligence] 🔥 CRÍTICO: Source Map expuesto en ${sourceMapUrl}`);
+          // Petición GET con timeout muy corto para intentar leer la propiedad 'sources'
+          // En un sistema en producción real pondríamos un límite de tamaño (stream)
+          const res = await axios.get(sourceMapUrl, { timeout: 4000, maxContentLength: 5 * 1024 * 1024 }); 
+          if (res.status === 200 && res.data && res.data.sources) {
+             console.log(`[ArtifactIntelligence] 🔥 CRÍTICO: Source Map expuesto en ${sourceMapUrl} (Revela ${res.data.sources.length} archivos fuente originales)`);
              intel.exposedSourceMaps.push(sourceMapUrl);
+             
+             // Extraer las rutas de carpetas originales para ver la arquitectura interna (ej: src/controllers, libs/auth)
+             const sources: string[] = res.data.sources;
+             const internalDirs = new Set(sources.map(s => s.split('/').slice(0, -1).join('/')));
+             for (const dir of Array.from(internalDirs)) {
+                if (dir.length > 2 && !dir.includes('node_modules')) {
+                    intel.hiddenRoutes.push(`(SourceMap Dir) ${dir}`);
+                }
+             }
           }
         } catch (e) {
           // Si da 404 o timeout, ignoramos. El desarrollador hizo las cosas bien.
         }
       }
     }
+
+    // Limpiar duplicados de endpoints extraídos
+    intel.hiddenApiEndpoints = [...new Set(intel.hiddenApiEndpoints)];
 
     return intel;
   }
