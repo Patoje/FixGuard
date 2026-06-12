@@ -1,83 +1,99 @@
-# FixGuard: Offensive OSINT & Exploitation Framework
+# FixGuard - Context-Aware Attack Orchestrator & DAST
 
-FixGuard ha evolucionado de ser un simple escáner de vulnerabilidades a un **Framework Ofensivo Personal de Grado Militar**. Su objetivo principal no es solo auditar pasivamente, sino descubrir, mapear y atacar de forma agresiva cualquier objetivo (Web, API o Infraestructura) sin restricciones de servidor ni "frenos" éticos forzados, diseñado para uso personal en auditorías de caja negra completas.
+## 1. Descripcion General de la Aplicacion
 
-## 🏗️ Arquitectura del Sistema
+FixGuard es una plataforma avanzada de Pruebas de Seguridad Dinamica de Aplicaciones (DAST) y Orquestacion de Ataques basada en contexto. A diferencia de los escaneres de vulnerabilidades tradicionales que se limitan a lanzar cargas utiles (payloads) predefinidas a ciegas, FixGuard opera bajo una filosofia de "Reconocimiento Inteligente Primero". 
 
-El sistema está dividido en dos grandes bloques que se comunican de forma fluida:
+La aplicacion realiza una autopsia completa de la aplicacion objetivo: perfila su tecnologia, reconstruye su arquitectura, extrae logica de negocio a partir de artefactos publicos (como archivos JavaScript compilados), y posteriormente utiliza esta inteligencia recolectada para recomendar y orquestar vectores de ataque dirigidos y especificos contra fallos de logica de negocio y vulnerabilidades tecnicas.
 
-1. **Control Center (Frontend - Next.js):**
-   - Un panel de control moderno, reactivo y de estética premium.
-   - Perfilado visual de tecnologías detectadas (Tech Stack).
-   - Mapa de la Superficie de Ataque y Vectores de Inteligencia.
-   - Botones de acción directa para lanzar comandos destructivos sin tocar la terminal.
+FixGuard NO es un proxy interceptor manual (como Burp Suite o ZAP). Es un orquestador automatizado diseñado para delegar el trabajo pesado de mapeo y escaneo a multiples motores, centralizando los resultados en un panel de inteligencia accionable.
 
-2. **Orquestador (Backend Worker - Node.js):**
-   - El motor de ejecución pesado (`http://localhost:4000`).
-   - Se encarga del escaneo inicial agresivo (Headers, JWT, Source Maps).
-   - Administra y ejecuta las herramientas CLI instaladas localmente en el sistema anfitrión.
-   - Interpreta la salida estándar (`stdout`) de las herramientas y guarda las vulnerabilidades en una base de datos SQLite persistente.
+## 2. Arquitectura y Estructura de Carpetas
 
----
+El proyecto esta estrictamente dividido en dos repositorios/carpetas principales, adoptando una arquitectura Cliente-Servidor (Web + Worker).
 
-## ⚔️ El Arsenal (Herramientas Integradas)
+### ¿Por que esta separado de esta manera?
+La separacion es una necesidad tecnica critica para evadir las restricciones de seguridad inherentes a los navegadores web modernos. 
+Una aplicacion web ejecutandose en un navegador (Frontend) esta limitada por politicas de CORS, restricciones de cabeceras HTTP (no puede modificar libremente `Host`, `Origin`, etc.), y es incapaz de gestionar sockets TCP en bruto o ejecutar binarios del sistema operativo.
+Al tener un `worker` ejecutandose en un entorno Node.js en el sistema operativo local o en un servidor, FixGuard adquiere capacidades absolutas de red: puede enviar peticiones HTTP malformadas, evadir protecciones, y ejecutar herramientas industriales de hacking por linea de comandos (CLI). La carpeta `web` actua unicamente como el centro de control visual y la capa de presentacion.
 
-FixGuard no reinventa la rueda, actúa como un director de orquesta para las herramientas más mortíferas de la industria:
+### `/web` (Capa de Presentacion y API Gateway)
+Desarrollada con Next.js (App Router).
+- Responsabilidades: Visualizacion de datos mediante dashboards, manejo de interacciones del usuario, y enrutamiento de solicitudes de ataque hacia la base de datos para que el worker las procese.
+- Tecnologias: React, TailwindCSS, Framer Motion, TypeScript, Drizzle ORM (para consultas locales a Postgres).
+- Archivos clave: 
+  - `src/components/ReconDashboard.tsx`: Renderiza el "Actionable Knowledge Report" (Arbol de arquitectura, Superficie de ataque, etc).
+  - `src/components/OffensiveArsenal.tsx`: La "Consola Tactica" desde donde el auditor ordena la ejecucion de vectores de ataque descubiertos.
+  - `src/app/api/attack/route.ts`: Endpoint que encola solicitudes de ataque dirigido en la base de datos.
 
-*   **Reconocimiento y Fuzzing de Directorios:** `FFuf`
-*   **Escáner de Plantillas y Misconfigs:** `Nuclei`
-*   **Explotación de Bases de Datos:** `SQLMap`
-*   **Escaneo Completo de Puertos:** `Nmap`
-*   **Crawling Headless Avanzado (JS/DOM):** `Katana` (ProjectDiscovery)
-*   **Scraping Histórico de Archivos Ocultos:** `Waybackurls`
-*   **Enumeración Masiva de Subdominios:** `Subfinder`
-*   **Fuzzing y Mutación XSS:** `XSStrike`
-*   **Auditoría Específica de CMS:** `WPScan` (Preparado para detección)
+### `/worker` (Cerebro, Motor de OSINT y Orquestador de Ataques)
+Desarrollado en Node.js puro con Express (para comandos basicos) y TypeScript.
+- Responsabilidades: Procesamiento pesado en segundo plano. Lee trabajos encolados de la base de datos, realiza el reconocimiento pasivo y activo, parsea archivos fuente de la victima, evalua heuristica, y ejecuta herramientas externas de hacking (CLI) capturando su salida.
+- Tecnologias: Node.js, Drizzle ORM, child_process (para CLI tools).
+- Carpetas clave:
+  - `src/recon/`: Contiene todos los motores de inteligencia pasiva y extraccion de contexto (Parsers, Mapeadores, Diccionarios).
+  - `src/scanner/`: Contiene rutinas de escaneo y explotadores logicos (BOLA, Mass Assignment).
+  - `src/targetedOrchestrator.ts`: El puente de ejecucion que lanza los comandos CLI crudos al sistema operativo.
+  - `src/index.ts`: El bucle principal de control (Event Loop) que escucha nuevos escaneos o peticiones de ataques en la base de datos.
 
----
+### Base de Datos
+Utiliza PostgreSQL (mediante Neon Serverless) gestionado con Drizzle ORM.
+- Sirve como el bus de comunicacion asincrono entre `web` y `worker`. El Frontend escribe intenciones de escaneo/ataque, y el Worker actualiza las filas con los descubrimientos de inteligencia (`recon_profiles`) y los resultados de vulnerabilidades (`vulnerabilities`).
 
-## 📜 Historial de Desarrollo (Lo que hemos logrado)
+## 3. Analisis, Mapping y Reconocimiento (Inteligencia Recolectada)
 
-1.  **Motor de Perfilamiento Tecnológico:** Desarrollamos un escáner capaz de leer cabeceras (Headers) y código fuente para inferir con alta confianza si el objetivo usa `Next.js`, `React`, `Vercel`, `Cloudflare`, `Supabase`, `WordPress`, etc.
-2.  **Inteligencia de Framework:** Basado en el perfilamiento, FixGuard recomienda vectores de ataque específicos (ej. si es Next.js, buscará `_next/data` leaks o Server Actions; si es Postgres, lanzará inyecciones ciegas).
-3.  **Bypass de WAF (Vercel):** Implementamos filtros inteligentes para evitar que herramientas como FFuf se confundan con páginas de error "Catch-All" o Firewalls que bloquean escaneos masivos.
-4.  **Integración del Arsenal Pesado:** Creamos scripts de instalación automáticos en Go (`install_arsenal.sh`) e integramos Nmap, Katana, y Waybackurls directamente en el registro de comandos de FixGuard, haciéndolos invocables desde la UI.
+La mayor fortaleza actual de FixGuard reside en su motor de OSINT y Reconocimiento. En lugar de fuerza bruta, realiza un analisis semantico profundo.
 
----
+### Motores de Inteligencia Activos (`worker/src/recon/`):
+- Tech Stack Profiler: Analiza cabeceras HTTP, cookies y estructuras HTML para inferir frameworks (Next.js, React, Supabase, Clerk, Postgres).
+- Attack Surface Mapper: Cataloga todos los endpoints descubiertos, asignando un "Business Impact Score" (ej. endpoints `/api/payment` reciben puntaje Critico, endpoints `/api/health` reciben puntaje Bajo). Selecciona proactivamente los "Top 5 Critical Business Assets".
+- Architecture Builder: Construye un modelo jerarquico (Frontend -> Backend -> Base de Datos) deduciendo como se comunican las piezas en base a las trazas de red.
+- JS Knowledge Extractor & Exposure Intelligence: Descarga los bundles (archivos .js compilados de la victima), los parsea en busca de endpoints ocultos (Hardcoded URLs) y credenciales o configuraciones expuestas en texto plano.
+- Motores Específicos (Auth, Cloud, AI): Buscan firmas especificas relacionadas con integraciones de terceros (AWS S3, Firebase, OpenAI API keys).
+- Server Actions Engine: Un motor altamente especializado en Next.js para detectar funciones "BFLA" (Broken Function Level Authorization) a traves del encabezado `Next-Action`.
+- Correlation Engine: Agrupa los descubrimientos dispersos en un modelo unificado `ReconProfile` que se guarda en la base de datos.
 
-## 🚀 ROADMAP OFENSIVO: La "Cadena de Matanza" (Kill Chain)
+### Explotadores Logicos Pasivos (Generadores de Smart Vectors):
+FixGuard posee tres motores (`worker/src/scanner/logic/`) que NO atacan directamente, sino que razonan sobre la superficie descubierta y generan vectores de ataque recomendados para la interfaz del usuario.
+- BolaExploiter: Detecta rutas con parametros dinamicos (ej. `/api/users/:id`) y genera el vector para probar si cambiar el ID compromete a otro usuario.
+- MassAssignmentExploiter: Detecta metodos mutables (POST/PUT/PATCH) e infiere campos protegidos basados en el diccionario de negocio (ej. `isAdmin`, `role`) para generar el vector de inyeccion de privilegios.
+- WorkflowBypassExploiter: Infiera procesos de multiples pasos (ej. `/cart` -> `/checkout` -> `/confirm`) para generar el vector que intenta saltar pasos intermedios.
 
-El objetivo a corto/mediano plazo es convertir a FixGuard en un sistema de **encadenamiento automático de exploits**. Actualmente, descubre y lanza comandos, pero el output es texto muerto. El futuro es volverlo interactivo y autónomo.
+### ¿Que se le muestra al usuario?
+Toda esta informacion se condensa en el **Actionable Knowledge Report (Digital Twin)** en el Frontend. Se visualiza:
+- Metricas globales de endpoints y tecnologias.
+- Top 5 de Activos Criticos de Negocio.
+- Diagramas visuales de la arquitectura reconstruida.
+- Mapa de Entidades (Modelos de BD inferidos y sus relaciones).
+- Flujos de trabajo de negocio detectados.
+- Catalogo completo de endpoints.
+- Base de datos de exposicion de datos (Secretos encontrados).
 
-### Fase 1: Transparencia de Inteligencia Cruda (Próximo Paso Inmediato)
-*   **El Problema:** Actualmente Katana o Subfinder retornan un texto como "Se descubrieron 10 endpoints". Esto es inútil para un atacante.
-*   **La Solución:** Refactorizar el analizador (`targetedOrchestrator.ts`) usando Expresiones Regulares (Regex) para extraer cada URL, parámetro o subdominio exacto descubierto por las herramientas CLI.
-*   **UI:** Mostrar la lista exacta de rutas ocultas descubiertas directamente en la interfaz del Dashboard.
+## 4. Herramientas de Ataque y Capacidades Ofensivas
 
-### Fase 2: Módulo de Encadenamiento (Chaining Pivot)
-*   **El Problema:** Tienes la URL descubierta, pero copiarla y pegarla en otra herramienta es lento.
-*   **La Solución:** Cada URL descubierta por Katana/Wayback que contenga parámetros GET (ej. `?id=5`) se renderizará en la interfaz junto a "Botones de Acción Rápida".
-*   **Flujo:** FixGuard descubre `api.target.com/user?id=1` -> La UI muestra un botón **[Lanzar SQLMap a este parámetro]** o **[Lanzar XSStrike]**. Un clic encadena el descubrimiento con la explotación.
+FixGuard actúa como un "Orquestador". Las herramientas de inyeccion heuristica estan delegadas a binarios estandar de la industria instalados a nivel del sistema operativo.
 
-### Fase 3: Auto-PWN (Modo Dios Invasivo)
-*   **La Cima de la Montaña:** Un botón de "Explotación Total Automática".
-*   FixGuard tomará el dominio base. Lanzará `Subfinder` -> Lanzará `Katana` en todos los subdominios -> Filtrará las miles de URLs resultantes buscando parámetros -> Lanzará inyectores invisibles a esos parámetros de forma concurrente -> Si logra romper la base de datos, extraerá las tablas y las mostrará en pantalla. **Sin frenos, sin confirmaciones manuales.**
+### Herramientas Instaladas e Integradas en el Orquestador (`targetedOrchestrator.ts`):
+- `katana` (ProjectDiscovery): Utilizado para crawling profundo de SPAs mediante la resolucion de DOM.
+- `waybackurls`: Extrae endpoints historicos almacenados en la Wayback Machine.
+- `subfinder`: Enumeracion pasiva de subdominios.
+- `nmap`: Escaneo de puertos e identificacion de servicios.
+- `ffuf`: Fuzzer de alta velocidad para descubrimiento de rutas y APIs ocultas.
+- `nuclei`: Escaner rapido basado en plantillas/firmas (YAML) para deteccion de configuraciones erroneas, CVEs y toma de subdominios (Subdomain Takeover).
+- `sqlmap`: Herramienta insignia para explotacion de inyeccion SQL (SQLi).
+- `wpscan`: Enumeracion especifica y explotacion de WordPress.
+- `xsstrike`: Motor automatizado de mutacion heuristica para Cross-Site Scripting (XSS).
 
----
+### Metodo de Ejecucion (El Gatillo)
+Actualmente, las capacidades ofensivas de FixGuard se ejecutan a traves del panel **Offensive Hub (Arsenal)** en la UI.
+1. El motor de Inteligencia (FrameworkIntelligence.ts) cataloga los vectores aplicables basandose en la tecnologia detectada (ej. Si detecta React, ofrece el vector `spa_sourcemaps` que llama a `nuclei -id react-sourcemaps`).
+2. El panel Arsenal muestra estas recomendaciones.
+3. El usuario hace clic en "Lanzar Modulo".
+4. La UI inserta un escaneo de tipo `targeted` con el ID del vector en Postgres.
+5. El Worker intercepta la solicitud y llama a `runCliCommand()` para ejecutar el binario (ej. `sqlmap -u target.com`) en la terminal local del servidor.
+6. El Worker lee el "stdout/stderr", parsea los resultados (buscando indicadores de vulnerabilidades criticas) y guarda el resultado en la BD.
 
-## ⚙️ Instalación del Entorno
-
-1. Instalar dependencias de Node en ambas carpetas (`web` y `worker`): `npm install`
-2. Instalar el armamento CLI (Mac/Linux):
-```bash
-cd worker
-./install_arsenal.sh
-source ~/.zshrc # (o el equivalente de tu terminal para cargar Go)
-```
-3. Levantar los servidores:
-```bash
-# Terminal 1
-cd worker && npm run dev
-# Terminal 2
-cd web && npm run dev
-```
+### Herramientas/Codigos Instalados pero No Usados o Rezagados
+- Modulos masivos en `worker/src/scanner/`: Existen varios archivos (`sqli.ts`, `xss.ts`, `cors.ts`, `graphql.ts`, `websockets.ts`, etc.) que pertenecen a una fase antigua de desarrollo. Algunos de ellos hacen peticiones fetch basicas o estan simulados. Actualmente han sido eclipsados por la orquestacion de herramientas CLI reales, pero siguen presentes en el codigo fuente. La ruta logica de "Escaneo Agresivo" masivo en `index.ts` aun hace referencia a estos archivos.
+- Interactive Replayer: Fue removido de la UI (OffensiveArsenal.tsx), por lo que el codigo del backend en `targetedOrchestrator.ts` llamado `runCustomAttackReplayer` actualmente no tiene una ruta en uso ni un componente frontend que lo invoque.
+- Modulo SAST (`api/sast` en `index.ts` y archivos correspondientes): Existe la logica para un analisis de caja blanca local leyendo directorios, pero no se ha priorizado su uso en la UI actual frente al enfoque DAST.
