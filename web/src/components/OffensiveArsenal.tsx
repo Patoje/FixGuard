@@ -22,19 +22,14 @@ export default function OffensiveArsenal({ targetUrl, scanId, profile }: Offensi
 
   const launchModule = (vectorId: string, moduleName: string, vectorTargetUrl: string) => {
     setIsAttacking(true);
-    setLogs(prev => [...prev, `[Offensive] Launching Smart Vector: ${moduleName} against ${vectorTargetUrl}...`]);
+    setLogs(prev => [
+      ...prev, 
+      `[Offensive] Preparando vector: ${moduleName} contra ${vectorTargetUrl}...`,
+      `[System] ⚠️ API de Orquestación Ofensiva aún no conectada. El ataque real no se ha disparado.`
+    ]);
     
-    // Simulate attack for now since we don't have the active API wired up yet
-    setTimeout(() => {
-      setLogs(prev => [...prev, `[${moduleName}] Executing contextual payloads...`]);
-    }, 1000);
-    setTimeout(() => {
-      setLogs(prev => [...prev, `[${moduleName}] Analyzing application state response...`]);
-    }, 2500);
-    setTimeout(() => {
-      setLogs(prev => [...prev, `[${moduleName}] Module execution completed. Check vulnerabilities tab.`]);
-      setIsAttacking(false);
-    }, 4500);
+    // Quitamos la bandera de atacando rápido ya que no hay ataque real por ahora
+    setTimeout(() => setIsAttacking(false), 500);
   };
 
   return (
