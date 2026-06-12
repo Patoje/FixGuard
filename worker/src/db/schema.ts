@@ -12,6 +12,8 @@ export const scans = pgTable('scans', {
   targetUrl: text('target_url').notNull(),
   status: varchar('status', { length: 50 }).notNull().default('pending'),
   mode: varchar('mode', { enum: ['passive', 'active', 'aggressive', 'targeted'] }).default('passive').notNull(),
+  targetedVectorId: varchar('targeted_vector_id', { length: 100 }),
+  parentScanId: integer('parent_scan_id'),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   completedAt: timestamp('completed_at'),
 });

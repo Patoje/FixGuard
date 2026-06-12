@@ -20,16 +20,42 @@ export default function OffensiveArsenal({ targetUrl, scanId, profile }: Offensi
   const [isAttacking, setIsAttacking] = useState(false);
   const [activeTab, setActiveTab] = useState<'modules'>('modules');
 
-  const launchModule = (vectorId: string, moduleName: string, vectorTargetUrl: string) => {
+  const launchModule = async (vectorId: string, moduleName: string, vectorTargetUrl: string) => {
     setIsAttacking(true);
     setLogs(prev => [
       ...prev, 
-      `[Offensive] Preparando vector: ${moduleName} contra ${vectorTargetUrl}...`,
-      `[System] ⚠️ API de Orquestación Ofensiva aún no conectada. El ataque real no se ha disparado.`
+      `[Offensive] Encolando vector: ${moduleName} contra ${vectorTargetUrl}...`
     ]);
     
-    // Quitamos la bandera de atacando rápido ya que no hay ataque real por ahora
-    setTimeout(() => setIsAttacking(false), 500);
+    try {
+      const res = await fetch('/api/attack', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          targetUrl: vectorTargetUrl,
+          vectorId: vectorId,
+          parentScanId: scanId
+        })
+      });
+
+      if (!res.ok) {
+        throw new Error(`API error: ${res.statusText}`);
+      }
+
+      setLogs(prev => [
+        ...prev, 
+        `[System] ✅ Ataque encolado. El Worker ejecutará ${moduleName} en segundo plano.`,
+        `[System] Revisa la pestaña de 'Vulnerabilidades' para ver los resultados.`
+      ]);
+
+    } catch (error: any) {
+      setLogs(prev => [
+        ...prev, 
+        `[System] ❌ Error conectando con el orquestador: ${error.message}`
+      ]);
+    } finally {
+      setIsAttacking(false);
+    }
   };
 
   return (

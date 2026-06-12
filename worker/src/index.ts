@@ -78,6 +78,21 @@ app.post('/api/scan', async (req, res) => {
 
     console.log(`\n[Scan ${scanId}] Iniciando motores de escaneo (${mode || 'passive'}) para ${targetUrl}...`);
     
+    if (mode === 'targeted') {
+      const scan = await db.select().from(scans).where(eq(scans.id, scanId)).limit(1).then(res => res[0]);
+      if (scan && scan.targetedVectorId) {
+        console.log(`[Scan ${scanId}] 🎯 Ejecutando Ataque Dirigido: ${scan.targetedVectorId} contra ${targetUrl}`);
+        const { runTargetedAttack } = await import('./targetedOrchestrator');
+        await runTargetedAttack(scanId, targetUrl, scan.targetedVectorId, scan.parentScanId || undefined);
+        
+        await db.update(scans).set({ 
+          status: 'completed', 
+          completedAt: new Date() 
+        }).where(eq(scans.id, scanId));
+        return; // Salimos de la función principal
+      }
+    }
+    
     // --- FASE 1: RECONOCIMIENTO INTELIGENTE ---
     console.log(`[Scan ${scanId}] Ejecutando Inteligencia de Superficie de Ataque...`);
     
