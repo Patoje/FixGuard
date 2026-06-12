@@ -179,4 +179,11 @@ export interface ReconProfile {
       inferredTechnologies: string[];
     }>;
   };
+  smartVectors?: Array<{
+    targetUrl: string;
+    method: string;
+    attackType: string;
+    description: string;
+    severity: string;
+  }>;
 }

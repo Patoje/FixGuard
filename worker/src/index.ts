@@ -198,6 +198,13 @@ app.post('/api/scan', async (req, res) => {
       aiIntelligence
     );
 
+    // 4.5 Generar Vectores Inteligentes de Ataque Recomendados (Smart Vectors)
+    const smartVectors = [
+      ...BolaExploiter.generateVectors(attackSurface, entityGraph),
+      ...MassAssignmentExploiter.generateVectors(attackSurface, businessDictionary),
+      ...WorkflowBypassExploiter.generateVectors(workflowIntelligence)
+    ];
+
     // 5. Guardar Perfil de Reconocimiento
     await db.insert(reconProfiles).values({
       scanId,
@@ -217,7 +224,8 @@ app.post('/api/scan', async (req, res) => {
       runtimeIntelligence,
       entityGraph,
       workflowIntelligence,
-      auditReport
+      auditReport,
+      smartVectors
     }).returning({ id: reconProfiles.id });
 
     console.log(`[Scan ${scanId}] Análisis Pasivo y Reconocimiento completado. Guardado Perfil Tech Stack.`);
@@ -282,12 +290,6 @@ app.post('/api/scan', async (req, res) => {
 
       // Limitar a 5 peticiones simultáneas
       await runWithConcurrency([rateLimitTask, ...activeTaskFactories], 5);
-
-      // --- Módulo Avanzado: Context-Aware Targeted Attacks ---
-      console.log(`[Scan ${scanId}] 🧠 Iniciando Motor de Ataques Lógicos Contextuales (Digital Twin)...`);
-      await BolaExploiter.execute(scanId, attackSurface, entityGraph);
-      await MassAssignmentExploiter.execute(scanId, attackSurface, businessDictionary);
-      await WorkflowBypassExploiter.execute(scanId, workflowIntelligence);
     }
 
     await db.update(scans).set({ 

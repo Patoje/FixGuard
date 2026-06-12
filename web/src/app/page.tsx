@@ -401,8 +401,8 @@ export default function Home() {
               </>
             ) : (
               <div className="mt-8">
-                {scanId ? (
-                  <OffensiveArsenal targetUrl={targetUrl} scanId={scanId} />
+                {scanId && reconProfile ? (
+                  <OffensiveArsenal targetUrl={targetUrl} scanId={scanId} profile={reconProfile} />
                 ) : (
                   <div className="text-center p-12 glass-panel border-rose-500/20 bg-rose-500/5">
                     <h3 className="text-2xl font-bold text-rose-400 mb-2">Arsenal Desactivado</h3>

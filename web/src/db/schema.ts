@@ -48,5 +48,6 @@ export const reconProfiles = pgTable('recon_profiles', {
   entityGraph: json('entity_graph'),
   workflowIntelligence: json('workflow_intelligence'),
   auditReport: json('audit_report'),
+  smartVectors: json('smart_vectors'),
   createdAt: timestamp('created_at').defaultNow().notNull(),
 });

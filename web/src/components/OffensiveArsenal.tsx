@@ -4,72 +4,37 @@ import { motion } from "framer-motion";
 import { Terminal, Crosshair, ShieldAlert, Zap, Cpu, ScanLine, Play, FileJson } from "lucide-react";
 import { useState } from "react";
 
+import type { ReconProfile } from "../types";
+
 interface OffensiveArsenalProps {
   targetUrl: string;
   scanId: number;
+  profile: ReconProfile;
 }
 
-export default function OffensiveArsenal({ targetUrl, scanId }: OffensiveArsenalProps) {
+export default function OffensiveArsenal({ targetUrl, scanId, profile }: OffensiveArsenalProps) {
   const [logs, setLogs] = useState<string[]>([
     "[System] Initializing Offensive Arsenal...", 
     `[System] Target locked: ${targetUrl} (Scan ID: ${scanId})`
   ]);
   const [isAttacking, setIsAttacking] = useState(false);
-  const [activeTab, setActiveTab] = useState<'modules' | 'repeater'>('modules');
-  
-  // Repeater State
-  const [reqMethod, setReqMethod] = useState('GET');
-  const [reqPath, setReqPath] = useState('/');
-  const [reqHeaders, setReqHeaders] = useState('Host: target.com\nUser-Agent: FixGuard-Replayer/1.0\nAccept: */*');
-  const [reqBody, setReqBody] = useState('');
-  const [resData, setResData] = useState<string>('');
+  const [activeTab, setActiveTab] = useState<'modules'>('modules');
 
-  const launchModule = (moduleName: string) => {
+  const launchModule = (vectorId: string, moduleName: string, vectorTargetUrl: string) => {
     setIsAttacking(true);
-    setLogs(prev => [...prev, `[Offensive] Launching ${moduleName} module against ${targetUrl}...`]);
+    setLogs(prev => [...prev, `[Offensive] Launching Smart Vector: ${moduleName} against ${vectorTargetUrl}...`]);
     
-    // Simulate attack
+    // Simulate attack for now since we don't have the active API wired up yet
     setTimeout(() => {
-      setLogs(prev => [...prev, `[${moduleName}] Executing initial probing payloads...`]);
+      setLogs(prev => [...prev, `[${moduleName}] Executing contextual payloads...`]);
     }, 1000);
     setTimeout(() => {
-      setLogs(prev => [...prev, `[${moduleName}] Analyzing responses and WAF rules...`]);
+      setLogs(prev => [...prev, `[${moduleName}] Analyzing application state response...`]);
     }, 2500);
     setTimeout(() => {
       setLogs(prev => [...prev, `[${moduleName}] Module execution completed. Check vulnerabilities tab.`]);
       setIsAttacking(false);
     }, 4500);
-  };
-
-  const executeRepeater = async () => {
-    setIsAttacking(true);
-    setResData('Waiting for server response...');
-    setLogs(prev => [...prev, `[Repeater] Enrutando petición manual: ${reqMethod} ${reqPath}`]);
-    
-    try {
-      // Parse headers
-      const headerLines = reqHeaders.split('\n').filter(l => l.trim().length > 0);
-      const headersObj: Record<string, string> = {};
-      headerLines.forEach(line => {
-        const [k, ...v] = line.split(':');
-        if (k && v.length > 0) {
-          headersObj[k.trim()] = v.join(':').trim();
-        }
-      });
-
-      // Since we don't have the actual backend running here, we simulate the fetch 
-      // or we can call the Next.js API route that would call the worker (assuming API exists)
-      // For this implementation, we simulate the latency and response of the orchestrator.
-      setTimeout(() => {
-        setLogs(prev => [...prev, `[Repeater] 📩 Respuesta recibida (Status: 200 OK)`]);
-        setResData(`HTTP/1.1 200 OK\nDate: ${new Date().toUTCString()}\nContent-Type: application/json\n\n{\n  "success": true,\n  "data": "Simulated interactive response from target"\n}`);
-        setIsAttacking(false);
-      }, 1200);
-
-    } catch (e) {
-      setLogs(prev => [...prev, `[Repeater] ❌ Error in request: ${e}`]);
-      setIsAttacking(false);
-    }
   };
 
   return (
@@ -95,13 +60,7 @@ export default function OffensiveArsenal({ targetUrl, scanId }: OffensiveArsenal
             onClick={() => setActiveTab('modules')}
             className={`px-4 py-1.5 rounded-md text-sm font-bold transition-all ${activeTab === 'modules' ? 'bg-rose-500/20 text-rose-400' : 'text-zinc-500 hover:text-zinc-300'}`}
           >
-            Auto Modules
-          </button>
-          <button 
-            onClick={() => setActiveTab('repeater')}
-            className={`px-4 py-1.5 rounded-md text-sm font-bold transition-all flex items-center gap-2 ${activeTab === 'repeater' ? 'bg-blue-500/20 text-blue-400' : 'text-zinc-500 hover:text-zinc-300'}`}
-          >
-            <FileJson className="w-4 h-4" /> Interactive Replayer
+            Smart Attack Vectors
           </button>
         </div>
       </div>
@@ -112,86 +71,32 @@ export default function OffensiveArsenal({ targetUrl, scanId }: OffensiveArsenal
         <div className="xl:col-span-2 space-y-6">
           
           {activeTab === 'modules' && (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <ModuleCard 
-                title="SQLi Auto-Exploit" 
-                desc="Inyección basada en tiempo, error y booleanos. (SQLmap wrapper)"
-                icon={<Zap className="w-5 h-5 text-rose-400" />}
-                onClick={() => launchModule("SQLi Fuzzer")}
-                disabled={isAttacking}
-              />
-              <ModuleCard 
-                title="Cross-Site Scripting (XSS)" 
-                desc="Fuzzer mutacional avanzado para DOM y Reflected. (XSStrike wrapper)"
-                icon={<ScanLine className="w-5 h-5 text-rose-400" />}
-                onClick={() => launchModule("XSS Fuzzer")}
-                disabled={isAttacking}
-              />
-              <ModuleCard 
-                title="BOLA / IDOR Fuzzer" 
-                desc="Intercambio de tokens JWT y manipulación paramétrica predictiva."
-                icon={<ShieldAlert className="w-5 h-5 text-rose-400" />}
-                onClick={() => launchModule("BOLA Analyzer")}
-                disabled={isAttacking}
-              />
-              <ModuleCard 
-                title="GraphQL Introspection" 
-                desc="Descarga y parseo del esquema completo, búsqueda de queries sin Auth."
-                icon={<Cpu className="w-5 h-5 text-rose-400" />}
-                onClick={() => launchModule("GraphQL Dump")}
-                disabled={isAttacking}
-              />
-            </div>
-          )}
-
-          {activeTab === 'repeater' && (
-            <div className="glass-panel border-blue-500/20 bg-[#050505] flex flex-col shadow-lg shadow-blue-900/5 h-[500px]">
-              <div className="p-3 border-b border-blue-500/20 flex gap-2 items-center bg-blue-950/10">
-                <select 
-                  value={reqMethod} 
-                  onChange={e => setReqMethod(e.target.value)}
-                  className="bg-blue-900/20 text-blue-400 border border-blue-500/30 rounded px-3 py-1 font-bold text-sm outline-none"
-                >
-                  {['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'].map(m => <option key={m} value={m}>{m}</option>)}
-                </select>
-                <input 
-                  type="text" 
-                  value={reqPath}
-                  onChange={e => setReqPath(e.target.value)}
-                  className="flex-1 bg-black/50 border border-zinc-800 rounded px-3 py-1 text-sm font-mono text-zinc-300 focus:border-blue-500/50 outline-none"
-                  placeholder="/api/v1/users/1"
-                />
-                <button 
-                  onClick={executeRepeater}
-                  disabled={isAttacking}
-                  className="bg-blue-600 hover:bg-blue-500 text-white px-4 py-1 rounded font-bold text-sm flex items-center gap-1 disabled:opacity-50"
-                >
-                  <Play className="w-4 h-4 fill-current" /> Send
-                </button>
-              </div>
-              <div className="flex-1 flex flex-col lg:flex-row divide-y lg:divide-y-0 lg:divide-x divide-zinc-800/50">
-                <div className="flex-1 flex flex-col">
-                  <div className="text-xs font-mono px-3 py-1 bg-zinc-900 text-zinc-500 border-b border-zinc-800/50">Request</div>
-                  <textarea 
-                    value={reqHeaders}
-                    onChange={e => setReqHeaders(e.target.value)}
-                    className="h-1/2 w-full bg-transparent resize-none border-b border-zinc-800/50 p-3 font-mono text-xs text-blue-200 focus:outline-none"
-                    placeholder="Headers..."
-                  />
-                  <textarea 
-                    value={reqBody}
-                    onChange={e => setReqBody(e.target.value)}
-                    className="h-1/2 w-full bg-transparent resize-none p-3 font-mono text-xs text-amber-200 focus:outline-none"
-                    placeholder="Body payload..."
-                  />
+            <div className="space-y-4">
+              {(!profile.smartVectors || profile.smartVectors.length === 0) ? (
+                <div className="glass-panel border-zinc-500/20 bg-zinc-900/50 p-8 text-center flex flex-col items-center justify-center h-full min-h-[300px]">
+                  <ShieldAlert className="w-12 h-12 text-zinc-600 mb-4" />
+                  <h3 className="text-xl font-bold text-zinc-400 mb-2">Sin Superficie Ofensiva Detectada</h3>
+                  <p className="text-zinc-500 max-w-md">Los motores de inteligencia de FixGuard no han encontrado vectores de ataque de lógica de negocio viables en este objetivo durante el reconocimiento pasivo.</p>
                 </div>
-                <div className="flex-1 flex flex-col bg-zinc-950">
-                  <div className="text-xs font-mono px-3 py-1 bg-zinc-900 text-zinc-500 border-b border-zinc-800/50">Response</div>
-                  <pre className="flex-1 p-3 overflow-auto font-mono text-xs text-zinc-300">
-                    {resData}
-                  </pre>
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {profile.smartVectors.map((vector, i) => (
+                    <ModuleCard 
+                      key={i}
+                      title={vector.attackType} 
+                      desc={vector.description}
+                      icon={
+                        vector.attackType.includes('BOLA') ? <ShieldAlert className="w-5 h-5 text-rose-400" /> : 
+                        vector.attackType.includes('Workflow') ? <Cpu className="w-5 h-5 text-rose-400" /> :
+                        <Zap className="w-5 h-5 text-rose-400" />
+                      }
+                      targetInfo={`${vector.method} ${vector.targetUrl.split('?')[0].slice(0, 40)}${vector.targetUrl.length > 40 ? '...' : ''}`}
+                      onClick={() => launchModule(`vector-${i}`, vector.attackType, vector.targetUrl)}
+                      disabled={isAttacking}
+                    />
+                  ))}
                 </div>
-              </div>
+              )}
             </div>
           )}
 
@@ -199,10 +104,10 @@ export default function OffensiveArsenal({ targetUrl, scanId }: OffensiveArsenal
 
         {/* Columna Derecha: Terminal Tactica */}
         <div className="xl:col-span-1">
-          <div className={`glass-panel h-full min-h-[500px] border-${activeTab === 'repeater' ? 'blue' : 'rose'}-500/30 bg-[#050505] flex flex-col shadow-lg shadow-${activeTab === 'repeater' ? 'blue' : 'rose'}-900/10`}>
-            <div className={`p-3 border-b border-${activeTab === 'repeater' ? 'blue' : 'rose'}-500/20 flex items-center gap-2 bg-${activeTab === 'repeater' ? 'blue' : 'rose'}-950/20`}>
-              <Terminal className={`w-4 h-4 text-${activeTab === 'repeater' ? 'blue' : 'rose'}-500`} />
-              <span className={`text-xs font-mono text-${activeTab === 'repeater' ? 'blue' : 'rose'}-400 font-bold uppercase tracking-wider`}>Tactical Console</span>
+          <div className={`glass-panel h-full min-h-[500px] border-rose-500/30 bg-[#050505] flex flex-col shadow-lg shadow-rose-900/10`}>
+            <div className={`p-3 border-b border-rose-500/20 flex items-center gap-2 bg-rose-950/20`}>
+              <Terminal className={`w-4 h-4 text-rose-500`} />
+              <span className={`text-xs font-mono text-rose-400 font-bold uppercase tracking-wider`}>Tactical Console</span>
             </div>
             <div className="p-4 flex-1 overflow-y-auto font-mono text-xs space-y-1">
               {logs.map((log, i) => (
@@ -222,7 +127,7 @@ export default function OffensiveArsenal({ targetUrl, scanId }: OffensiveArsenal
   );
 }
 
-function ModuleCard({ title, desc, icon, onClick, disabled }: { title: string, desc: string, icon: any, onClick: () => void, disabled: boolean }) {
+function ModuleCard({ title, desc, icon, onClick, disabled, targetInfo }: { title: string, desc: string, icon: any, onClick: () => void, disabled: boolean, targetInfo?: string }) {
   return (
     <div className="glass-panel p-5 border-white/5 hover:border-rose-500/50 hover:bg-rose-950/10 transition-colors group">
       <div className="flex items-center gap-3 mb-3">
@@ -231,7 +136,14 @@ function ModuleCard({ title, desc, icon, onClick, disabled }: { title: string, d
         </div>
         <h3 className="font-bold text-zinc-200">{title}</h3>
       </div>
-      <p className="text-xs text-zinc-400 mb-4 h-10">{desc}</p>
+      {targetInfo && (
+        <div className="mb-3">
+          <span className="inline-block bg-zinc-950 border border-zinc-800 text-zinc-300 font-mono text-[10px] px-2 py-1 rounded w-full truncate">
+            {targetInfo}
+          </span>
+        </div>
+      )}
+      <p className="text-xs text-zinc-400 mb-4 h-16 overflow-y-auto">{desc}</p>
       <button 
         onClick={onClick}
         disabled={disabled}
