@@ -125,6 +125,71 @@ export default function OffensiveArsenal({ targetUrl, scanId, profile, onAttackC
     }
   };
 
+  const launchAllModules = async () => {
+    if (vectors.length === 0) return;
+    
+    setIsAttacking(true);
+    setLogs(prev => [
+      ...prev,
+      ``,
+      `[System] ⚡ INICIANDO AUTO-ATAQUE TOTAL`,
+      `[System] Se ejecutarán ${vectors.length} módulos secuencialmente...`,
+      `══════════════════════════════════════════`
+    ]);
+
+    for (let i = 0; i < vectors.length; i++) {
+      const vector = vectors[i];
+      // Skip interactive tools
+      const cli = (vector as any).cliCommand;
+      if (cli && (cli.includes('commix') || cli.includes('nosqlmap') || cli.includes('sqlmap'))) {
+        setLogs(prev => [...prev, `[System] ⏭️ Saltando ${vector.attackType} (herramienta interactiva)`]);
+        continue;
+      }
+
+      const path = String(vector.endpoint || (vector as any).targetUrl || '');
+      const fullUrl = path.startsWith('http') ? path : `${targetUrl.replace(/\/+$/, '')}${path}`;
+      
+      setLogs(prev => [
+        ...prev,
+        `\n[Offensive] [${i+1}/${vectors.length}] Lanzando: ${vector.attackType}`,
+        `[Offensive] Target: ${fullUrl}`,
+      ]);
+
+      try {
+        const res = await fetch('/api/attack', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ targetUrl: fullUrl, vectorId: vector.id || `vector-${i}`, parentScanId: scanId })
+        });
+
+        if (!res.ok) throw new Error(`API error: ${res.statusText}`);
+
+        const data = await res.json();
+        const output = data.workerOutput?.output || data.workerOutput?.error || 'Sin respuesta del servidor.';
+        const outputLines = output.split('\n').filter((l: string) => l.trim().length > 0);
+
+        setLogs(prev => [
+          ...prev,
+          ...outputLines.map((line: string) => `  ${line}`)
+        ]);
+
+      } catch (error: any) {
+        setLogs(prev => [...prev, `[System] ❌ Error en módulo ${i+1}: ${error.message}`]);
+      }
+      
+      // Small delay between attacks to avoid hammering the server too hard and fast
+      await new Promise(r => setTimeout(r, 1000));
+    }
+
+    setLogs(prev => [
+      ...prev,
+      `\n[System] ✅ AUTO-ATAQUE TOTAL FINALIZADO`,
+      `══════════════════════════════════════════`
+    ]);
+    setIsAttacking(false);
+    onAttackComplete?.();
+  };
+
   return (
     <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="space-y-4">
 
@@ -139,12 +204,22 @@ export default function OffensiveArsenal({ targetUrl, scanId, profile, onAttackC
             <p className="text-rose-400/60 text-xs">{vectors.length} vectores inteligentes · Target: {targetUrl.replace('https://', '').split('/')[0]}</p>
           </div>
         </div>
-        {isAttacking && (
-          <div className="flex items-center gap-2 px-3 py-1.5 bg-rose-500/10 border border-rose-500/30 rounded-full">
-            <div className="w-2 h-2 bg-rose-500 rounded-full animate-pulse" />
-            <span className="text-rose-400 text-xs font-mono font-bold">ATACANDO...</span>
-          </div>
-        )}
+        <div className="flex items-center gap-3">
+          {isAttacking && (
+            <div className="flex items-center gap-2 px-3 py-1.5 bg-rose-500/10 border border-rose-500/30 rounded-full">
+              <div className="w-2 h-2 bg-rose-500 rounded-full animate-pulse" />
+              <span className="text-rose-400 text-xs font-mono font-bold">ATACANDO...</span>
+            </div>
+          )}
+          <button
+            onClick={launchAllModules}
+            disabled={isAttacking || vectors.length === 0}
+            className="flex items-center gap-2 px-4 py-2 bg-rose-600 hover:bg-rose-500 disabled:bg-rose-900/50 disabled:text-rose-500/50 text-white rounded-lg font-bold transition-all shadow-[0_0_15px_rgba(244,63,94,0.3)] hover:shadow-[0_0_25px_rgba(244,63,94,0.5)] border border-rose-400/50"
+          >
+            <Zap className="w-4 h-4" />
+            ⚡ Auto Attack Total
+          </button>
+        </div>
       </div>
 
       {/* Main Layout: vectors top, terminal bottom full-width */}
