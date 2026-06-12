@@ -461,31 +461,89 @@ export default function ReconDashboard({ profile, targetUrl, onLaunchAttack }: P
               </motion.div>
             )}
 
-            {/* Parameter Intelligence Catalog */}
+            {/* Parameter Intelligence */}
             {profile.parameterIntelligence && (
               <motion.div 
                 initial={{ opacity: 0, scale: 0.95 }}
                 animate={{ opacity: 1, scale: 1 }}
                 transition={{ delay: 0.4 }}
-                className="glass-panel p-6 border-violet-500/20"
+                className="glass-panel p-6 border-fuchsia-500/20"
               >
                 <div className="flex items-center gap-3 mb-6 border-b border-white/5 pb-4">
-                  <DatabaseZap className="w-5 h-5 text-violet-400" />
-                  <h3 className="text-xl font-semibold text-zinc-100">Data Model Recon</h3>
+                  <Database className="w-5 h-5 text-fuchsia-400" />
+                  <h3 className="text-xl font-semibold text-zinc-100">Parameter Mapping</h3>
                 </div>
                 <div className="space-y-4">
-                  <div className="text-xs text-zinc-400">
-                    Se infirió el modelo de datos a partir de <strong>{profile.parameterIntelligence.totalParameters}</strong> parámetros únicos.
+                  <div className="flex justify-between items-center bg-fuchsia-500/10 p-3 rounded border border-fuchsia-500/20">
+                    <span className="text-sm text-fuchsia-200">Parámetros Únicos</span>
+                    <span className="text-xl font-bold text-fuchsia-400">{profile.parameterIntelligence.totalParameters}</span>
                   </div>
                   
-                  <div className="flex flex-wrap gap-2 max-h-48 overflow-y-auto custom-scrollbar content-start">
-                    {profile.parameterIntelligence.topParameters.map((p, i) => (
-                      <div key={i} className="flex items-center text-xs bg-violet-500/10 border border-violet-500/20 rounded-full overflow-hidden">
-                        <span className="px-2 py-1 text-violet-300 font-mono">{p.name}</span>
-                        <span className="px-2 py-1 bg-violet-500/20 text-violet-200 font-bold border-l border-violet-500/20">{p.frequency}</span>
+                  {profile.parameterIntelligence.topParameters.length > 0 && (
+                    <div>
+                      <h4 className="text-sm font-bold text-fuchsia-300 mb-2">Más Frecuentes</h4>
+                      <div className="flex flex-wrap gap-2">
+                        {profile.parameterIntelligence.topParameters.map((p, i) => (
+                          <span key={i} className="text-xs font-mono bg-fuchsia-500/10 text-fuchsia-300 px-2 py-1 rounded flex items-center gap-2">
+                            {p.name} <span className="bg-fuchsia-500/20 px-1 rounded text-[10px]">{p.frequency}</span>
+                          </span>
+                        ))}
                       </div>
-                    ))}
-                  </div>
+                    </div>
+                  )}
+                </div>
+              </motion.div>
+            )}
+
+            {/* AI Fingerprint Intelligence */}
+            {profile.aiIntelligence && profile.aiIntelligence.detected && (
+              <motion.div 
+                initial={{ opacity: 0, scale: 0.95 }}
+                animate={{ opacity: 1, scale: 1 }}
+                transition={{ delay: 0.45 }}
+                className="glass-panel p-6 border-yellow-500/20"
+              >
+                <div className="flex items-center gap-3 mb-6 border-b border-white/5 pb-4">
+                  <span className="text-yellow-400 text-xl">🧠</span>
+                  <h3 className="text-xl font-semibold text-zinc-100">AI Intelligence</h3>
+                </div>
+                <div className="space-y-4">
+                  {profile.aiIntelligence.providers.length > 0 && (
+                    <div>
+                      <h4 className="text-sm font-bold text-yellow-300 mb-2">Proveedores LLM</h4>
+                      <div className="flex flex-wrap gap-2">
+                        {profile.aiIntelligence.providers.map((p, i) => (
+                          <span key={i} className="text-xs font-mono bg-yellow-500/20 text-yellow-400 font-bold border border-yellow-500/30 px-2 py-1 rounded">
+                            {p}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  {profile.aiIntelligence.frameworks.length > 0 && (
+                    <div>
+                      <h4 className="text-sm font-bold text-yellow-300 mb-2">SDKs / Frameworks</h4>
+                      <div className="flex flex-wrap gap-2">
+                        {profile.aiIntelligence.frameworks.map((f, i) => (
+                          <span key={i} className="text-xs bg-yellow-500/10 text-yellow-300 px-2 py-1 rounded">
+                            {f}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  {profile.aiIntelligence.features.length > 0 && (
+                    <div>
+                      <h4 className="text-sm font-bold text-yellow-300 mb-2">Capacidades Detectadas</h4>
+                      <div className="flex flex-wrap gap-2">
+                        {profile.aiIntelligence.features.map((f, i) => (
+                          <span key={i} className="text-xs bg-zinc-800/80 text-zinc-300 px-2 py-1 rounded">
+                            {f}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
               </motion.div>
             )}

@@ -136,6 +136,12 @@ export interface ReconProfile {
       context?: string;
     }>;
   };
+  aiIntelligence?: {
+    detected: boolean;
+    providers: string[];
+    frameworks: string[];
+    features: string[];
+  };
   auditReport?: {
     summary: string;
     contexts: Array<{
