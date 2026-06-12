@@ -1,6 +1,10 @@
 import { runCliCommand } from './scanner/cliRunner';
 import { VECTOR_REGISTRY } from './recon/FrameworkIntelligence';
 import { IssueManager } from './scanner/IssueManager';
+import { SessionManager } from './scanner/SessionManager';
+import { db } from './db/db';
+import { reconProfiles, findings } from './db/schema';
+import { eq } from 'drizzle-orm';
 
 // Helper to parse the output and determine severity/findings
 function parseCliOutput(command: string, output: string): { severity: 'low' | 'medium' | 'high' | 'critical', finding: string, metadata?: any } | null {
@@ -113,10 +117,36 @@ export async function runTargetedAttack(scanId: number, targetUrl: string, vecto
     }
 
     const cleanTargetUrl = targetUrl.replace(/\/+$/, '');
-    console.log(`[Scan ${scanId}] ⚙️ Ejecutando herramienta profesional CLI: ${vector.cliCommand.replace('<TARGET>', cleanTargetUrl)}`);
+    
+    // Obtener flags de autenticación
+    const authFlags = await SessionManager.getCliAuthFlags(cleanTargetUrl, vector.cliCommand);
+    let finalCommand = vector.cliCommand.replace('<TARGET>', cleanTargetUrl);
+    
+    if (authFlags) {
+      finalCommand = `${finalCommand} ${authFlags}`;
+    }
+
+    // Context Bridge: Extraer params de los findings previos de discovery para alimentar sqlmap
+    if (finalCommand.includes('sqlmap')) {
+      const discoveryFindings = await db.select().from(findings).where(eq(findings.scanId, scanId));
+      const discoveredParams = discoveryFindings
+        .map(f => f.endpoint || '')
+        .filter(url => url.includes('?'))
+        .map(url => new URL(url).searchParams.keys())
+        .flatMap(keys => Array.from(keys));
+        
+      const uniqueParams = [...new Set(discoveredParams)];
+      
+      if (uniqueParams.length > 0) {
+        finalCommand += ` -p "${uniqueParams.join(',')}"`;
+        console.log(`[Context Bridge] Inyectando parámetros vulnerables a sqlmap: ${uniqueParams.join(', ')}`);
+      }
+    }
+
+    console.log(`[Scan ${scanId}] ⚙️ Ejecutando herramienta profesional CLI: ${finalCommand}`);
     
     // Run the actual CLI tool using the runner
-    const output = await runCliCommand(vector.cliCommand, cleanTargetUrl);
+    const output = await runCliCommand(finalCommand, cleanTargetUrl);
     
     console.log(`[Scan ${scanId}] 📄 Output recibido (Longitud: ${output.length} bytes)`);
 

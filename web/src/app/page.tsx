@@ -358,13 +358,22 @@ export default function Home() {
                 >
                   Offensive Hub (Arsenal)
                 </button>
+              <div className="flex gap-4">
+                {scanId && (
+                  <button
+                    onClick={() => window.open(`/api/export/${scanId}`, '_blank')}
+                    className="bg-emerald-600/20 text-emerald-400 border border-emerald-500/50 px-6 py-2 rounded-full font-mono hover:bg-emerald-600/40 transition-colors flex items-center gap-2"
+                  >
+                    <span>↓ Exportar Reporte</span>
+                  </button>
+                )}
+                <button
+                  onClick={resetScan}
+                  className="bg-zinc-900 border border-zinc-700 px-6 py-2 rounded-full font-mono text-zinc-300 hover:text-white hover:bg-zinc-800 transition-colors"
+                >
+                  Escanear otro objetivo
+                </button>
               </div>
-              <button
-                onClick={resetScan}
-                className="bg-zinc-900 border border-zinc-700 px-6 py-2 rounded-full font-mono text-zinc-300 hover:text-white hover:bg-zinc-800 transition-colors"
-              >
-                Escanear otro objetivo
-              </button>
             </div>
             
             {resultsTab === "recon" ? (

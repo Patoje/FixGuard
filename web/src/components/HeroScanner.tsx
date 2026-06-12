@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Scan, ShieldAlert, Zap, Code, ShieldCheck, ArrowRight } from "lucide-react";
+import { Scan, ShieldAlert, Zap, Code, ShieldCheck, ArrowRight, Key } from "lucide-react";
 import { ScanMode } from "../types";
 
 interface HeroScannerProps {
@@ -19,14 +19,36 @@ const MODES: { id: ScanMode; label: string; icon: any; color: string; desc: stri
 
 export default function HeroScanner({ onScan, isScanning }: HeroScannerProps) {
   const [url, setUrl] = useState("");
-  const [step, setStep] = useState<"input" | "mode">("input");
+  const [step, setStep] = useState<"input" | "auth" | "mode">("input");
   const [mode, setMode] = useState<ScanMode>("passive");
+  const [authType, setAuthType] = useState<"none" | "cookie" | "jwt">("none");
+  const [authToken, setAuthToken] = useState("");
+  const [isSavingAuth, setIsSavingAuth] = useState(false);
 
   const handleContinue = (e: React.FormEvent) => {
     e.preventDefault();
     if (url.trim()) {
-      setStep("mode");
+      setStep("auth");
     }
+  };
+
+  const handleAuthSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (authType !== "none" && authToken.trim()) {
+      setIsSavingAuth(true);
+      try {
+        await fetch("/api/auth-session", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ targetUrl: url, authType, tokenOrCookie: authToken }),
+        });
+      } catch (err) {
+        console.error("Error saving auth:", err);
+      } finally {
+        setIsSavingAuth(false);
+      }
+    }
+    setStep("mode");
   };
 
   const handleScan = (e: React.FormEvent) => {
@@ -82,6 +104,69 @@ export default function HeroScanner({ onScan, isScanning }: HeroScannerProps) {
             </motion.form>
           )}
 
+          {step === "auth" && (
+            <motion.form
+              key="auth-form"
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -20 }}
+              transition={{ duration: 0.3 }}
+              onSubmit={handleAuthSubmit}
+              className="w-full flex flex-col items-center gap-6"
+            >
+              <div className="bg-zinc-900/50 border border-zinc-800 rounded-xl px-6 py-3 font-mono text-zinc-400 flex items-center gap-4 w-full max-w-2xl justify-between">
+                <div className="flex gap-4">
+                  <span className="text-zinc-500 text-sm">Objetivo:</span>
+                  <span className="text-zinc-200 truncate max-w-[200px] sm:max-w-xs">{url}</span>
+                </div>
+                <button 
+                  type="button" 
+                  onClick={() => setStep("input")}
+                  className="text-blue-500 text-sm hover:underline"
+                >
+                  Cambiar
+                </button>
+              </div>
+
+              <div className="w-full max-w-2xl bg-zinc-900 border border-zinc-800 rounded-xl p-6">
+                <div className="flex items-center gap-3 mb-6">
+                  <Key className="w-6 h-6 text-emerald-500" />
+                  <h2 className="text-xl font-bold text-zinc-100">Configurar Autenticación</h2>
+                </div>
+                <p className="text-zinc-400 mb-6 text-sm">
+                  Proveer credenciales permite al motor escanear rutas protegidas, encontrando el 80% de los fallos (BOLA, BFLA, Mass Assignment) que requieren un usuario logueado.
+                </p>
+
+                <div className="flex gap-4 mb-6">
+                  <button type="button" onClick={() => setAuthType('none')} className={`flex-1 py-2 rounded-lg border text-sm font-bold transition-all ${authType === 'none' ? 'bg-zinc-800 border-zinc-600 text-white' : 'bg-zinc-950 border-zinc-800 text-zinc-500 hover:text-zinc-300'}`}>Sin Autenticación</button>
+                  <button type="button" onClick={() => setAuthType('cookie')} className={`flex-1 py-2 rounded-lg border text-sm font-bold transition-all ${authType === 'cookie' ? 'bg-emerald-900/30 border-emerald-500/50 text-emerald-400' : 'bg-zinc-950 border-zinc-800 text-zinc-500 hover:text-zinc-300'}`}>Cookie</button>
+                  <button type="button" onClick={() => setAuthType('jwt')} className={`flex-1 py-2 rounded-lg border text-sm font-bold transition-all ${authType === 'jwt' ? 'bg-blue-900/30 border-blue-500/50 text-blue-400' : 'bg-zinc-950 border-zinc-800 text-zinc-500 hover:text-zinc-300'}`}>JWT Bearer</button>
+                </div>
+
+                {authType !== 'none' && (
+                  <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} className="mb-6">
+                    <textarea 
+                      value={authToken}
+                      onChange={(e) => setAuthToken(e.target.value)}
+                      placeholder={authType === 'cookie' ? "session_id=12345; user_id=987..." : "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."}
+                      className="w-full bg-zinc-950 border border-zinc-800 rounded-lg p-4 text-sm font-mono text-zinc-300 placeholder-zinc-600 focus:outline-none focus:border-emerald-500/50 min-h-[100px]"
+                      autoFocus
+                    />
+                  </motion.div>
+                )}
+
+                <button
+                  type="submit"
+                  disabled={isSavingAuth || (authType !== 'none' && !authToken.trim())}
+                  className="w-full bg-zinc-100 hover:bg-white text-zinc-900 px-6 py-3 rounded-lg font-bold flex items-center justify-center gap-2 transition-colors disabled:opacity-50"
+                >
+                  {isSavingAuth ? "Guardando Sesión..." : "Confirmar Autenticación"}
+                  <ArrowRight className="w-5 h-5" />
+                </button>
+              </div>
+            </motion.form>
+          )}
+
           {step === "mode" && (
             <motion.form
               key="mode-form"
@@ -97,7 +182,7 @@ export default function HeroScanner({ onScan, isScanning }: HeroScannerProps) {
                 <span className="text-zinc-200">{url}</span>
                 <button 
                   type="button" 
-                  onClick={() => setStep("input")}
+                  onClick={() => setStep("auth")}
                   className="text-blue-500 text-sm hover:underline ml-4"
                   disabled={isScanning}
                 >

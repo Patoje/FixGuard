@@ -72,3 +72,15 @@ export const findings = pgTable('findings', {
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
 });
+
+export const sessions = pgTable('sessions', {
+  id: serial('id').primaryKey(),
+  targetUrl: text('target_url').notNull(),
+  authType: varchar('auth_type', { enum: ['cookie', 'jwt', 'oauth'] }).notNull(),
+  cookieHeader: text('cookie_header'),
+  jwtToken: text('jwt_token'),
+  loginFlow: json('login_flow'), // Para grabar secuencias de login
+  isActive: varchar('is_active', { length: 1 }).default('1').notNull(), // '1' o '0' como booleano simple
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().notNull(),
+});
