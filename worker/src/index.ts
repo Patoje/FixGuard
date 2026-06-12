@@ -179,12 +179,10 @@ app.post('/api/scan', async (req, res) => {
     // --- FASE 3: Análisis de Artefactos (NUEVO: Pasamos las URLs de los JS para detectar Source Maps) ---
     const artifactIntelligence = await ArtifactIntelligenceEngine.analyze(targetUrl, jsCodes, jsFilesFromCrawler);
     
-    // --- FASE 3.5: Extracción de Server Actions (Next.js) ---
+    // --- FASE 3.5: Extracción de Acciones Remotas (Next.js, Remix, SvelteKit, etc.) ---
     const isNextJs = techStack.some(t => t.name.toLowerCase().includes('next.js'));
-    let serverActionsIntelligence = undefined;
-    if (isNextJs) {
-      serverActionsIntelligence = ServerActionsEngine.analyze(jsCodes);
-    }
+    // Ahora el engine soporta múltiples frameworks, lo corremos siempre para ver qué pilla
+    const serverActionsIntelligence = ServerActionsEngine.analyze(jsCodes);
 
     const parameterIntelligence = ParameterIntelligenceEngine.analyze(attackSurface);
     const aiIntelligence = AIFingerprintEngine.analyze(jsCodes, baseHeaders);
@@ -259,6 +257,15 @@ app.post('/api/scan', async (req, res) => {
       const success = await AttackExecutor.executeAndCompare(scanId, targetUrl, react2shell);
       if (success) {
         console.log(`[Scan ${scanId}] 🚨 CRÍTICO: Vulnerabilidad React2Shell (RCE) confirmada en el servidor de Next.js.`);
+      }
+    }
+
+    // --- EJECUTAR VECTORES DE BUSINESS LOGIC ---
+    if (smartVectors && smartVectors.length > 0) {
+      console.log(`[Scan ${scanId}] ⚔️ Iniciando Attack Executor para ${smartVectors.length} vectores de lógica de negocio...`);
+      for (const vector of smartVectors) {
+        // En MVP no bloqueamos si uno falla, seguimos con el resto
+        await AttackExecutor.executeAndCompare(scanId, targetUrl, vector);
       }
     }
 
