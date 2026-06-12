@@ -20,7 +20,7 @@ export function runFrameworkIntelligence(techStack: TechStackItem[]): FrameworkV
     framework: 'Reconocimiento Profundo',
     vectors: [
       { id: 'deep_katana', name: 'Crawling Avanzado JS/DOM', cliCommand: 'katana -u <TARGET> -d 5 -jc -kf' },
-      { id: 'deep_wayback', name: 'Historial Wayback Machine', cliCommand: 'waybackurls <TARGET>' }
+      { id: 'deep_gau', name: 'Historial GAU (Wayback/AlienVault)', cliCommand: 'gau <TARGET>' }
     ]
   });
 
@@ -59,7 +59,7 @@ export function runFrameworkIntelligence(techStack: TechStackItem[]): FrameworkV
         { id: 'spa_localstorage', name: 'Local Storage secrets', cliCommand: 'grep -ri "localStorage.setItem" .' },
         { id: 'spa_secrets_scan', name: 'JS Secrets Analyzer', cliCommand: 'nuclei -t exposed-tokens/ -u <TARGET>' },
         { id: 'spa_dom_injection', name: 'DOM Injection Points', cliCommand: 'grep -riE "dangerouslySetInnerHTML|innerHTML|v-html" .' },
-        { id: 'xsstrike_spa', name: 'XSS Automático (Mutación)', cliCommand: 'xsstrike -u <TARGET>' }
+        { id: 'dalfox_spa', name: 'XSS Automático (Verificación DOM)', cliCommand: 'dalfox url <TARGET>' }
       ]
     });
   }
@@ -155,7 +155,7 @@ export const VECTOR_REGISTRY: Record<string, VectorItem> = {
   spa_localstorage: { id: 'spa_localstorage', name: 'Local Storage secrets', cliCommand: 'grep -ri "localStorage.setItem" .' },
   spa_secrets_scan: { id: 'spa_secrets_scan', name: 'JS Secrets Analyzer', cliCommand: 'nuclei -t exposed-tokens/ -u <TARGET>' },
   spa_dom_injection: { id: 'spa_dom_injection', name: 'DOM Injection Points', cliCommand: 'grep -riE "dangerouslySetInnerHTML|innerHTML|v-html" .' },
-  xsstrike_spa: { id: 'xsstrike_spa', name: 'XSS Automático (Mutación)', cliCommand: 'xsstrike -u <TARGET>' },
+  dalfox_spa: { id: 'dalfox_spa', name: 'XSS Automático (Verificación DOM)', cliCommand: 'dalfox url <TARGET>' },
   
   // Static & JAMStack
   static_takeover: { id: 'static_takeover', name: 'Subdomain Takeover', cliCommand: 'nuclei -t takeovers/ -u <TARGET>' },
@@ -186,11 +186,11 @@ export const VECTOR_REGISTRY: Record<string, VectorItem> = {
   supabase_anon_key: { id: 'supabase_anon_key', name: 'Anon Key abuse', cliCommand: 'curl -H "apikey: ANON_KEY" <TARGET>/rest/v1/' },
   // Arsenal
   deep_katana: { id: 'deep_katana', name: 'Crawling Avanzado JS/DOM', cliCommand: 'katana -u <TARGET> -d 5 -jc -kf all' },
-  deep_wayback: { id: 'deep_wayback', name: 'Historial Wayback Machine', cliCommand: 'waybackurls <TARGET>' },
+  deep_gau: { id: 'deep_gau', name: 'Historial GAU (Wayback/AlienVault)', cliCommand: 'gau <TARGET>' },
   nmap_full: { id: 'nmap_full', name: 'Escaneo de Puertos Total', cliCommand: 'nmap -sV -sC -Pn -T4 -p- <TARGET>' },
   subfinder_enum: { id: 'subfinder_enum', name: 'Enumeración de Subdominios', cliCommand: 'subfinder -d <TARGET> -all' },
   wpscan_full: { id: 'wpscan_full', name: 'WPScan Arsenal Completo', cliCommand: 'wpscan --url <TARGET> --enumerate u,p,t --random-user-agent' },
-  xsstrike_react: { id: 'xsstrike_react', name: 'XSS Automático (Mutación)', cliCommand: 'xsstrike -u <TARGET>' },
+  dalfox_react: { id: 'dalfox_react', name: 'XSS Automático (Verificación DOM)', cliCommand: 'dalfox url <TARGET>' },
   sqlmap: { id: 'sqlmap', name: 'Inyección SQL con SQLMap', cliCommand: 'sqlmap -u <TARGET> --batch --level=3 --risk=2' },
-  xsstrike: { id: 'xsstrike', name: 'Ataque XSS con XSStrike', cliCommand: 'xsstrike -u <TARGET>' }
+  dalfox: { id: 'dalfox', name: 'Ataque XSS con Dalfox', cliCommand: 'dalfox url <TARGET>' }
 };

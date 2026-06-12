@@ -35,14 +35,14 @@ function parseCliOutput(command: string, output: string): { severity: 'low' | 'm
     return null;
   }
 
-  if (command.includes('xsstrike')) {
-    if (lowerOut.includes('vulnerable') || lowerOut.includes('payload:')) {
-      return { severity: 'high', finding: 'XSStrike encontró y validó un vector de inyección XSS.' };
+  if (command.includes('dalfox')) {
+    if (lowerOut.includes('[poc]') || lowerOut.includes('[v]') || lowerOut.includes('found')) {
+      return { severity: 'high', finding: 'Dalfox encontró y validó un vector de inyección XSS en el DOM/Reflected.' };
     }
     return null;
   }
 
-  if (command.includes('katana') || command.includes('waybackurls') || command.includes('subfinder')) {
+  if (command.includes('katana') || command.includes('gau') || command.includes('subfinder')) {
     const lines = output.trim().split('\n').filter(l => l.length > 0);
     const discoveredUrls: string[] = [];
     const vulnerableParameters: string[] = [];
