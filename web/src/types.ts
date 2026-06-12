@@ -180,10 +180,14 @@ export interface ReconProfile {
     }>;
   };
   smartVectors?: Array<{
+    id?: string;
     targetUrl: string;
+    endpoint?: string;
     method: string;
     attackType: string;
     description: string;
     severity: string;
+    cliCommand?: string;
   }>;
+
 }

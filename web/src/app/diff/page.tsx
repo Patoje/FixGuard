@@ -179,7 +179,7 @@ export default function DiffPage() {
                       <div key={f.id} className="bg-black border border-zinc-800 p-4 rounded-lg">
                         <div className="flex items-center justify-between mb-2">
                           <h4 className="font-bold text-white">{f.title}</h4>
-                          <span className={\`px-2 py-1 text-xs font-bold rounded \${f.severity === 'critical' ? 'bg-rose-500/20 text-rose-400' : 'bg-orange-500/20 text-orange-400'}\`}>
+                          <span className={`px-2 py-1 text-xs font-bold rounded ${f.severity === 'critical' ? 'bg-rose-500/20 text-rose-400' : 'bg-orange-500/20 text-orange-400'}`}>
                             {f.severity}
                           </span>
                         </div>

@@ -252,6 +252,21 @@ export default function Home() {
     simulationRef.current = false;
   };
 
+  // Refresh findings after a targeted attack completes
+  const refreshFindings = async () => {
+    if (!scanId) return;
+    try {
+      const res = await fetch(`/api/scans/${scanId}`);
+      if (res.ok) {
+        const data = await res.json();
+        if (data.vulnerabilities) setVulnerabilities(data.vulnerabilities);
+        if (data.reconProfile) setReconProfile(data.reconProfile);
+      }
+    } catch (e) {
+      console.error('Error refreshing findings', e);
+    }
+  };
+
   return (
     <main className="min-h-screen relative p-4 pb-20">
       {/* Background decorations */}
@@ -358,6 +373,7 @@ export default function Home() {
                 >
                   Offensive Hub (Arsenal)
                 </button>
+              </div>
               <div className="flex gap-4">
                 {scanId && (
                   <button
@@ -411,7 +427,7 @@ export default function Home() {
             ) : (
               <div className="mt-8">
                 {scanId && reconProfile ? (
-                  <OffensiveArsenal targetUrl={targetUrl} scanId={scanId} profile={reconProfile} />
+                  <OffensiveArsenal targetUrl={targetUrl} scanId={scanId} profile={reconProfile} onAttackComplete={refreshFindings} />
                 ) : (
                   <div className="text-center p-12 glass-panel border-rose-500/20 bg-rose-500/5">
                     <h3 className="text-2xl font-bold text-rose-400 mb-2">Arsenal Desactivado</h3>

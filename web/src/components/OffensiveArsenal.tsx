@@ -1,40 +1,84 @@
 "use client";
 
-import { motion } from "framer-motion";
-import { Terminal, Crosshair, ShieldAlert, Zap, Cpu, ScanLine, Play, FileJson } from "lucide-react";
-import { useState } from "react";
-
+import { motion, AnimatePresence } from "framer-motion";
+import { Terminal, Crosshair, ShieldAlert, Zap, Search, Network, Code, ChevronRight, Copy, Check } from "lucide-react";
+import { useState, useRef, useEffect } from "react";
 import type { ReconProfile } from "../types";
 
 interface OffensiveArsenalProps {
   targetUrl: string;
   scanId: number;
   profile: ReconProfile;
+  onAttackComplete?: () => void;
 }
 
-export default function OffensiveArsenal({ targetUrl, scanId, profile }: OffensiveArsenalProps) {
+type AttackCategory = 'ALL' | 'BOLA' | 'Mass Assignment' | 'Recon' | 'Injection';
+
+const CATEGORY_META: Record<AttackCategory, { label: string; color: string; bg: string; border: string; icon: any }> = {
+  ALL:              { label: 'Todos',          color: 'text-zinc-300',   bg: 'bg-zinc-800',        border: 'border-zinc-700',    icon: Crosshair },
+  BOLA:             { label: 'BOLA / IDOR',    color: 'text-rose-400',   bg: 'bg-rose-500/10',     border: 'border-rose-500/30', icon: ShieldAlert },
+  'Mass Assignment':{ label: 'Mass Assign.',   color: 'text-orange-400', bg: 'bg-orange-500/10',   border: 'border-orange-500/30',icon: Zap },
+  Recon:            { label: 'Recon',          color: 'text-cyan-400',   bg: 'bg-cyan-500/10',     border: 'border-cyan-500/30', icon: Search },
+  Injection:        { label: 'Injection',      color: 'text-purple-400', bg: 'bg-purple-500/10',   border: 'border-purple-500/30',icon: Code },
+};
+
+function getCategory(attackType: string): AttackCategory {
+  const t = attackType.toLowerCase();
+  if (t.includes('bola') || t.includes('idor')) return 'BOLA';
+  if (t.includes('mass')) return 'Mass Assignment';
+  if (t.includes('sqli') || t.includes('injection') || t.includes('xss') || t.includes('prototype')) return 'Injection';
+  return 'Recon';
+}
+
+function getLogColor(log: string): string {
+  if (log.includes('🚨') || log.includes('VULNERABILIDAD') || log.includes('❌')) return 'text-rose-400';
+  if (log.includes('✅') || log.includes('seguro')) return 'text-emerald-400';
+  if (log.includes('HTTP/2') || log.includes('HTTP/1')) return 'text-sky-300';
+  if (log.includes('set-cookie') || log.includes('cookie')) return 'text-yellow-400 font-bold';
+  if (log.includes('content-type') || log.includes('server:') || log.includes('age:') || log.includes('cache')) return 'text-zinc-400';
+  if (log.includes('[Worker]') || log.includes('[Offensive]')) return 'text-blue-400';
+  if (log.includes('[System]')) return 'text-zinc-500';
+  if (log.includes('Endpoint:') || log.includes('Herramienta:') || log.includes('Veredicto:')) return 'text-amber-300';
+  if (log.includes('---')) return 'text-zinc-600';
+  if (log.startsWith('  {') || log.startsWith('  }') || log.startsWith('  "')) return 'text-green-300 font-mono';
+  return 'text-emerald-400/80';
+}
+
+export default function OffensiveArsenal({ targetUrl, scanId, profile, onAttackComplete }: OffensiveArsenalProps) {
   const [logs, setLogs] = useState<string[]>([
-    "[System] Initializing Offensive Arsenal...", 
-    `[System] Target locked: ${targetUrl} (Scan ID: ${scanId})`
+    "[System] FixGuard Offensive Arsenal inicializado",
+    `[System] Target locked: ${targetUrl}`,
+    `[System] Scan ID: ${scanId} | Vectores cargados: ${profile.smartVectors?.length ?? 0}`,
+    "[System] Seleccioná una categoría y lanzá un módulo ▼",
   ]);
   const [isAttacking, setIsAttacking] = useState(false);
-  const [activeTab, setActiveTab] = useState<'modules'>('modules');
+  const [activeCategory, setActiveCategory] = useState<AttackCategory>('ALL');
+  const [copied, setCopied] = useState(false);
+  const logEndRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    logEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [logs]);
+
+  const vectors = profile.smartVectors ?? [];
+  const categories = Array.from(new Set<AttackCategory>(['ALL', ...vectors.map(v => getCategory(v.attackType))]));
+  const filtered = activeCategory === 'ALL' ? vectors : vectors.filter(v => getCategory(v.attackType) === activeCategory);
+
+  const copyLogs = async () => {
+    await navigator.clipboard.writeText(logs.join('\n'));
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
 
   const launchModule = async (vectorId: string, moduleName: string, vectorTargetUrl: string, cliCommand?: string) => {
-    // Para herramientas pesadas o interactivas (Fase 5), mostrar el comando directamente
-    if (cliCommand && (
-        cliCommand.includes('commix') || 
-        cliCommand.includes('nosqlmap') || 
-        cliCommand.includes('sqlmap')
-    )) {
+    if (cliCommand && (cliCommand.includes('commix') || cliCommand.includes('nosqlmap') || cliCommand.includes('sqlmap'))) {
       const finalCommand = cliCommand.replace('<TARGET>', vectorTargetUrl);
       setLogs(prev => [
-        ...prev, 
-        `[System] ⚠️ La herramienta ${moduleName} es interactiva o pesada.`,
-        `[Terminal] Ejecuta manualmente este comando en tu terminal:`,
+        ...prev,
+        `[System] ⚠️ Herramienta interactiva: ${moduleName}`,
+        `[Terminal] Copia y pegá en tu terminal:`,
         `>> ${finalCommand}`,
       ]);
-      // Copiar al portapapeles
       try {
         await navigator.clipboard.writeText(finalCommand);
         setLogs(prev => [...prev, `[System] ✅ Comando copiado al portapapeles.`]);
@@ -44,123 +88,200 @@ export default function OffensiveArsenal({ targetUrl, scanId, profile }: Offensi
 
     setIsAttacking(true);
     setLogs(prev => [
-      ...prev, 
-      `[Offensive] Encolando vector: ${moduleName} contra ${vectorTargetUrl}...`
+      ...prev,
+      ``,
+      `[Offensive] ══════════════════════════════`,
+      `[Offensive] Lanzando: ${moduleName}`,
+      `[Offensive] Target: ${vectorTargetUrl}`,
+      `[Offensive] ══════════════════════════════`,
     ]);
-    
+
     try {
       const res = await fetch('/api/attack', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          targetUrl: vectorTargetUrl,
-          vectorId: vectorId,
-          parentScanId: scanId
-        })
+        body: JSON.stringify({ targetUrl: vectorTargetUrl, vectorId, parentScanId: scanId })
       });
 
-      if (!res.ok) {
-        throw new Error(`API error: ${res.statusText}`);
-      }
+      if (!res.ok) throw new Error(`API error: ${res.statusText}`);
+
+      const data = await res.json();
+      const output = data.workerOutput?.output || data.workerOutput?.error || 'Sin respuesta del servidor.';
+      const outputLines = output.split('\n').filter((l: string) => l.trim().length > 0);
 
       setLogs(prev => [
-        ...prev, 
-        `[System] ✅ Ataque encolado. El Worker ejecutará ${moduleName} en segundo plano.`,
-        `[System] Revisa la pestaña de 'Vulnerabilidades' para ver los resultados.`
+        ...prev,
+        `[Worker] Respuesta recibida:`,
+        ...outputLines.map((line: string) => `  ${line}`)
       ]);
+
+      // Trigger parent refresh so new findings appear in Audit & Recon
+      onAttackComplete?.();
 
     } catch (error: any) {
-      setLogs(prev => [
-        ...prev, 
-        `[System] ❌ Error conectando con el orquestador: ${error.message}`
-      ]);
+      setLogs(prev => [...prev, `[System] ❌ Error: ${error.message}`]);
     } finally {
       setIsAttacking(false);
     }
   };
 
   return (
-    <motion.div 
-      initial={{ opacity: 0, y: 20 }}
-      animate={{ opacity: 1, y: 0 }}
-      className="space-y-6"
-    >
-      <div className="flex flex-col md:flex-row md:items-end justify-between gap-4 border-b border-rose-500/20 pb-6">
-        <div className="flex items-center gap-4">
-          <div className="w-12 h-12 bg-rose-500/10 rounded-xl flex items-center justify-center border border-rose-500/30 shadow-[0_0_15px_rgba(244,63,94,0.3)]">
-            <Crosshair className="w-6 h-6 text-rose-500" />
+    <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="space-y-4">
+
+      {/* Header */}
+      <div className="flex items-center justify-between border-b border-rose-500/20 pb-4">
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 bg-rose-500/10 rounded-xl flex items-center justify-center border border-rose-500/30 shadow-[0_0_12px_rgba(244,63,94,0.25)]">
+            <Crosshair className="w-5 h-5 text-rose-500" />
           </div>
           <div>
-            <h2 className="text-2xl font-bold text-rose-100">FixGuard Offensive Arsenal</h2>
-            <p className="text-rose-400/70 text-sm">Auditoría manual profunda y Fuzzing Avanzado.</p>
+            <h2 className="text-xl font-bold text-rose-100">Offensive Arsenal</h2>
+            <p className="text-rose-400/60 text-xs">{vectors.length} vectores inteligentes · Target: {targetUrl.replace('https://', '').split('/')[0]}</p>
           </div>
         </div>
-
-        {/* Tabs */}
-        <div className="flex bg-zinc-900 border border-zinc-800 rounded-lg p-1">
-          <button 
-            onClick={() => setActiveTab('modules')}
-            className={`px-4 py-1.5 rounded-md text-sm font-bold transition-all ${activeTab === 'modules' ? 'bg-rose-500/20 text-rose-400' : 'text-zinc-500 hover:text-zinc-300'}`}
-          >
-            Smart Attack Vectors
-          </button>
-        </div>
+        {isAttacking && (
+          <div className="flex items-center gap-2 px-3 py-1.5 bg-rose-500/10 border border-rose-500/30 rounded-full">
+            <div className="w-2 h-2 bg-rose-500 rounded-full animate-pulse" />
+            <span className="text-rose-400 text-xs font-mono font-bold">ATACANDO...</span>
+          </div>
+        )}
       </div>
 
-      <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
-        
-        {/* Columna Izquierda: Arsenal o Repeater */}
-        <div className="xl:col-span-2 space-y-6">
-          
-          {activeTab === 'modules' && (
-            <div className="space-y-4">
-              {(!profile.smartVectors || profile.smartVectors.length === 0) ? (
-                <div className="glass-panel border-zinc-500/20 bg-zinc-900/50 p-8 text-center flex flex-col items-center justify-center h-full min-h-[300px]">
-                  <ShieldAlert className="w-12 h-12 text-zinc-600 mb-4" />
-                  <h3 className="text-xl font-bold text-zinc-400 mb-2">Sin Superficie Ofensiva Detectada</h3>
-                  <p className="text-zinc-500 max-w-md">Los motores de inteligencia de FixGuard no han encontrado vectores de ataque de lógica de negocio viables en este objetivo durante el reconocimiento pasivo.</p>
-                </div>
-              ) : (
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  {profile.smartVectors.map((vector, i) => (
-                    <ModuleCard 
-                      key={i}
-                      title={vector.attackType} 
-                      desc={vector.description}
-                      icon={
-                        vector.attackType.includes('BOLA') ? <ShieldAlert className="w-5 h-5 text-rose-400" /> : 
-                        vector.attackType.includes('Workflow') ? <Cpu className="w-5 h-5 text-rose-400" /> :
-                        <Zap className="w-5 h-5 text-rose-400" />
-                      }
-                      targetInfo={`${vector.method || 'CLI'} ${vector.targetUrl.split('?')[0].slice(0, 40)}${vector.targetUrl.length > 40 ? '...' : ''}`}
-                      onClick={() => launchModule(vector.id || `vector-${i}`, vector.attackType, vector.targetUrl, (vector as any).cliCommand)}
-                      disabled={isAttacking}
-                    />
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
+      {/* Main Layout: vectors top, terminal bottom full-width */}
+      <div className="flex flex-col gap-4">
 
+        {/* Top: Category filter + Vector cards */}
+        <div className="flex flex-col gap-3">
+
+          {/* Category Pills */}
+          <div className="flex flex-wrap gap-2">
+            {categories.map(cat => {
+              const meta = CATEGORY_META[cat];
+              const Icon = meta.icon;
+              const isActive = activeCategory === cat;
+              const count = cat === 'ALL' ? vectors.length : vectors.filter(v => getCategory(v.attackType) === cat).length;
+              return (
+                <button
+                  key={cat}
+                  onClick={() => setActiveCategory(cat)}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold border transition-all ${
+                    isActive
+                      ? `${meta.bg} ${meta.color} ${meta.border} shadow-sm`
+                      : 'bg-zinc-900 text-zinc-500 border-zinc-800 hover:border-zinc-600 hover:text-zinc-300'
+                  }`}
+                >
+                  <Icon className="w-3 h-3" />
+                  {meta.label}
+                  <span className={`ml-0.5 px-1.5 py-0.5 rounded-full text-[9px] font-bold ${isActive ? 'bg-black/30' : 'bg-zinc-800'}`}>
+                    {count}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Vectors Grid */}
+          <AnimatePresence mode="wait">
+            {filtered.length === 0 ? (
+              <motion.div
+                key="empty"
+                initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+                className="flex flex-col items-center justify-center h-32 text-center"
+              >
+                <ShieldAlert className="w-8 h-8 text-zinc-700 mb-2" />
+                <p className="text-zinc-500 text-sm">Sin vectores en esta categoría</p>
+              </motion.div>
+            ) : (
+              <motion.div
+                key={activeCategory}
+                initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}
+                className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3"
+              >
+                {filtered.map((vector, i) => {
+                  const cat = getCategory(vector.attackType);
+                  const meta = CATEGORY_META[cat];
+                  const Icon = meta.icon;
+                  const path = String(vector.endpoint || (vector as any).targetUrl || '');
+                  const method = vector.method || 'GET';
+                  return (
+                    <motion.div
+                      key={i}
+                      initial={{ opacity: 0, scale: 0.97 }}
+                      animate={{ opacity: 1, scale: 1 }}
+                      transition={{ delay: i * 0.03 }}
+                      className={`group relative flex flex-col p-3 rounded-xl border bg-zinc-950/80 transition-all hover:shadow-lg ${meta.border}`}
+                    >
+                      {/* Card header */}
+                      <div className="flex items-center gap-2 mb-2">
+                        <div className={`p-1.5 rounded-lg ${meta.bg} border ${meta.border}`}>
+                          <Icon className={`w-3 h-3 ${meta.color}`} />
+                        </div>
+                        <span className={`text-[10px] font-bold uppercase tracking-wide ${meta.color} truncate`}>{vector.attackType}</span>
+                      </div>
+
+                      {/* Target info */}
+                      <div className="flex items-center gap-1 mb-2 bg-black/40 rounded px-1.5 py-1 font-mono">
+                        <span className="text-zinc-600 text-[8px] font-bold uppercase shrink-0">{method}</span>
+                        <span className="text-zinc-400 text-[9px] truncate">{path || targetUrl}</span>
+                      </div>
+
+                      {/* Launch button */}
+                      <button
+                        onClick={() => {
+                          const fullUrl = path.startsWith('http') ? path : `${targetUrl.replace(/\/+$/, '')}${path}`;
+                          launchModule(vector.id || `vector-${i}`, vector.attackType, fullUrl, (vector as any).cliCommand);
+                        }}
+                        disabled={isAttacking}
+                        className={`w-full py-1.5 mt-auto rounded-lg text-[10px] font-bold border transition-all disabled:opacity-40 disabled:cursor-not-allowed bg-zinc-900 text-zinc-400 border-zinc-800 hover:bg-rose-600/20 hover:text-rose-300 hover:border-rose-500/50`}
+                      >
+                        {isAttacking ? '⏳' : '▶ Lanzar'}
+                      </button>
+                    </motion.div>
+                  );
+                })}
+              </motion.div>
+            )}
+          </AnimatePresence>
         </div>
 
-        {/* Columna Derecha: Terminal Tactica */}
-        <div className="xl:col-span-1">
-          <div className={`glass-panel h-full min-h-[500px] border-rose-500/30 bg-[#050505] flex flex-col shadow-lg shadow-rose-900/10`}>
-            <div className={`p-3 border-b border-rose-500/20 flex items-center gap-2 bg-rose-950/20`}>
-              <Terminal className={`w-4 h-4 text-rose-500`} />
-              <span className={`text-xs font-mono text-rose-400 font-bold uppercase tracking-wider`}>Tactical Console</span>
+        {/* Bottom: Tactical Console — full width */}
+        <div className="flex flex-col rounded-xl border border-rose-500/25 bg-[#030303] overflow-hidden shadow-xl shadow-rose-900/10">
+
+          {/* Console header */}
+          <div className="flex items-center justify-between px-4 py-2.5 border-b border-rose-500/20 bg-rose-950/20 shrink-0">
+            <div className="flex items-center gap-2">
+              <div className="flex gap-1.5">
+                <div className="w-2.5 h-2.5 rounded-full bg-zinc-700" />
+                <div className="w-2.5 h-2.5 rounded-full bg-zinc-700" />
+                <div className="w-2.5 h-2.5 rounded-full bg-rose-500/60" />
+              </div>
+              <Terminal className="w-3.5 h-3.5 text-rose-500 ml-1" />
+              <span className="text-xs font-mono text-rose-400 font-bold tracking-widest uppercase">Tactical Console</span>
+              <span className="text-[10px] text-zinc-600 ml-2 font-mono">{logs.length} líneas</span>
             </div>
-            <div className="p-4 flex-1 overflow-y-auto font-mono text-xs space-y-1">
-              {logs.map((log, i) => (
-                <div key={i} className={`${log.includes('[Error]') || log.includes('❌') ? 'text-red-400' : log.includes('Executing') || log.includes('Repeater') ? 'text-blue-400' : 'text-emerald-400'}`}>
-                  {log}
-                </div>
-              ))}
-              {isAttacking && (
-                <div className="text-zinc-500 animate-pulse mt-2">_</div>
-              )}
-            </div>
+            <button
+              onClick={copyLogs}
+              className="flex items-center gap-1 text-[10px] text-zinc-600 hover:text-zinc-300 transition-colors px-2 py-1 rounded border border-zinc-800 hover:border-zinc-600"
+            >
+              {copied ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
+              {copied ? 'Copiado' : 'Copiar todo'}
+            </button>
+          </div>
+
+          {/* Console body — tall and wide */}
+          <div className="overflow-y-auto p-4 font-mono text-[11px] space-y-0.5 leading-relaxed" style={{ height: '420px' }}>
+            {logs.map((log, i) => (
+              <div key={i} className={`whitespace-pre-wrap break-all ${getLogColor(log)}`}>
+                {log}
+              </div>
+            ))}
+            {isAttacking && (
+              <div className="flex items-center gap-2 text-rose-500 mt-2">
+                <div className="w-1.5 h-1.5 bg-rose-500 rounded-full animate-ping" />
+                <span className="animate-pulse">Ejecutando ataque...</span>
+              </div>
+            )}
+            <div ref={logEndRef} />
           </div>
         </div>
 
@@ -169,30 +290,3 @@ export default function OffensiveArsenal({ targetUrl, scanId, profile }: Offensi
   );
 }
 
-function ModuleCard({ title, desc, icon, onClick, disabled, targetInfo }: { title: string, desc: string, icon: any, onClick: () => void, disabled: boolean, targetInfo?: string }) {
-  return (
-    <div className="glass-panel p-5 border-white/5 hover:border-rose-500/50 hover:bg-rose-950/10 transition-colors group">
-      <div className="flex items-center gap-3 mb-3">
-        <div className="p-2 bg-rose-500/10 rounded-lg group-hover:bg-rose-500/20 transition-colors border border-rose-500/20">
-          {icon}
-        </div>
-        <h3 className="font-bold text-zinc-200">{title}</h3>
-      </div>
-      {targetInfo && (
-        <div className="mb-3">
-          <span className="inline-block bg-zinc-950 border border-zinc-800 text-zinc-300 font-mono text-[10px] px-2 py-1 rounded w-full truncate">
-            {targetInfo}
-          </span>
-        </div>
-      )}
-      <p className="text-xs text-zinc-400 mb-4 h-16 overflow-y-auto">{desc}</p>
-      <button 
-        onClick={onClick}
-        disabled={disabled}
-        className="w-full py-2 bg-zinc-800 hover:bg-rose-600 text-white rounded font-bold transition-colors text-sm disabled:opacity-50 disabled:cursor-not-allowed border border-white/5 hover:border-rose-500"
-      >
-        Lanzar Módulo
-      </button>
-    </div>
-  );
-}

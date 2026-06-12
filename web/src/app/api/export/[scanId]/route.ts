@@ -3,9 +3,10 @@ import { db } from '@/db/db';
 import { findings, scans } from '@/db/schema';
 import { eq } from 'drizzle-orm';
 
-export async function GET(request: Request, { params }: { params: { scanId: string } }) {
+export async function GET(request: Request, { params }: { params: Promise<{ scanId: string }> }) {
   try {
-    const scanId = parseInt(params.scanId, 10);
+    const { scanId: scanIdStr } = await params;
+    const scanId = parseInt(scanIdStr, 10);
     if (isNaN(scanId)) {
       return new NextResponse('Invalid Scan ID', { status: 400 });
     }

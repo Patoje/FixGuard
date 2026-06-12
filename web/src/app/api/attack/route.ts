@@ -30,21 +30,27 @@ export async function POST(request: Request) {
 
     const newScanId = insertedScans[0].id;
 
-    // Disparar el ataque dirigido hacia el worker que ya tiene un endpoint listo
-    fetch('http://localhost:3001/api/attack/targeted', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        targetUrl,
-        scanId: newScanId,
-        vectorId,
-        parentId: parentScanId
-      }),
-    }).catch(err => console.error('Error invoking worker API for targeted attack:', err));
+    // Disparar el ataque y ESPERAR la respuesta del worker para devolverla al frontend
+    try {
+      const workerRes = await fetch('http://localhost:4000/api/attack/targeted', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          targetUrl,
+          scanId: newScanId,
+          vectorId,
+          parentId: parentScanId
+        }),
+        // 30 segundos de timeout para herramientas pesadas
+        signal: AbortSignal.timeout(30000),
+      });
+      const workerData = await workerRes.json();
+      return NextResponse.json({ success: true, targetedScanId: newScanId, workerOutput: workerData });
+    } catch (workerErr: any) {
+      // Si el worker tarda demasiado o falla, igual respondemos OK
+      return NextResponse.json({ success: true, targetedScanId: newScanId, workerOutput: { error: workerErr.message } });
+    }
 
-    return NextResponse.json({ success: true, targetedScanId: newScanId });
   } catch (error) {
     console.error('Error creating targeted attack:', error);
     return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });

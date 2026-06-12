@@ -112,7 +112,6 @@ app.post('/api/scan', async (req, res) => {
       runSecurityTxtScan(scanId, targetUrl),
       runNextJsScan(scanId, targetUrl),
       runCloudExposureScan(scanId, targetUrl),
-      runWebSocketsScan(scanId, targetUrl),
       runUploadsScan(scanId, targetUrl)
     ];
 
@@ -333,26 +332,33 @@ app.post('/api/attack/targeted', async (req, res) => {
     return res.status(400).json({ error: 'Falta targetUrl, scanId o vectorId' });
   }
 
-  res.json({ message: 'Ataque dirigido iniciado', scanId, vectorId });
-
   try {
     await db.update(scans).set({ status: 'in_progress', mode: 'targeted' }).where(eq(scans.id, scanId));
     
-    // Execute just the single vector attack
-    await runTargetedAttack(scanId, targetUrl, vectorId, parentId);
+    // Execute attack and get output to return to the frontend Tactical Console
+    const attackOutput = await runTargetedAttack(scanId, targetUrl, vectorId, parentId);
 
     await db.update(scans).set({ 
       status: 'completed', 
       completedAt: new Date() 
     }).where(eq(scans.id, scanId));
+
+    return res.json({ 
+      message: 'Ataque completado', 
+      scanId, 
+      vectorId,
+      output: attackOutput
+    });
   } catch (error: any) {
     console.error(`[Scan ${scanId}] Error en ataque dirigido:`, error);
     await db.update(scans).set({ 
       status: 'failed', 
       completedAt: new Date() 
     }).where(eq(scans.id, scanId));
+    return res.status(500).json({ error: error.message });
   }
 });
+
 
 import { DependencyChecker } from './utils/DependencyChecker';
 

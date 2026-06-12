@@ -79,13 +79,8 @@ function parseCliOutput(command: string, output: string): { severity: 'low' | 'm
     return null;
   }
   
-  if (command.includes('ffuf') || command.includes('curl') || command.includes('grep')) {
-    // If we use ffuf -s (silent), it only outputs the matched paths/words.
-    // However, with -ac (auto-calibrate), it might print some calibration info even in silent mode.
-    // We only want to alert if it actually found a valid word from the wordlist.
-    // FFuf silent output for matches is usually just the word itself.
+  if (command.includes('ffuf')) {
     const cleanOutput = output.replace(/Fuzz Faster U Fool.*/gi, '').trim();
-    // Filter out potential calibration warnings that might slip through
     const lines = cleanOutput.split('\n').filter(line => {
       const trimmed = line.trim();
       return trimmed.length > 0 && 
@@ -97,26 +92,111 @@ function parseCliOutput(command: string, output: string): { severity: 'low' | 'm
              !trimmed.toLowerCase().includes('req/sec') &&
              !trimmed.toLowerCase().includes('errors');
     });
-    
     if (lines.length > 0) {
-      return { severity: 'medium', finding: 'Se descubrieron rutas, secretos o configuraciones expuestas en el escaneo manual.' };
+      return { severity: 'medium', finding: `ffuf descubrió ${lines.length} rutas/directorios accesibles: ${lines.slice(0, 3).join(', ')}` };
     }
+    return null;
+  }
+
+  if (command.includes('curl') || command.includes('grep')) {
+    // Parse HTTP response intelligently
+    const statusMatch = output.match(/HTTP\/[12\.]+\s+(\d{3})/);
+    const statusCode = statusMatch ? parseInt(statusMatch[1]) : 0;
+    const body = output.split('\r\n\r\n').slice(1).join('\n').trim() ||
+                 output.split('\n\n').slice(1).join('\n').trim();
+    
+    // 401/403 = Correctly protected → NOT a vulnerability
+    if (statusCode === 401 || statusCode === 403) {
+      return null;
+    }
+    
+    // 405 Method Not Allowed → NOT a vulnerability for our purposes
+    if (statusCode === 405) {
+      return null;
+    }
+
+    // 400 → Rejected input → NOT a mass assignment success
+    if (statusCode === 400) {
+      return null;
+    }
+
+    // 302 redirect to login → Protected endpoint, NOT vulnerable
+    const locationHeader = (output.match(/location:\s*(.+)/i) || [])[1] || '';
+    if (statusCode === 302 && (locationHeader.includes('login') || locationHeader.includes('signin') || locationHeader.includes('auth'))) {
+      return null;
+    }
+    
+    // 302 to a non-login page → Potential open redirect
+    if (statusCode === 302 && locationHeader && !locationHeader.includes('login')) {
+      return { severity: 'medium', finding: `Redirección 302 a: ${locationHeader.trim()} — Posible Open Redirect o bypass de flujo.` };
+    }
+
+    // 200 with sensitive data in body
+    if (statusCode === 200 && body.length > 2) {
+      // Empty JSON {} or [] — endpoint exists but returns no data (OK)
+      if (body === '{}' || body === '[]' || body === 'null') {
+        // Still, if it's an unauthenticated endpoint that SHOULD require auth, flag it low
+        if (command.includes('/api/') && !command.includes('/auth/')) {
+          return { severity: 'low', finding: `Endpoint de API responde 200 sin autenticación con cuerpo vacío.` };
+        }
+        return null;
+      }
+      
+      const lowerBody = body.toLowerCase();
+
+      // Sensitive field detection in JSON
+      const sensitivePatterns = [
+        { rx: /"(password|passwd|secret|api_key|apikey|token|private_key)"\s*:/i, msg: 'Campo sensible expuesto en respuesta JSON' },
+        { rx: /"(email|phone|address|credit_card|ssn)"\s*:/i, msg: 'Datos personales expuestos sin autenticación' },
+        { rx: /"(admin|role|permissions|is_admin|isAdmin)"\s*:/i, msg: 'Campo de privilegios expuesto — posible Mass Assignment o BOLA' },
+        { rx: /"id"\s*:\s*\d+/i, msg: 'ID numérico de objeto expuesto — verificar si es enumerable (BOLA)' },
+      ];
+
+      for (const { rx, msg } of sensitivePatterns) {
+        if (rx.test(body)) {
+          return { severity: 'high', finding: `${msg}. Respuesta: ${body.substring(0, 200)}` };
+        }
+      }
+
+      // Auth providers list exposed — info disclosure
+      if (lowerBody.includes('signinurl') || lowerBody.includes('callbackurl')) {
+        return { severity: 'low', finding: `Auth providers expuestos sin autenticación: ${body.substring(0, 300)}` };
+      }
+
+      // CSRF token exposed
+      if (lowerBody.includes('csrftoken')) {
+        return { severity: 'medium', finding: `CSRF token expuesto sin autenticación. Token: ${body.substring(0, 150)}` };
+      }
+
+      // Generic 200 with meaningful JSON body on /api/ routes
+      if (command.includes('/api/') && body.startsWith('{') && body.length > 10) {
+        return { severity: 'low', finding: `Endpoint de API responde 200 sin autenticación. Respuesta: ${body.substring(0, 200)}` };
+      }
+    }
+
     return null;
   }
   
   return null;
 }
 
-export async function runTargetedAttack(scanId: number, targetUrl: string, vectorId: string, parentId?: number): Promise<void> {
+export async function runTargetedAttack(scanId: number, targetUrl: string, vectorId: string, parentId?: number): Promise<string> {
   console.log(`[Scan ${scanId}] Iniciando ataque dirigido REAL [${vectorId}] contra ${targetUrl}`);
 
   try {
-    const vector = VECTOR_REGISTRY[vectorId];
+    const cleanTargetUrl = targetUrl.replace(/\/+$/, '');
+    
+    let vector = VECTOR_REGISTRY[vectorId];
+    if (!vector) {
+      if (vectorId.startsWith('bola_')) {
+        vector = { id: vectorId, name: 'BOLA Attack', cliCommand: `curl -i -s -k -X GET <TARGET>` };
+      } else if (vectorId.startsWith('mass_assignment_')) {
+        vector = { id: vectorId, name: 'Mass Assignment Attack', cliCommand: `curl -i -s -k -X POST -H "Content-Type: application/json" -d '{"role":"admin","isAdmin":true}' <TARGET>` };
+      }
+    }
     if (!vector || !vector.cliCommand) {
       throw new Error(`Vector ID ${vectorId} no encontrado en el registro o sin comando CLI.`);
     }
-
-    const cleanTargetUrl = targetUrl.replace(/\/+$/, '');
     
     // Obtener flags de autenticación
     const authFlags = await SessionManager.getCliAuthFlags(cleanTargetUrl, vector.cliCommand);
@@ -166,13 +246,17 @@ export async function runTargetedAttack(scanId: number, targetUrl: string, vecto
         payloadUsed: vector.cliCommand,
         toolSource: vector.id
       });
+      return `🚨 VULNERABILIDAD [${result.severity.toUpperCase()}] DETECTADA\n\nEndpoint: ${targetUrl}\nHerramienta: ${finalCommand.split(' ')[0]}\n\n--- Respuesta del servidor ---\n${output.substring(0, 2000)}\n\nVeredicto: ${result.finding}`;
     } else {
       console.log(`[Scan ${scanId}] ✅ El objetivo parece estar seguro contra este vector (Ninguna coincidencia crítica en la salida de la herramienta).`);
+      return `✅ Sin vulnerabilidad detectada para este vector\n\nEndpoint: ${targetUrl}\nHerramienta: ${finalCommand.split(' ')[0]}\n\n--- Respuesta del servidor ---\n${output.substring(0, 2000)}`;
     }
 
     console.log(`[Scan ${scanId}] Ataque dirigido [${vectorId}] completado exitosamente.`);
+    return `⚠️ Ataque completado sin resultado analizable.\nEndpoint: ${targetUrl}`;
   } catch (error: any) {
     console.error(`[Scan ${scanId}] Error en ataque dirigido [${vectorId}]: ${error.message}`);
+    return `❌ Error ejecutando el ataque: ${error.message}`;
     // Opcionalmente podemos registrar el fallo como un log, pero no romper la app
   }
 }

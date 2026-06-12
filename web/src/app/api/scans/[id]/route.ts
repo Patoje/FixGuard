@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { db } from '@/db/db';
 import { scans, vulnerabilities, reconProfiles } from '@/db/schema';
-import { eq } from 'drizzle-orm';
+import { eq, or } from 'drizzle-orm';
 
 export async function GET(request: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
@@ -19,7 +19,17 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
     }
 
     const scanRecord = scanRecords[0];
-    const vulnRecords = await db.select().from(vulnerabilities).where(eq(vulnerabilities.scanId, scanId));
+
+    // Get child scan IDs (targeted attacks launched from the Arsenal)
+    const childScans = await db.select({ id: scans.id }).from(scans).where(eq(scans.parentScanId, scanId));
+    const childScanIds = childScans.map(s => s.id);
+
+    // Fetch vulnerabilities from this scan AND all its children
+    const allScanIds = [scanId, ...childScanIds];
+    const vulnRecords = await db.select().from(vulnerabilities).where(
+      or(...allScanIds.map(id => eq(vulnerabilities.scanId, id)))
+    );
+
     const reconRecords = await db.select().from(reconProfiles).where(eq(reconProfiles.scanId, scanId));
 
     const severityOrder: Record<string, number> = {
@@ -45,3 +55,4 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
     return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
   }
 }
+
