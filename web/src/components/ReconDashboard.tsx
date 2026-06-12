@@ -67,6 +67,13 @@ export default function ReconDashboard({ profile, targetUrl, onLaunchAttack }: P
   const hiddenAssetsCount = (profile.subdomainIntelligence?.discoveredCount || 0) + (profile.artifactIntelligence?.hiddenRoutes.length || 0);
   
   const endpointGroups = useMemo(() => groupEndpoints(profile.attackSurface), [profile.attackSurface]);
+  
+  const topAssets = useMemo(() => {
+    return [...profile.attackSurface]
+      .filter(ep => (ep.businessImpactScore || 0) > 0)
+      .sort((a, b) => (b.businessImpactScore || 0) - (a.businessImpactScore || 0))
+      .slice(0, 5);
+  }, [profile.attackSurface]);
 
   return (
     <div className="space-y-12 mt-12 mb-16 relative">
@@ -120,6 +127,27 @@ export default function ReconDashboard({ profile, targetUrl, onLaunchAttack }: P
             </div>
           </div>
         </div>
+
+        {topAssets.length > 0 && (
+          <div className="mt-6 glass-panel p-6 border-red-500/30 bg-red-950/10">
+            <h4 className="text-red-400 font-bold text-lg mb-4 flex items-center gap-2"><Map className="w-5 h-5" /> Top 5 Critical Business Assets</h4>
+            <div className="space-y-3">
+              {topAssets.map((asset, i) => (
+                <div key={i} className="flex flex-col md:flex-row md:items-center justify-between p-3 bg-black/40 border border-red-500/20 rounded-lg">
+                  <div className="flex items-center gap-3">
+                    <span className="text-xs font-mono bg-red-500/20 text-red-300 px-2 py-1 rounded border border-red-500/30">{asset.method}</span>
+                    <span className="font-mono text-sm text-zinc-200">{asset.path}</span>
+                  </div>
+                  <div className="flex items-center gap-4 mt-2 md:mt-0">
+                    <span className="text-xs text-zinc-400">{asset.type}</span>
+                    <span className="text-xs font-bold bg-zinc-800 px-2 py-1 rounded border border-zinc-600">Score: {asset.businessImpactScore}</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+            <p className="text-xs text-zinc-500 mt-4">Priorización basada en impacto de negocio (Billing, Users, Auth), no solo en vulnerabilidades genéricas.</p>
+          </div>
+        )}
       </motion.section>
 
       {/* SECTION 8: RUNTIME DISCOVERY (CRAWLER STATS) */}

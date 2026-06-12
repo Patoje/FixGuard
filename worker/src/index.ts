@@ -38,6 +38,9 @@ import { AIFingerprintEngine } from './recon/AIFingerprintEngine';
 import { CorrelationEngine } from './recon/CorrelationEngine';
 import { EntityRelationshipEngine } from './scanner/entityEngine';
 import { WorkflowReconstructionEngine } from './recon/WorkflowReconstructionEngine';
+import { BolaExploiter } from './scanner/logic/BolaExploiter';
+import { MassAssignmentExploiter } from './scanner/logic/MassAssignmentExploiter';
+import { WorkflowBypassExploiter } from './scanner/logic/WorkflowBypassExploiter';
 import axios from 'axios';
 
 // Nuevos Motores Fase 6
@@ -279,6 +282,12 @@ app.post('/api/scan', async (req, res) => {
 
       // Limitar a 5 peticiones simultáneas
       await runWithConcurrency([rateLimitTask, ...activeTaskFactories], 5);
+
+      // --- Módulo Avanzado: Context-Aware Targeted Attacks ---
+      console.log(`[Scan ${scanId}] 🧠 Iniciando Motor de Ataques Lógicos Contextuales (Digital Twin)...`);
+      await BolaExploiter.execute(scanId, attackSurface, entityGraph);
+      await MassAssignmentExploiter.execute(scanId, attackSurface, businessDictionary);
+      await WorkflowBypassExploiter.execute(scanId, workflowIntelligence);
     }
 
     await db.update(scans).set({ 

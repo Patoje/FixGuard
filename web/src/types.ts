@@ -54,6 +54,7 @@ export interface AttackSurfaceItem {
   framework?: string;
   relationships?: string[];
   aiExplanation?: string;
+  businessImpactScore?: number;
 }
 
 export interface VectorItem {

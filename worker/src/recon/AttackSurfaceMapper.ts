@@ -14,6 +14,7 @@ export interface AttackSurfaceItem {
   framework?: string;
   relationships?: string[];
   aiExplanation?: string;
+  businessImpactScore?: number; // 0 a 100
 }
 
 function calculateRisk(path: string, type: string): RiskLevel {
@@ -54,6 +55,28 @@ function determineType(path: string): string {
   return 'Ruta General';
 }
 
+function calculateBusinessImpact(path: string, type: string): number {
+  let score = 10; // Base score
+  const p = path.toLowerCase();
+
+  // Factores de criticidad de negocio (Business Logic)
+  if (p.includes('billing') || p.includes('payment') || p.includes('stripe') || p.includes('checkout') || p.includes('invoice')) score += 80;
+  if (p.includes('user') || p.includes('profile') || p.includes('account') || p.includes('organization') || p.includes('tenant')) score += 70;
+  if (p.includes('auth') || p.includes('login') || p.includes('oauth') || p.includes('mfa') || p.includes('register')) score += 75;
+  if (p.includes('admin') || p.includes('dashboard') || p.includes('manage') || p.includes('settings')) score += 65;
+  if (p.includes('project') || p.includes('repo') || p.includes('workspace') || p.includes('product') || p.includes('order')) score += 60;
+  
+  if (type === 'GraphQL Endpoint') score += 50; // GraphQL is highly structural
+  if (type === 'WebSocket') score += 40;
+  if (p.match(/\/(user|profile|account|order|league|item|product)\/[a-z0-9_-]+/)) score += 30; // Rutas dinámicas con IDs
+
+  // Penalizaciones a rutas "basura" o puramente técnicas sin valor de negocio directo
+  if (p.includes('.js') || p.includes('.css') || p.includes('.png')) score -= 50;
+  if (p.includes('health') || p.includes('ping') || p.includes('metrics')) score -= 40;
+
+  return Math.min(Math.max(score, 0), 100);
+}
+
 export function runAttackSurfaceMapper(discoveredPaths: string[]): AttackSurfaceItem[] {
   const surface: AttackSurfaceItem[] = [];
   const uniquePaths = Array.from(new Set(discoveredPaths));
@@ -61,6 +84,7 @@ export function runAttackSurfaceMapper(discoveredPaths: string[]): AttackSurface
   for (const path of uniquePaths) {
     const type = determineType(path);
     const riskLevel = calculateRisk(path, type);
+    const businessImpactScore = calculateBusinessImpact(path, type);
     
     let method: AttackSurfaceItem['method'] = 'ANY';
     if (type === 'WebSocket') method = 'WS';
@@ -91,7 +115,8 @@ export function runAttackSurfaceMapper(discoveredPaths: string[]): AttackSurface
       params: params.length > 0 ? params : undefined,
       headers: ['User-Agent', 'Accept'], // Default inferred headers
       authType: path.includes('/api/admin') ? 'Bearer/JWT' : 'None',
-      framework: path.includes('/_next/') ? 'Next.js' : undefined
+      framework: path.includes('/_next/') ? 'Next.js' : undefined,
+      businessImpactScore
     });
   }
 
