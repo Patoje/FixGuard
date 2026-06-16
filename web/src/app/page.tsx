@@ -44,43 +44,6 @@ export default function Home() {
     ]);
   };
 
-  const simulateTerminalLogs = async (mode: ScanMode) => {
-    simulationRef.current = true;
-    
-    const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
-    
-    let enginesToRun: string[] = [];
-    if (mode === "sast") {
-      enginesToRun = [...ENGINES.sast];
-    } else {
-      enginesToRun = [...ENGINES.passive];
-      if (mode === "active" || mode === "aggressive") {
-        enginesToRun = [...enginesToRun, ...ENGINES.active];
-      }
-      if (mode === "aggressive") {
-        enginesToRun = [...enginesToRun, ...ENGINES.aggressive];
-      }
-    }
-
-    addLog(`[System] Cargando ${enginesToRun.length} motores de escaneo...`, "info");
-    await delay(1000);
-
-    for (const engine of enginesToRun) {
-      if (!simulationRef.current) break; // Detener si salimos de la pantalla
-      addLog(`Ejecutando motor: ${engine}...`, "info");
-      
-      // Simular tiempo de ejecución aleatorio entre 500ms y 1500ms
-      await delay(Math.floor(Math.random() * 1000) + 500);
-      
-      // Simular que algunos motores encuentran cosas raras (advertencias)
-      if (Math.random() > 0.8) {
-        addLog(`[${engine}] Detectado comportamiento inusual o puerto abierto.`, "warning");
-      } else {
-        addLog(`[${engine}] Escaneo limpio.`, "success");
-      }
-    }
-  };
-
   const handleScan = async (url: string, mode: ScanMode, vectorId?: string) => {
     setStep("scanning");
     setLogs([]);
@@ -107,10 +70,7 @@ export default function Home() {
       if (!initRes.ok) throw new Error("Fallo al crear el escaneo en DB");
       const { scanId: newScanId } = await initRes.json();
       setScanId(newScanId);
-      addLog(`ID de escaneo registrado: ${newScanId}`, "success");
-
-      // Iniciar simulación visual de la terminal mientras el worker hace el trabajo real
-      simulateTerminalLogs(mode);
+      addLog(`ID de escaneo registrado en DB: ${newScanId}`, "success");
 
       // 2. Enviar el trabajo al Worker de Node.js
       addLog("Contactando al worker en http://localhost:4000...", "info");
@@ -155,7 +115,7 @@ export default function Home() {
     addLog(`Enviando decisión: ${decision}...`, "info");
     setScanStatus("in_progress"); // Esto reiniciará el polling
     if (decision === 'attack_all') {
-      simulateTerminalLogs('aggressive'); // Reanudamos simulación
+      addLog("[System] Reanudando ataque completo...", "warning");
     } else {
       addLog("Saltando fase ofensiva. Generando reporte...", "warning");
     }
