@@ -6,6 +6,7 @@ import { HtmlAnalyzer } from './analyzers/HtmlAnalyzer';
 import { JsAnalyzer } from './analyzers/JsAnalyzer';
 import { DnsAnalyzer } from './analyzers/DnsAnalyzer';
 import { PlaywrightRuntimeAnalyzer } from './analyzers/PlaywrightRuntimeAnalyzer';
+import { ExpandedTechAnalyzer } from './analyzers/ExpandedTechAnalyzer';
 import { TechStackCorrelationEngine } from './TechStackCorrelationEngine';
 import type { TechStackItem } from './TechStackItem';
 
@@ -21,6 +22,7 @@ export async function runTechStackProfiler(targetUrl: string): Promise<TechStack
     const headerFindings = HeadersAnalyzer.analyze(headers);
     const cookieFindings = CookiesAnalyzer.analyze(headers);
     const htmlFindings = HtmlAnalyzer.analyze(html);
+    const expandedFindings = ExpandedTechAnalyzer.analyze(html, headers, response.headers['set-cookie'] || []);
     const dnsFindings = await DnsAnalyzer.analyze(new URL(targetUrl).hostname);
     
     // Analizar scripts referenciados superficialmente
@@ -45,6 +47,7 @@ export async function runTechStackProfiler(targetUrl: string): Promise<TechStack
       ...headerFindings,
       ...cookieFindings,
       ...htmlFindings,
+      ...expandedFindings,
       ...dnsFindings,
       ...jsFindings,
       ...runtimeFindings

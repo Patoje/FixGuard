@@ -54,7 +54,8 @@
 3:16:29 PM [tsx] change in ./src/targetedOrchestrator.ts Process hasn't exited. Killing process...
 3:16:35 PM [tsx] change in ./src/targetedOrchestrator.ts Process hasn't exited. Killing process...
 3:31:26 PM [tsx] change in ./src/recon/FrameworkIntelligence.ts Process hasn't exited. Killing process...
- de Viaje completada. 79 rutas/endpoints descubiertos, 17 archivos JS interceptados. (28 clics, 0 forms, 197 reqs)
+4:32:06 PM [tsx] change in ./src/recon/TechStackProfiler.ts Process hasn't exited. Killing process...
+s, 197 reqs)
 ⚠️ No GOOGLE_GENERATIVE_AI_API_KEY found, skipping AI Exposure Enrichment.
 [SubdomainIntelligence] Lanzando motores OSINT concurrentes para balbuenabarber.vercel.app...
 [SubdomainIntelligence] ⚠️ crt.sh falló: Fallo en conexión o timeout
@@ -73,9 +74,8 @@
 3:16:29 PM [tsx] change in ./src/targetedOrchestrator.ts Process hasn't exited. Killing process...
 3:16:35 PM [tsx] change in ./src/targetedOrchestrator.ts Process hasn't exited. Killing process...
 3:31:26 PM [tsx] change in ./src/recon/FrameworkIntelligence.ts Process hasn't exited. Killing process...
-lbuenabarber.vercel.app/...
-[Scan 260] Cabeceras faltantes encontradas: [
-  'content-security-policy',
+4:32:06 PM [tsx] change in ./src/recon/TechStackProfiler.ts Process hasn't exited. Killing process...
+
   'x-frame-options',
   'x-content-type-options',
   'permissions-policy',
@@ -198,7 +198,8 @@ params: 260,[{"name":"Vercel","category":"Hosting / Infrastructure","confidence"
 3:16:29 PM [tsx] change in ./src/targetedOrchestrator.ts Process hasn't exited. Killing process...
 3:16:35 PM [tsx] change in ./src/targetedOrchestrator.ts Process hasn't exited. Killing process...
 3:31:26 PM [tsx] change in ./src/recon/FrameworkIntelligence.ts Process hasn't exited. Killing process...
-,"waf":null,"cdn":"Vercel","confidence":0.9,"database_hints":[]},"endpoints":[],"subdomains":[{"domain":"balbuenabarber.vercel.app","source":"subfinder","takeover_candidate":false}],"credentials":[],"vulnerabilities_hints":[]}
+4:32:06 PM [tsx] change in ./src/recon/TechStackProfiler.ts Process hasn't exited. Killing process...
+":"balbuenabarber.vercel.app","source":"subfinder","takeover_candidate":false}],"credentials":[],"vulnerabilities_hints":[]}
     at NeonHttpPreparedQuery.queryWithCache (/Users/patohe/Desktop/FixGuard/worker/node_modules/src/pg-core/session.ts:73:11)
     at process.processTicksAndRejections (node:internal/process/task_queues:95:5)
     at async NeonHttpPreparedQuery.execute (/Users/patohe/Desktop/FixGuard/worker/node_modules/src/neon-http/session.ts:83:18)
@@ -1044,3 +1045,36 @@ Iniciando escaneo 297 para https://demo.testfire.net/...
 [ServerActionsEngine] Escaneando 0 chunks de JS buscando Hashes de Server Actions...
 [Scan 297] Análisis Pasivo y Reconocimiento completado. Guardado Perfil Tech Stack.
 [Scan 297] 🎉 Todos los motores finalizaron exitosamente.
+4:32:06 PM [tsx] change in ./src/recon/TechStackProfiler.ts Restarting...
+c🚀 FixGuard OSINT Worker ejecutándose en http://localhost:4000
+==========================================
+   FixGuard Arsenal Readiness Checker     
+==========================================
+[+] nuclei ... OK
+[+] dalfox ... OK
+[-] Falta gau!
+    -> Ejecuta: brew install gau
+[+] sqlmap ... OK
+[+] nmap ... OK
+[+] semgrep ... OK
+[+] amass ... OK
+[-] Falta shodan!
+    -> Ejecuta: easy_install shodan
+[+] httpx ... OK
+[+] feroxbuster ... OK
+[-] Falta gospider!
+    -> Ejecuta: go install github.com/jaeles-project/gospider@latest
+[+] trufflehog ... OK
+[+] gitleaks ... OK
+[+] source-map-explorer ... OK
+[+] retire ... OK
+[-] Falta shcheck!
+    -> Ejecuta: pip install shcheck
+[-] Falta crlfuzz!
+    -> Ejecuta: go install github.com/dwisiswant0/crlfuzz/cmd/crlfuzz@latest
+[-] Falta kxss!
+    -> Ejecuta: go install github.com/Emoe/kxss@latest
+
+[!] Advertencia: Algunas herramientas de tu arsenal no están instaladas.
+[!] FixGuard funcionará, pero algunos ataques o motores SAST fallarán si no instalas estas dependencias.
+
