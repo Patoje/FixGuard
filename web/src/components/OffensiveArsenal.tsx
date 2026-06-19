@@ -12,7 +12,7 @@ interface OffensiveArsenalProps {
   onAttackComplete?: () => void;
 }
 
-type AttackCategory = 'ALL' | 'BOLA' | 'Mass Assignment' | 'Recon' | 'Injection';
+type AttackCategory = 'ALL' | 'BOLA' | 'Mass Assignment' | 'Recon' | 'Injection' | 'JWT & Auth';
 
 const CATEGORY_META: Record<AttackCategory, { label: string; color: string; bg: string; border: string; icon: any }> = {
   ALL:              { label: 'Todos',          color: 'text-zinc-300',   bg: 'bg-zinc-800',        border: 'border-zinc-700',    icon: Crosshair },
@@ -20,13 +20,28 @@ const CATEGORY_META: Record<AttackCategory, { label: string; color: string; bg: 
   'Mass Assignment':{ label: 'Mass Assign.',   color: 'text-orange-400', bg: 'bg-orange-500/10',   border: 'border-orange-500/30',icon: Zap },
   Recon:            { label: 'Recon',          color: 'text-cyan-400',   bg: 'bg-cyan-500/10',     border: 'border-cyan-500/30', icon: Search },
   Injection:        { label: 'Injection',      color: 'text-purple-400', bg: 'bg-purple-500/10',   border: 'border-purple-500/30',icon: Code },
+  'JWT & Auth':     { label: 'JWT & Auth',     color: 'text-amber-400',  bg: 'bg-amber-500/10',    border: 'border-amber-500/30', icon: Network },
 };
+
+// Canonical vector shape used throughout the Arsenal
+interface ArsenalVector {
+  id: string;
+  attackType: string;
+  description: string;
+  severity: string;
+  method: string;
+  endpoint?: string;
+  targetUrl?: string;
+  cliCommand?: string;
+  framework?: string;
+}
 
 function getCategory(attackType: string): AttackCategory {
   const t = attackType.toLowerCase();
   if (t.includes('bola') || t.includes('idor')) return 'BOLA';
   if (t.includes('mass')) return 'Mass Assignment';
-  if (t.includes('sqli') || t.includes('injection') || t.includes('xss') || t.includes('prototype')) return 'Injection';
+  if (t.includes('sql') || t.includes('inject') || t.includes('xss') || t.includes('prototype') || t.includes('crlf') || t.includes('dos') || t.includes('os injection') || t.includes('commix')) return 'Injection';
+  if (t.includes('jwt') || t.includes('auth') || t.includes('session') || t.includes('oauth') || t.includes('clerk')) return 'JWT & Auth';
   return 'Recon';
 }
 
@@ -45,10 +60,50 @@ function getLogColor(log: string): string {
 }
 
 export default function OffensiveArsenal({ targetUrl, scanId, profile, onAttackComplete }: OffensiveArsenalProps) {
+
+  // ── Build unified vector list ─────────────────────────────────────────────
+  // 1. SmartVectors: BOLA/MassAssign/Workflow vectors discovered by the recon engines
+  const smartVecs: ArsenalVector[] = (profile.smartVectors ?? []).map(v => ({
+    id: v.id ?? `smart-${v.attackType}`,
+    attackType: v.attackType,
+    description: v.description,
+    severity: v.severity,
+    method: v.method,
+    endpoint: v.endpoint,
+    targetUrl: v.targetUrl,
+    cliCommand: v.cliCommand,
+  }));
+
+  // 2. FrameworkIntelligence vectors: SQLi, XSS, JWT, Nuclei CVEs, etc.
+  //    These are always present and derived from the detected tech stack.
+  const frameworkVecs: ArsenalVector[] = (profile.frameworkIntelligence ?? []).flatMap(fw =>
+    fw.vectors.map(v => ({
+      id: v.id,
+      attackType: v.name,
+      description: `[${fw.framework}] ${v.name}`,
+      severity: v.name.toLowerCase().includes('sql') || v.name.toLowerCase().includes('xss') ? 'high' : 'medium',
+      method: 'GET',
+      endpoint: undefined,
+      targetUrl: targetUrl,
+      cliCommand: v.cliCommand,
+      framework: fw.framework,
+    }))
+  );
+
+  // Merge: smart vectors first (they have specific endpoints), then framework vectors.
+  // Deduplicate by id so we don't show the same vector twice.
+  const seenIds = new Set<string>();
+  const vectors: ArsenalVector[] = [...smartVecs, ...frameworkVecs].filter(v => {
+    if (seenIds.has(v.id)) return false;
+    seenIds.add(v.id);
+    return true;
+  });
+  // ─────────────────────────────────────────────────────────────────────────
+
   const [logs, setLogs] = useState<string[]>([
     "[System] FixGuard Offensive Arsenal inicializado",
     `[System] Target locked: ${targetUrl}`,
-    `[System] Scan ID: ${scanId} | Vectores cargados: ${profile.smartVectors?.length ?? 0}`,
+    `[System] Scan ID: ${scanId} | Vectores cargados: ${vectors.length} (${smartVecs.length} inteligentes + ${frameworkVecs.length} framework)`,
     "[System] Seleccioná una categoría y lanzá un módulo ▼",
   ]);
   const [isAttacking, setIsAttacking] = useState(false);
@@ -60,7 +115,6 @@ export default function OffensiveArsenal({ targetUrl, scanId, profile, onAttackC
     logEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [logs]);
 
-  const vectors = profile.smartVectors ?? [];
   const categories = Array.from(new Set<AttackCategory>(['ALL', ...vectors.map(v => getCategory(v.attackType))]));
   const filtered = activeCategory === 'ALL' ? vectors : vectors.filter(v => getCategory(v.attackType) === activeCategory);
 
@@ -71,7 +125,9 @@ export default function OffensiveArsenal({ targetUrl, scanId, profile, onAttackC
   };
 
   const launchModule = async (vectorId: string, moduleName: string, vectorTargetUrl: string, cliCommand?: string) => {
-    if (cliCommand && (cliCommand.includes('commix') || cliCommand.includes('nosqlmap') || cliCommand.includes('sqlmap'))) {
+    // Only truly interactive tools (those that require stdin/TTY) get the copy-to-clipboard treatment.
+    // sqlmap runs via the worker with --batch so it's fine to send it there.
+    if (cliCommand && (cliCommand.includes('commix') || cliCommand.includes('nosqlmap'))) {
       const finalCommand = cliCommand.replace('<TARGET>', vectorTargetUrl);
       setLogs(prev => [
         ...prev,
@@ -139,15 +195,15 @@ export default function OffensiveArsenal({ targetUrl, scanId, profile, onAttackC
 
     for (let i = 0; i < vectors.length; i++) {
       const vector = vectors[i];
-      // Skip interactive tools
-      const cli = (vector as any).cliCommand;
-      if (cli && (cli.includes('commix') || cli.includes('nosqlmap') || cli.includes('sqlmap'))) {
-        setLogs(prev => [...prev, `[System] ⏭️ Saltando ${vector.attackType} (herramienta interactiva)`]);
+      // Skip truly interactive tools that require a TTY
+      const cli = vector.cliCommand;
+      if (cli && (cli.includes('commix') || cli.includes('nosqlmap'))) {
+        setLogs(prev => [...prev, `[System] ⏭️ Saltando ${vector.attackType} (herramienta interactiva — TTY requerida)`]);
         continue;
       }
 
-      const path = String(vector.endpoint || (vector as any).targetUrl || '');
-      const fullUrl = path.startsWith('http') ? path : `${targetUrl.replace(/\/+$/, '')}${path}`;
+      const path = String(vector.endpoint || vector.targetUrl || '');
+      const fullUrl = path.startsWith('http') ? path : `${targetUrl.replace(/\/+$/, '')}${path || ''}`;
       
       setLogs(prev => [
         ...prev,
@@ -159,7 +215,7 @@ export default function OffensiveArsenal({ targetUrl, scanId, profile, onAttackC
         const res = await fetch('/api/attack', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ targetUrl: fullUrl, vectorId: vector.id || `vector-${i}`, parentScanId: scanId })
+          body: JSON.stringify({ targetUrl: fullUrl || targetUrl, vectorId: vector.id || `vector-${i}`, parentScanId: scanId })
         });
 
         if (!res.ok) throw new Error(`API error: ${res.statusText}`);
@@ -201,7 +257,7 @@ export default function OffensiveArsenal({ targetUrl, scanId, profile, onAttackC
           </div>
           <div>
             <h2 className="text-xl font-bold text-rose-100">Offensive Arsenal</h2>
-            <p className="text-rose-400/60 text-xs">{vectors.length} vectores inteligentes · Target: {targetUrl.replace('https://', '').split('/')[0]}</p>
+            <p className="text-rose-400/60 text-xs">{vectors.length} vectores · <span className="text-zinc-600">{smartVecs.length} inteligentes · {frameworkVecs.length} framework</span> · Target: {targetUrl.replace('https://', '').replace('http://', '').split('/')[0]}</p>
           </div>
         </div>
         <div className="flex items-center gap-3">
@@ -276,7 +332,7 @@ export default function OffensiveArsenal({ targetUrl, scanId, profile, onAttackC
                   const cat = getCategory(vector.attackType);
                   const meta = CATEGORY_META[cat];
                   const Icon = meta.icon;
-                  const path = String(vector.endpoint || (vector as any).targetUrl || '');
+                  const path = String(vector.endpoint || vector.targetUrl || '');
                   const method = vector.method || 'GET';
                   return (
                     <motion.div
@@ -300,11 +356,16 @@ export default function OffensiveArsenal({ targetUrl, scanId, profile, onAttackC
                         <span className="text-zinc-400 text-[9px] truncate">{path || targetUrl}</span>
                       </div>
 
+                      {/* Framework badge */}
+                      {vector.framework && (
+                        <div className="text-[8px] font-bold uppercase tracking-wider text-zinc-600 mb-1 truncate">{vector.framework}</div>
+                      )}
+
                       {/* Launch button */}
                       <button
                         onClick={() => {
-                          const fullUrl = path.startsWith('http') ? path : `${targetUrl.replace(/\/+$/, '')}${path}`;
-                          launchModule(vector.id || `vector-${i}`, vector.attackType, fullUrl, (vector as any).cliCommand);
+                          const fullUrl = path.startsWith('http') ? path : `${targetUrl.replace(/\/+$/, '')}${path || ''}`;
+                          launchModule(vector.id || `vector-${i}`, vector.attackType, fullUrl || targetUrl, vector.cliCommand);
                         }}
                         disabled={isAttacking}
                         className={`w-full py-1.5 mt-auto rounded-lg text-[10px] font-bold border transition-all disabled:opacity-40 disabled:cursor-not-allowed bg-zinc-900 text-zinc-400 border-zinc-800 hover:bg-rose-600/20 hover:text-rose-300 hover:border-rose-500/50`}

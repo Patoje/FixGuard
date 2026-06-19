@@ -54,7 +54,12 @@ export default function HeroScanner({ onScan, isScanning }: HeroScannerProps) {
   const handleScan = (e: React.FormEvent) => {
     e.preventDefault();
     if (url.trim()) {
-      onScan(url, mode);
+      // Normalize: if the user typed a bare hostname (no protocol), add https://
+      let normalizedUrl = url.trim();
+      if (!normalizedUrl.startsWith('http://') && !normalizedUrl.startsWith('https://') && !normalizedUrl.startsWith('/')) {
+        normalizedUrl = `https://${normalizedUrl}`;
+      }
+      onScan(normalizedUrl, mode);
     }
   };
 

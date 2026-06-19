@@ -41,8 +41,8 @@ export async function POST(request: Request) {
           vectorId,
           parentId: parentScanId
         }),
-        // 30 segundos de timeout para herramientas pesadas
-        signal: AbortSignal.timeout(30000),
+        // 5 minutos de timeout para herramientas pesadas como sqlmap
+        signal: AbortSignal.timeout(300000),
       });
       const workerData = await workerRes.json();
       return NextResponse.json({ success: true, targetedScanId: newScanId, workerOutput: workerData });

@@ -49,10 +49,9 @@
 12:45:08 PM [tsx] change in ./src/recon/FrameworkIntelligence.ts Process hasn't exited. Killing process...
 12:50:51 PM [tsx] change in ./src/index.ts Process hasn't exited. Killing process...
 12:53:05 PM [tsx] change in ./src/scanner/cliRunner.ts Process hasn't exited. Killing process...
-1] Crawler: Explorando a fondo https://balbuenabarber.vercel.app/login...
-[Scan 251] Crawler: Interactuando con 5 componentes UI...
-[Scan 251] Crawler: Inyectando datos en 2 formulario(s)...
-[Scan 251] Crawler: Explorando a fondo https://balbuenabarber.vercel.app/turnos...
+2:25:51 PM [tsx] change in ./src/scanner/cliRunner.ts Process hasn't exited. Killing process...
+2:26:12 PM [tsx] change in ./src/recon/FrameworkIntelligence.ts Process hasn't exited. Killing process...
+Crawler: Explorando a fondo https://balbuenabarber.vercel.app/turnos...
 [Scan 251] Crawler: Interactuando con 10 componentes UI...
 [Scan 251] Crawler: Explorando a fondo https://balbuenabarber.vercel.app/tienda...
 [Scan 251] Crawler: Interactuando con 9 componentes UI...
@@ -70,11 +69,9 @@
 12:45:08 PM [tsx] change in ./src/recon/FrameworkIntelligence.ts Process hasn't exited. Killing process...
 12:50:51 PM [tsx] change in ./src/index.ts Process hasn't exited. Killing process...
 12:53:05 PM [tsx] change in ./src/scanner/cliRunner.ts Process hasn't exited. Killing process...
-cia de Superficie de Ataque...
-[Subfinder] Iniciando búsqueda pasiva para: balbuenabarber.vercel.app
-[Subfinder] Encontrados 0 subdominios.
-[HTTPX Native Fallback] Escaneando 1 subdominios vivos...
-[HTTPX] Detectados 1 hosts vivos.
+2:25:51 PM [tsx] change in ./src/scanner/cliRunner.ts Process hasn't exited. Killing process...
+2:26:12 PM [tsx] change in ./src/recon/FrameworkIntelligence.ts Process hasn't exited. Killing process...
+TPX] Detectados 1 hosts vivos.
 [GAU Fallback] Extrayendo historial de URLs para 1 hosts usando AlienVault OTX...
 [GAU] Error obteniendo historial para https://balbuenabarber.vercel.app: Request failed with status code 404
 [GAU] Extraídas 0 URLs históricas únicas.
@@ -198,7 +195,9 @@ params: 260,[{"name":"Vercel","category":"Hosting / Infrastructure","confidence"
 12:45:08 PM [tsx] change in ./src/recon/FrameworkIntelligence.ts Process hasn't exited. Killing process...
 12:50:51 PM [tsx] change in ./src/index.ts Process hasn't exited. Killing process...
 12:53:05 PM [tsx] change in ./src/scanner/cliRunner.ts Process hasn't exited. Killing process...
-method":"POST","endpoint":"https://balbuenabarber.vercel.app/api/auth/signin/google","baselinePayload":{},"attackPayload":{}},{"id":"mass_assignment_L2FwaS9wcm","name":"Inyección de Propiedades (Mass Assignment) en /api/products","attackType":"Mass Assignment","severity":"critical","method":"POST","endpoint":"https://balbuenabarber.vercel.app/api/products","baselinePayload":{},"attackPayload":{}}],{"scanId":260,"target":"https://balbuenabarber.vercel.app/","stack":{"frontend":"Next.js","runtime":null,"waf":null,"cdn":"Vercel","confidence":0.9,"database_hints":[]},"endpoints":[],"subdomains":[{"domain":"balbuenabarber.vercel.app","source":"subfinder","takeover_candidate":false}],"credentials":[],"vulnerabilities_hints":[]}
+2:25:51 PM [tsx] change in ./src/scanner/cliRunner.ts Process hasn't exited. Killing process...
+2:26:12 PM [tsx] change in ./src/recon/FrameworkIntelligence.ts Process hasn't exited. Killing process...
+ssignment) en /api/products","attackType":"Mass Assignment","severity":"critical","method":"POST","endpoint":"https://balbuenabarber.vercel.app/api/products","baselinePayload":{},"attackPayload":{}}],{"scanId":260,"target":"https://balbuenabarber.vercel.app/","stack":{"frontend":"Next.js","runtime":null,"waf":null,"cdn":"Vercel","confidence":0.9,"database_hints":[]},"endpoints":[],"subdomains":[{"domain":"balbuenabarber.vercel.app","source":"subfinder","takeover_candidate":false}],"credentials":[],"vulnerabilities_hints":[]}
     at NeonHttpPreparedQuery.queryWithCache (/Users/patohe/Desktop/FixGuard/worker/node_modules/src/pg-core/session.ts:73:11)
     at process.processTicksAndRejections (node:internal/process/task_queues:95:5)
     at async NeonHttpPreparedQuery.execute (/Users/patohe/Desktop/FixGuard/worker/node_modules/src/neon-http/session.ts:83:18)
@@ -646,6 +645,72 @@ params: 262,[{"name":"Vercel","category":"Hosting / Infrastructure","confidence"
 [Scan 262] 📄 Output recibido (Longitud: 38 bytes)
 [Scan 262] ✅ El objetivo parece estar seguro contra este vector (Ninguna coincidencia crítica en la salida de la herramienta).
 12:53:05 PM [tsx] change in ./src/scanner/cliRunner.ts Restarting...
+c🚀 FixGuard OSINT Worker ejecutándose en http://localhost:4000
+==========================================
+   FixGuard Arsenal Readiness Checker     
+==========================================
+[+] nuclei ... OK
+[+] dalfox ... OK
+[-] Falta gau!
+    -> Ejecuta: brew install gau
+[+] sqlmap ... OK
+[+] nmap ... OK
+[+] semgrep ... OK
+[+] amass ... OK
+[-] Falta shodan!
+    -> Ejecuta: easy_install shodan
+[+] httpx ... OK
+[+] feroxbuster ... OK
+[-] Falta gospider!
+    -> Ejecuta: go install github.com/jaeles-project/gospider@latest
+[+] trufflehog ... OK
+[+] gitleaks ... OK
+[+] source-map-explorer ... OK
+[+] retire ... OK
+[-] Falta shcheck!
+    -> Ejecuta: pip install shcheck
+[-] Falta crlfuzz!
+    -> Ejecuta: go install github.com/dwisiswant0/crlfuzz/cmd/crlfuzz@latest
+[-] Falta kxss!
+    -> Ejecuta: go install github.com/Emoe/kxss@latest
+
+[!] Advertencia: Algunas herramientas de tu arsenal no están instaladas.
+[!] FixGuard funcionará, pero algunos ataques o motores SAST fallarán si no instalas estas dependencias.
+
+2:25:51 PM [tsx] change in ./src/scanner/cliRunner.ts Rerunning...
+c🚀 FixGuard OSINT Worker ejecutándose en http://localhost:4000
+==========================================
+   FixGuard Arsenal Readiness Checker     
+==========================================
+[+] nuclei ... OK
+[+] dalfox ... OK
+[-] Falta gau!
+    -> Ejecuta: brew install gau
+[+] sqlmap ... OK
+[+] nmap ... OK
+[+] semgrep ... OK
+[+] amass ... OK
+[-] Falta shodan!
+    -> Ejecuta: easy_install shodan
+[+] httpx ... OK
+[+] feroxbuster ... OK
+[-] Falta gospider!
+    -> Ejecuta: go install github.com/jaeles-project/gospider@latest
+[+] trufflehog ... OK
+[+] gitleaks ... OK
+[+] source-map-explorer ... OK
+[+] retire ... OK
+[-] Falta shcheck!
+    -> Ejecuta: pip install shcheck
+[-] Falta crlfuzz!
+    -> Ejecuta: go install github.com/dwisiswant0/crlfuzz/cmd/crlfuzz@latest
+[-] Falta kxss!
+    -> Ejecuta: go install github.com/Emoe/kxss@latest
+
+[!] Advertencia: Algunas herramientas de tu arsenal no están instaladas.
+[!] FixGuard funcionará, pero algunos ataques o motores SAST fallarán si no instalas estas dependencias.
+
+2:26:12 PM [tsx] change in ./src/recon/FrameworkIntelligence.ts Rerunning...
 c🚀 FixGuard OSINT Worker ejecutándose en http://localhost:4000
 ==========================================
    FixGuard Arsenal Readiness Checker     
