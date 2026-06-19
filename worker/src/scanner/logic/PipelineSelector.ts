@@ -115,13 +115,37 @@ export class PipelineSelector {
         isMutated = true;
       }
 
-      if (mutatedCommand.includes('nuclei') && wafProfile.nuclei_flags.length > 0) {
-        mutatedCommand += ` ${wafProfile.nuclei_flags.join(' ')}`;
-        // Surgical Nuclei if next.js detected
-        if (isNextJs && mutatedCommand.includes('-u <TARGET>')) {
-           // We might want to add -tags nextjs if not already specified
+      // Surgical Nuclei
+      if (mutatedCommand.includes('nuclei')) {
+        if (wafProfile.nuclei_flags.length > 0) {
+          mutatedCommand += ` ${wafProfile.nuclei_flags.join(' ')}`;
+        }
+        
+        const tags = this.extractNucleiTags(recon);
+        if (tags.length > 0) {
+           mutatedCommand += ` -tags ${tags.join(',')}`;
+        } else {
+           mutatedCommand += ` -tags cve,misconfig,exposure`;
         }
         isMutated = true;
+      }
+      
+      // Multi-host Katana
+      if (mutatedCommand.includes('katana')) {
+         const hostsPath = this.buildLiveHostsList(recon.scanId, recon.subdomains);
+         if (hostsPath) {
+            mutatedCommand = mutatedCommand.replace(/-u\s+<TARGET>/, `-list ${hostsPath}`);
+            isMutated = true;
+         }
+      }
+
+      // JWT Secret Brute-forcing
+      if (mutatedCommand.includes('jwt_tool')) {
+         const jwtCred = recon.credentials.find(c => c.type === 'jwt_secret');
+         if (jwtCred && jwtCred.password) {
+            mutatedCommand += ` --secret "${jwtCred.password}"`;
+            isMutated = true;
+         }
       }
 
       if (mutatedCommand.includes('ffuf') && decision.wordlistPath) {
@@ -155,6 +179,53 @@ export class PipelineSelector {
       e.url.includes('/_next/data/')
     );
     return !!nextjsPattern;
+  }
+
+  private static extractNucleiTags(recon: NormalizedReconProfile): string[] {
+    const tags = new Set<string>();
+    
+    // Add explicitly detected stack
+    Object.values(recon.stack).forEach(val => {
+       if (typeof val === 'string' && val) tags.add(val.toLowerCase().replace(/[^a-z0-9]/g, ''));
+       if (Array.isArray(val)) {
+          val.forEach(v => tags.add(typeof v === 'string' ? v.toLowerCase().replace(/[^a-z0-9]/g, '') : ''));
+       }
+    });
+
+    // Clean up empty tags
+    tags.delete('');
+    
+    // Map known tech to standard nuclei tags
+    const mappedTags = Array.from(tags).map(t => {
+       if (t.includes('react')) return 'react';
+       if (t.includes('next')) return 'nextjs';
+       if (t.includes('node')) return 'nodejs';
+       if (t.includes('php')) return 'php';
+       if (t.includes('apache')) return 'apache';
+       if (t.includes('nginx')) return 'nginx';
+       if (t.includes('wordpress')) return 'wordpress';
+       if (t.includes('laravel')) return 'laravel';
+       if (t.includes('django')) return 'django';
+       return t;
+    });
+
+    return [...new Set(mappedTags)].slice(0, 5); // Limit to top 5 tags to prevent command overload
+  }
+
+  private static buildLiveHostsList(scanId: number, subdomains: {subdomain: string, is_alive: boolean}[]): string | null {
+     if (!subdomains || subdomains.length === 0) return null;
+     
+     const liveHosts = subdomains.filter(s => s.is_alive).map(s => `https://${s.subdomain}`);
+     if (liveHosts.length === 0) return null;
+
+     const tempFilePath = path.join('/tmp', `fixguard_hosts_${scanId}.txt`);
+     try {
+       fs.writeFileSync(tempFilePath, liveHosts.join('\n'));
+       return tempFilePath;
+     } catch (e) {
+       console.error("Error creating Katana hosts list:", e);
+       return null;
+     }
   }
 
   private static buildDynamicWordlist(scanId: number, endpoints: {url: string, source: string}[]): string | null {

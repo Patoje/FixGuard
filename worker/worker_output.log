@@ -55,10 +55,9 @@
 3:16:35 PM [tsx] change in ./src/targetedOrchestrator.ts Process hasn't exited. Killing process...
 3:31:26 PM [tsx] change in ./src/recon/FrameworkIntelligence.ts Process hasn't exited. Killing process...
 4:32:06 PM [tsx] change in ./src/recon/TechStackProfiler.ts Process hasn't exited. Killing process...
-s, 197 reqs)
-⚠️ No GOOGLE_GENERATIVE_AI_API_KEY found, skipping AI Exposure Enrichment.
-[SubdomainIntelligence] Lanzando motores OSINT concurrentes para balbuenabarber.vercel.app...
-[SubdomainIntelligence] ⚠️ crt.sh falló: Fallo en conexión o timeout
+5:01:23 PM [tsx] change in ./src/scanner/logic/PipelineSelector.ts Process hasn't exited. Killing process...
+5:01:34 PM [tsx] change in ./src/scanner/logic/PipelineSelector.ts Process hasn't exited. Killing process...
+rt.sh falló: Fallo en conexión o timeout
 [SubdomainIntelligence] ✅ HackerTarget encontró 0 subdominios.
 [SubdomainIntelligence] ⚠️ AlienVault falló: Fallo en conexión o timeout
 [ArtifactIntelligence] Escaneando 17 chunks de JS en busca de secretos y rutas ocultas...
@@ -75,13 +74,9 @@ s, 197 reqs)
 3:16:35 PM [tsx] change in ./src/targetedOrchestrator.ts Process hasn't exited. Killing process...
 3:31:26 PM [tsx] change in ./src/recon/FrameworkIntelligence.ts Process hasn't exited. Killing process...
 4:32:06 PM [tsx] change in ./src/recon/TechStackProfiler.ts Process hasn't exited. Killing process...
-
-  'x-frame-options',
-  'x-content-type-options',
-  'permissions-policy',
-  'referrer-policy'
-]
-[Scan 260] Error en escaneo de cabeceras: Failed query: insert into "vulnerabilities" ("id", "scan_id", "type", "severity", "description", "metadata", "parent_id", "auto_fix_code", "created_at") values (default, $1, $2, $3, $4, default, default, $5, default)
+5:01:23 PM [tsx] change in ./src/scanner/logic/PipelineSelector.ts Process hasn't exited. Killing process...
+5:01:34 PM [tsx] change in ./src/scanner/logic/PipelineSelector.ts Process hasn't exited. Killing process...
+, "description", "metadata", "parent_id", "auto_fix_code", "created_at") values (default, $1, $2, $3, $4, default, default, $5, default)
 params: 260,MISSING_HEADER_CONTENT_SECURITY_POLICY,MEDIUM,La cabecera de seguridad 'content-security-policy' no está configurada en la respuesta HTTP del servidor.,
 [Scan 260] Security.txt scan error: DrizzleQueryError: Failed query: insert into "vulnerabilities" ("id", "scan_id", "type", "severity", "description", "metadata", "parent_id", "auto_fix_code", "created_at") values (default, $1, $2, $3, $4, default, default, $5, default)
 params: 260,MISSING_SECURITY_TXT,LOW,No se encontró un archivo 'security.txt' válido en /.well-known/security.txt. (Estándar RFC 9116). Esto dificulta que investigadores éticos reporten vulnerabilidades de forma segura a la empresa.,
@@ -199,8 +194,9 @@ params: 260,[{"name":"Vercel","category":"Hosting / Infrastructure","confidence"
 3:16:35 PM [tsx] change in ./src/targetedOrchestrator.ts Process hasn't exited. Killing process...
 3:31:26 PM [tsx] change in ./src/recon/FrameworkIntelligence.ts Process hasn't exited. Killing process...
 4:32:06 PM [tsx] change in ./src/recon/TechStackProfiler.ts Process hasn't exited. Killing process...
-":"balbuenabarber.vercel.app","source":"subfinder","takeover_candidate":false}],"credentials":[],"vulnerabilities_hints":[]}
-    at NeonHttpPreparedQuery.queryWithCache (/Users/patohe/Desktop/FixGuard/worker/node_modules/src/pg-core/session.ts:73:11)
+5:01:23 PM [tsx] change in ./src/scanner/logic/PipelineSelector.ts Process hasn't exited. Killing process...
+5:01:34 PM [tsx] change in ./src/scanner/logic/PipelineSelector.ts Process hasn't exited. Killing process...
+es/src/pg-core/session.ts:73:11)
     at process.processTicksAndRejections (node:internal/process/task_queues:95:5)
     at async NeonHttpPreparedQuery.execute (/Users/patohe/Desktop/FixGuard/worker/node_modules/src/neon-http/session.ts:83:18)
     at async <anonymous> (/Users/patohe/Desktop/FixGuard/worker/src/index.ts:258:5) {
@@ -1046,6 +1042,72 @@ Iniciando escaneo 297 para https://demo.testfire.net/...
 [Scan 297] Análisis Pasivo y Reconocimiento completado. Guardado Perfil Tech Stack.
 [Scan 297] 🎉 Todos los motores finalizaron exitosamente.
 4:32:06 PM [tsx] change in ./src/recon/TechStackProfiler.ts Restarting...
+c🚀 FixGuard OSINT Worker ejecutándose en http://localhost:4000
+==========================================
+   FixGuard Arsenal Readiness Checker     
+==========================================
+[+] nuclei ... OK
+[+] dalfox ... OK
+[-] Falta gau!
+    -> Ejecuta: brew install gau
+[+] sqlmap ... OK
+[+] nmap ... OK
+[+] semgrep ... OK
+[+] amass ... OK
+[-] Falta shodan!
+    -> Ejecuta: easy_install shodan
+[+] httpx ... OK
+[+] feroxbuster ... OK
+[-] Falta gospider!
+    -> Ejecuta: go install github.com/jaeles-project/gospider@latest
+[+] trufflehog ... OK
+[+] gitleaks ... OK
+[+] source-map-explorer ... OK
+[+] retire ... OK
+[-] Falta shcheck!
+    -> Ejecuta: pip install shcheck
+[-] Falta crlfuzz!
+    -> Ejecuta: go install github.com/dwisiswant0/crlfuzz/cmd/crlfuzz@latest
+[-] Falta kxss!
+    -> Ejecuta: go install github.com/Emoe/kxss@latest
+
+[!] Advertencia: Algunas herramientas de tu arsenal no están instaladas.
+[!] FixGuard funcionará, pero algunos ataques o motores SAST fallarán si no instalas estas dependencias.
+
+5:01:23 PM [tsx] change in ./src/scanner/logic/PipelineSelector.ts Rerunning...
+c🚀 FixGuard OSINT Worker ejecutándose en http://localhost:4000
+==========================================
+   FixGuard Arsenal Readiness Checker     
+==========================================
+[+] nuclei ... OK
+[+] dalfox ... OK
+[-] Falta gau!
+    -> Ejecuta: brew install gau
+[+] sqlmap ... OK
+[+] nmap ... OK
+[+] semgrep ... OK
+[+] amass ... OK
+[-] Falta shodan!
+    -> Ejecuta: easy_install shodan
+[+] httpx ... OK
+[+] feroxbuster ... OK
+[-] Falta gospider!
+    -> Ejecuta: go install github.com/jaeles-project/gospider@latest
+[+] trufflehog ... OK
+[+] gitleaks ... OK
+[+] source-map-explorer ... OK
+[+] retire ... OK
+[-] Falta shcheck!
+    -> Ejecuta: pip install shcheck
+[-] Falta crlfuzz!
+    -> Ejecuta: go install github.com/dwisiswant0/crlfuzz/cmd/crlfuzz@latest
+[-] Falta kxss!
+    -> Ejecuta: go install github.com/Emoe/kxss@latest
+
+[!] Advertencia: Algunas herramientas de tu arsenal no están instaladas.
+[!] FixGuard funcionará, pero algunos ataques o motores SAST fallarán si no instalas estas dependencias.
+
+5:01:34 PM [tsx] change in ./src/scanner/logic/PipelineSelector.ts Restarting...
 c🚀 FixGuard OSINT Worker ejecutándose en http://localhost:4000
 ==========================================
    FixGuard Arsenal Readiness Checker     
