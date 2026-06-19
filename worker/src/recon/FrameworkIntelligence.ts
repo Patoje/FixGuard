@@ -221,5 +221,15 @@ export const VECTOR_REGISTRY: Record<string, VectorItem> = {
   trufflehog: { id: 'trufflehog', name: 'TruffleHog (Secretos)', cliCommand: 'trufflehog endpoint <TARGET> --no-verification' },
   shcheck: { id: 'shcheck', name: 'SHCheck (Security Headers)', cliCommand: 'shcheck <TARGET>' },
   crlfuzz: { id: 'crlfuzz', name: 'CRLFuzz (CRLF Injection)', cliCommand: 'crlfuzz -u <TARGET>' },
-  kxss: { id: 'kxss', name: 'KXSS (XSS Finder)', cliCommand: 'gau <TARGET> | kxss' }
+  kxss: { id: 'kxss', name: 'KXSS (XSS Finder)', cliCommand: 'gau <TARGET> | kxss' },
+  cors_check: { id: 'cors_check', name: 'CORS Misconfiguration Check', cliCommand: 'corsy -u <TARGET> -t 10' },
+  nosql_injection: { id: 'nosql_injection', name: 'NoSQLMap Injection', cliCommand: 'nosqlmap -u <TARGET>' },
+  xss_xsstrike: { id: 'xss_xsstrike', name: 'XSStrike XSS confirmation', cliCommand: 'xsstrike -u <TARGET>' },
+  
+  // Tactical Dropdown Vectors
+  ffuf_dir: { id: 'ffuf_dir', name: 'Fuzzear Rutas (ffuf)', cliCommand: 'ffuf -s -ac -u <TARGET>/FUZZ' },
+  nuclei_cve: { id: 'nuclei_cve', name: 'Scan CVEs (Nuclei)', cliCommand: 'nuclei -u <TARGET>' },
+  sqli_time: { id: 'sqli_time', name: 'Time Based SQL Injection (SQLMap)', cliCommand: 'sqlmap -u <TARGET> --technique=T --batch --risk=3' },
+  xss_dalfox: { id: 'xss_dalfox', name: 'Cazar XSS (Dalfox)', cliCommand: 'dalfox url <TARGET>' },
+  jwt_tool: { id: 'jwt_tool', name: 'Testear JWT (jwt_tool)', cliCommand: 'jwt_tool <TARGET> -M pb' }
 };

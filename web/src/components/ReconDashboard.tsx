@@ -301,7 +301,7 @@ export default function ReconDashboard({ profile, targetUrl, onLaunchAttack }: P
                     exit={{ height: 0, opacity: 0 }}
                     className="border-t border-white/5 bg-black/20"
                   >
-                    <div className="max-h-[300px] overflow-y-auto custom-scrollbar p-2">
+                    <div className="p-2">
                       <table className="w-full text-left text-sm">
                         <tbody className="divide-y divide-white/5">
                           {eps.map((ep, idx) => {
@@ -321,10 +321,11 @@ export default function ReconDashboard({ profile, targetUrl, onLaunchAttack }: P
                                   </span>
                                 </td>
                                 <td className="p-2 w-12 relative text-right">
+                                  {/* Mostrar el rayito si hay onLaunchAttack. Lo hacemos siempre visible en baja opacidad y full opacity al hover, o siempre encendido si el menú está abierto */}
                                   {onLaunchAttack && (
                                     <button 
                                       onClick={() => setOpenDropdownIdx(openDropdownIdx === `${groupName}-${idx}` ? null : `${groupName}-${idx}`)}
-                                      className="p-1.5 rounded bg-zinc-800 hover:bg-zinc-700 text-cyan-400 border border-cyan-500/20 opacity-0 group-hover:opacity-100 transition-opacity"
+                                      className={`p-1.5 rounded transition-all ${openDropdownIdx === `${groupName}-${idx}` ? 'bg-cyan-500/20 text-cyan-300 border-cyan-500/40 opacity-100' : 'bg-zinc-800 text-cyan-400 border-cyan-500/20 opacity-30 hover:opacity-100 hover:bg-zinc-700'} border`}
                                       title="Ataque Táctico"
                                     >
                                       <Zap className="w-3.5 h-3.5" />
@@ -332,8 +333,8 @@ export default function ReconDashboard({ profile, targetUrl, onLaunchAttack }: P
                                   )}
                                   
                                   {openDropdownIdx === `${groupName}-${idx}` && (
-                                    <div className="absolute right-12 top-0 mt-2 w-56 bg-zinc-900 border border-white/10 rounded-lg shadow-xl z-50 overflow-hidden text-left">
-                                      <div className="px-3 py-2 border-b border-white/5 text-[10px] font-mono text-zinc-500 uppercase tracking-widest">
+                                    <div className="absolute right-0 top-full mt-1 w-56 bg-zinc-900 border border-white/10 rounded-lg shadow-2xl z-[100] overflow-hidden text-left">
+                                      <div className="px-3 py-2 border-b border-white/5 text-[10px] font-mono text-zinc-500 uppercase tracking-widest bg-black/40">
                                         Menú Táctico
                                       </div>
                                       
@@ -348,29 +349,34 @@ export default function ReconDashboard({ profile, targetUrl, onLaunchAttack }: P
                                            }
                                          }
                                          
-                                         const hasJwt = profile.credentials.some(c => c.type === 'jwt_secret');
+                                         const hasJwt = profile.credentials?.some(c => c.type === 'jwt_secret') ?? false;
+
+                                         // Asegurarnos de que endpointPath sea una URL completa para que `new URL()` no falle en el backend
+                                         const cleanTarget = targetUrl.endsWith('/') ? targetUrl.slice(0, -1) : targetUrl;
+                                         const cleanPath = ep.path.startsWith('/') ? ep.path : `/${ep.path}`;
+                                         const fullEndpointUrl = ep.path.startsWith('http') ? ep.path : `${cleanTarget}${cleanPath}`;
 
                                          return (
                                            <div className="flex flex-col text-xs">
                                               {isNumeric && (
-                                                <button onClick={() => { onLaunchAttack?.(ep.path, 'sqli_time'); setOpenDropdownIdx(null); }} className="px-3 py-2 hover:bg-white/5 flex items-center gap-2 text-zinc-300">
+                                                <button onClick={() => { onLaunchAttack?.(fullEndpointUrl, 'sqli_time'); setOpenDropdownIdx(null); }} className="px-3 py-2 hover:bg-white/5 flex items-center gap-2 text-zinc-300">
                                                   <DatabaseZap className="w-3.5 h-3.5 text-orange-400" /> Inyectar SQL
                                                 </button>
                                               )}
                                               {hasParams && !isNumeric && (
-                                                <button onClick={() => { onLaunchAttack?.(ep.path, 'xss_dalfox'); setOpenDropdownIdx(null); }} className="px-3 py-2 hover:bg-white/5 flex items-center gap-2 text-zinc-300">
+                                                <button onClick={() => { onLaunchAttack?.(fullEndpointUrl, 'xss_dalfox'); setOpenDropdownIdx(null); }} className="px-3 py-2 hover:bg-white/5 flex items-center gap-2 text-zinc-300">
                                                   <Shield className="w-3.5 h-3.5 text-rose-400" /> Cazar XSS
                                                 </button>
                                               )}
-                                              <button onClick={() => { onLaunchAttack?.(ep.path, 'ffuf_dir'); setOpenDropdownIdx(null); }} className="px-3 py-2 hover:bg-white/5 flex items-center gap-2 text-zinc-300">
+                                              <button onClick={() => { onLaunchAttack?.(fullEndpointUrl, 'ffuf_dir'); setOpenDropdownIdx(null); }} className="px-3 py-2 hover:bg-white/5 flex items-center gap-2 text-zinc-300">
                                                 <Search className="w-3.5 h-3.5 text-blue-400" /> Fuzzear Rutas
                                               </button>
                                               {hasJwt && (
-                                                <button onClick={() => { onLaunchAttack?.(ep.path, 'jwt_tool'); setOpenDropdownIdx(null); }} className="px-3 py-2 hover:bg-white/5 flex items-center gap-2 text-zinc-300">
+                                                <button onClick={() => { onLaunchAttack?.(fullEndpointUrl, 'jwt_tool'); setOpenDropdownIdx(null); }} className="px-3 py-2 hover:bg-white/5 flex items-center gap-2 text-zinc-300">
                                                   <Key className="w-3.5 h-3.5 text-amber-400" /> Testear JWT
                                                 </button>
                                               )}
-                                              <button onClick={() => { onLaunchAttack?.(ep.path, 'nuclei_cve'); setOpenDropdownIdx(null); }} className="px-3 py-2 hover:bg-white/5 flex items-center gap-2 text-zinc-300">
+                                              <button onClick={() => { onLaunchAttack?.(fullEndpointUrl, 'nuclei_cve'); setOpenDropdownIdx(null); }} className="px-3 py-2 hover:bg-white/5 flex items-center gap-2 text-zinc-300">
                                                 <Radio className="w-3.5 h-3.5 text-cyan-400" /> Scan CVEs
                                               </button>
                                            </div>

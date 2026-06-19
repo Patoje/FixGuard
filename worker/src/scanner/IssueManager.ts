@@ -23,7 +23,7 @@ export class IssueManager {
    * Based on endpoint + type/title + parameter/payload
    */
   private static generateFingerprint(input: FindingInput): string {
-    const rawString = `${input.endpoint || 'global'}|${input.method || 'any'}|${input.title}|${input.payloadUsed || 'none'}`;
+    const rawString = `${input.endpoint || 'global'}|${input.method || 'any'}|${input.title}`;
     return crypto.createHash('sha256').update(rawString).digest('hex');
   }
 
@@ -31,7 +31,7 @@ export class IssueManager {
    * Reports a finding. If a finding with the same fingerprint already exists
    * for this scan, it updates the updatedAt timestamp instead of duplicating it.
    */
-  public static async reportFinding(input: FindingInput): Promise<void> {
+  public static async reportFinding(input: FindingInput): Promise<any> {
     const fingerprint = this.generateFingerprint(input);
 
     try {
@@ -65,11 +65,13 @@ export class IssueManager {
               confidence: newConfidence
             })
             .where(eq(findings.id, existing.id));
+            
+          return existing;
 
       } else {
         // Insert new finding
         console.log(`[IssueManager] New finding registered: [${input.severity.toUpperCase()}] ${input.title}`);
-        await db.insert(findings).values({
+        const newFinding = await db.insert(findings).values({
           scanId: input.scanId,
           fingerprint,
           title: input.title,
@@ -88,10 +90,12 @@ export class IssueManager {
           confidence: 50, // Initial confidence "needs_review"
           createdAt: new Date(),
           updatedAt: new Date(),
-        });
+        }).returning().then(res => res[0]);
+        return newFinding;
       }
     } catch (error) {
       console.error(`[IssueManager] Error reporting finding:`, error);
+      return null;
     }
   }
 }

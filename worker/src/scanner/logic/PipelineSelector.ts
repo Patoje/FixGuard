@@ -89,10 +89,13 @@ export class PipelineSelector {
     const hasSqlHints = recon.stack.database_hints?.some(h => ['mysql', 'postgresql', 'postgres'].includes(h.toLowerCase()));
     if (!hasSqlHints) {
       decision.disabledModules.push("pg_sqli", "pg_blind_sqli", "pg_time_sqli", "sqlmap");
+    } else {
+      // If we have SQL hints, disable NoSQL
+      decision.disabledModules.push("nosql_injection");
     }
 
-    if (recon.stack.database_hints?.some(h => h.toLowerCase().includes('mongodb'))) {
-      decision.executionOrder.push("nosqlmap");
+    if (recon.stack.database_hints?.some(h => h.toLowerCase().includes('mongodb') || h.toLowerCase().includes('couchdb'))) {
+      decision.executionOrder.push("nosql_injection");
     }
 
     // 5. Mutación de Vectores
@@ -130,11 +133,15 @@ export class PipelineSelector {
         isMutated = true;
       }
       
-      // Multi-host Katana
-      if (mutatedCommand.includes('katana')) {
+      // Multi-host Katana and Corsy
+      if (mutatedCommand.includes('katana') || mutatedCommand.includes('corsy')) {
          const hostsPath = this.buildLiveHostsList(recon.scanId, recon.subdomains);
          if (hostsPath) {
-            mutatedCommand = mutatedCommand.replace(/-u\s+<TARGET>/, `-list ${hostsPath}`);
+            if (mutatedCommand.includes('katana')) {
+                mutatedCommand = mutatedCommand.replace(/-u\s+<TARGET>/, `-list ${hostsPath}`);
+            } else if (mutatedCommand.includes('corsy')) {
+                mutatedCommand = mutatedCommand.replace(/-u\s+<TARGET>/, `-i ${hostsPath}`);
+            }
             isMutated = true;
          }
       }

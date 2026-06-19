@@ -114,6 +114,7 @@ export default function OffensiveArsenal({ targetUrl, scanId, profile, initialTa
   
   // Preview state
   const [previewData, setPreviewData] = useState<{ command: string, vectorId: string, targetUrl: string, moduleName: string } | null>(null);
+  const [previewFetchedFor, setPreviewFetchedFor] = useState<string>('');
 
   const logEndRef = useRef<HTMLDivElement>(null);
 
@@ -123,7 +124,9 @@ export default function OffensiveArsenal({ targetUrl, scanId, profile, initialTa
 
   // Manejar pre-selección desde Recon Dashboard
   useEffect(() => {
-    if (initialTargetUrl && initialAttackVector && !isAttacking) {
+    const combo = `${initialTargetUrl}-${initialAttackVector}`;
+    if (initialTargetUrl && initialAttackVector && !isAttacking && previewFetchedFor !== combo) {
+       setPreviewFetchedFor(combo);
        const vector = vectors.find(v => v.id === initialAttackVector);
        const moduleName = vector ? (vector.description || vector.attackType) : initialAttackVector;
        
@@ -151,12 +154,17 @@ export default function OffensiveArsenal({ targetUrl, scanId, profile, initialTa
               targetUrl: initialTargetUrl,
               moduleName
             });
+            setLogs(prev => [...prev, `[System] Mutaciones calculadas exitosamente.`]);
+         } else if (data.error) {
+            setLogs(prev => [...prev, `[System] ❌ Error obteniendo preview: ${data.error}`]);
+         } else {
+            setLogs(prev => [...prev, `[System] ❌ Error desconocido: no se recibió comando.`]);
          }
        }).catch(err => {
-         setLogs(prev => [...prev, `[System] Error obteniendo preview: ${err.message}`]);
+         setLogs(prev => [...prev, `[System] ❌ Error de red: ${err.message}`]);
        });
     }
-  }, [initialTargetUrl, initialAttackVector, scanId]);
+  }, [initialTargetUrl, initialAttackVector, scanId, isAttacking, previewFetchedFor, vectors]);
 
   const categories = Array.from(new Set<AttackCategory>(['ALL', ...vectors.map(v => getCategory(v.attackType))]));
   const filtered = activeCategory === 'ALL' ? vectors : vectors.filter(v => getCategory(v.attackType) === activeCategory);

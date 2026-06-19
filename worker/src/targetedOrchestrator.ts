@@ -49,6 +49,13 @@ function parseCliOutput(command: string, output: string): { severity: 'low' | 'm
     return null;
   }
 
+  if (command.includes('xsstrike')) {
+    if (lowerOut.includes('vulnerable') || lowerOut.includes('payload:')) {
+      return { severity: 'high', finding: 'Dalfox encontró y validó un vector de inyección XSS en el DOM/Reflected.' };
+    }
+    return null;
+  }
+
   if (command.includes('katana') || command.includes('gau') || command.includes('subfinder')) {
     const lines = output.trim().split('\n').filter(l => l.length > 0);
     const discoveredUrls: string[] = [];
@@ -324,7 +331,7 @@ export async function runTargetedAttack(scanId: number, userId: number, targetUr
       
       // Save finding under the PARENT scan ID so it appears directly in the Recon
       // vulnerability list without needing child-scan lookup traversal.
-      await IssueManager.reportFinding({
+      const newFinding = await IssueManager.reportFinding({
         scanId: parentId ?? scanId,
         title: result.finding,
         severity: result.severity,
@@ -333,6 +340,23 @@ export async function runTargetedAttack(scanId: number, userId: number, targetUr
         payloadUsed: vector.cliCommand,
         toolSource: vector.id
       });
+
+      // ─── Lógica de Correlación Inteligente (Dalfox -> XSStrike) ─────────
+      if (vectorId === 'dalfox' || vectorId === 'xss_dalfox') {
+         if (newFinding && newFinding.detectedBy && newFinding.detectedBy.length === 1) {
+             console.log(`[Correlation Engine] Inyectando confirmación secundaria con XSStrike para el hallazgo en: ${targetUrl}`);
+             // Encolamos o ejecutamos XSStrike automáticamente de forma asíncrona pero sin bloquear la UI
+             // Lo haremos directamente llamando a runTargetedAttack de forma recursiva
+             setTimeout(() => {
+                 runTargetedAttack(scanId, userId, targetUrl, 'xss_xsstrike', parentId).catch(err => {
+                    console.error(`[Correlation Engine] Error ejecutando XSStrike de confirmación: ${err.message}`);
+                 });
+             }, 1000);
+         } else if (newFinding && newFinding.detectedBy && newFinding.detectedBy.length >= 2) {
+             console.log(`[Correlation Engine] Hallazgo XSS ya confirmado previamente. No se encola XSStrike para evitar loops.`);
+         }
+      }
+      // ─────────────────────────────────────────────────────────────────────
 
       // ─── Endpoint Catalog enrichment ─────────────────────────────────────
       // If the tool discovered URLs (GAU, katana, subfinder), inject them
