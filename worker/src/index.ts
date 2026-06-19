@@ -39,6 +39,11 @@ import { WorkflowBypassExploiter } from './scanner/logic/WorkflowBypassExploiter
 import { AttackExecutor } from './scanner/AttackExecutor';
 import { React2ShellVector } from './scanner/vectors/React2ShellVector';
 import axios from 'axios';
+// Nuevos Motores Pasivos
+import { runSubfinderScan } from './scanner/subfinder';
+import { runHttpxScan } from './scanner/httpx';
+import { runGauScan } from './scanner/gau';
+import type { NormalizedReconProfile } from './db/schema';
 
 // Nuevos Motores Fase 6
 import { runCrawler } from './scanner/crawler';
@@ -100,6 +105,24 @@ app.post('/api/scan', async (req, res) => {
     
     const domain = new URL(targetUrl).hostname;
 
+    // --- INTEGRACIÓN CASCADA PASIVA ---
+    // 1. Subfinder
+    const subdomains = await runSubfinderScan(domain);
+    // Asegurar que el target actual también esté en la lista para no perderlo
+    if (!subdomains.includes(domain)) subdomains.push(domain);
+    
+    // 2. HTTPX
+    const httpxResults = await runHttpxScan(scanId, subdomains);
+    const liveHosts = httpxResults.map(r => r.url);
+    
+    // 3. GAU
+    const gauUrls = await runGauScan(scanId, liveHosts.length > 0 ? liveHosts : [domain]);
+    const normalizedEndpoints: NormalizedReconProfile['endpoints'] = gauUrls.map(url => ({
+      url,
+      source: 'gau',
+      lastSeen: new Date().toISOString()
+    }));
+
     // Ejecutar OSINT y JS Recon en paralelo
     const passiveTasks = [
       runHeaderScan(scanId, targetUrl),
@@ -131,8 +154,8 @@ app.post('/api/scan', async (req, res) => {
       runtimeIntelligence = crawlerData.runtimeIntelligence;
     }
 
-    // Unir endpoints JS y Crawler
-    const allDiscoveredPaths = Array.from(new Set([...jsEndpoints, ...urlsToAttack.map(u => {
+    // Unir endpoints JS, Crawler, y GAU
+    const allDiscoveredPaths = Array.from(new Set([...jsEndpoints, ...gauUrls, ...urlsToAttack.map(u => {
       try { return new URL(u).pathname; } catch { return u; }
     })]));
 
@@ -151,7 +174,7 @@ app.post('/api/scan', async (req, res) => {
     let baseHtml = '';
     try {
       const resp = await axios.get(targetUrl, { timeout: 3000 });
-      baseHeaders = resp.headers;
+      baseHeaders = resp.headers as unknown as Record<string, string | string[]>;
       baseHtml = typeof resp.data === 'string' ? resp.data : '';
     } catch(e) {}
     
@@ -208,12 +231,30 @@ app.post('/api/scan', async (req, res) => {
 
     // 4.5 Generar Vectores Inteligentes de Ataque Recomendados (Smart Vectors)
     const smartVectors = [
-      ...BolaExploiter.generateVectors(attackSurface, entityGraph),
-      ...MassAssignmentExploiter.generateVectors(attackSurface, businessDictionary),
-      ...WorkflowBypassExploiter.generateVectors(workflowIntelligence)
+      ...BolaExploiter.generateVectors(targetUrl, attackSurface, entityGraph),
+      ...MassAssignmentExploiter.generateVectors(targetUrl, attackSurface, businessDictionary),
+      ...WorkflowBypassExploiter.generateVectors(targetUrl, workflowIntelligence)
     ];
 
-    // 5. Guardar Perfil de Reconocimiento
+    // 5. Normalizar Datos
+    const normalizedData: NormalizedReconProfile = {
+      scanId,
+      target: targetUrl,
+      stack: {
+        frontend: techStack.find(t => t.category === 'Frontend Framework')?.name || null,
+        runtime: techStack.find(t => t.category === 'Backend Framework')?.name || null,
+        waf: httpxResults.find(r => r.url.includes(domain))?.technologies.find(t => t.toLowerCase().includes('cloudflare') || t.toLowerCase().includes('modsecurity')) || null,
+        cdn: httpxResults.find(r => r.url.includes(domain))?.cdn || null,
+        confidence: 0.9,
+        database_hints: techStack.filter(t => t.category === 'Database').map(t => t.name)
+      },
+      endpoints: normalizedEndpoints,
+      subdomains: subdomains.map(s => ({ domain: s, source: 'subfinder', takeover_candidate: false })),
+      credentials: [], // Se poblará en la fase de credenciales
+      vulnerabilities_hints: []
+    };
+
+    // 6. Guardar Perfil de Reconocimiento
     await db.insert(reconProfiles).values({
       scanId,
       techStack,
@@ -233,7 +274,8 @@ app.post('/api/scan', async (req, res) => {
       entityGraph,
       workflowIntelligence,
       auditReport,
-      smartVectors
+      smartVectors,
+      normalizedData
     }).returning({ id: reconProfiles.id });
 
     console.log(`[Scan ${scanId}] Análisis Pasivo y Reconocimiento completado. Guardado Perfil Tech Stack.`);

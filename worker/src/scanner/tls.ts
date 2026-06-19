@@ -36,12 +36,13 @@ export async function runTlsScan(scanId: number, targetUrl: string) {
           }
 
           // Check for weak algorithms
-          if (cert.sigalg && (cert.sigalg.includes('md5') || cert.sigalg.includes('sha1'))) {
+          const sigalg = (cert as any).sigalg;
+          if (sigalg && (sigalg.includes('md5') || sigalg.includes('sha1'))) {
             await db.insert(vulnerabilities).values({
               scanId,
               type: 'WEAK_TLS_SIGNATURE',
               severity: 'MEDIUM',
-              description: `El certificado usa un algoritmo de firma débil u obsoleto: ${cert.sigalg}. Se recomienda actualizar a SHA-256 o superior.`,
+              description: `El certificado usa un algoritmo de firma débil u obsoleto: ${sigalg}. Se recomienda actualizar a SHA-256 o superior.`,
               autoFixCode: null,
             });
           }

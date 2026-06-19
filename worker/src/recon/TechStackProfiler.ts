@@ -15,7 +15,7 @@ export async function runTechStackProfiler(targetUrl: string): Promise<TechStack
   try {
     const response = await axios.get(targetUrl, { timeout: 10000, validateStatus: () => true });
     const html = typeof response.data === 'string' ? response.data : '';
-    const headers = response.headers;
+    const headers = response.headers as unknown as Record<string, string | string[]>;
     
     // 1. Analizadores Pasivos (Ultra rápidos)
     const headerFindings = HeadersAnalyzer.analyze(headers);

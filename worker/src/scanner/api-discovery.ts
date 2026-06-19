@@ -29,7 +29,7 @@ export async function runApiDiscoveryScan(scanId: number, targetUrl: string) {
 
         // Verificamos si devuelve 200 OK y que sea contenido JSON o HTML
         if (response.status === 200) {
-           const contentType = response.headers['content-type'] || '';
+           const contentType = String(response.headers['content-type'] || '');
            if (contentType.includes('json') || contentType.includes('html')) {
              await db.insert(vulnerabilities).values({
                scanId,

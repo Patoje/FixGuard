@@ -5,6 +5,8 @@ import { SessionManager } from './scanner/SessionManager';
 import { db } from './db/db';
 import { reconProfiles, findings } from './db/schema';
 import { eq } from 'drizzle-orm';
+import { PipelineSelector } from './scanner/logic/PipelineSelector';
+import type { NormalizedReconProfile } from './db/schema';
 
 // Helper to parse the output and determine severity/findings
 function parseCliOutput(command: string, output: string): { severity: 'low' | 'medium' | 'high' | 'critical', finding: string, metadata?: any } | null {
@@ -204,6 +206,30 @@ export async function runTargetedAttack(scanId: number, targetUrl: string, vecto
     
     if (authFlags) {
       finalCommand = `${finalCommand} ${authFlags}`;
+    }
+
+    // Context Bridge: Pipeline Selector
+    // 1. Fetch normalized recon profile for this scan
+    const profileRow = await db.select().from(reconProfiles).where(eq(reconProfiles.scanId, scanId)).limit(1).then(res => res[0]);
+    
+    if (profileRow && profileRow.normalizedData) {
+       const reconData = profileRow.normalizedData as NormalizedReconProfile;
+       const decision = PipelineSelector.selectPipeline(reconData, [{id: vectorId, command: finalCommand}]);
+       
+       if (decision.disabledModules.includes(vectorId)) {
+          console.log(`[Scan ${scanId}] 🛡️ Pipeline Selector abortó la ejecución de ${vectorId} porque la tecnología subyacente no coincide.`);
+          return `🛑 Ataque cancelado preventivamente por el Pipeline Inteligente.`;
+       }
+
+       const mutatedVector = decision.mutatedVectors.find(v => v.id === vectorId);
+       if (mutatedVector) {
+          finalCommand = mutatedVector.mutatedCommand;
+          if (mutatedVector.tamperApplied) {
+             console.log(`[Scan ${scanId}] 🕵️ WAF Evasion actived: Tampers applied: ${mutatedVector.tamperNames.join(', ')}`);
+          }
+       }
+    } else {
+       console.log(`[Scan ${scanId}] ⚠️ No NormalizedReconProfile found. Falling back to default command.`);
     }
 
     // Context Bridge: Extraer params de los findings previos de discovery para alimentar sqlmap

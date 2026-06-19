@@ -10,7 +10,7 @@ export async function runWafScan(scanId: number, targetUrl: string) {
     });
 
     const headers = response.headers;
-    const serverHeader = (headers['server'] || '').toLowerCase();
+    const serverHeader = String(headers['server'] || '').toLowerCase();
     
     let hasWaf = false;
     let wafName = '';

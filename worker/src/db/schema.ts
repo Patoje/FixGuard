@@ -1,4 +1,43 @@
-import { pgTable, serial, text, timestamp, varchar, integer, json } from 'drizzle-orm/pg-core';
+import { pgTable, serial, text, timestamp, varchar, integer, json, jsonb } from 'drizzle-orm/pg-core';
+
+export interface NormalizedReconProfile {
+  scanId: number;
+  target: string;
+  
+  stack: {
+    frontend: string | null;      // "Next.js 14.1.0"
+    runtime: string | null;       // "Node.js 20.x"
+    waf: string | null;           // "Cloudflare"
+    cdn: string | null;           // "Vercel"
+    confidence: number;           // 0.0 - 1.0
+    database_hints?: string[];    // ["MongoDB", "PostgreSQL"]
+  };
+  
+  endpoints: {
+    url: string;
+    source: "gau" | "waymore" | "crawler" | "sourcemapper" | "jsrecon" | "other";
+    lastSeen: string;
+  }[];
+  
+  subdomains: {
+    domain: string;
+    source: "subfinder" | "amass" | "crt.sh" | "dnsx" | "other";
+    takeover_candidate: boolean;
+  }[];
+  
+  credentials: {
+    email: string;
+    type: string;
+    breach_count: number;
+    has_plaintext: boolean;
+  }[];
+  
+  vulnerabilities_hints: {
+    type: string;               // "outdated_dep", "exposed_file", "source_map"
+    detail: string;
+    cve?: string;
+  }[];
+}
 
 export const users = pgTable('users', {
   id: serial('id').primaryKey(),
@@ -51,6 +90,7 @@ export const reconProfiles = pgTable('recon_profiles', {
   workflowIntelligence: json('workflow_intelligence'),
   auditReport: json('audit_report'),
   smartVectors: json('smart_vectors'),
+  normalizedData: jsonb('normalized_data').$type<NormalizedReconProfile>(),
   createdAt: timestamp('created_at').defaultNow().notNull(),
 });
 
@@ -69,6 +109,9 @@ export const findings = pgTable('findings', {
   cweId: varchar('cwe_id', { length: 20 }),
   owaspCategory: varchar('owasp_category', { length: 100 }),
   toolSource: varchar('tool_source', { length: 50 }).notNull(),
+  detectedBy: jsonb('detected_by').$type<string[]>(), // e.g. ["dalfox", "xsstrike"]
+  confirmedInScans: jsonb('confirmed_in_scans').$type<number[]>(), // IDs de scans anteriores
+  confidence: integer('confidence').default(0), // 0 to 100
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
 });

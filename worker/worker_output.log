@@ -12,16 +12,11 @@
     -> Ejecuta: brew install gau
 [+] sqlmap ... OK
 [+] nmap ... OK
-[-] Falta semgrep!
-    -> Ejecuta: brew install semgrep
+[+] semgrep ... OK
 [+] amass ... OK
 [-] Falta shodan!
     -> Ejecuta: easy_install shodan
 [+] httpx ... OK
-[-] Falta whatweb!
-    -> Ejecuta: brew install whatweb
-[-] Falta wappalyzer!
-    -> Ejecuta: npm i -g wappalyzer
 [+] feroxbuster ... OK
 [-] Falta gospider!
     -> Ejecuta: go install github.com/jaeles-project/gospider@latest
@@ -31,10 +26,6 @@
 [+] retire ... OK
 [-] Falta shcheck!
     -> Ejecuta: pip install shcheck
-[-] Falta commix!
-    -> Ejecuta: brew install commix
-[-] Falta nosqlmap!
-    -> Ejecuta: git clone https://github.com/codingo/NoSQLMap.git
 [-] Falta crlfuzz!
     -> Ejecuta: go install github.com/dwisiswant0/crlfuzz/cmd/crlfuzz@latest
 [-] Falta kxss!
@@ -43,638 +34,221 @@
 [!] Advertencia: Algunas herramientas de tu arsenal no están instaladas.
 [!] FixGuard funcionará, pero algunos ataques o motores SAST fallarán si no instalas estas dependencias.
 
-[Scan 244] Iniciando ataque dirigido REAL [bola_L2FwaS9hdX] contra https://balbuenabarber.vercel.app/api/auth/session
-[Scan 244] ⚙️ Ejecutando herramienta profesional CLI: curl -i -s -k -X GET https://balbuenabarber.vercel.app/api/auth/session
-[Scan 244] 📄 Output recibido (Longitud: 805 bytes)
-[Scan 244] ✅ El objetivo parece estar seguro contra este vector (Ninguna coincidencia crítica en la salida de11:29:50 PM [tsx] change in ./src/targetedOrchestrator.ts Process hasn't exited. Killing process...
-11:29:50 PM [tsx] change in ./src/index.ts Process hasn't exited. Killing process...
-10:06:20 AM [tsx] change in ./src/recon/wordlists.ts Process hasn't exited. Killing process...
-10:06:31 AM [tsx] change in ./src/scanner/directories.ts Process hasn't exited. Killing process...
-10:06:31 AM [tsx] change in ./src/scanner/nextjs.ts Process hasn't exited. Killing process...
-10:06:35 AM [tsx] change in ./src/recon/ParameterIntelligenceEngine.ts Process hasn't exited. Killing process...
-10:06:35 AM [tsx] change in ./src/scanner/securityTxt.ts Process hasn't exited. Killing process...
-10:06:36 AM [tsx] change in ./src/recon/TechStackProfiler.ts Process hasn't exited. Killing process...
-10:06:36 AM [tsx] change in ./src/scanner/fingerprint.ts Process hasn't exited. Killing process...
-10:06:36 AM [tsx] change in ./src/recon/ArchitectureBuilder.ts Process hasn't exited. Killing process...
-10:06:36 AM [tsx] change in ./src/recon/WorkflowReconstructionEngine.ts Process hasn't exited. Killing process...
-10:06:36 AM [tsx] change in ./src/recon/ServerActionsEngine.ts Process hasn't exited. Killing process...
-10:06:36 AM [tsx] change in ./src/scanner/jwt.ts Process hasn't exited. Killing process...
-1:40:36 PM [tsx] change in ./src/recon/parsers/JsKnowledgeExtractor.ts Process hasn't exited. Killing process...
-1:40:45 PM [tsx] change in ./src/recon/analyzers/CookiesAnalyzer.ts Process hasn't exited. Killing process...
-1:40:45 PM [tsx] change in ./src/recon/parsers/AuthIntelligenceEngine.ts Process hasn't exited. Killing process...
-1:40:45 PM [tsx] change in ./src/scanner/logic/BolaExploiter.ts Process hasn't exited. Killing process...
-/src/recon/analyzers/DnsAnalyzer.ts Process hasn't exited. Killing process...
-1:40:45 PM [tsx] change in ./src/scanner/logic/BolaExploiter.ts Process hasn't exited. Killing process...
-X POST -H "Content-Type: application/json" -d '{"role":"admin","isAdmin":true}' https://balbuenabarber.vercel.app/api/auth/session
-[Scan 248] 📄 Output recibido (Longitud: 795 bytes)
-[Scan 248] ✅ El objetivo parece estar seguro contra este vector (Ninguna coincidencia crítica en la salida de la herramienta).
-[Scan 249] Iniciando ataque dirigido REAL [mass_assignment_L2xvZ2lu] contra https://balbuenabarber.vercel.app/login
-[Scan 249] ⚙️ Ejecutando herramienta profesional CLI: curl -i -s -k -X POST -H "Content-Type: application/json" -d '{"role":"admin","isAdmin":true}' https://balbuenabarber.vercel.app/login
-[Scan 249] 📄 Output recibido (Longitud: 390 bytes)
-[Scan 249] ✅ El objetivo parece estar seguro contra este vector (Ninguna coincidencia crítica en la salida de la herramienta).
-[Scan 250] Iniciando ataque dirigido REAL [mass_assignment_L3JlZ2lzdG] contra https://balbuenabarber.vercel.app/register
-[Scan 250] ⚙️ Ejecutando herramienta profesional CLI: curl -i -s -k -X POST -H "Content-Type: application/json" -d '{"role":"admin","isAdmin":true}' https://balbuenabarber.vercel.app/register
-[Scan 250] 📄 Output recibido (Longitud: 393 bytes)
-[Scan 250] ✅ El objetivo parece estar seguro contra este vector (Ninguna coincidencia crítica en la salida de la herramienta).
-[Scan 251] Iniciando ataque dirigido REAL [mass_assignment_L2FwaS9hdX] contra https://balbuenabarber.vercel.app/api/auth/providers
-[Scan 251] ⚙️ Ejecutando herramienta profesional CLI: curl -i -s -k -X POST -H "Content-Type: application/json" -d '{"role":"admin","isAdmin":true}' https://balbuenabarber.vercel.app/api/auth/providers
-[Scan 251] 📄 Output recibido (Longitud: 507 bytes)
-[Scan 251] ✅ El objetivo parece estar seguro contra este vector (Ninguna coincidencia crítica en la salida de la herramienta).
-[Scan 252] Iniciando ataque dirigido REAL [mass_assignment_L2FwaS9hdX] contra https://balbuenabarber.vercel.app/api/auth/csrf
-[Scan 252] ⚙️ Ejecutando herramienta profesional CLI: curl -i -s -k -X POST -H "Content-Type: application/json" -d '{"role":"admin","isAdmin":true}' https://balbuenabarber.vercel.app/api/auth/csrf
-[Scan 252] 📄 Output recibido (Longitud: 507 bytes)
-[Scan 252] ✅ El objetivo parece estar seguro contra este vector (Ninguna coincidencia crítica en la salida de la herramienta).
-[Scan 253] Iniciando ataque dirigido REAL [mass_assignment_L2FwaS9hdX] contra https://balbuenabarber.vercel.app/api/auth/signin/google
-[Scan 253] ⚙️ Ejecutando herramienta profesional CLI: curl -i -s -k -X POST -H "Content-Type: application/json" -d '{"role":"admin","isAdmin":true}' https://balbuenabarber.vercel.app/api/auth/signin/google
-[Scan 253] 📄 Output recibido (Longitud: 830 bytes)
-[Scan 253] ✅ El objetivo parece estar seguro contra este vector (Ninguna coincidencia crítica en la salida de la herramienta).
-[Scan 254] Iniciando ataque dirigido REAL [mass_assignment_L2FwaS9wcm] contra https://balbuenabarber.vercel.app/api/products
-[Scan 254] ⚙️ Ejecutando herramienta profesional CLI: curl -i -s -k -X POST -H "Content-Type: application/json" -d '{"role":"admin","isAdmin":true}' https://balbuenabarber.vercel.app/api/products
-[Scan 254] 📄 Output recibido (Longitud: 449 bytes)
-[Scan 254] ✅ El objetivo parece estar seguro contra este vector (Ninguna coincidencia crítica en la salida de la herramienta).
-11:29:50 PM [tsx] change in ./src/targetedOrchestrator.ts Restarting...
-c11:29:50 PM [tsx] change in ./src/index.ts Restarting...
-c🚀 FixGuard OSINT Worker ejecutándose en http://localhost:4000
-==========================================
-   FixGuard Arsenal Readiness Checker     
-==========================================
-[+] nuclei ... OK
-[+] dalfox ... OK
-[-] Falta gau!
-    -> Ejecuta: brew install gau
-[+] sqlmap ... OK
-[+] nmap ... OK
-[-] Falta semgrep!
-    -> Ejecuta: brew install semgrep
-[+] amass ... OK
-[-] Falta shodan!
-    -> Ejecuta: easy_install shodan
-[+] httpx ... OK
-[-] Falta whatweb!
-    -> Ejecuta: brew install whatweb
-[-] Falta wappalyzer!
-    -> Ejecuta: npm i -g wappalyzer
-[+] feroxbuster ... OK
-[-] Falta gospider!
-    -> Ejecuta: go install github.com/jaeles-project/gospider@latest
-[+] trufflehog ... OK
-[+] gitleaks ... OK
-[+] source-map-explorer ... OK
-[+] retire ... OK
-[-] Falta shcheck!
-    -> Ejecuta: pip install shcheck
-[-] Falta commix!
-    -> Ejecuta: brew install commix
-[-] Falta nosqlmap!
-    -> Ejecuta: git clone https://github.com/codingo/NoSQLMap.git
-[-] Falta crlfuzz!
-    -> Ejecuta: go install github.com/dwisiswant0/crlfuzz/cmd/crlfuzz@latest
-[-] Falta kxss!
-    -> Ejecuta: go install github.com/Emoe/kxss@latest
 
-[!] Advertencia: Algunas herramientas de tu arsenal no están instaladas.
-[!] FixGuard funcionará, pero algunos ataques o motores SAST fallarán si no instalas estas dependencias.
+[Scan 251] Iniciando motores de escaneo (aggressive) para https://balbuenabarber.vercel.app/...
+[Scan 251] Ejecutando Inteligencia de Superficie de Ataque...
+[Subfinder] Iniciando búsqueda pasiva para: balbuenabarber.vercel.app
+[Subfinder] Encontrados 0 subdominios.
+[HTTPX Native Fallback] Escaneando 1 subdominios vivos...
+[HTTPX] Detectados 1 hosts vivos.
+[GAU Fallback] Extrayendo historial de URLs para 1 hosts usando AlienVault OTX...
+[GAU] Error obteniendo historial para https://balbuenabarber.vercel.app: Request failed with status code 404
+[GAU] Extraídas 0 URLs históricas únicas.
+Iniciando escaneo 251 para https://balbuenabarber.vercel.app/...
+[Scan 251] Cabeceras faltantes encontradas: [
+  'content-security-policy',
+  'x-frame-options',
+  'x-content-type-options',
+  'permissions-policy',
+  'referrer-policy'
+]
+[Scan 251] Escaneo de cabeceras completado.
+[Scan 251] Crawler: Iniciando User Journey Explorer en https://balbuenabarber.vercel.app/...
+[Scan 251] Crawler: Explorando a fondo https://balbuenabarber.vercel.app/...
+[Scan 251] Crawler: Interactuando con 5 componentes UI...
+[Scan 251] Crawler: Explorando a fondo https://balbuenabarber.vercel.app/login...
+[Scan 251] Crawler: Interactuando con 5 componentes UI...
+[Scan 251] Crawler: Inyectando datos en 2 formulario(s)...
+[Scan 251] Crawler: Explorando a fondo https://balbuenabarber.vercel.app/turnos...
+[Scan 251] Crawler: Interactuando con 10 componentes UI...
+[Scan 251] Crawler: Explorando a fondo https://balbuenabarber.vercel.app/tienda...
+[Scan 251] Crawler: Interactuando con 9 componentes UI...
+[Scan 251] Crawler: Exploración de Viaje completada. 79 rutas/endpoints descubiertos, 17 archivos JS interceptados. (28 clics, 0 forms, 197 reqs)
+⚠️ No GOOGLE_GENERATIVE_AI_API_KEY found, skipping AI Exposure Enrichment.
+[SubdomainIntelligence] Lanzando motores OSINT concurrentes para balbuenabarber.vercel.app...
+[SubdomainIntelligence] ⚠️ crt.sh falló: Fallo en conexión o timeout
+[SubdomainIntelligence] ✅ HackerTarget encontró 0 subdominios.
+[SubdomainIntelligence] ⚠️ AlienVault falló: Fallo en conexión o timeout
+[ArtifactIntelligence] Escaneando 17 chunks de JS en busca de secretos y rutas ocultas...
+[ArtifactIntelligence] 🔍 LinkFinder extrajo 6 endpoints de API ocultos en el código.
+[ServerActionsEngine] Escaneando 17 chunks de JS buscando Hashes de Server Actions...
+[Scan 251] Análisis Pasivo y Reconocimiento completado. Guardado Perfil Tech Stack.
+[Scan 251] 🎉 Todos los motores finalizaron exitosamente.
+[Scan 251] ⚠️ Framework Next.js detectado. Lanzando ataque automático de verificación React2Shell (CVE-2025-55182)...
+[Scan 251] ⚔️ Iniciando Attack Executor para 11 vectores de lógica de negocio...
 
-10:06:20 AM [tsx] change in ./src/recon/wordlists.ts Restarting...
-c🚀 FixGuard OSINT Worker ejecutándose en http://localhost:4000
-==========================================
-   FixGuard Arsenal Readiness Checker     
-==========================================
-[+] nuclei ... OK
-[+] dalfox ... OK
-[-] Falta gau!
-    -> Ejecuta: brew install gau
-[+] sqlmap ... OK
-[+] nmap ... OK
-[-] Falta semgrep!
-    -> Ejecuta: brew install semgrep
-[+] amass ... OK
-[-] Falta shodan!
-    -> Ejecuta: easy_install shodan
-[+] httpx ... OK
-[-] Falta whatweb!
-    -> Ejecuta: brew install whatweb
-[-] Falta wappalyzer!
-    -> Ejecuta: npm i -g wappalyzer
-[+] feroxbuster ... OK
-[-] Falta gospider!
-    -> Ejecuta: go install github.com/jaeles-project/gospider@latest
-[+] trufflehog ... OK
-[+] gitleaks ... OK
-[+] source-map-explorer ... OK
-[+] retire ... OK
-[-] Falta shcheck!
-    -> Ejecuta: pip install shcheck
-[-] Falta commix!
-    -> Ejecuta: brew install commix
-[-] Falta nosqlmap!
-    -> Ejecuta: git clone https://github.com/codingo/NoSQLMap.git
-[-] Falta crlfuzz!
-    -> Ejecuta: go install github.com/dwisiswant0/crlfuzz/cmd/crlfuzz@latest
-[-] Falta kxss!
-    -> Ejecuta: go install github.com/Emoe/kxss@latest
-
-[!] Advertencia: Algunas herramientas de tu arsenal no están instaladas.
-[!] FixGuard funcionará, pero algunos ataques o motores SAST fallarán si no instalas estas dependencias.
-
-10:06:31 AM [tsx] change in ./src/scanner/directories.ts Restarting...
-c10:06:31 AM [tsx] change in ./src/scanner/nextjs.ts Restarting...
-c🚀 FixGuard OSINT Worker ejecutándose en http://localhost:4000
-==========================================
-   FixGuard Arsenal Readiness Checker     
-==========================================
-[+] nuclei ... OK
-[+] dalfox ... OK
-[-] Falta gau!
-    -> Ejecuta: brew install gau
-[+] sqlmap ... OK
-[+] nmap ... OK
-[-] Falta semgrep!
-    -> Ejecuta: brew install semgrep
-[+] amass ... OK
-[-] Falta shodan!
-    -> Ejecuta: easy_install shodan
-[+] httpx ... OK
-[-] Falta whatweb!
-    -> Ejecuta: brew install whatweb
-[-] Falta wappalyzer!
-    -> Ejecuta: npm i -g wappalyzer
-[+] feroxbuster ... OK
-[-] Falta gospider!
-    -> Ejecuta: go install github.com/jaeles-project/gospider@latest
-[+] trufflehog ... OK
-[+] gitleaks ... OK
-[+] source-map-explorer ... OK
-[+] retire ... OK
-[-] Falta shcheck!
-    -> Ejecuta: pip install shcheck
-[-] Falta commix!
-    -> Ejecuta: brew install commix
-[-] Falta nosqlmap!
-    -> Ejecuta: git clone https://github.com/codingo/NoSQLMap.git
-[-] Falta crlfuzz!
-    -> Ejecuta: go install github.com/dwisiswant0/crlfuzz/cmd/crlfuzz@latest
-[-] Falta kxss!
-    -> Ejecuta: go install github.com/Emoe/kxss@latest
-
-[!] Advertencia: Algunas herramientas de tu arsenal no están instaladas.
-[!] FixGuard funcionará, pero algunos ataques o motores SAST fallarán si no instalas estas dependencias.
-
-10:06:35 AM [tsx] change in ./src/scanner/api-discovery.ts Rerunning...
-c10:06:35 AM [tsx] change in ./src/scanner/securityTxt.ts Restarting...
-10:06:36 AM [tsx] change in ./src/recon/TechStackProfiler.ts Process hasn't exited. Killing process...
-c10:06:36 AM [tsx] change in ./src/scanner/fingerprint.ts Restarting...
-c10:06:36 AM [tsx] change in ./src/recon/ArchitectureBuilder.ts Restarting...
-c10:06:36 AM [tsx] change in ./src/recon/WorkflowReconstructionEngine.ts Restarting...
-c10:06:36 AM [tsx] change in ./src/recon/ServerActionsEngine.ts Restarting...
-c10:06:36 AM [tsx] change in ./src/scanner/jwt.ts Restarting...
-c🚀 FixGuard OSINT Worker ejecutándose en http://localhost:4000
-==========================================
-   FixGuard Arsenal Readiness Checker     
-==========================================
-[+] nuclei ... OK
-[+] dalfox ... OK
-[-] Falta gau!
-    -> Ejecuta: brew install gau
-[+] sqlmap ... OK
-[+] nmap ... OK
-[-] Falta semgrep!
-    -> Ejecuta: brew install semgrep
-[+] amass ... OK
-[-] Falta shodan!
-    -> Ejecuta: easy_install shodan
-[+] httpx ... OK
-[-] Falta whatweb!
-    -> Ejecuta: brew install whatweb
-[-] Falta wappalyzer!
-    -> Ejecuta: npm i -g wappalyzer
-[+] feroxbuster ... OK
-[-] Falta gospider!
-    -> Ejecuta: go install github.com/jaeles-project/gospider@latest
-[+] trufflehog ... OK
-[+] gitleaks ... OK
-[+] source-map-explorer ... OK
-[+] retire ... OK
-[-] Falta shcheck!
-    -> Ejecuta: pip install shcheck
-[-] Falta commix!
-    -> Ejecuta: brew install commix
-[-] Falta nosqlmap!
-    -> Ejecuta: git clone https://github.com/codingo/NoSQLMap.git
-[-] Falta crlfuzz!
-    -> Ejecuta: go install github.com/dwisiswant0/crlfuzz/cmd/crlfuzz@latest
-[-] Falta kxss!
-    -> Ejecuta: go install github.com/Emoe/kxss@latest
-
-[!] Advertencia: Algunas herramientas de tu arsenal no están instaladas.
-[!] FixGuard funcionará, pero algunos ataques o motores SAST fallarán si no instalas estas dependencias.
-
-1:40:36 PM [tsx] change in ./src/recon/parsers/JsKnowledgeExtractor.ts Rerunning...
-c🚀 FixGuard OSINT Worker ejecutándose en http://localhost:4000
-==========================================
-   FixGuard Arsenal Readiness Checker     
-==========================================
-[+] nuclei ... OK
-[+] dalfox ... OK
-[-] Falta gau!
-    -> Ejecuta: brew install gau
-[+] sqlmap ... OK
-[+] nmap ... OK
-[-] Falta semgrep!
-    -> Ejecuta: brew install semgrep
-[+] amass ... OK
-[-] Falta shodan!
-    -> Ejecuta: easy_install shodan
-[+] httpx ... OK
-[-] Falta whatweb!
-    -> Ejecuta: brew install whatweb
-[-] Falta wappalyzer!
-    -> Ejecuta: npm i -g wappalyzer
-[+] feroxbuster ... OK
-[-] Falta gospider!
-    -> Ejecuta: go install github.com/jaeles-project/gospider@latest
-[+] trufflehog ... OK
-[+] gitleaks ... OK
-[+] source-map-explorer ... OK
-[+] retire ... OK
-[-] Falta shcheck!
-    -> Ejecuta: pip install shcheck
-[-] Falta commix!
-    -> Ejecuta: brew install commix
-[-] Falta nosqlmap!
-    -> Ejecuta: git clone https://github.com/codingo/NoSQLMap.git
-[-] Falta crlfuzz!
-    -> Ejecuta: go install github.com/dwisiswant0/crlfuzz/cmd/crlfuzz@latest
-[-] Falta kxss!
-    -> Ejecuta: go install github.com/Emoe/kxss@latest
-
-[!] Advertencia: Algunas herramientas de tu arsenal no están instaladas.
-[!] FixGuard funcionará, pero algunos ataques o motores SAST fallarán si no instalas estas dependencias.
-
-1:40:45 PM [tsx] change in ./src/recon/analyzers/HtmlAnalyzer.ts Restarting...
-c1:40:45 PM [tsx] change in ./src/recon/analyzers/CookiesAnalyzer.ts Restarting...
-c1:40:45 PM [tsx] change in ./src/recon/parsers/AuthIntelligenceEngine.ts Restarting...
-c1:40:45 PM [tsx] change in ./src/scanner/logic/BolaExploiter.ts Restarting...
-c🚀 FixGuard OSINT Worker ejecutándose en http://localhost:4000
-==========================================
-   FixGuard Arsenal Readiness Checker     
-==========================================
-[+] nuclei ... OK
-[+] dalfox ... OK
-[-] Falta gau!
-    -> Ejecuta: brew install gau
-[+] sqlmap ... OK
-[+] nmap ... OK
-[-] Falta semgrep!
-    -> Ejecuta: brew install semgrep
-[+] amass ... OK
-[-] Falta shodan!
-    -> Ejecuta: easy_install shodan
-[+] httpx ... OK
-[-] Falta whatweb!
-    -> Ejecuta: brew install whatweb
-[-] Falta wappalyzer!
-    -> Ejecuta: npm i -g wappalyzer
-[+] feroxbuster ... OK
-[-] Falta gospider!
-    -> Ejecuta: go install github.com/jaeles-project/gospider@latest
-[+] trufflehog ... OK
-[+] gitleaks ... OK
-[+] source-map-explorer ... OK
-[+] retire ... OK
-[-] Falta shcheck!
-    -> Ejecuta: pip install shcheck
-[-] Falta commix!
-    -> Ejecuta: brew install commix
-[-] Falta nosqlmap!
-    -> Ejecuta: git clone https://github.com/codingo/NoSQLMap.git
-[-] Falta crlfuzz!
-    -> Ejecuta: go install github.com/dwisiswant0/crlfuzz/cmd/crlfuzz@latest
-[-] Falta kxss!
-    -> Ejecuta: go install github.com/Emoe/kxss@latest
-
-[!] Advertencia: Algunas herramientas de tu arsenal no están instaladas.
-[!] FixGuard funcionará, pero algunos ataques o motores SAST fallarán si no instalas estas dependencias.
-
-eadiness Checker     
-==========================================
-[+] nuclei ... OK
-[+] dalfox ... OK
-[-] Falta gau!
-    -> Ejecuta: brew install gau
-[+] sqlmap ... OK
-[+] nmap ... OK
-[-] Falta semgrep!
-    -> Ejecuta: brew install semgrep
-[+] amass ... OK
-[-] Falta shodan!
-    -> Ejecuta: easy_install shodan
-[+] httpx ... OK
-[-] Falta whatweb!
-    -> Ejecuta: brew install whatweb
-[-] Falta wappalyzer!
-    -> Ejecuta: npm i -g wappalyzer
-[+] feroxbuster ... OK
-[-] Falta gospider!
-    -> Ejecuta: go install github.com/jaeles-project/gospider@latest
-[+] trufflehog ... OK
-[+] gitleaks ... OK
-[+] source-map-explorer ... OK
-[+] retire ... OK
-[-] Falta shcheck!
-    -> Ejecuta: pip install shcheck
-[-] Falta commix!
-    -> Ejecuta: brew install commix
-[-] Falta nosqlmap!
-    -> Ejecuta: git clone https://github.com/codingo/NoSQLMap.git
-[-] Falta crlfuzz!
-    -> Ejecuta: go install github.com/dwisiswant0/crlfuzz/cmd/crlfuzz@latest
-[-] Falta kxss!
-    -> Ejecuta: go install github.com/Emoe/kxss@latest
-
-[!] Advertencia: Algunas herramientas de tu arsenal no están instaladas.
-[!] FixGuard funcionará, pero algunos ataques o motores SAST fallarán si no instalas estas dependencias.
-
-                                                                                                                                                                                                                                                                                         11:29:50 PM [tsx] change in ./src/targetedOrchestrator.ts Restarting...
-11:29:50 PM [tsx] change in ./src/index.ts Process hasn't exited. Killing process...
-11:29:55 PM [tsx] Process didn't exit in 5s. Force killing...
-10:06:20 AM [tsx] change in ./src/recon/wordlists.ts Process hasn't exited. Killing process...
-10:06:31 AM [tsx] change in ./src/scanner/directories.ts Process hasn't exited. Killing process...
-10:06:31 AM [tsx] change in ./src/scanner/nextjs.ts Process hasn't exited. Killing process...
-10:06:35 AM [tsx] change in ./src/scanner/api-discovery.ts Process hasn't exited. Killing process...
-10:06:35 AM [tsx] change in ./src/scanner/securityTxt.ts Process hasn't exited. Killing process...
-10:06:36 AM [tsx] change in ./src/recon/TechStackProfiler.ts Process hasn't exited. Killing process...
-10:06:36 AM [tsx] change in ./src/scanner/fingerprint.ts Process hasn't exited. Killing process...
-10:06:36 AM [tsx] change in ./src/recon/ArchitectureBuilder.ts Process hasn't exited. Killing process...
-10:06:36 AM [tsx] change in ./src/recon/WorkflowReconstructionEngine.ts Process hasn't exited. Killing process...
-10:06:36 AM [tsx] change in ./src/recon/ServerActionsEngine.ts Process hasn't exited. Killing process...
-10:06:36 AM [tsx] change in ./src/scanner/jwt.ts Process hasn't exited. Killing process...
-1:40:36 PM [tsx] change in ./src/recon/parsers/JsKnowledgeExtractor.ts Process hasn't exited. Killing process...
-1:40:45 PM [tsx] change in ./src/recon/analyzers/HtmlAnalyzer.ts Process hasn't exited. Killing process...
-1:40:45 PM [tsx] change in ./src/recon/analyzers/CookiesAnalyzer.ts Process hasn't exited. Killing process...
-1:40:45 PM [tsx] change in ./src/recon/analyzers/JsAnalyzer.ts Process hasn't exited. Killing process...
-1:40:45 PM [tsx] change in ./src/scanner/logic/BolaExploiter.ts Process hasn't exited. Killing process...
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   11:29:50 PM [tsx] change in ./src/targetedOrchestrator.ts Rerunning...
-c11:29:50 PM [tsx] change in ./src/index.ts Restarting...
-c🚀 FixGuard OSINT Worker ejecutándose en http://localhost:4000
-==========================================
-   FixGuard Arsenal Readiness Checker     
-==========================================
-[+] nuclei ... OK
-[+] dalfox ... OK
-[-] Falta gau!
-    -> Ejecuta: brew install gau
-[+] sqlmap ... OK
-[+] nmap ... OK
-[-] Falta semgrep!
-    -> Ejecuta: brew install semgrep
-[+] amass ... OK
-[-] Falta shodan!
-    -> Ejecuta: easy_install shodan
-[+] httpx ... OK
-[-] Falta whatweb!
-    -> Ejecuta: brew install whatweb
-[-] Falta wappalyzer!
-    -> Ejecuta: npm i -g wappalyzer
-[+] feroxbuster ... OK
-[-] Falta gospider!
-    -> Ejecuta: go install github.com/jaeles-project/gospider@latest
-[+] trufflehog ... OK
-[+] gitleaks ... OK
-[+] source-map-explorer ... OK
-[+] retire ... OK
-[-] Falta shcheck!
-    -> Ejecuta: pip install shcheck
-[-] Falta commix!
-    -> Ejecuta: brew install commix
-[-] Falta nosqlmap!
-    -> Ejecuta: git clone https://github.com/codingo/NoSQLMap.git
-[-] Falta crlfuzz!
-    -> Ejecuta: go install github.com/dwisiswant0/crlfuzz/cmd/crlfuzz@latest
-[-] Falta kxss!
-    -> Ejecuta: go install github.com/Emoe/kxss@latest
-
-[!] Advertencia: Algunas herramientas de tu arsenal no están instaladas.
-[!] FixGuard funcionará, pero algunos ataques o motores SAST fallarán si no instalas estas dependencias.
-
-10:06:20 AM [tsx] change in ./src/recon/wordlists.ts Rerunning...
-c🚀 FixGuard OSINT Worker ejecutándose en http://localhost:4000
-==========================================
-   FixGuard Arsenal Readiness Checker     
-==========================================
-[+] nuclei ... OK
-[+] dalfox ... OK
-[-] Falta gau!
-    -> Ejecuta: brew install gau
-[+] sqlmap ... OK
-[+] nmap ... OK
-[-] Falta semgrep!
-    -> Ejecuta: brew install semgrep
-[+] amass ... OK
-[-] Falta shodan!
-    -> Ejecuta: easy_install shodan
-[+] httpx ... OK
-[-] Falta whatweb!
-    -> Ejecuta: brew install whatweb
-[-] Falta wappalyzer!
-    -> Ejecuta: npm i -g wappalyzer
-[+] feroxbuster ... OK
-[-] Falta gospider!
-    -> Ejecuta: go install github.com/jaeles-project/gospider@latest
-[+] trufflehog ... OK
-[+] gitleaks ... OK
-[+] source-map-explorer ... OK
-[+] retire ... OK
-[-] Falta shcheck!
-    -> Ejecuta: pip install shcheck
-[-] Falta commix!
-    -> Ejecuta: brew install commix
-[-] Falta nosqlmap!
-    -> Ejecuta: git clone https://github.com/codingo/NoSQLMap.git
-[-] Falta crlfuzz!
-    -> Ejecuta: go install github.com/dwisiswant0/crlfuzz/cmd/crlfuzz@latest
-[-] Falta kxss!
-    -> Ejecuta: go install github.com/Emoe/kxss@latest
-
-[!] Advertencia: Algunas herramientas de tu arsenal no están instaladas.
-[!] FixGuard funcionará, pero algunos ataques o motores SAST fallarán si no instalas estas dependencias.
-
-10:06:31 AM [tsx] change in ./src/scanner/directories.ts Rerunning...
-c10:06:31 AM [tsx] change in ./src/scanner/nextjs.ts Restarting...
-c🚀 FixGuard OSINT Worker ejecutándose en http://localhost:4000
-==========================================
-   FixGuard Arsenal Readiness Checker     
-==========================================
-[+] nuclei ... OK
-[+] dalfox ... OK
-[-] Falta gau!
-    -> Ejecuta: brew install gau
-[+] sqlmap ... OK
-[+] nmap ... OK
-[-] Falta semgrep!
-    -> Ejecuta: brew install semgrep
-[+] amass ... OK
-[-] Falta shodan!
-    -> Ejecuta: easy_install shodan
-[+] httpx ... OK
-[-] Falta whatweb!
-    -> Ejecuta: brew install whatweb
-[-] Falta wappalyzer!
-    -> Ejecuta: npm i -g wappalyzer
-[+] feroxbuster ... OK
-[-] Falta gospider!
-    -> Ejecuta: go install github.com/jaeles-project/gospider@latest
-[+] trufflehog ... OK
-[+] gitleaks ... OK
-[+] source-map-explorer ... OK
-[+] retire ... OK
-[-] Falta shcheck!
-    -> Ejecuta: pip install shcheck
-[-] Falta commix!
-    -> Ejecuta: brew install commix
-[-] Falta nosqlmap!
-    -> Ejecuta: git clone https://github.com/codingo/NoSQLMap.git
-[-] Falta crlfuzz!
-    -> Ejecuta: go install github.com/dwisiswant0/crlfuzz/cmd/crlfuzz@latest
-[-] Falta kxss!
-    -> Ejecuta: go install github.com/Emoe/kxss@latest
-
-[!] Advertencia: Algunas herramientas de tu arsenal no están instaladas.
-[!] FixGuard funcionará, pero algunos ataques o motores SAST fallarán si no instalas estas dependencias.
-
-10:06:35 AM [tsx] change in ./src/scanner/api-discovery.ts Restarting...
-c10:06:35 AM [tsx] change in ./src/scanner/securityTxt.ts Restarting...
-c10:06:36 AM [tsx] change in ./src/recon/TechStackProfiler.ts Restarting...
-c10:06:36 AM [tsx] change in ./src/scanner/fingerprint.ts Restarting...
-c10:06:36 AM [tsx] change in ./src/recon/ArchitectureBuilder.ts Restarting...
-c10:06:36 AM [tsx] change in ./src/recon/WorkflowReconstructionEngine.ts Restarting...
-c10:06:36 AM [tsx] change in ./src/recon/ServerActionsEngine.ts Restarting...
-c10:06:36 AM [tsx] change in ./src/scanner/jwt.ts Restarting...
-c🚀 FixGuard OSINT Worker ejecutándose en http://localhost:4000
-==========================================
-   FixGuard Arsenal Readiness Checker     
-==========================================
-[+] nuclei ... OK
-[+] dalfox ... OK
-[-] Falta gau!
-    -> Ejecuta: brew install gau
-[+] sqlmap ... OK
-[+] nmap ... OK
-[-] Falta semgrep!
-    -> Ejecuta: brew install semgrep
-[+] amass ... OK
-[-] Falta shodan!
-    -> Ejecuta: easy_install shodan
-[+] httpx ... OK
-[-] Falta whatweb!
-    -> Ejecuta: brew install whatweb
-[-] Falta wappalyzer!
-    -> Ejecuta: npm i -g wappalyzer
-[+] feroxbuster ... OK
-[-] Falta gospider!
-    -> Ejecuta: go install github.com/jaeles-project/gospider@latest
-[+] trufflehog ... OK
-[+] gitleaks ... OK
-[+] source-map-explorer ... OK
-[+] retire ... OK
-[-] Falta shcheck!
-    -> Ejecuta: pip install shcheck
-[-] Falta commix!
-    -> Ejecuta: brew install commix
-[-] Falta nosqlmap!
-    -> Ejecuta: git clone https://github.com/codingo/NoSQLMap.git
-[-] Falta crlfuzz!
-    -> Ejecuta: go install github.com/dwisiswant0/crlfuzz/cmd/crlfuzz@latest
-[-] Falta kxss!
-    -> Ejecuta: go install github.com/Emoe/kxss@latest
-
-[!] Advertencia: Algunas herramientas de tu arsenal no están instaladas.
-[!] FixGuard funcionará, pero algunos ataques o motores SAST fallarán si no instalas estas dependencias.
-
-1:40:36 PM [tsx] change in ./src/recon/parsers/JsKnowledgeExtractor.ts Rerunning...
-c🚀 FixGuard OSINT Worker ejecutándose en http://localhost:4000
-==========================================
-   FixGuard Arsenal Readiness Checker     
-==========================================
-[+] nuclei ..1:40:45 PM [tsx] change in ./src/recon/analyzers/CookiesAnalyzer.ts Process hasn't exited. Killing process...
-1:40:45 PM [tsx] change in ./src/recon/parsers/AuthIntelligenceEngine.ts Process hasn't exited. Killing process...
-1:40:45 PM [tsx] change in ./src/scanner/logic/BolaExploiter.ts Process hasn't exited. Killing process...
-12:49:04 PM [tsx] Previous process hasn't exited yet. Force killing...
-12:49:04 PM [tsx] Previous process hasn't exited yet. Force killing...
-12:49:09 PM [tsx] Process didn't exit in 5s. Force killing...
-12:49:09 PM [tsx] Process didn't exit in 5s. Force killing...
-ta: pip install shcheck
-[-] Falta commix!
-    -> Ejecuta: brew install commix
-[-] Falta nosqlmap!
-    -> Ejecuta: git clone https://github.com/codingo/NoSQLMap.git
-[-] Falta crlfuzz!
-    -> Ejecuta: go install github.com/dwisiswant0/crlfuzz/cmd/crlfuzz@latest
-[-] Falta kxss!
-    -> Ejecuta: go install github.com/Emoe/kxss@latest
-
-[!] Advertencia: Algunas herramientas de tu arsenal no están instaladas.
-[!] FixGuard funcionará, pero algunos ataques o motores SAST fallarán si no instalas estas dependencias.
-
-1:40:45 PM [tsx] change in ./src/recon/analyzers/HtmlAnalyzer.ts Rerunning...
-c1:40:45 PM [tsx] change in ./src/recon/analyzers/CookiesAnalyzer.ts Restarting...
-c1:40:45 PM [tsx] change in ./src/recon/parsers/AuthIntelligenceEngine.ts Restarting...
-c1:40:45 PM [tsx] change in ./src/scanner/logic/BolaExploiter.ts Restarting...
-c🚀 FixGuard OSINT Worker ejecutándose en http://localhost:4000
-==========================================
-   FixGuard Arsenal Readiness Checker     
-==========================================
-[+] nuclei ... OK
-[+] dalfox ... OK
-[-] Falta gau!
-    -> Ejecuta: brew install gau
-[+] sqlmap ... OK
-[+] nmap ... OK
-[-] Falta semgrep!
-    -> Ejecuta: brew install semgrep
-[+] amass ... OK
-[-] Falta shodan!
-    -> Ejecuta: easy_install shodan
-[+] httpx ... OK
-[-] Falta whatweb!
-    -> Ejecuta: brew install whatweb
-[-] Falta wappalyzer!
-    -> Ejecuta: npm i -g wappalyzer
-[+] feroxbuster ... OK
-[-] Falta gospider!
-    -> Ejecuta: go install github.com/jaeles-project/gospider@latest
-[+] trufflehog ... OK
-[+] gitleaks ... OK
-[+] source-map-explorer ... OK
-[+] retire ... OK
-[-] Falta shcheck!
-    -> Ejecuta: pip install shcheck
-[-] Falta commix!
-    -> Ejecuta: brew install commix
-[-] Falta nosqlmap!
-    -> Ejecuta: git clone https://github.com/codingo/NoSQLMap.git
-[-] Falta crlfuzz!
-    -> Ejecuta: go install github.com/dwisiswant0/crlfuzz/cmd/crlfuzz@latest
-[-] Falta kxss!
-    -> Ejecuta: go install github.com/Emoe/kxss@latest
-
-[!] Advertencia: Algunas herramientas de tu arsenal no están instaladas.
-[!] FixGuard funcionará, pero algunos ataques o motores SAST fallarán si no instalas estas dependencias.
-
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                11:29:50 PM [tsx] change in ./src/targetedOrchestrator.ts Process hasn't exited. Killing process...
-11:29:50 PM [tsx] change in ./src/index.ts Process hasn't exited. Killing process...
-10:06:20 AM [tsx] change in ./src/recon/wordlists.ts Process hasn't exited. Killing process...
-10:06:31 AM [tsx] change in ./src/scanner/directories.ts Process hasn't exited. Killing process...
-10:06:31 AM [tsx] change in ./src/scanner/nextjs.ts Process hasn't exited. Killing process...
-10:06:35 AM [tsx] change in ./src/scanner/api-discovery.ts Process hasn't exited. Killing process...
-10:06:35 AM [tsx] change in ./src/scanner/securityTxt.ts Process hasn't exited. Killing process...
-10:06:36 AM [tsx] change in ./src/recon/TechStackProfiler.ts Process hasn't exited. Killing process...
-10:06:36 AM [tsx] change in ./src/scanner/fingerprint.ts Process hasn't exited. Killing process...
-10:06:36 AM [tsx] change in ./src/recon/ArchitectureBuilder.ts Process hasn't exited. Killing process...
-10:06:36 AM [tsx] change in ./src/recon/WorkflowReconstructionEngine.ts Process hasn't exited. Killing process...
-10:06:36 AM [tsx] change in ./src/recon/ServerActionsEngine.ts Process hasn't exited. Killing process...
-10:06:36 AM [tsx] change in ./src/scanner/jwt.ts Process hasn't exited. Killing process...
-1:40:36 PM [tsx] change in ./src/recon/parsers/JsKnowledgeExtractor.ts Process hasn't exited. Killing process...
-1:40:45 PM [tsx] change in ./src/recon/analyzers/CookiesAnalyzer.ts Process hasn't exited. Killing process...
-1:40:45 PM [tsx] change in ./src/recon/parsers/AuthIntelligenceEngine.ts Process hasn't exited. Killing process...
-1:40:45 PM [tsx] change in ./src/scanner/logic/BolaExploiter.ts Process hasn't exited. Killing process...
+[Scan 260] Iniciando motores de escaneo (aggressive) para https://balbuenabarber.vercel.app/...
+[Scan 260] Ejecutando Inteligencia de Superficie de Ataque...
+[Subfinder] Iniciando búsqueda pasiva para: balbuenabarber.vercel.app
+[Subfinder] Encontrados 0 subdominios.
+[HTTPX Native Fallback] Escaneando 1 subdominios vivos...
+[HTTPX] Detectados 1 hosts vivos.
+[GAU Fallback] Extrayendo historial de URLs para 1 hosts usando AlienVault OTX...
+[GAU] Error obteniendo historial para https://balbuenabarber.vercel.app: Request failed with status code 404
+[GAU] Extraídas 0 URLs históricas únicas.
+Iniciando escaneo 260 para https://balbuenabarber.vercel.app/...
+[Scan 260] Cabeceras faltantes encontradas: [
+  'content-security-policy',
+  'x-frame-options',
+  'x-content-type-options',
+  'permissions-policy',
+  'referrer-policy'
+]
+[Scan 260] Error en escaneo de cabeceras: Failed query: insert into "vulnerabilities" ("id", "scan_id", "type", "severity", "description", "metadata", "parent_id", "auto_fix_code", "created_at") values (default, $1, $2, $3, $4, default, default, $5, default)
+params: 260,MISSING_HEADER_CONTENT_SECURITY_POLICY,MEDIUM,La cabecera de seguridad 'content-security-policy' no está configurada en la respuesta HTTP del servidor.,
+[Scan 260] Security.txt scan error: DrizzleQueryError: Failed query: insert into "vulnerabilities" ("id", "scan_id", "type", "severity", "description", "metadata", "parent_id", "auto_fix_code", "created_at") values (default, $1, $2, $3, $4, default, default, $5, default)
+params: 260,MISSING_SECURITY_TXT,LOW,No se encontró un archivo 'security.txt' válido en /.well-known/security.txt. (Estándar RFC 9116). Esto dificulta que investigadores éticos reporten vulnerabilidades de forma segura a la empresa.,
+    at NeonHttpPreparedQuery.queryWithCache (/Users/patohe/Desktop/FixGuard/worker/node_modules/src/pg-core/session.ts:73:11)
+    at process.processTicksAndRejections (node:internal/process/task_queues:95:5)
+    at async runSecurityTxtScan (/Users/patohe/Desktop/FixGuard/worker/src/scanner/securityTxt.ts:22:7)
+    at async Promise.all (index 8)
+    at async <anonymous> (/Users/patohe/Desktop/FixGuard/worker/src/index.ts:142:27) {
+  query: 'insert into "vulnerabilities" ("id", "scan_id", "type", "severity", "description", "metadata", "parent_id", "auto_fix_code", "created_at") values (default, $1, $2, $3, $4, default, default, $5, default)',
+  params: [
+    260,
+    'MISSING_SECURITY_TXT',
+    'LOW',
+    "No se encontró un archivo 'security.txt' válido en /.well-known/security.txt. (Estándar RFC 9116). Esto dificulta que investigadores éticos reporten vulnerabilidades de forma segura a la empresa.",
+    null
+  ],
+  cause: NeonDbError: insert or update on table "vulnerabilities" violates foreign key constraint "vulnerabilities_scan_id_scans_id_fk"
+      at dr.execute (file:///Users/patohe/Desktop/FixGuard/worker/node_modules/@neondatabase/serverless/index.mjs:1298:10)
+      at process.processTicksAndRejections (node:internal/process/task_queues:95:5)
+      at async NeonHttpPreparedQuery.queryWithCache (/Users/patohe/Desktop/FixGuard/worker/node_modules/src/pg-core/session.ts:71:12)
+      at async runSecurityTxtScan (/Users/patohe/Desktop/FixGuard/worker/src/scanner/securityTxt.ts:22:7)
+      at async Promise.all (index 8)
+      at async <anonymous> (/Users/patohe/Desktop/FixGuard/worker/src/index.ts:142:27) {
+    severity: 'ERROR',
+    code: '23503',
+    detail: 'Key (scan_id)=(260) is not present in table "scans".',
+    hint: undefined,
+    position: undefined,
+    internalPosition: undefined,
+    internalQuery: undefined,
+    where: undefined,
+    schema: 'public',
+    table: 'vulnerabilities',
+    column: undefined,
+    dataType: undefined,
+    constraint: 'vulnerabilities_scan_id_scans_id_fk',
+    file: 'ri_triggers.c',
+    line: '2772',
+    routine: 'ri_ReportViolation',
+    sourceError: undefined
+  }
+}
+[Scan 260] WAF scan error: DrizzleQueryError: Failed query: insert into "vulnerabilities" ("id", "scan_id", "type", "severity", "description", "metadata", "parent_id", "auto_fix_code", "created_at") values (default, $1, $2, $3, $4, default, default, $5, default)
+params: 260,MISSING_WAF_PROTECTION,LOW,No se detectó un Web Application Firewall (WAF) activo (como Cloudflare o AWS WAF). El servidor está directamente expuesto a ataques de Denegación de Servicio (DDoS) y ataques de fuerza bruta masivos.,
+    at NeonHttpPreparedQuery.queryWithCache (/Users/patohe/Desktop/FixGuard/worker/node_modules/src/pg-core/session.ts:73:11)
+    at process.processTicksAndRejections (node:internal/process/task_queues:95:5)
+    at async runWafScan (/Users/patohe/Desktop/FixGuard/worker/src/scanner/waf.ts:33:7)
+    at async Promise.all (index 6)
+    at async <anonymous> (/Users/patohe/Desktop/FixGuard/worker/src/index.ts:142:27) {
+  query: 'insert into "vulnerabilities" ("id", "scan_id", "type", "severity", "description", "metadata", "parent_id", "auto_fix_code", "created_at") values (default, $1, $2, $3, $4, default, default, $5, default)',
+  params: [
+    260,
+    'MISSING_WAF_PROTECTION',
+    'LOW',
+    'No se detectó un Web Application Firewall (WAF) activo (como Cloudflare o AWS WAF). El servidor está directamente expuesto a ataques de Denegación de Servicio (DDoS) y ataques de fuerza bruta masivos.',
+    null
+  ],
+  cause: NeonDbError: insert or update on table "vulnerabilities" violates foreign key constraint "vulnerabilities_scan_id_scans_id_fk"
+      at dr.execute (file:///Users/patohe/Desktop/FixGuard/worker/node_modules/@neondatabase/serverless/index.mjs:1298:10)
+      at process.processTicksAndRejections (node:internal/process/task_queues:95:5)
+      at async NeonHttpPreparedQuery.queryWithCache (/Users/patohe/Desktop/FixGuard/worker/node_modules/src/pg-core/session.ts:71:12)
+      at async runWafScan (/Users/patohe/Desktop/FixGuard/worker/src/scanner/waf.ts:33:7)
+      at async Promise.all (index 6)
+      at async <anonymous> (/Users/patohe/Desktop/FixGuard/worker/src/index.ts:142:27) {
+    severity: 'ERROR',
+    code: '23503',
+    detail: 'Key (scan_id)=(260) is not present in table "scans".',
+    hint: undefined,
+    position: undefined,
+    internalPosition: undefined,
+    internalQuery: undefined,
+    where: undefined,
+    schema: 'public',
+    table: 'vulnerabilities',
+    column: undefined,
+    dataType: undefined,
+    constraint: 'vulnerabilities_scan_id_scans_id_fk',
+    file: 'ri_triggers.c',
+    line: '2772',
+    routine: 'ri_ReportViolation',
+    sourceError: undefined
+  }
+}
+[Scan 260] Crawler: Iniciando User Journey Explorer en https://balbuenabarber.vercel.app/...
+[Scan 260] Crawler: Explorando a fondo https://balbuenabarber.vercel.app/...
+[Scan 260] Crawler: Interactuando con 5 componentes UI...
+[Scan 260] Crawler: Explorando a fondo https://balbuenabarber.vercel.app/login...
+[Scan 260] Crawler: Interactuando con 5 componentes UI...
+[Scan 260] Crawler: Inyectando datos en 2 formulario(s)...
+[Scan 260] Crawler: Explorando a fondo https://balbuenabarber.vercel.app/turnos...
+[Scan 260] Crawler: Interactuando con 10 componentes UI...
+[Scan 260] Crawler: Explorando a fondo https://balbuenabarber.vercel.app/tienda...
+[Scan 260] Crawler: Interactuando con 9 componentes UI...
+[Scan 260] Crawler: Exploración de Viaje completada. 79 rutas/endpoints descubiertos, 17 archivos JS interceptados. (28 clics, 0 forms, 197 reqs)
+⚠️ No GOOGLE_GENERATIVE_AI_API_KEY found, skipping AI Exposure Enrichment.
+[SubdomainIntelligence] Lanzando motores OSINT concurrentes para balbuenabarber.vercel.app...
+[SubdomainIntelligence] ⚠️ crt.sh falló: Fallo en conexión o timeout
+[SubdomainIntelligence] ✅ HackerTarget encontró 0 subdominios.
+[SubdomainIntelligence] ⚠️ AlienVault falló: Fallo en conexión o timeout
+[ArtifactIntelligence] Escaneando 17 chunks de JS en busca de secretos y rutas ocultas...
+[ArtifactIntelligence] 🔍 LinkFinder extrajo 6 endpoints de API ocultos en el código.
+[ServerActionsEngine] Escaneando 17 chunks de JS buscando Hashes de Server Actions...
+[Scan 260] Error global de orquestación: DrizzleQueryError: Failed query: insert into "recon_profiles" ("id", "scan_id", "tech_stack", "attack_surface", "framework_intelligence", "architecture_tree", "business_dictionary", "auth_intelligence", "cloud_intelligence", "communication_intelligence", "subdomain_intelligence", "artifact_intelligence", "parameter_intelligence", "server_actions_intelligence", "ai_intelligence", "runtime_intelligence", "entity_graph", "workflow_intelligence", "audit_report", "smart_vectors", "normalized_data", "created_at") values (default, $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, default) returning "id"
+params: 260,[{"name":"Vercel","category":"Hosting / Infrastructure","confidence":99,"evidence":["Vercel headers found"],"role":"Serverless Hosting / Edge"},{"name":"Next.js","category":"Frontend Framework","confidence":95,"evidence":["Next.js static paths"],"role":"Renderizado SSR/SSG y routing"}],[{"path":"/api/auth/session","method":"ANY","riskLevel":"ALTO","type":"REST API","headers":["User-Agent","Accept"],"authType":"None","businessImpactScore":85},{"path":"/login","method":"ANY","riskLevel":"ALTO","type":"Autenticación","headers":["User-Agent","Accept"],"authType":"None","businessImpactScore":85},{"path":"/register","method":"ANY","riskLevel":"ALTO","type":"Autenticación","headers":["User-Agent","Accept"],"authType":"None","businessImpactScore":85},{"path":"/api/auth/providers","method":"ANY","riskLevel":"ALTO","type":"REST API","headers":["User-Agent","Accept"],"authType":"None","businessImpactScore":85},{"path":"/api/auth/csrf","method":"ANY","riskLevel":"ALTO","type":"REST API","headers":["User-Agent","Accept"],"authType":"None","businessImpactScore":85},{"path":"/api/auth/signin/google","method":"ANY","riskLevel":"ALTO","type":"REST API","headers":["User-Agent","Accept"],"authType":"None","businessImpactScore":85},{"path":"/api/servicios","method":"ANY","riskLevel":"MEDIO","type":"REST API","headers":["User-Agent","Accept"],"authType":"None","businessImpactScore":10},{"path":"/api/barberos","method":"ANY","riskLevel":"MEDIO","type":"REST API","headers":["User-Agent","Accept"],"authType":"None","businessImpactScore":10},{"path":"/api/availability/calendar","method":"ANY","riskLevel":"MEDIO","type":"REST API","headers":["User-Agent","Accept"],"authType":"None","businessImpactScore":10},{"path":"/api/products","method":"ANY","riskLevel":"MEDIO","type":"REST API","headers":["User-Agent","Accept"],"authType":"None","businessImpactScore":70},{"path":"/","method":"ANY","riskLevel":"BAJO","type":"Ruta General","headers":["User-Agent","Accept"],"authType":"None","businessImpactScore":10},{"path":"/turnos","method":"ANY","riskLevel":"BAJO","type":"Ruta General","headers":["User-Agent","Accept"],"authType":"None","businessImpactScore":10},{"path":"/tienda","method":"ANY","riskLevel":"BAJO","type":"Ruta General","headers":["User-Agent","Accept"],"authType":"None","businessImpactScore":10},{"path":"/tienda/6a26bfd32f4a3748a9921676","method":"ANY","riskLevel":"BAJO","type":"Ruta General","headers":["User-Agent","Accept"],"authType":"None","businessImpactScore":10}],[{"framework":"Reconocimiento Profundo","vectors":[{"id":"deep_katana","name":"Crawling Avanzado JS/DOM","cliCommand":"katana -u <TARGET> -d 5 -jc -kf"},{"id":"deep_gau","name":"Historial GAU (Wayback/AlienVault)","cliCommand":"gau <TARGET>"},{"id":"deep_trufflehog","name":"Búsqueda de API Keys (Trufflehog)","cliCommand":"trufflehog --no-update filesystem <TARGET>"}]},{"framework":"Network & Infrastructure","vectors":[{"id":"nmap_full","name":"Escaneo de Puertos Total","cliCommand":"nmap -sV -sC -Pn -T4 -p- <TARGET>"},{"id":"subfinder_enum","name":"Enumeración de Subdominios","cliCommand":"subfinder -d <TARGET> -all"}]},{"framework":"Next.js","vectors":[{"id":"nextjs_bfla","name":"Server Actions (BFLA/IDOR)","cliCommand":"nuclei -t http/exposed-panels/ -t http/misconfiguration/ -u <TARGET>"},{"id":"nextjs_middleware","name":"Middleware bypass","cliCommand":"curl -H \"x-middleware-prefetch: 1\" <TARGET>/admin"},{"id":"nextjs_api","name":"API Routes exposure","cliCommand":"ffuf -s -ac -w ./wordlists/api_wordlist.txt -u <TARGET>/FUZZ"},{"id":"nextjs_build_data","name":"Build Data (_next/data)","cliCommand":"nuclei -id nextjs-data-leak -u <TARGET>"},{"id":"nextjs_static","name":"Static Assets","cliCommand":"nuclei -id nextjs-static-leak -u <TARGET>"},{"id":"nextjs_isr","name":"ISR cache poisoning","cliCommand":"curl -X PURGE <TARGET>"},{"id":"nextjs_route_handlers","name":"Route Handlers","cliCommand":"nuclei -id nextjs-route-handlers -u <TARGET>"},{"id":"nextjs_edge","name":"Edge Functions mapping","cliCommand":"nuclei -id nextjs-edge -u <TARGET>"}]},{"framework":"Static & JAMStack","vectors":[{"id":"static_takeover","name":"Subdomain Takeover","cliCommand":"nuclei -t takeovers/ -u <TARGET>"},{"id":"static_secrets","name":"Hardcoded Secrets Scanner","cliCommand":"nuclei -tags keys,tokens,credentials -u <TARGET>"},{"id":"static_cors","name":"CORS Misconfiguration","cliCommand":"nuclei -id cors-misconfig -u <TARGET>"},{"id":"static_s3","name":"S3 Bucket Exposure","cliCommand":"nuclei -id s3-detect -u <TARGET>"}]}],{"name":"balbuenabarber.vercel.app","children":[{"name":"Frontend","children":[{"name":"Next.js"}]},{"name":"Infrastructure","children":[{"name":"Vercel"}]},{"name":"Business Logic (Entities)","children":[{"name":"Project"},{"name":"User"}]},{"name":"API Gateway","children":[{"name":"/api/auth"},{"name":"/api/servicios"},{"name":"/api/barberos"},{"name":"/api/availability"},{"name":"/api/products"}]}]},{"roles":[],"entities":["project","user"],"permissions":[],"configFlags":[]},{"mechanisms":["Client-side JWT / Token Storage"],"sessionStorage":false,"localStorage":true,"cookieNames":[]},{"provider":"Unknown","services":[],"buckets":[],"misconfigurations":[]},{"graphql":{"enabled":false,"endpoint":"","queries":[],"mutations":[],"types":[]},"websockets":{"detected":false,"urls":[],"namespaces":[]}},{"discoveredCount":0,"interestingSubdomains":[],"allSubdomains":[]},{"discoveredRoutes":[],"hiddenRoutes":[],"exposedSecrets":[],"hiddenApiEndpoints":["/api/coupons/my","/api/coupons/mark-seen","/api/barberos","/api/servicios","/api/products","/api/auth/register"],"exposedSourceMaps":[]},{"totalParameters":0,"topParameters":[],"allParameters":[]},{"extractedActionsCount":0,"actions":[]},{"detected":false,"providers":[],"frameworks":[],"features":[]},{"totalClicks":28,"totalFormsFilled":0,"totalScrolls":7,"requestsIntercepted":197,"endpointsDiscovered":79},{"nodes":[{"id":"servicio","label":"Servicio","type":"rest_resource"},{"id":"auth","label":"Auth","type":"rest_resource"},{"id":"session","label":"Session","type":"rest_resource"},{"id":"turno","label":"Turno","type":"rest_resource"},{"id":"tienda","label":"Tienda","type":"rest_resource"},{"id":"login","label":"Login","type":"rest_resource"},{"id":"register","label":"Register","type":"rest_resource"},{"id":"provider","label":"Provider","type":"rest_resource"},{"id":"csrf","label":"Csrf","type":"rest_resource"},{"id":"signin","label":"Signin","type":"rest_resource"},{"id":"google","label":"Google","type":"rest_resource"},{"id":"barbero","label":"Barbero","type":"rest_resource"},{"id":"availability","label":"Availability","type":"rest_resource"},{"id":"calendar","label":"Calendar","type":"rest_resource"},{"id":"product","label":"Product","type":"rest_resource"},{"id":"project","label":"Project","type":"model"},{"id":"user","label":"User","type":"model"}],"edges":[{"id":"auth-session-has_child","source":"auth","target":"session","label":"has_child"},{"id":"auth-provider-has_child","source":"auth","target":"provider","label":"has_child"},{"id":"auth-csrf-has_child","source":"auth","target":"csrf","label":"has_child"},{"id":"auth-signin-has_child","source":"auth","target":"signin","label":"has_child"},{"id":"signin-google-has_child","source":"signin","target":"google","label":"has_child"},{"id":"availability-calendar-has_child","source":"availability","target":"calendar","label":"has_child"}]},[{"name":"Authentication Journey","category":"Auth","steps":[{"name":"User Registration","endpoint":"/register","method":"POST","description":"Creación de nueva identidad."},{"name":"Authentication","endpoint":"/login","method":"POST","description":"Validación de credenciales."}],"confidence":0.85},{"name":"Servicios Management Flow","category":"Core","steps":[{"name":"Interact with servicios","endpoint":"/api/servicios","method":"ANY","description":"Acción sobre el recurso servicios"}],"confidence":0.6},{"name":"Turnos Management Flow","category":"Core","steps":[{"name":"Interact with turnos","endpoint":"/turnos","method":"ANY","description":"Acción sobre el recurso turnos"}],"confidence":0.6},{"name":"Tienda Management Flow","category":"Core","steps":[{"name":"Interact with tienda","endpoint":"/tienda","method":"ANY","description":"Acción sobre el recurso tienda"},{"name":"Interact with tienda","endpoint":"/tienda/6a26bfd32f4a3748a9921676","method":"ANY","description":"Acción sobre el recurso tienda"}],"confidence":0.6},{"name":"Register Management Flow","category":"Core","steps":[{"name":"Interact with register","endpoint":"/register","method":"ANY","description":"Acción sobre el recurso register"}],"confidence":0.6},{"name":"Barberos Management Flow","category":"Core","steps":[{"name":"Interact with barberos","endpoint":"/api/barberos","method":"ANY","description":"Acción sobre el recurso barberos"}],"confidence":0.6},{"name":"Availability Management Flow","category":"Core","steps":[{"name":"Interact with availability","endpoint":"/api/availability/calendar","method":"ANY","description":"Acción sobre el recurso availability"}],"confidence":0.6},{"name":"Products Management Flow","category":"Core","steps":[{"name":"Interact with products","endpoint":"/api/products","method":"ANY","description":"Acción sobre el recurso products"}],"confidence":0.6}],{"summary":"El motor de correlación ha inferido los siguientes contextos funcionales basándose en las evidencias técnicas extraídas.","contexts":[{"name":"Identity & Access Management","description":"Gestión de autenticación, autorización y sesiones de usuario.","confidence":"HIGH","evidences":["Mecanismos detectados: Client-side JWT / Token Storage","Utiliza LocalStorage para almacenar credenciales (Riesgo XSS)"],"inferredTechnologies":[]},{"name":"API & Communication Interfaces","description":"Canales de comunicación con el backend e interfaces de servicio.","confidence":"HIGH","evidences":["APIs ocultas extraídas del código JS (LinkFinder): 6 rutas encontradas."],"inferredTechnologies":[]}]},[{"id":"bola_L2FwaS9hdX","name":"Inyección de Identificador BOLA (Ruta: /api/auth/session)","attackType":"BOLA","severity":"high","method":"ANY","endpoint":"https://balbuenabarber.vercel.app/api/auth/session","attackPayload":""},{"id":"bola_L2FwaS9hdX","name":"Inyección de Identificador BOLA (Ruta: /api/auth/providers)","attackType":"BOLA","severity":"high","method":"ANY","endpoint":"https://balbuenabarber.vercel.app/api/auth/providers","attackPayload":""},{"id":"bola_L2FwaS9hdX","name":"Inyección de Identificador BOLA (Ruta: /api/auth/csrf)","attackType":"BOLA","severity":"high","method":"ANY","endpoint":"https://balbuenabarber.vercel.app/api/auth/csrf","attackPayload":""},{"id":"bola_L2FwaS9hdX","name":"Inyección de Identificador BOLA (Ruta: /api/auth/signin/google)","attackType":"BOLA","severity":"high","method":"ANY","endpoint":"https://balbuenabarber.vercel.app/api/auth/signin/google","attackPayload":""},{"id":"mass_assignment_L2FwaS9hdX","name":"Inyección de Propiedades (Mass Assignment) en /api/auth/session","attackType":"Mass Assignment","severity":"critical","method":"POST","endpoint":"https://balbuenabarber.vercel.app/api/auth/session","baselinePayload":{},"attackPayload":{}},{"id":"mass_assignment_L2xvZ2lu","name":"Inyección de Propiedades (Mass Assignment) en /login","attackType":"Mass Assignment","severity":"critical","method":"POST","endpoint":"https://balbuenabarber.vercel.app/login","baselinePayload":{},"attackPayload":{}},{"id":"mass_assignment_L3JlZ2lzdG","name":"Inyección de Propiedades (Mass Assignment) en /register","attackType":"Mass Assignment","severity":"critical","method":"POST","endpoint":"https://balbuenabarber.vercel.app/register","baselinePayload":{},"attackPayload":{}},{"id":"mass_assignment_L2FwaS9hdX","name":"Inyección de Propiedades (Mass Assignment) en /api/auth/providers","attackType":"Mass Assignment","severity":"critical","method":"POST","endpoint":"https://balbuenabarber.vercel.app/api/auth/providers","baselinePayload":{},"attackPayload":{}},{"id":"mass_assignment_L2FwaS9hdX","name":"Inyección de Propiedades (Mass Assignment) en /api/auth/csrf","attackType":"Mass Assignment","severity":"critical","method":"POST","endpoint":"https://balbuenabarber.vercel.app/api/auth/csrf","baselinePayload":{},"attackPayload":{}},{"id":"mass_assignment_L2FwaS9hdX","name":"Inyección de Propiedades (Mass Assignment) en /api/auth/signin/google","attackType":"Mass Assignment","severity":"critical","method":"POST","endpoint":"https://balbuenabarber.vercel.app/api/auth/signin/google","baselinePayload":{},"attackPayload":{}},{"id":"mass_assignment_L2FwaS9wcm","name":"Inyección de Propiedades (Mass Assignment) en /api/products","attackType":"Mass Assignment","severity":"critical","method":"POST","endpoint":"https://balbuenabarber.vercel.app/api/products","baselinePayload":{},"attackPayload":{}}],{"scanId":260,"target":"https://balbuenabarber.vercel.app/","stack":{"frontend":"Next.js","runtime":null,"waf":null,"cdn":"Vercel","confidence":0.9,"database_hints":[]},"endpoints":[],"subdomains":[{"domain":"balbuenabarber.vercel.app","source":"subfinder","takeover_candidate":false}],"credentials":[],"vulnerabilities_hints":[]}
+    at NeonHttpPreparedQuery.queryWithCache (/Users/patohe/Desktop/FixGuard/worker/node_modules/src/pg-core/session.ts:73:11)
+    at process.processTicksAndRejections (node:internal/process/task_queues:95:5)
+    at async NeonHttpPreparedQuery.execute (/Users/patohe/Desktop/FixGuard/worker/node_modules/src/neon-http/session.ts:83:18)
+    at async <anonymous> (/Users/patohe/Desktop/FixGuard/worker/src/index.ts:258:5) {
+  query: 'insert into "recon_profiles" ("id", "scan_id", "tech_stack", "attack_surface", "framework_intelligence", "architecture_tree", "business_dictionary", "auth_intelligence", "cloud_intelligence", "communication_intelligence", "subdomain_intelligence", "artifact_intelligence", "parameter_intelligence", "server_actions_intelligence", "ai_intelligence", "runtime_intelligence", "entity_graph", "workflow_intelligence", "audit_report", "smart_vectors", "normalized_data", "created_at") values (default, $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, default) returning "id"',
+  params: [
+    260,
+    '[{"name":"Vercel","category":"Hosting / Infrastructure","confidence":99,"evidence":["Vercel headers found"],"role":"Serverless Hosting / Edge"},{"name":"Next.js","category":"Frontend Framework","confidence":95,"evidence":["Next.js static paths"],"role":"Renderizado SSR/SSG y routing"}]',
+    '[{"path":"/api/auth/session","method":"ANY","riskLevel":"ALTO","type":"REST API","headers":["User-Agent","Accept"],"authType":"None","businessImpactScore":85},{"path":"/login","method":"ANY","riskLevel":"ALTO","type":"Autenticación","headers":["User-Agent","Accept"],"authType":"None","businessImpactScore":85},{"path":"/register","method":"ANY","riskLevel":"ALTO","type":"Autenticación","headers":["User-Agent","Accept"],"authType":"None","businessImpactScore":85},{"path":"/api/auth/providers","method":"ANY","riskLevel":"ALTO","type":"REST API","headers":["User-Agent","Accept"],"authType":"None","businessImpactScore":85},{"path":"/api/auth/csrf","method":"ANY","riskLevel":"ALTO","type":"REST API","headers":["User-Agent","Accept"],"authType":"None","businessImpactScore":85},{"path":"/api/auth/signin/google","method":"ANY","riskLevel":"ALTO","type":"REST API","headers":["User-Agent","Accept"],"authType":"None","businessImpactScore":85},{"path":"/api/servicios","method":"ANY","riskLevel":"MEDIO","type":"REST API","headers":["User-Agent","Accept"],"authType":"None","businessImpactScore":10},{"path":"/api/barberos","method":"ANY","riskLevel":"MEDIO","type":"REST API","headers":["User-Agent","Accept"],"authType":"None","businessImpactScore":10},{"path":"/api/availability/calendar","method":"ANY","riskLevel":"MEDIO","type":"REST API","headers":["User-Agent","Accept"],"authType":"None","businessImpactScore":10},{"path":"/api/products","method":"ANY","riskLevel":"MEDIO","type":"REST API","headers":["User-Agent","Accept"],"authType":"None","businessImpactScore":70},{"path":"/","method":"ANY","riskLevel":"BAJO","type":"Ruta General","headers":["User-Agent","Accept"],"authType":"None","businessImpactScore":10},{"path":"/turnos","method":"ANY","riskLevel":"BAJO","type":"Ruta General","headers":["User-Agent","Accept"],"authType":"None","businessImpactScore":10},{"path":"/tienda","method":"ANY","riskLevel":"BAJO","type":"Ruta General","headers":["User-Agent","Accept"],"authType":"None","businessImpactScore":10},{"path":"/tienda/6a26bfd32f4a3748a9921676","method":"ANY","riskLevel":"BAJO","type":"Ruta General","headers":["User-Agent","Accept"],"authType":"None","businessImpactScore":10}]',
+    '[{"framework":"Reconocimiento Profundo","vectors":[{"id":"deep_katana","name":"Crawling Avanzado JS/DOM","cliCommand":"katana -u <TARGET> -d 5 -jc -kf"},{"id":"deep_gau","name":"Historial GAU (Wayback/AlienVault)","cliCommand":"gau <TARGET>"},{"id":"deep_trufflehog","name":"Búsqueda de API Keys (Trufflehog)","cliCommand":"trufflehog --no-update filesystem <TARGET>"}]},{"framework":"Network & Infrastructure","vectors":[{"id":"nmap_full","name":"Escaneo de Puertos Total","cliCommand":"nmap -sV -sC -Pn -T4 -p- <TARGET>"},{"id":"subfinder_enum","name":"Enumeración de Subdominios","cliCommand":"subfinder -d <TARGET> -all"}]},{"framework":"Next.js","vectors":[{"id":"nextjs_bfla","name":"Server Actions (BFLA/IDOR)","cliCommand":"nuclei -t http/exposed-panels/ -t http/misconfiguration/ -u <TARGET>"},{"id":"nextjs_middleware","name":"Middleware bypass","cliCommand":"curl -H \\"x-middleware-prefetch: 1\\" <TARGET>/admin"},{"id":"nextjs_api","name":"API Routes exposure","cliCommand":"ffuf -s -ac -w ./wordlists/api_wordlist.txt -u <TARGET>/FUZZ"},{"id":"nextjs_build_data","name":"Build Data (_next/data)","cliCommand":"nuclei -id nextjs-data-leak -u <TARGET>"},{"id":"nextjs_static","name":"Static Assets","cliCommand":"nuclei -id nextjs-static-leak -u <TARGET>"},{"id":"nextjs_isr","name":"ISR cache poisoning","cliCommand":"curl -X PURGE <TARGET>"},{"id":"nextjs_route_handlers","name":"Route Handlers","cliCommand":"nuclei -id nextjs-route-handlers -u <TARGET>"},{"id":"nextjs_edge","name":"Edge Functions mapping","cliCommand":"nuclei -id nextjs-edge -u <TARGET>"}]},{"framework":"Static & JAMStack","vectors":[{"id":"static_takeover","name":"Subdomain Takeover","cliCommand":"nuclei -t takeovers/ -u <TARGET>"},{"id":"static_secrets","name":"Hardcoded Secrets Scanner","cliCommand":"nuclei -tags keys,tokens,credentials -u <TARGET>"},{"id":"static_cors","name":"CORS Misconfiguration","cliCommand":"nuclei -id cors-misconfig -u <TARGET>"},{"id":"static_s3","name":"S3 Bucket Exposure","cliCommand":"nuclei -id s3-detect -u <TARGET>"}]}]',
+    '{"name":"balbuenabarber.vercel.app","children":[{"name":"Frontend","children":[{"name":"Next.js"}]},{"name":"Infrastructure","children":[{"name":"Vercel"}]},{"name":"Business Logic (Entities)","children":[{"name":"Project"},{"name":"User"}]},{"name":"API Gateway","children":[{"name":"/api/auth"},{"name":"/api/servicios"},{"name":"/api/barberos"},{"name":"/api/availability"},{"name":"/api/products"}]}]}',
+    '{"roles":[],"entities":["project","user"],"permissions":[],"configFlags":[]}',
+    '{"mechanisms":["Client-side JWT / Token Storage"],"sessionStorage":false,"localStorage":true,"cookieNames":[]}',
+    '{"provider":"Unknown","services":[],"buckets":[],"misconfigurations":[]}',
+    '{"graphql":{"enabled":false,"endpoint":"","queries":[],"mutations":[],"types":[]},"websockets":{"detected":false,"urls":[],"namespaces":[]}}',
+    '{"discoveredCount":0,"interestingSubdomains":[],"allSubdomains":[]}',
+    '{"discoveredRoutes":[],"hiddenRoutes":[],"exposedSecrets":[],"hiddenApiEndpoints":["/api/coupons/my","/api/coupons/mark-seen","/api/barberos","/api/servicios","/api/products","/api/auth/register"],"exposedSourceMaps":[]}',
+    '{"totalParameters":0,"topParameters":[],"allParameters":[]}',
+    '{"extractedActionsCount":0,"actions":[]}',
+    '{"detected":false,"providers":[],"frameworks":[],"features":[]}',
+    '{"totalClicks":28,"totalFormsFilled":0,"totalScrolls":7,"requestsIntercepted":197,"endpointsDiscovered":79}',
+    '{"nodes":[{"id":"servicio","label":"Servicio","type":"rest_resource"},{"id":"auth","label":"Auth","type":"rest_resource"},{"id":"session","label":"Session","type":"rest_resource"},{"id":"turno","label":"Turno","type":"rest_resource"},{"id":"tienda","label":"Tienda","type":"rest_resource"},{"id":"login","label":"Login","type":"rest_resource"},{"id":"register","label":"Register","type":"rest_resource"},{"id":"provider","label":"Provider","type":"rest_resource"},{"id":"csrf","label":"Csrf","type":"rest_resource"},{"id":"signin","label":"Signin","type":"rest_resource"},{"id":"google","label":"Google","type":"rest_resource"},{"id":"barbero","label":"Barbero","type":"rest_resource"},{"id":"availability","label":"Availability","type":"rest_resource"},{"id":"calendar","label":"Calendar","type":"rest_resource"},{"id":"product","label":"Product","type":"rest_resource"},{"id":"project","label":"Project","type":"model"},{"id":"user","label":"User","type":"model"}],"edges":[{"id":"auth-session-has_child","source":"auth","target":"session","label":"has_child"},{"id":"auth-provider-has_child","source":"auth","target":"provider","label":"has_child"},{"id":"auth-csrf-has_child","source":"auth","target":"csrf","label":"has_child"},{"id":"auth-signin-has_child","source":"auth","target":"signin","label":"has_child"},{"id":"signin-google-has_child","source":"signin","target":"google","label":"has_child"},{"id":"availability-calendar-has_child","source":"availability","target":"calendar","label":"has_child"}]}',
+    '[{"name":"Authentication Journey","category":"Auth","steps":[{"name":"User Registration","endpoint":"/register","method":"POST","description":"Creación de nueva identidad."},{"name":"Authentication","endpoint":"/login","method":"POST","description":"Validación de credenciales."}],"confidence":0.85},{"name":"Servicios Management Flow","category":"Core","steps":[{"name":"Interact with servicios","endpoint":"/api/servicios","method":"ANY","description":"Acción sobre el recurso servicios"}],"confidence":0.6},{"name":"Turnos Management Flow","category":"Core","steps":[{"name":"Interact with turnos","endpoint":"/turnos","method":"ANY","description":"Acción sobre el recurso turnos"}],"confidence":0.6},{"name":"Tienda Management Flow","category":"Core","steps":[{"name":"Interact with tienda","endpoint":"/tienda","method":"ANY","description":"Acción sobre el recurso tienda"},{"name":"Interact with tienda","endpoint":"/tienda/6a26bfd32f4a3748a9921676","method":"ANY","description":"Acción sobre el recurso tienda"}],"confidence":0.6},{"name":"Register Management Flow","category":"Core","steps":[{"name":"Interact with register","endpoint":"/register","method":"ANY","description":"Acción sobre el recurso register"}],"confidence":0.6},{"name":"Barberos Management Flow","category":"Core","steps":[{"name":"Interact with barberos","endpoint":"/api/barberos","method":"ANY","description":"Acción sobre el recurso barberos"}],"confidence":0.6},{"name":"Availability Management Flow","category":"Core","steps":[{"name":"Interact with availability","endpoint":"/api/availability/calendar","method":"ANY","description":"Acción sobre el recurso availability"}],"confidence":0.6},{"name":"Products Management Flow","category":"Core","steps":[{"name":"Interact with products","endpoint":"/api/products","method":"ANY","description":"Acción sobre el recurso products"}],"confidence":0.6}]',
+    '{"summary":"El motor de correlación ha inferido los siguientes contextos funcionales basándose en las evidencias técnicas extraídas.","contexts":[{"name":"Identity & Access Management","description":"Gestión de autenticación, autorización y sesiones de usuario.","confidence":"HIGH","evidences":["Mecanismos detectados: Client-side JWT / Token Storage","Utiliza LocalStorage para almacenar credenciales (Riesgo XSS)"],"inferredTechnologies":[]},{"name":"API & Communication Interfaces","description":"Canales de comunicación con el backend e interfaces de servicio.","confidence":"HIGH","evidences":["APIs ocultas extraídas del código JS (LinkFinder): 6 rutas encontradas."],"inferredTechnologies":[]}]}',
+    '[{"id":"bola_L2FwaS9hdX","name":"Inyección de Identificador BOLA (Ruta: /api/auth/session)","attackType":"BOLA","severity":"high","method":"ANY","endpoint":"https://balbuenabarber.vercel.app/api/auth/session","attackPayload":""},{"id":"bola_L2FwaS9hdX","name":"Inyección de Identificador BOLA (Ruta: /api/auth/providers)","attackType":"BOLA","severity":"high","method":"ANY","endpoint":"https://balbuenabarber.vercel.app/api/auth/providers","attackPayload":""},{"id":"bola_L2FwaS9hdX","name":"Inyección de Identificador BOLA (Ruta: /api/auth/csrf)","attackType":"BOLA","severity":"high","method":"ANY","endpoint":"https://balbuenabarber.vercel.app/api/auth/csrf","attackPayload":""},{"id":"bola_L2FwaS9hdX","name":"Inyección de Identificador BOLA (Ruta: /api/auth/signin/google)","attackType":"BOLA","severity":"high","method":"ANY","endpoint":"https://balbuenabarber.vercel.app/api/auth/signin/google","attackPayload":""},{"id":"mass_assignment_L2FwaS9hdX","name":"Inyección de Propiedades (Mass Assignment) en /api/auth/session","attackType":"Mass Assignment","severity":"critical","method":"POST","endpoint":"https://balbuenabarber.vercel.app/api/auth/session","baselinePayload":{},"attackPayload":{}},{"id":"mass_assignment_L2xvZ2lu","name":"Inyección de Propiedades (Mass Assignment) en /login","attackType":"Mass Assignment","severity":"critical","method":"POST","endpoint":"https://balbuenabarber.vercel.app/login","baselinePayload":{},"attackPayload":{}},{"id":"mass_assignment_L3JlZ2lzdG","name":"Inyección de Propiedades (Mass Assignment) en /register","attackType":"Mass Assignment","severity":"critical","method":"POST","endpoint":"https://balbuenabarber.vercel.app/register","baselinePayload":{},"attackPayload":{}},{"id":"mass_assignment_L2FwaS9hdX","name":"Inyección de Propiedades (Mass Assignment) en /api/auth/providers","attackType":"Mass Assignment","severity":"critical","method":"POST","endpoint":"https://balbuenabarber.vercel.app/api/auth/providers","baselinePayload":{},"attackPayload":{}},{"id":"mass_assignment_L2FwaS9hdX","name":"Inyección de Propiedades (Mass Assignment) en /api/auth/csrf","attackType":"Mass Assignment","severity":"critical","method":"POST","endpoint":"https://balbuenabarber.vercel.app/api/auth/csrf","baselinePayload":{},"attackPayload":{}},{"id":"mass_assignment_L2FwaS9hdX","name":"Inyección de Propiedades (Mass Assignment) en /api/auth/signin/google","attackType":"Mass Assignment","severity":"critical","method":"POST","endpoint":"https://balbuenabarber.vercel.app/api/auth/signin/google","baselinePayload":{},"attackPayload":{}},{"id":"mass_assignment_L2FwaS9wcm","name":"Inyección de Propiedades (Mass Assignment) en /api/products","attackType":"Mass Assignment","severity":"critical","method":"POST","endpoint":"https://balbuenabarber.vercel.app/api/products","baselinePayload":{},"attackPayload":{}}]',
+    '{"scanId":260,"target":"https://balbuenabarber.vercel.app/","stack":{"frontend":"Next.js","runtime":null,"waf":null,"cdn":"Vercel","confidence":0.9,"database_hints":[]},"endpoints":[],"subdomains":[{"domain":"balbuenabarber.vercel.app","source":"subfinder","takeover_candidate":false}],"credentials":[],"vulnerabilities_hints":[]}'
+  ],
+  cause: NeonDbError: insert or update on table "recon_profiles" violates foreign key constraint "recon_profiles_scan_id_scans_id_fk"
+      at dr.execute (file:///Users/patohe/Desktop/FixGuard/worker/node_modules/@neondatabase/serverless/index.mjs:1298:10)
+      at process.processTicksAndRejections (node:internal/process/task_queues:95:5)
+      at async <anonymous> (/Users/patohe/Desktop/FixGuard/worker/node_modules/src/neon-http/session.ts:84:11)
+      at async NeonHttpPreparedQuery.queryWithCache (/Users/patohe/Desktop/FixGuard/worker/node_modules/src/pg-core/session.ts:71:12)
+      at async NeonHttpPreparedQuery.execute (/Users/patohe/Desktop/FixGuard/worker/node_modules/src/neon-http/session.ts:83:18)
+      at async <anonymous> (/Users/patohe/Desktop/FixGuard/worker/src/index.ts:258:5) {
+    severity: 'ERROR',
+    code: '23503',
+    detail: 'Key (scan_id)=(260) is not present in table "scans".',
+    hint: undefined,
+    position: undefined,
+    internalPosition: undefined,
+    internalQuery: undefined,
+    where: undefined,
+    schema: 'public',
+    table: 'recon_profiles',
+    column: undefined,
+    dataType: undefined,
+    constraint: 'recon_profiles_scan_id_scans_id_fk',
+    file: 'ri_triggers.c',
+    line: '2772',
+    routine: 'ri_ReportViolation',
+    sourceError: undefined
+  }
+}

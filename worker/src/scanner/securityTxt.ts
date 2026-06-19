@@ -13,7 +13,8 @@ export async function runSecurityTxtScan(scanId: number, targetUrl: string) {
     });
 
     // Validar que realmente devolvió texto plano y que parece un archivo security.txt legítimo
-    const isText = response.headers['content-type']?.includes('text/plain');
+    const contentType = String(response.headers['content-type'] || '');
+    const isText = contentType.includes('text/plain');
     const content = typeof response.data === 'string' ? response.data : '';
     const hasContact = content.toLowerCase().includes('contact:');
 

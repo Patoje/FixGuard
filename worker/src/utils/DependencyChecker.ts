@@ -64,18 +64,6 @@ const DEPENDENCIES: Dependency[] = [
     linuxInstall: 'go install -v github.com/projectdiscovery/httpx/cmd/httpx@latest'
   },
   {
-    name: 'whatweb',
-    macInstall: 'brew install whatweb',
-    winInstall: 'gem install whatweb (Requiere Ruby)',
-    linuxInstall: 'apt-get install whatweb'
-  },
-  {
-    name: 'wappalyzer',
-    macInstall: 'npm i -g wappalyzer',
-    winInstall: 'npm i -g wappalyzer',
-    linuxInstall: 'npm i -g wappalyzer'
-  },
-  {
     name: 'feroxbuster',
     macInstall: 'brew install feroxbuster',
     winInstall: 'cargo install feroxbuster',
@@ -116,18 +104,6 @@ const DEPENDENCIES: Dependency[] = [
     macInstall: 'pip install shcheck',
     winInstall: 'pip install shcheck',
     linuxInstall: 'pip install shcheck'
-  },
-  {
-    name: 'commix',
-    macInstall: 'brew install commix',
-    winInstall: 'git clone https://github.com/commixproject/commix.git commix',
-    linuxInstall: 'apt-get install commix'
-  },
-  {
-    name: 'nosqlmap',
-    macInstall: 'git clone https://github.com/codingo/NoSQLMap.git',
-    winInstall: 'git clone https://github.com/codingo/NoSQLMap.git',
-    linuxInstall: 'git clone https://github.com/codingo/NoSQLMap.git'
   },
   {
     name: 'crlfuzz',

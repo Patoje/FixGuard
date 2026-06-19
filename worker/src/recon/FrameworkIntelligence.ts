@@ -1,4 +1,4 @@
-import type { TechStackItem } from './TechStackProfiler';
+import type { TechStackItem } from './TechStackItem';
 
 export interface VectorItem {
   id: string;

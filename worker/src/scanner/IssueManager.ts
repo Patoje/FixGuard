@@ -35,15 +35,37 @@ export class IssueManager {
     const fingerprint = this.generateFingerprint(input);
 
     try {
-      // Check if finding already exists globally (or per scan depending on scope, here we use fingerprint as unique)
-      const existing = await db.select().from(findings).where(eq(findings.fingerprint, fingerprint)).limit(1).then(res => res[0]);
+        // Check if finding already exists globally (using fingerprint as unique)
+        const existing = await db.select().from(findings).where(eq(findings.fingerprint, fingerprint)).limit(1).then(res => res[0]);
 
-      if (existing) {
-        // Update last seen
-        console.log(`[IssueManager] Duplicate finding suppressed. Updating last_seen for: ${input.title} at ${input.endpoint}`);
-        await db.update(findings)
-          .set({ updatedAt: new Date() })
-          .where(eq(findings.id, existing.id));
+        if (existing) {
+          console.log(`[IssueManager] Finding already exists globally: ${input.title} at ${input.endpoint}`);
+          
+          let updatedDetectedBy = existing.detectedBy || [existing.toolSource];
+          if (!updatedDetectedBy.includes(input.toolSource)) {
+            updatedDetectedBy.push(input.toolSource);
+          }
+
+          let updatedConfirmedInScans = existing.confirmedInScans || [existing.scanId];
+          if (!updatedConfirmedInScans.includes(input.scanId)) {
+            updatedConfirmedInScans.push(input.scanId);
+          }
+
+          let newConfidence = 50; // default for single tool
+          if (updatedDetectedBy.length >= 2 || updatedConfirmedInScans.length >= 2) {
+             newConfidence = 99; // Confirmed across multiple tools or scans
+             console.log(`[IssueManager] Correlated! Confidence bumped to 99 for ${input.title}`);
+          }
+
+          await db.update(findings)
+            .set({ 
+              updatedAt: new Date(),
+              detectedBy: updatedDetectedBy,
+              confirmedInScans: updatedConfirmedInScans,
+              confidence: newConfidence
+            })
+            .where(eq(findings.id, existing.id));
+
       } else {
         // Insert new finding
         console.log(`[IssueManager] New finding registered: [${input.severity.toUpperCase()}] ${input.title}`);
@@ -61,6 +83,9 @@ export class IssueManager {
           cweId: input.cweId,
           owaspCategory: input.owaspCategory,
           toolSource: input.toolSource,
+          detectedBy: [input.toolSource],
+          confirmedInScans: [input.scanId],
+          confidence: 50, // Initial confidence "needs_review"
           createdAt: new Date(),
           updatedAt: new Date(),
         });
