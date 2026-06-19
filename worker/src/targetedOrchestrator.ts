@@ -263,16 +263,65 @@ export async function runTargetedAttack(scanId: number, userId: number, targetUr
     if (result) {
       console.log(`[Scan ${scanId}] 🚨 VULNERABILIDAD CONFIRMADA: ${result.severity.toUpperCase()}`);
       
-      // Save finding to database using IssueManager for deduplication
+      // Save finding under the PARENT scan ID so it appears directly in the Recon
+      // vulnerability list without needing child-scan lookup traversal.
       await IssueManager.reportFinding({
-        scanId,
+        scanId: parentId ?? scanId,
         title: result.finding,
         severity: result.severity,
         endpoint: targetUrl,
-        method: 'GET', // Default, we might extract this later
+        method: 'GET',
         payloadUsed: vector.cliCommand,
         toolSource: vector.id
       });
+
+      // ─── Endpoint Catalog enrichment ─────────────────────────────────────
+      // If the tool discovered URLs (GAU, katana, subfinder), inject them
+      // into the parent scan's attackSurface so the Endpoint Catalog updates.
+      if (result.metadata?.discovered_urls && result.metadata.discovered_urls.length > 0 && (parentId ?? scanId)) {
+        const targetScanId = parentId ?? scanId;
+        const toolName = finalCommand.split(' ')[0];
+        try {
+          const profileRows = await db.select().from(reconProfiles)
+            .where(eq(reconProfiles.scanId, targetScanId)).limit(1);
+          
+          if (profileRows[0]) {
+            const currentSurface = (profileRows[0].attackSurface as any[]) ?? [];
+            const existingPaths = new Set(currentSurface.map((e: any) => e.path));
+
+            const newEndpoints = (result.metadata.discovered_urls as string[])
+              .filter((url: string) => url.startsWith('http'))
+              .slice(0, 300) // cap to avoid DB bloat
+              .map((url: string) => {
+                try {
+                  const parsed = new URL(url);
+                  const hasParams = parsed.search.length > 1;
+                  const params = Array.from(parsed.searchParams.keys());
+                  return {
+                    path: parsed.pathname + parsed.search,
+                    method: 'GET',
+                    riskLevel: hasParams ? 'ALTO' : 'MEDIO',
+                    type: `Discovered (${toolName})`,
+                    params,
+                    source: toolName
+                  };
+                } catch { return null; }
+              })
+              .filter((e: any) => e !== null && !existingPaths.has(e.path));
+
+            if (newEndpoints.length > 0) {
+              await db.update(reconProfiles)
+                .set({ attackSurface: [...currentSurface, ...newEndpoints] })
+                .where(eq(reconProfiles.scanId, targetScanId));
+              console.log(`[Scan ${scanId}] 🗺️ Endpoint Catalog enriquecido: +${newEndpoints.length} rutas de ${toolName}`);
+            }
+          }
+        } catch (enrichErr: any) {
+          console.warn(`[Scan ${scanId}] ⚠️ No se pudo enriquecer el Endpoint Catalog:`, enrichErr.message);
+        }
+      }
+      // ─────────────────────────────────────────────────────────────────────
+
       return `🚨 VULNERABILIDAD [${result.severity.toUpperCase()}] DETECTADA\n\nEndpoint: ${targetUrl}\nHerramienta: ${finalCommand.split(' ')[0]}\n\n--- Respuesta del servidor ---\n${output.substring(0, 2000)}\n\nVeredicto: ${result.finding}`;
     } else {
       console.log(`[Scan ${scanId}] ✅ El objetivo parece estar seguro contra este vector (Ninguna coincidencia crítica en la salida de la herramienta).`);

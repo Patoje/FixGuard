@@ -162,7 +162,7 @@ export default function Home() {
     }
   };
 
-  // Polling Effect
+  // Polling Effect — active scan
   useEffect(() => {
     let interval: NodeJS.Timeout;
 
@@ -174,33 +174,42 @@ export default function Home() {
             const data = await res.json();
             
             if (data.scan.status === "paused_for_approval") {
-              simulationRef.current = false; // Parar la terminal falsa
+              simulationRef.current = false;
               setScanStatus("paused_for_approval");
               clearInterval(interval);
             } else if (data.scan.status === "completed" || data.scan.status === "failed") {
-              simulationRef.current = false; // Parar la terminal falsa
+              simulationRef.current = false;
               addLog(`Escaneo finalizado con estado: ${data.scan.status}`, data.scan.status === "completed" ? "success" : "error");
               setVulnerabilities(data.vulnerabilities || []);
               if (data.reconProfile) setReconProfile(data.reconProfile);
               setScanStatus(data.scan.status);
               clearInterval(interval);
-              
-              // Pasar a la pantalla de resultados
-              setTimeout(() => {
-                setStep("results");
-              }, 1500);
+              setTimeout(() => { setStep("results"); }, 1500);
             }
           }
-        } catch (e) {
-          console.error("Error polling", e);
-        }
+        } catch (e) { console.error("Error polling", e); }
       }, 2000);
     }
 
-    return () => {
-      if (interval) clearInterval(interval);
-    };
+    return () => { if (interval) clearInterval(interval); };
   }, [step, scanId, scanStatus]);
+
+  // Live retroalimentation: re-fetch findings every 10s while on the results page
+  // so Arsenal attack results appear in Recon without needing to navigate away
+  useEffect(() => {
+    if (step !== "results" || !scanId) return;
+    const interval = setInterval(async () => {
+      try {
+        const res = await fetch(`/api/scans/${scanId}`);
+        if (res.ok) {
+          const data = await res.json();
+          if (data.vulnerabilities) setVulnerabilities(data.vulnerabilities);
+          if (data.reconProfile) setReconProfile(data.reconProfile);
+        }
+      } catch (e) { /* silent */ }
+    }, 10000);
+    return () => clearInterval(interval);
+  }, [step, scanId]);
 
   const resetScan = () => {
     setStep("setup");
@@ -352,17 +361,19 @@ export default function Home() {
               </div>
             </div>
             
-            {resultsTab === "recon" ? (
-              <>
-                {reconProfile ? (
-                  <ReconDashboard profile={reconProfile} targetUrl={targetUrl} onLaunchAttack={handleTargetedAttack} />
-                ) : (
-                  <div className="bg-blue-500/10 border border-blue-500/20 p-6 rounded-xl text-center mb-8 mt-8">
-                    <h3 className="text-xl font-bold text-blue-400 mb-2">Ataque Dirigido Finalizado</h3>
-                    <p className="text-zinc-400">Este reporte corresponde a la ejecución individual de una herramienta CLI profesional. No se realizó recolección de inteligencia de superficie (OSINT) al ser un ataque directo.</p>
-                  </div>
-                )}
+            {/* RECON TAB — always mounted, hidden via CSS when not active */}
+            <div className={resultsTab === "recon" ? "block" : "hidden"}>
+              {reconProfile ? (
+                <ReconDashboard profile={reconProfile} targetUrl={targetUrl} onLaunchAttack={handleTargetedAttack} />
+              ) : (
+                <div className="bg-blue-500/10 border border-blue-500/20 p-6 rounded-xl text-center mb-8 mt-8">
+                  <h3 className="text-xl font-bold text-blue-400 mb-2">Ataque Dirigido Finalizado</h3>
+                  <p className="text-zinc-400">Este reporte corresponde a la ejecución individual de una herramienta CLI profesional. No se realizó recolección de inteligencia de superficie (OSINT) al ser un ataque directo.</p>
+                </div>
+              )}
 
+              {/* Vulnerabilities list — live updating via polling */}
+              <div className="space-y-4 mt-8">
                 {vulnerabilities.length === 0 ? (
                   <div className="text-center p-12 glass-panel border-emerald-500/20 bg-emerald-500/5 mt-8">
                     <h3 className="text-2xl font-bold text-emerald-400 mb-2">¡Todo se ve seguro!</h3>
@@ -370,32 +381,31 @@ export default function Home() {
                   </div>
                 ) : (
                   <>
-
-                    
-                    <div className="space-y-4 mt-8">
-                      <h3 className="text-2xl font-bold text-zinc-100 flex items-center gap-3 border-b border-white/5 pb-4 mb-6">
-                        <span className="w-2 h-8 bg-rose-500 rounded-full inline-block"></span>
-                        Vulnerabilidades Detectadas
-                      </h3>
-                      {vulnerabilities.map((vuln, index) => (
-                        <VulnerabilityCard key={vuln.id} vuln={vuln} index={index} />
-                      ))}
-                    </div>
+                    <h3 className="text-2xl font-bold text-zinc-100 flex items-center gap-3 border-b border-white/5 pb-4 mb-6">
+                      <span className="w-2 h-8 bg-rose-500 rounded-full inline-block"></span>
+                      Vulnerabilidades Detectadas
+                      <span className="ml-auto text-sm font-normal text-zinc-500 font-mono">{vulnerabilities.length} findings · actualiza en vivo</span>
+                    </h3>
+                    {vulnerabilities.map((vuln, index) => (
+                      <VulnerabilityCard key={vuln.id} vuln={vuln} index={index} />
+                    ))}
                   </>
                 )}
-              </>
-            ) : (
-              <div className="mt-8">
-                {scanId && reconProfile ? (
-                  <OffensiveArsenal targetUrl={targetUrl} scanId={scanId} profile={reconProfile} onAttackComplete={refreshFindings} />
-                ) : (
-                  <div className="text-center p-12 glass-panel border-rose-500/20 bg-rose-500/5">
-                    <h3 className="text-2xl font-bold text-rose-400 mb-2">Arsenal Desactivado</h3>
-                    <p className="text-zinc-400">Debes realizar un escaneo completo primero para habilitar el arsenal ofensivo en este objetivo.</p>
-                  </div>
-                )}
               </div>
-            )}
+            </div>
+
+            {/* OFFENSIVE ARSENAL TAB — always mounted, hidden via CSS when not active */}
+            {/* Keeping it mounted preserves the Tactical Console logs across tab switches */}
+            <div className={`mt-8 ${resultsTab === "offensive" ? "block" : "hidden"}`}>
+              {scanId && reconProfile ? (
+                <OffensiveArsenal targetUrl={targetUrl} scanId={scanId} profile={reconProfile} onAttackComplete={refreshFindings} />
+              ) : (
+                <div className="text-center p-12 glass-panel border-rose-500/20 bg-rose-500/5">
+                  <h3 className="text-2xl font-bold text-rose-400 mb-2">Arsenal Desactivado</h3>
+                  <p className="text-zinc-400">Debes realizar un escaneo completo primero para habilitar el arsenal ofensivo en este objetivo.</p>
+                </div>
+              )}
+            </div>
 
             <div className="flex justify-center pt-8 gap-4">
               <button

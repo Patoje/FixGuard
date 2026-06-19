@@ -203,7 +203,7 @@ export const VECTOR_REGISTRY: Record<string, VectorItem> = {
   deep_katana: { id: 'deep_katana', name: 'Crawling Avanzado JS/DOM', cliCommand: 'katana -u <TARGET> -d 5 -jc -kf all' },
   deep_gau: { id: 'deep_gau', name: 'Historial GAU (Wayback/AlienVault)', cliCommand: 'gau <TARGET>' },
   deep_trufflehog: { id: 'deep_trufflehog', name: 'Búsqueda de API Keys (Trufflehog)', cliCommand: 'trufflehog endpoint <TARGET> --no-verification' },
-  nmap_full: { id: 'nmap_full', name: 'Escaneo de Puertos Total', cliCommand: 'nmap -sV -sC -Pn -T4 -p- <TARGET>' },
+  nmap_full: { id: 'nmap_full', name: 'Escaneo de Puertos Total', cliCommand: 'nmap -sV -sC -Pn -T4 <TARGET>' },
   subfinder_enum: { id: 'subfinder_enum', name: 'Enumeración de Subdominios', cliCommand: 'subfinder -d <TARGET> -all' },
   wpscan_full: { id: 'wpscan_full', name: 'WPScan Arsenal Completo', cliCommand: 'wpscan --url <TARGET> --enumerate u,p,t --random-user-agent' },
   dalfox_react: { id: 'dalfox_react', name: 'XSS Automático (Verificación DOM)', cliCommand: 'dalfox url <TARGET>' },
@@ -211,20 +211,15 @@ export const VECTOR_REGISTRY: Record<string, VectorItem> = {
   dalfox: { id: 'dalfox', name: 'Ataque XSS con Dalfox', cliCommand: 'dalfox url <TARGET>' },
 
   // Arsenal Extendido (Cero Humo)
+  // Arsenal Extendido
   amass: { id: 'amass', name: 'Amass (Subdomain Enum)', cliCommand: 'amass enum -d <TARGET>' },
   shodan: { id: 'shodan', name: 'Shodan CLI (Recon)', cliCommand: 'shodan domain <TARGET>' },
   httpx: { id: 'httpx', name: 'HTTPX (Tech Detect)', cliCommand: 'httpx -u <TARGET> -tech-detect -status-code -title' },
   whatweb: { id: 'whatweb', name: 'WhatWeb (Fingerprint)', cliCommand: 'whatweb -v -a 3 <TARGET>' },
-  wappalyzer: { id: 'wappalyzer', name: 'Wappalyzer CLI', cliCommand: 'wappalyzer <TARGET>' },
   feroxbuster: { id: 'feroxbuster', name: 'Feroxbuster (Dir Brute)', cliCommand: 'feroxbuster -u <TARGET> --silent' },
   gospider: { id: 'gospider', name: 'GoSpider (Crawling)', cliCommand: 'gospider -s <TARGET> -c 10' },
-  trufflehog: { id: 'trufflehog', name: 'TruffleHog (Secretos)', cliCommand: 'trufflehog endpoint <TARGET>' },
-  gitleaks: { id: 'gitleaks', name: 'Gitleaks (Git Secrets)', cliCommand: 'gitleaks detect -v --source=.' },
-  source_map_explorer: { id: 'source_map_explorer', name: 'Source Map Explorer', cliCommand: 'source-map-explorer <TARGET>' },
-  retire: { id: 'retire', name: 'Retire.js (Vuln JS)', cliCommand: 'retire --jspath <TARGET>' },
+  trufflehog: { id: 'trufflehog', name: 'TruffleHog (Secretos)', cliCommand: 'trufflehog endpoint <TARGET> --no-verification' },
   shcheck: { id: 'shcheck', name: 'SHCheck (Security Headers)', cliCommand: 'shcheck <TARGET>' },
-  commix: { id: 'commix', name: 'Commix (OS Injection)', cliCommand: 'commix --url="<TARGET>" --level=3' },
-  nosqlmap: { id: 'nosqlmap', name: 'NoSQLMap (NoSQL Injection)', cliCommand: 'python nosqlmap.py' },
   crlfuzz: { id: 'crlfuzz', name: 'CRLFuzz (CRLF Injection)', cliCommand: 'crlfuzz -u <TARGET>' },
   kxss: { id: 'kxss', name: 'KXSS (XSS Finder)', cliCommand: 'gau <TARGET> | kxss' }
 };
