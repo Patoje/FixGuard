@@ -46,6 +46,11 @@ function groupEndpoints(endpoints: AttackSurfaceItem[]) {
     }
   });
 
+  const riskScore: Record<string, number> = { 'ALTO': 3, 'MEDIO': 2, 'BAJO': 1 };
+  Object.values(groups).forEach(group => {
+    group.sort((a, b) => (riskScore[b.riskLevel || 'BAJO'] || 0) - (riskScore[a.riskLevel || 'BAJO'] || 0));
+  });
+
   return groups;
 }
 
@@ -63,7 +68,12 @@ export default function ReconDashboard({ profile, targetUrl, onLaunchAttack }: P
   if (!profile) return null;
 
   const externalServices = profile.techStack.filter(t => t.category === 'External Services');
-  const mainFrameworks = profile.techStack.filter(t => ['Frontend', 'Backend'].includes(t.category));
+  let mainFrameworks = profile.techStack.filter(t => ['Frontend', 'Backend'].includes(t.category));
+  
+  // Si no encontró React/Next/Backend moderno, hace fallback a infraestructura o lenguajes
+  if (mainFrameworks.length === 0) {
+    mainFrameworks = profile.techStack.filter(t => ['Hosting / Infrastructure', 'Language', 'Web Server', 'Programming Language'].includes(t.category));
+  }
   const hiddenAssetsCount = (profile.subdomainIntelligence?.discoveredCount || 0) + (profile.artifactIntelligence?.hiddenRoutes.length || 0);
   
   const endpointGroups = useMemo(() => groupEndpoints(profile.attackSurface), [profile.attackSurface]);
