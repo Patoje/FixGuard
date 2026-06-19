@@ -365,7 +365,21 @@ app.post('/api/sast', async (req, res) => {
   }
 });
 
-import { runTargetedAttack } from './targetedOrchestrator';
+import { runTargetedAttack, previewTargetedAttack } from './targetedOrchestrator';
+
+app.post('/api/attack/preview', async (req, res) => {
+  const { targetUrl, scanId, vectorId } = req.body;
+  if (!targetUrl || !scanId || !vectorId) {
+    return res.status(400).json({ error: 'Falta targetUrl, scanId o vectorId' });
+  }
+  try {
+    const previewCommand = await previewTargetedAttack(scanId, targetUrl, vectorId);
+    return res.json({ command: previewCommand });
+  } catch (error: any) {
+    console.error('Error in preview:', error);
+    return res.status(500).json({ error: error.message });
+  }
+});
 
 app.post('/api/attack/targeted', async (req, res) => {
   const { targetUrl, scanId, vectorId, parentId } = req.body;

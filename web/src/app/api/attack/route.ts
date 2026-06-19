@@ -5,10 +5,24 @@ import { scans, users } from '@/db/schema';
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const { targetUrl, vectorId, parentScanId } = body;
+    const { targetUrl, vectorId, parentScanId, action } = body;
 
     if (!targetUrl || !vectorId || !parentScanId) {
       return NextResponse.json({ error: 'Faltan parámetros requeridos (targetUrl, vectorId, parentScanId)' }, { status: 400 });
+    }
+
+    if (action === 'preview') {
+      try {
+        const workerRes = await fetch('http://localhost:4000/api/attack/preview', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ targetUrl, scanId: parentScanId, vectorId }),
+        });
+        const data = await workerRes.json();
+        return NextResponse.json(data);
+      } catch (err: any) {
+        return NextResponse.json({ error: 'Error connecting to worker for preview: ' + err.message }, { status: 500 });
+      }
     }
 
     // Ensure we have at least one user for the foreign key

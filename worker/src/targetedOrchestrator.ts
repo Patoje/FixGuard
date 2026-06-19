@@ -183,6 +183,65 @@ function parseCliOutput(command: string, output: string): { severity: 'low' | 'm
   return null;
 }
 
+export async function previewTargetedAttack(scanId: number, targetUrl: string, vectorId: string): Promise<string> {
+  const cleanTargetUrl = targetUrl.replace(/\/+$/, '');
+  
+  let vector = VECTOR_REGISTRY[vectorId];
+  if (!vector) {
+    if (vectorId.startsWith('bola_')) {
+      vector = { id: vectorId, name: 'BOLA Attack', cliCommand: `curl -i -s -k -X GET <TARGET>` };
+    } else if (vectorId.startsWith('mass_assignment_')) {
+      vector = { id: vectorId, name: 'Mass Assignment Attack', cliCommand: `curl -i -s -k -X POST -H "Content-Type: application/json" -d '{"role":"admin","isAdmin":true}' <TARGET>` };
+    }
+  }
+  if (!vector || !vector.cliCommand) {
+    throw new Error(`Vector ID ${vectorId} no encontrado en el registro o sin comando CLI.`);
+  }
+  
+  // Obtener flags de autenticación
+  const authFlags = await SessionManager.getCliAuthFlags(cleanTargetUrl, vector.cliCommand);
+  let finalCommand = vector.cliCommand.replace('<TARGET>', cleanTargetUrl);
+  
+  if (authFlags) {
+    finalCommand = `${finalCommand} ${authFlags}`;
+  }
+
+  // Pipeline Selector
+  const profileRow = await db.select().from(reconProfiles).where(eq(reconProfiles.scanId, scanId)).limit(1).then(res => res[0]);
+  
+  if (profileRow && profileRow.normalizedData) {
+     const reconData = profileRow.normalizedData as NormalizedReconProfile;
+     const decision = PipelineSelector.selectPipeline(reconData, [{id: vectorId, command: finalCommand}]);
+     
+     if (decision.disabledModules.includes(vectorId)) {
+        return `[BLOCKED] Pipeline Selector deshabilitó este vector para el stack actual.`;
+     }
+
+     const mutatedVector = decision.mutatedVectors.find(v => v.id === vectorId);
+     if (mutatedVector) {
+        finalCommand = mutatedVector.mutatedCommand;
+     }
+  }
+
+  // Context Bridge: Parámetros SQLMap
+  if (finalCommand.includes('sqlmap')) {
+    const discoveryFindings = await db.select().from(findings).where(eq(findings.scanId, scanId));
+    const discoveredParams = discoveryFindings
+      .map(f => f.endpoint || '')
+      .filter(url => url.includes('?'))
+      .map(url => new URL(url).searchParams.keys())
+      .flatMap(keys => Array.from(keys));
+      
+    const uniqueParams = [...new Set(discoveredParams)];
+    
+    if (uniqueParams.length > 0) {
+      finalCommand += ` -p "${uniqueParams.join(',')}"`;
+    }
+  }
+
+  return finalCommand;
+}
+
 export async function runTargetedAttack(scanId: number, userId: number, targetUrl: string, vectorId: string, parentId?: number): Promise<string> {
   console.log(`[Scan ${scanId}] Iniciando ataque dirigido REAL [${vectorId}] contra ${targetUrl}`);
 

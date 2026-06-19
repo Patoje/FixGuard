@@ -9,6 +9,8 @@ interface OffensiveArsenalProps {
   targetUrl: string;
   scanId: number;
   profile: ReconProfile;
+  initialTargetUrl?: string;
+  initialAttackVector?: string;
   onAttackComplete?: () => void;
 }
 
@@ -59,7 +61,7 @@ function getLogColor(log: string): string {
   return 'text-emerald-400/80';
 }
 
-export default function OffensiveArsenal({ targetUrl, scanId, profile, onAttackComplete }: OffensiveArsenalProps) {
+export default function OffensiveArsenal({ targetUrl, scanId, profile, initialTargetUrl, initialAttackVector, onAttackComplete }: OffensiveArsenalProps) {
 
   // ── Build unified vector list ─────────────────────────────────────────────
   // 1. SmartVectors: BOLA/MassAssign/Workflow vectors discovered by the recon engines
@@ -109,11 +111,52 @@ export default function OffensiveArsenal({ targetUrl, scanId, profile, onAttackC
   const [isAttacking, setIsAttacking] = useState(false);
   const [activeCategory, setActiveCategory] = useState<AttackCategory>('ALL');
   const [copied, setCopied] = useState(false);
+  
+  // Preview state
+  const [previewData, setPreviewData] = useState<{ command: string, vectorId: string, targetUrl: string, moduleName: string } | null>(null);
+
   const logEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     logEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [logs]);
+  }, [logs, previewData]);
+
+  // Manejar pre-selección desde Recon Dashboard
+  useEffect(() => {
+    if (initialTargetUrl && initialAttackVector && !isAttacking) {
+       const vector = vectors.find(v => v.id === initialAttackVector);
+       const moduleName = vector ? (vector.description || vector.attackType) : initialAttackVector;
+       
+       setLogs(prev => [
+         ...prev,
+         ``,
+         `[System] Solicitud de ataque quirúrgico recibida para: ${initialTargetUrl}`,
+         `[System] Calculando mutaciones de PipelineSelector...`
+       ]);
+
+       fetch('/api/attack', {
+         method: 'POST',
+         headers: { 'Content-Type': 'application/json' },
+         body: JSON.stringify({
+           targetUrl: initialTargetUrl,
+           vectorId: initialAttackVector,
+           parentScanId: scanId,
+           action: 'preview'
+         })
+       }).then(res => res.json()).then(data => {
+         if (data.command) {
+            setPreviewData({
+              command: data.command,
+              vectorId: initialAttackVector,
+              targetUrl: initialTargetUrl,
+              moduleName
+            });
+         }
+       }).catch(err => {
+         setLogs(prev => [...prev, `[System] Error obteniendo preview: ${err.message}`]);
+       });
+    }
+  }, [initialTargetUrl, initialAttackVector, scanId]);
 
   const categories = Array.from(new Set<AttackCategory>(['ALL', ...vectors.map(v => getCategory(v.attackType))]));
   const filtered = activeCategory === 'ALL' ? vectors : vectors.filter(v => getCategory(v.attackType) === activeCategory);
@@ -417,6 +460,42 @@ export default function OffensiveArsenal({ targetUrl, scanId, profile, onAttackC
                 <span className="animate-pulse">Ejecutando ataque...</span>
               </div>
             )}
+            
+            {/* Command Preview UI */}
+            {previewData && !isAttacking && (
+              <motion.div 
+                initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}
+                className="mt-4 p-4 rounded-lg bg-black/60 border border-amber-500/30 shadow-lg"
+              >
+                <div className="text-amber-400 font-bold mb-2 flex items-center gap-2 text-xs uppercase tracking-wider">
+                  <Zap className="w-3.5 h-3.5" /> Comando mutado final generado por PipelineSelector
+                </div>
+                <div className="text-emerald-400 font-mono text-xs whitespace-pre-wrap break-all mb-4 bg-zinc-950 p-3 rounded border border-white/5 shadow-inner">
+                  {previewData.command.split(/(?= -[A-Za-z-]| --[A-Za-z])/).join('\n ')}
+                </div>
+                <div className="flex gap-3">
+                  <button 
+                    onClick={() => { 
+                      launchModule(previewData.vectorId, previewData.moduleName, previewData.targetUrl); 
+                      setPreviewData(null); 
+                    }} 
+                    className="px-4 py-2 bg-rose-600 hover:bg-rose-500 text-white rounded font-bold text-[10px] uppercase tracking-wider transition-colors"
+                  >
+                    [ Ejecutar ]
+                  </button>
+                  <button 
+                    onClick={() => {
+                      setPreviewData(null);
+                      setLogs(prev => [...prev, `[System] Ataque quirúrgico cancelado por el usuario.`]);
+                    }} 
+                    className="px-4 py-2 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded font-bold text-[10px] uppercase tracking-wider transition-colors"
+                  >
+                    [ Cancelar ]
+                  </button>
+                </div>
+              </motion.div>
+            )}
+
             <div ref={logEndRef} />
           </div>
         </div>

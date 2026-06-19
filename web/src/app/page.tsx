@@ -28,6 +28,8 @@ export default function Home() {
   const [scanStatus, setScanStatus] = useState<ScanStatus>("pending");
   const [targetUrl, setTargetUrl] = useState<string>("");
   const [resultsTab, setResultsTab] = useState<"recon" | "offensive">("recon");
+  const [initialTargetUrl, setInitialTargetUrl] = useState<string | undefined>();
+  const [initialAttackVector, setInitialAttackVector] = useState<string | undefined>();
   
   // Ref to track if simulation is running
   const simulationRef = useRef<boolean>(false);
@@ -131,35 +133,12 @@ export default function Home() {
     }
   };
 
-  const handleTargetedAttack = async (vectorId: string) => {
-    addLog(`Ejecutando Ataque Dirigido Inline: [${vectorId}]...`, "warning");
-    setStep("scanning");
-    setScanStatus("pending");
-    simulationRef.current = true;
-    
-    try {
-      addLog("Contactando al worker para inyección manual...", "info");
-      const workerRes = await fetch(`http://localhost:4000/api/attack/targeted`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ targetUrl, scanId, vectorId }),
-      });
-
-      if (!workerRes.ok) {
-        throw new Error("Worker no responde o devolvió error.");
-      }
-      
-      addLog(`Worker aceptó el trabajo dirigido. Esperando resultados...`, "success");
-      setScanStatus("in_progress");
-      
-    } catch (error) {
-      addLog(`Error al conectar con el worker: ${(error as Error).message}`, "error");
-      setScanStatus("error");
-      simulationRef.current = false;
-      setTimeout(() => {
-        setStep("results");
-      }, 2000);
-    }
+  const handleTargetedAttack = (endpointUrl: string, vectorId: string) => {
+    addLog(`Pre-cargando Ataque Dirigido: [${vectorId}] en ${endpointUrl}...`, "warning");
+    setInitialTargetUrl(endpointUrl);
+    setInitialAttackVector(vectorId);
+    setResultsTab("offensive");
+    window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
   // Polling Effect — active scan
@@ -398,7 +377,14 @@ export default function Home() {
             {/* Keeping it mounted preserves the Tactical Console logs across tab switches */}
             <div className={`mt-8 ${resultsTab === "offensive" ? "block" : "hidden"}`}>
               {scanId && reconProfile ? (
-                <OffensiveArsenal targetUrl={targetUrl} scanId={scanId} profile={reconProfile} onAttackComplete={refreshFindings} />
+                <OffensiveArsenal 
+                  targetUrl={targetUrl} 
+                  scanId={scanId} 
+                  profile={reconProfile} 
+                  initialTargetUrl={initialTargetUrl}
+                  initialAttackVector={initialAttackVector}
+                  onAttackComplete={refreshFindings} 
+                />
               ) : (
                 <div className="text-center p-12 glass-panel border-rose-500/20 bg-rose-500/5">
                   <h3 className="text-2xl font-bold text-rose-400 mb-2">Arsenal Desactivado</h3>

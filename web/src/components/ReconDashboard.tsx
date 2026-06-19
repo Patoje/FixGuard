@@ -1,7 +1,7 @@
 "use client";
 
 import { motion, AnimatePresence } from "framer-motion";
-import { Server, Database, Layers, Shield, Network, Activity, Zap, Code, Link2, BookOpen, Cloud, Key, Workflow, Radio, Globe, PackageSearch, DatabaseZap, ClipboardCheck, Compass, Eye, Map, Box, Lock, FileJson } from "lucide-react";
+import { Server, Database, Layers, Shield, Network, Activity, Zap, Code, Link2, BookOpen, Cloud, Key, Workflow, Radio, Globe, PackageSearch, DatabaseZap, ClipboardCheck, Compass, Eye, Map, Box, Lock, FileJson, Search } from "lucide-react";
 import { useState, useEffect, useMemo } from "react";
 import { ReconProfile, AttackSurfaceItem } from "../types";
 import ApplicationBlueprint from "./ApplicationBlueprint";
@@ -12,7 +12,7 @@ import WorkflowVisualizer from "./WorkflowVisualizer";
 interface Props {
   profile: ReconProfile;
   targetUrl: string;
-  onLaunchAttack?: (vectorId: string) => void;
+  onLaunchAttack?: (endpointUrl: string, vectorId: string) => void;
 }
 
 // Helper to group endpoints into functional entities
@@ -57,6 +57,7 @@ function groupEndpoints(endpoints: AttackSurfaceItem[]) {
 export default function ReconDashboard({ profile, targetUrl, onLaunchAttack }: Props) {
   const [toast, setToast] = useState<{message: string, type: 'success' | 'error'} | null>(null);
   const [openEntity, setOpenEntity] = useState<string | null>(null);
+  const [openDropdownIdx, setOpenDropdownIdx] = useState<string | null>(null);
 
   useEffect(() => {
     if (toast) {
@@ -311,13 +312,72 @@ export default function ReconDashboard({ profile, targetUrl, onLaunchAttack }: P
                               'BAJO': 'bg-blue-500/20 text-blue-400 border-blue-500/30'
                             };
                             return (
-                              <tr key={idx} className="hover:bg-white/5">
+                              <tr key={idx} className="hover:bg-white/5 group">
                                 <td className="p-2 text-xs text-zinc-400 font-mono w-20">{ep.method}</td>
                                 <td className="p-2 text-xs text-blue-300 font-mono break-all">{ep.path}</td>
                                 <td className="p-2 w-24">
                                   <span className={`px-2 py-0.5 text-[10px] font-bold rounded border ${riskColors[ep.riskLevel] || 'bg-zinc-800 text-zinc-400'}`}>
                                     {ep.riskLevel}
                                   </span>
+                                </td>
+                                <td className="p-2 w-12 relative text-right">
+                                  {onLaunchAttack && (
+                                    <button 
+                                      onClick={() => setOpenDropdownIdx(openDropdownIdx === `${groupName}-${idx}` ? null : `${groupName}-${idx}`)}
+                                      className="p-1.5 rounded bg-zinc-800 hover:bg-zinc-700 text-cyan-400 border border-cyan-500/20 opacity-0 group-hover:opacity-100 transition-opacity"
+                                      title="Ataque Táctico"
+                                    >
+                                      <Zap className="w-3.5 h-3.5" />
+                                    </button>
+                                  )}
+                                  
+                                  {openDropdownIdx === `${groupName}-${idx}` && (
+                                    <div className="absolute right-12 top-0 mt-2 w-56 bg-zinc-900 border border-white/10 rounded-lg shadow-xl z-50 overflow-hidden text-left">
+                                      <div className="px-3 py-2 border-b border-white/5 text-[10px] font-mono text-zinc-500 uppercase tracking-widest">
+                                        Menú Táctico
+                                      </div>
+                                      
+                                      {(() => {
+                                         // Logic for dropdown relevance
+                                         const hasParams = ep.path.includes('?');
+                                         let isNumeric = false;
+                                         if (hasParams) {
+                                           const paramVal = ep.path.split('=')[1];
+                                           if (paramVal && !isNaN(Number(paramVal))) {
+                                              isNumeric = true;
+                                           }
+                                         }
+                                         
+                                         const hasJwt = profile.credentials.some(c => c.type === 'jwt_secret');
+
+                                         return (
+                                           <div className="flex flex-col text-xs">
+                                              {isNumeric && (
+                                                <button onClick={() => { onLaunchAttack?.(ep.path, 'sqli_time'); setOpenDropdownIdx(null); }} className="px-3 py-2 hover:bg-white/5 flex items-center gap-2 text-zinc-300">
+                                                  <DatabaseZap className="w-3.5 h-3.5 text-orange-400" /> Inyectar SQL
+                                                </button>
+                                              )}
+                                              {hasParams && !isNumeric && (
+                                                <button onClick={() => { onLaunchAttack?.(ep.path, 'xss_dalfox'); setOpenDropdownIdx(null); }} className="px-3 py-2 hover:bg-white/5 flex items-center gap-2 text-zinc-300">
+                                                  <Shield className="w-3.5 h-3.5 text-rose-400" /> Cazar XSS
+                                                </button>
+                                              )}
+                                              <button onClick={() => { onLaunchAttack?.(ep.path, 'ffuf_dir'); setOpenDropdownIdx(null); }} className="px-3 py-2 hover:bg-white/5 flex items-center gap-2 text-zinc-300">
+                                                <Search className="w-3.5 h-3.5 text-blue-400" /> Fuzzear Rutas
+                                              </button>
+                                              {hasJwt && (
+                                                <button onClick={() => { onLaunchAttack?.(ep.path, 'jwt_tool'); setOpenDropdownIdx(null); }} className="px-3 py-2 hover:bg-white/5 flex items-center gap-2 text-zinc-300">
+                                                  <Key className="w-3.5 h-3.5 text-amber-400" /> Testear JWT
+                                                </button>
+                                              )}
+                                              <button onClick={() => { onLaunchAttack?.(ep.path, 'nuclei_cve'); setOpenDropdownIdx(null); }} className="px-3 py-2 hover:bg-white/5 flex items-center gap-2 text-zinc-300">
+                                                <Radio className="w-3.5 h-3.5 text-cyan-400" /> Scan CVEs
+                                              </button>
+                                           </div>
+                                         );
+                                      })()}
+                                    </div>
+                                  )}
                                 </td>
                               </tr>
                             );
