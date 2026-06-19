@@ -84,7 +84,7 @@ app.post('/api/scan', async (req, res) => {
       if (scan && scan.targetedVectorId) {
         console.log(`[Scan ${scanId}] 🎯 Ejecutando Ataque Dirigido: ${scan.targetedVectorId} contra ${targetUrl}`);
         const { runTargetedAttack } = await import('./targetedOrchestrator');
-        await runTargetedAttack(scanId, targetUrl, scan.targetedVectorId, scan.parentScanId || undefined);
+        await runTargetedAttack(scanId, scan.userId, targetUrl, scan.targetedVectorId, scan.parentScanId || undefined);
         
         await db.update(scans).set({ 
           status: 'completed', 
@@ -377,8 +377,14 @@ app.post('/api/attack/targeted', async (req, res) => {
   try {
     await db.update(scans).set({ status: 'in_progress', mode: 'targeted' }).where(eq(scans.id, scanId));
     
+    // Obtenemos el userId asociado al scan
+    const currentScan = await db.select().from(scans).where(eq(scans.id, scanId)).limit(1).then(res => res[0]);
+    if (!currentScan) {
+      throw new Error(`Scan ${scanId} no encontrado en base de datos`);
+    }
+    
     // Execute attack and get output to return to the frontend Tactical Console
-    const attackOutput = await runTargetedAttack(scanId, targetUrl, vectorId, parentId);
+    const attackOutput = await runTargetedAttack(scanId, currentScan.userId, targetUrl, vectorId, parentId);
 
     await db.update(scans).set({ 
       status: 'completed', 

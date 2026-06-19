@@ -45,6 +45,15 @@ export const users = pgTable('users', {
   createdAt: timestamp('created_at').defaultNow().notNull(),
 });
 
+export const authorizations = pgTable('authorizations', {
+  id: serial('id').primaryKey(),
+  userId: integer('user_id').references(() => users.id).notNull(),
+  targetDomain: varchar('target_domain', { length: 255 }).notNull(),
+  authorizedAt: timestamp('authorized_at').defaultNow().notNull(),
+  expiresAt: timestamp('expires_at'),
+  signature: text('signature') // Evidencia opcional (ej: IP del usuario o hash de aceptación)
+});
+
 export const scans = pgTable('scans', {
   id: serial('id').primaryKey(),
   userId: integer('user_id').references(() => users.id).notNull(),

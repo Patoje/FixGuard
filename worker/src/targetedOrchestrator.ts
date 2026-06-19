@@ -7,6 +7,7 @@ import { reconProfiles, findings } from './db/schema';
 import { eq } from 'drizzle-orm';
 import { PipelineSelector } from './scanner/logic/PipelineSelector';
 import type { NormalizedReconProfile } from './db/schema';
+import { ActiveExploitationEngine } from './scanner/logic/ActiveExploitationEngine';
 
 // Helper to parse the output and determine severity/findings
 function parseCliOutput(command: string, output: string): { severity: 'low' | 'medium' | 'high' | 'critical', finding: string, metadata?: any } | null {
@@ -182,7 +183,7 @@ function parseCliOutput(command: string, output: string): { severity: 'low' | 'm
   return null;
 }
 
-export async function runTargetedAttack(scanId: number, targetUrl: string, vectorId: string, parentId?: number): Promise<string> {
+export async function runTargetedAttack(scanId: number, userId: number, targetUrl: string, vectorId: string, parentId?: number): Promise<string> {
   console.log(`[Scan ${scanId}] Iniciando ataque dirigido REAL [${vectorId}] contra ${targetUrl}`);
 
   try {
@@ -249,10 +250,10 @@ export async function runTargetedAttack(scanId: number, targetUrl: string, vecto
       }
     }
 
-    console.log(`[Scan ${scanId}] ⚙️ Ejecutando herramienta profesional CLI: ${finalCommand}`);
+    console.log(`[Scan ${scanId}] ⚙️ Ejecutando herramienta profesional CLI mediante ActiveExploitationEngine: ${finalCommand}`);
     
-    // Run the actual CLI tool using the runner
-    const output = await runCliCommand(finalCommand, cleanTargetUrl);
+    // Run the actual CLI tool using the secure active engine
+    const output = await ActiveExploitationEngine.executeAuthorized(scanId, userId, cleanTargetUrl, finalCommand);
     
     console.log(`[Scan ${scanId}] 📄 Output recibido (Longitud: ${output.length} bytes)`);
 

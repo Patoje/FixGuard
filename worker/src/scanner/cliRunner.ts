@@ -8,10 +8,10 @@ export async function runCliCommand(commandTemplate: string, targetUrl: string):
   
   try {
     // Run the command with a timeout of 2 minutes (120000ms) to prevent hanging
-    // Inject $HOME/go/bin into PATH so go binaries work even without terminal restart
+    // Inject $HOME/go/bin and $HOME/bin into PATH so binaries work even without terminal restart
     const { stdout, stderr } = await execPromise(finalCommand, { 
       timeout: 120000,
-      env: { ...process.env, PATH: `${process.env.PATH}:${process.env.HOME}/go/bin` }
+      env: { ...process.env, PATH: `${process.env.PATH}:${process.env.HOME}/go/bin:${process.env.HOME}/bin` }
     });
     // Some tools print findings to stdout, others to stderr, we combine them or just use stdout
     return stdout + '\n' + stderr;

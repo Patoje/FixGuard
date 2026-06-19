@@ -137,6 +137,16 @@ export function runFrameworkIntelligence(techStack: TechStackItem[]): FrameworkV
     });
   }
 
+  // Authentication & JWT is a core concern, so we add it as an independent framework layer always
+  intelligence.push({
+    framework: 'JWT & Authentication',
+    vectors: [
+      { id: 'jwt_tool_scan', name: 'JWT Misconfiguration Scan', cliCommand: 'jwt_tool <TARGET> -M pb' },
+      { id: 'jwt_none_alg', name: 'JWT None Algorithm test', cliCommand: 'jwt_tool <TARGET> -X a' },
+      { id: 'jwt_weak_secret', name: 'JWT Weak Secret Brute-force', cliCommand: 'jwt_tool <TARGET> -d ./wordlists/jwt_secrets.txt' }
+    ]
+  });
+
   return intelligence;
 }
 
@@ -179,6 +189,10 @@ export const VECTOR_REGISTRY: Record<string, VectorItem> = {
   clerk_oauth: { id: 'clerk_oauth', name: 'OAuth bypass', cliCommand: 'nuclei -id clerk-oauth-bypass -u <TARGET>' },
   clerk_jwt: { id: 'clerk_jwt', name: 'JWT validation bypass', cliCommand: 'nuclei -id jwt-none-alg -u <TARGET>' },
   clerk_metadata: { id: 'clerk_metadata', name: 'User Metadata manipulation', cliCommand: 'curl -X PATCH -d "{\\"publicMetadata\\": {\\"role\\":\\"admin\\"}}" <TARGET>' },
+  // JWT
+  jwt_tool_scan: { id: 'jwt_tool_scan', name: 'JWT Misconfiguration Scan', cliCommand: 'jwt_tool <TARGET> -M pb' },
+  jwt_none_alg: { id: 'jwt_none_alg', name: 'JWT None Algorithm test', cliCommand: 'jwt_tool <TARGET> -X a' },
+  jwt_weak_secret: { id: 'jwt_weak_secret', name: 'JWT Weak Secret Brute-force', cliCommand: 'jwt_tool <TARGET> -d ./wordlists/jwt_secrets.txt' },
   // Supabase
   supabase_bucket: { id: 'supabase_bucket', name: 'Bucket enumeration', cliCommand: 'nuclei -id supabase-bucket-enum -u <TARGET>' },
   supabase_realtime: { id: 'supabase_realtime', name: 'Realtime socket exposure', cliCommand: 'wscat -c wss://<TARGET>/realtime/v1/websocket' },
