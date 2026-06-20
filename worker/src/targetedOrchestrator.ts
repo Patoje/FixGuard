@@ -343,7 +343,7 @@ export async function runTargetedAttack(scanId: number, userId: number, targetUr
 
       // ─── Lógica de Correlación Inteligente (Dalfox -> XSStrike) ─────────
       if (vectorId === 'dalfox' || vectorId === 'xss_dalfox') {
-         if (newFinding && newFinding.detectedBy && newFinding.detectedBy.length === 1) {
+         if (newFinding && newFinding.detectedBy && newFinding.detectedBy.length === 1 && newFinding.detectedBy[0] === vector.id) {
              console.log(`[Correlation Engine] Inyectando confirmación secundaria con XSStrike para el hallazgo en: ${targetUrl}`);
              // Encolamos o ejecutamos XSStrike automáticamente de forma asíncrona pero sin bloquear la UI
              // Lo haremos directamente llamando a runTargetedAttack de forma recursiva
