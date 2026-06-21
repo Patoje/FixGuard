@@ -8,6 +8,7 @@ import { eq } from 'drizzle-orm';
 import { PipelineSelector } from './scanner/logic/PipelineSelector';
 import type { NormalizedReconProfile } from './db/schema';
 import { ActiveExploitationEngine } from './scanner/logic/ActiveExploitationEngine';
+import fs from 'fs';
 
 // Helper to parse the output and determine severity/findings
 function parseCliOutput(command: string, output: string): { severity: 'low' | 'medium' | 'high' | 'critical', finding: string, metadata?: any } | null {
@@ -344,6 +345,64 @@ export async function runTargetedAttack(scanId: number, userId: number, targetUr
 
     // Parse output for vulnerabilities
     const result = parseCliOutput(vector.cliCommand, output);
+
+    // FFUF and Nuclei JSON Parsing & Cleanup
+    try {
+      if (finalCommand.includes('ffuf')) {
+        const ffufFile = `/tmp/ffuf_${scanId}.json`;
+        if (fs.existsSync(ffufFile)) {
+          const content = fs.readFileSync(ffufFile, 'utf8');
+          const data = JSON.parse(content);
+          if (data.results && Array.isArray(data.results)) {
+             for (const res of data.results) {
+               if (res.status && res.status !== 404) {
+                 await IssueManager.reportFinding({
+                   scanId: parentId ?? scanId,
+                   title: 'Ruta descubierta por FFUF',
+                   severity: 'low',
+                   endpoint: res.url,
+                   method: 'GET',
+                   payloadUsed: `Fuzzing de rutas`,
+                   toolSource: 'ffuf'
+                 });
+                 // Inject into endpoint catalog directly so it shows up in UI
+                 result!.metadata = result!.metadata || {};
+                 result!.metadata.discovered_urls = result!.metadata.discovered_urls || [];
+                 result!.metadata.discovered_urls.push(res.url);
+               }
+             }
+          }
+          fs.unlinkSync(ffufFile);
+        }
+      }
+
+      if (finalCommand.includes('nuclei')) {
+        const nucleiFile = `/tmp/nuclei_${scanId}.json`;
+        if (fs.existsSync(nucleiFile)) {
+          const content = fs.readFileSync(nucleiFile, 'utf8');
+          const lines = content.split('\n').filter(l => l.trim().length > 0);
+          for (const line of lines) {
+             try {
+                const data = JSON.parse(line);
+                if (data.info) {
+                  await IssueManager.reportFinding({
+                    scanId: parentId ?? scanId,
+                    title: data.info.name || 'Hallazgo de Nuclei',
+                    severity: data.info.severity || 'info',
+                    endpoint: data['matched-at'] || targetUrl,
+                    method: 'GET',
+                    payloadUsed: data.type || 'nuclei-template',
+                    toolSource: 'nuclei'
+                  });
+                }
+             } catch(e) {}
+          }
+          fs.unlinkSync(nucleiFile);
+        }
+      }
+    } catch(err: any) {
+      console.warn(`[Scan ${scanId}] Error procesando archivos JSON de FFUF/Nuclei:`, err.message);
+    }
 
     if (result) {
       console.log(`[Scan ${scanId}] 🚨 VULNERABILIDAD CONFIRMADA: ${result.severity.toUpperCase()}`);

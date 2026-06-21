@@ -100,6 +100,7 @@ import { db } from './db/db';
 import { scans, reconProfiles } from './db/schema';
 import { eq } from 'drizzle-orm';
 import 'dotenv/config';
+import fs from 'fs';
 
 const app = express();
 app.use(cors());
@@ -390,11 +391,24 @@ app.post('/api/scan', async (req, res) => {
     }
 
   } catch (error: any) {
-    console.error(`[Scan ${scanId}] Error global de orquestación:`, error);
+    console.error(`[Scan ${scanId}] Error global de orchestration:`, error);
     await db.update(scans).set({ 
       status: 'failed', 
       completedAt: new Date() 
     }).where(eq(scans.id, scanId));
+  } finally {
+    // Cleanup temporary files created for this scan
+    try {
+      const tempFiles = [
+        `/tmp/fixguard_wordlist_${scanId}.txt`,
+        `/tmp/fixguard_hosts_${scanId}.txt`
+      ];
+      for (const file of tempFiles) {
+        if (fs.existsSync(file)) {
+          fs.unlinkSync(file);
+        }
+      }
+    } catch(e) {}
   }
 });
 

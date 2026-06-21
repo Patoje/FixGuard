@@ -179,20 +179,18 @@ export class PipelineSelector {
       }
 
       if (mutatedCommand.includes('ffuf')) {
-        // Reemplazar o añadir wordlist
-        if (decision.wordlistPath && !vector.id.includes('lfi_fuzzer')) {
-          if (mutatedCommand.includes('-w ')) {
-            mutatedCommand = mutatedCommand.replace(/-w\s+[^\s]+/, `-w ${decision.wordlistPath}`);
-          } else {
-            mutatedCommand += ` -w ${decision.wordlistPath}`;
-          }
-        } else if (!mutatedCommand.includes('-w ')) {
-          mutatedCommand += ` -w ./wordlists/api_wordlist.txt`;
-        }
-
+        const ext = recon.stack.pipeline === 'legacy' ? '.php,.asp,.aspx,.config,.bak' : '.json,.js,.map';
+        mutatedCommand = `ffuf -u <TARGET>/FUZZ -w /tmp/fixguard_wordlist_${recon.scanId}.txt -ac -mc 200,201,204,301,302,307,401,403,405 -fc 404 -fs 0 -H "X-Originating-IP: 127.0.0.1" -H "X-Forwarded-For: 127.0.0.1" -H "X-Real-IP: 127.0.0.1" -rate 10 -timeout 10 -recursion -recursion-depth 2 -e ${ext} -o /tmp/ffuf_${recon.scanId}.json -of json`;
         if (wafProfile.ffuf_flags.length > 0) {
           mutatedCommand += ` ${wafProfile.ffuf_flags.join(' ')}`;
         }
+        isMutated = true;
+      }
+
+      if (mutatedCommand.includes('nuclei')) {
+        const tags = this.extractNucleiTags(recon);
+        const tagsStr = tags.length > 0 ? tags.join(',') : 'generic';
+        mutatedCommand = `nuclei -u <TARGET> -H "X-Forwarded-For: 127.0.0.1" -H "X-Real-IP: 127.0.0.1" -tags ${tagsStr} -severity low,medium,high,critical -etags dos -rl 10 -timeout 10 -retries 2 -no-interactsh -j -o /tmp/nuclei_${recon.scanId}.json`;
         isMutated = true;
       }
 

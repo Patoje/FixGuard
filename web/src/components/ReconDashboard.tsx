@@ -1,7 +1,7 @@
 "use client";
 
 import { motion, AnimatePresence } from "framer-motion";
-import { Server, Database, Layers, Shield, Network, Activity, Zap, Code, Link2, BookOpen, Cloud, Key, Workflow, Radio, Globe, PackageSearch, DatabaseZap, ClipboardCheck, Compass, Eye, Map, Box, Lock, FileJson, Search } from "lucide-react";
+import { Server, Database, Layers, Shield, Network, Activity, Zap, Code, Link2, BookOpen, Cloud, Key, Workflow, Radio, Globe, PackageSearch, DatabaseZap, ClipboardCheck, Compass, Eye, Map, Box, Lock, FileJson, Search, Clock } from "lucide-react";
 import { useState, useEffect, useMemo } from "react";
 import { ReconProfile, AttackSurfaceItem } from "../types";
 import ApplicationBlueprint from "./ApplicationBlueprint";
@@ -326,7 +326,24 @@ export default function ReconDashboard({ profile, targetUrl, onLaunchAttack }: P
                             return (
                               <tr key={idx} className="hover:bg-white/5 group">
                                 <td className="p-2 text-xs text-zinc-400 font-mono w-20">{ep.method}</td>
-                                <td className="p-2 text-xs text-blue-300 font-mono break-all">{ep.path}</td>
+                                <td className="p-2 text-xs text-blue-300 font-mono break-all flex items-center gap-2">
+                                  {ep.path}
+                                  {ep.source && (
+                                    <span className={`flex items-center gap-1 px-1.5 py-0.5 text-[9px] font-bold uppercase rounded border ${
+                                      ep.source.toUpperCase() === 'CRAWLER' ? 'bg-blue-500/20 text-blue-400 border-blue-500/30' :
+                                      ep.source.toUpperCase() === 'GAU' ? 'bg-orange-500/20 text-orange-400 border-orange-500/30' :
+                                      ep.source.toUpperCase() === 'WAYBACK' ? 'bg-zinc-500/20 text-zinc-400 border-zinc-500/30' :
+                                      ep.source.toUpperCase() === 'SOURCEMAPPER' ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30' :
+                                      ep.source.toUpperCase() === 'FFUF' ? 'bg-rose-500/20 text-rose-400 border-rose-500/30' :
+                                      'bg-zinc-800 text-zinc-400 border-zinc-700'
+                                    }`}>
+                                      {ep.source}
+                                      {(ep.source.toUpperCase() === 'GAU' || ep.source.toUpperCase() === 'WAYBACK') && (
+                                        <Clock className="w-2.5 h-2.5 opacity-70" title="Histórico - Podría no estar activo" />
+                                      )}
+                                    </span>
+                                  )}
+                                </td>
                                 <td className="p-2 w-24">
                                   <span className={`px-2 py-0.5 text-[10px] font-bold rounded border ${riskColors[ep.riskLevel] || 'bg-zinc-800 text-zinc-400'}`}>
                                     {ep.riskLevel}
