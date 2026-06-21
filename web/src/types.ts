@@ -138,6 +138,14 @@ export interface ReconProfile {
     discoveredRoutes: string[];
     hiddenRoutes: string[];
     manifestType?: string;
+    exposedSecrets?: Array<{
+      type: string;
+      value: string;
+      url?: string;
+      source?: string;
+      isLikelyFalsePositive?: boolean;
+      falsePositiveReason?: string;
+    }>;
   };
   parameterIntelligence?: {
     totalParameters: number;
@@ -189,5 +197,39 @@ export interface ReconProfile {
     severity: string;
     cliCommand?: string;
   }>;
-
+  normalizedData?: {
+    scanId: number;
+    target: string;
+    stack: {
+      frontend: string | null;
+      runtime: string | null;
+      waf: string | null;
+      cdn: string | null;
+      confidence: number;
+      database_hints?: string[];
+    };
+    endpoints: {
+      url: string;
+      source: string;
+      lastSeen: string;
+    }[];
+    subdomains: {
+      domain: string;
+      source: string;
+      takeover_candidate: boolean;
+    }[];
+    credentials: {
+      email: string;
+      type: string;
+      breach_count: number;
+      has_plaintext: boolean;
+      high_risk?: boolean;
+      breach_names?: string[];
+    }[];
+    vulnerabilities_hints: {
+      type: string;
+      detail: string;
+      cve?: string;
+    }[];
+  };
 }

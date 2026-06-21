@@ -58,6 +58,17 @@ export default function ReconDashboard({ profile, targetUrl, onLaunchAttack }: P
   const [toast, setToast] = useState<{message: string, type: 'success' | 'error'} | null>(null);
   const [openEntity, setOpenEntity] = useState<string | null>(null);
   const [openDropdownIdx, setOpenDropdownIdx] = useState<string | null>(null);
+  const [revealedSecrets, setRevealedSecrets] = useState<Set<number>>(new Set());
+
+  const toggleSecret = (idx: number) => {
+    const newSet = new Set(revealedSecrets);
+    if (newSet.has(idx)) {
+      newSet.delete(idx);
+    } else {
+      newSet.add(idx);
+    }
+    setRevealedSecrets(newSet);
+  };
 
   useEffect(() => {
     if (toast) {
@@ -432,6 +443,96 @@ export default function ReconDashboard({ profile, targetUrl, onLaunchAttack }: P
               <h4 className="font-bold text-orange-400 mb-2 flex items-center gap-2">Server Actions (Next.js)</h4>
               <p className="text-xs text-orange-200/70 mb-4">Se extrajeron hashes RPC de Next.js. Esto permite bypass de UI e inyecciones directas a la base de datos backend.</p>
               <div className="bg-black/50 p-2 rounded text-xs font-mono text-zinc-400 border border-white/5">{profile.serverActionsIntelligence.extractedActionsCount} Acciones Críticas</div>
+            </div>
+          )}
+
+          {/* Source Code Exposed Secrets */}
+          {profile.artifactIntelligence?.exposedSecrets && profile.artifactIntelligence.exposedSecrets.length > 0 && (
+            <div className="bg-amber-950/20 p-5 rounded-xl border border-amber-500/30 relative overflow-hidden col-span-1 md:col-span-3">
+              <div className="absolute top-0 right-0 p-3 opacity-10"><Key className="w-16 h-16" /></div>
+              <h4 className="font-bold text-amber-400 mb-2 flex items-center gap-2">Secretos Expuestos en Código Cliente</h4>
+              <p className="text-xs text-amber-200/70 mb-4">API Keys, Tokens o contraseñas encontrados directamente en los bundles de Javascript.</p>
+              <div className="space-y-2 max-h-48 overflow-y-auto custom-scrollbar pr-2">
+                 {profile.artifactIntelligence.exposedSecrets.map((secret, idx) => {
+                    const isGeneric = secret.type.includes('Generic');
+                    let displayName = secret.type;
+                    let displayValue = secret.value;
+
+                    if (isGeneric) {
+                       const parts = secret.value.split(/[:=]/);
+                       if (parts.length >= 2) {
+                          // Extraemos el prefijo (ej: api_key, TOKEN, secret) y le limpiamos las comillas
+                          displayName = parts[0].trim().replace(/['"]/g, '');
+                          // Extraemos el valor real (la key en sí)
+                          displayValue = parts.slice(1).join('=').trim().replace(/^["']|["']$/g, '');
+                       }
+                    }
+
+                    let maskedValue = displayValue.length > 10 
+                       ? `${displayValue.substring(0, 6)}***${displayValue.substring(displayValue.length - 4)}`
+                       : `${displayValue.substring(0, Math.floor(displayValue.length/2))}***`;
+
+                    return (
+                    <div key={idx} className="flex flex-col md:flex-row md:items-center justify-between p-3 bg-black/40 border border-amber-500/20 rounded-lg">
+                       <div className="flex flex-col gap-1">
+                         <div className="flex items-center gap-3">
+                           <span className="text-xs font-mono bg-amber-500/20 text-amber-300 px-2 py-1 rounded border border-amber-500/30 truncate max-w-[150px]" title={secret.type}>{displayName}</span>
+                           <span className="font-mono text-sm text-zinc-200 max-w-[400px] break-all">
+                             {revealedSecrets.has(idx) ? displayValue : maskedValue}
+                           </span>
+                         </div>
+                         {(secret.url || secret.source) && (
+                           <div className="flex items-center gap-2 text-[10px] text-zinc-500 mt-1">
+                             {secret.source && <span className="uppercase font-bold text-zinc-400 bg-zinc-800 px-1.5 rounded">{secret.source}</span>}
+                             {secret.url && <span className="truncate max-w-[300px]" title={secret.url}>{secret.url.replace(/^https?:\/\/[^\/]+/, '') || secret.url}</span>}
+                           </div>
+                         )}
+                       </div>
+                       <div className="flex items-center gap-4 mt-2 md:mt-0">
+                         <button onClick={() => toggleSecret(idx)} className="p-1.5 hover:bg-white/10 rounded text-zinc-400 hover:text-zinc-200 transition-colors" title={revealedSecrets.has(idx) ? "Ocultar" : "Mostrar"}>
+                            <Eye className="w-4 h-4" />
+                         </button>
+                         {secret.isLikelyFalsePositive ? (
+                            <span className="text-[10px] font-bold bg-amber-500/80 text-black px-2 py-1 rounded cursor-help" title={secret.falsePositiveReason || "Posible falso positivo"}>POSIBLE FALSO POSITIVO</span>
+                         ) : secret.type.includes('Peligro') || secret.type.includes('API Key') || secret.type.includes('Secret') || secret.type.includes('Token') ? (
+                            <span className="text-xs font-bold bg-rose-500 text-white px-2 py-1 rounded">ALTO RIESGO</span> 
+                         ) : (
+                            <span className="text-xs font-bold bg-amber-500 text-white px-2 py-1 rounded">INVESTIGAR</span>
+                         )}
+                       </div>
+                    </div>
+                    );
+                 })}
+              </div>
+            </div>
+          )}
+
+          {/* Breaches & Exposed Credentials */}
+          {profile.normalizedData?.credentials && profile.normalizedData.credentials.length > 0 && (
+            <div className="bg-fuchsia-950/20 p-5 rounded-xl border border-fuchsia-500/30 relative overflow-hidden col-span-1 md:col-span-3">
+              <div className="absolute top-0 right-0 p-3 opacity-10"><Database className="w-16 h-16" /></div>
+              <h4 className="font-bold text-fuchsia-400 mb-2 flex items-center gap-2">Inteligencia de Breaches OSINT</h4>
+              <p className="text-xs text-fuchsia-200/70 mb-4">Credenciales y correos expuestos encontrados en filtraciones de datos o repositorios de código.</p>
+              <div className="space-y-2 max-h-48 overflow-y-auto custom-scrollbar pr-2">
+                 {profile.normalizedData.credentials.map((cred, idx) => (
+                    <div key={idx} className="flex flex-col md:flex-row md:items-center justify-between p-3 bg-black/40 border border-fuchsia-500/20 rounded-lg">
+                       <div className="flex items-center gap-3">
+                         <span className="text-xs font-mono bg-fuchsia-500/20 text-fuchsia-300 px-2 py-1 rounded border border-fuchsia-500/30">{cred.type}</span>
+                         <span className="font-mono text-sm text-zinc-200">{cred.email}</span>
+                       </div>
+                       <div className="flex items-center gap-4 mt-2 md:mt-0">
+                         {cred.has_plaintext && <span className="text-[10px] uppercase text-rose-400 font-bold tracking-wider">Texto Plano Expuesto</span>}
+                         {cred.high_risk && <span className="text-xs font-bold bg-rose-500 text-white px-2 py-1 rounded">ALTO RIESGO</span>}
+                         <span className="text-xs font-bold bg-zinc-800 px-2 py-1 rounded border border-zinc-600">{cred.breach_count} Breaches</span>
+                       </div>
+                       {cred.breach_names && cred.breach_names.length > 0 && (
+                         <div className="w-full mt-2 text-xs text-zinc-500 truncate md:w-auto md:mt-0" title={cred.breach_names.join(', ')}>
+                           Sources: {cred.breach_names.slice(0, 2).join(', ')}{cred.breach_names.length > 2 ? ', ...' : ''}
+                         </div>
+                       )}
+                    </div>
+                 ))}
+              </div>
             </div>
           )}
         </div>

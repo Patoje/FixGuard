@@ -4,7 +4,14 @@ export interface ArtifactIntelligence {
   discoveredRoutes: string[];
   hiddenRoutes: string[];
   manifestType?: 'Next.js BuildManifest' | 'React AssetManifest' | 'Vite Manifest' | 'Angular chunks';
-  exposedSecrets: Array<{ type: string; value: string }>;
+  exposedSecrets: Array<{ 
+    type: string; 
+    value: string;
+    url?: string;
+    source?: string;
+    isLikelyFalsePositive?: boolean;
+    falsePositiveReason?: string;
+  }>;
   hiddenApiEndpoints: string[];
   exposedSourceMaps: string[];
   nextJsData?: any; // Para guardar el state extraído
@@ -27,15 +34,52 @@ export class ArtifactIntelligenceEngine {
     { type: 'GitHub Personal Access Token', regex: /ghp_[0-9a-zA-Z]{36}/g },
     { type: 'GitHub OAuth Access Token', regex: /gho_[0-9a-zA-Z]{36}/g },
     { type: 'Database URI', regex: /(?:mongodb(?:\+srv)?|postgres(?:ql)?|mysql|redis):\/\/[a-zA-Z0-9_]+:[a-zA-Z0-9_]+@[^\s"']+/g },
+    { type: 'Stripe Publishable Key', regex: /pk_(live|test)_[0-9a-zA-Z]{24,34}/g },
+    { type: 'OpenAI API Key', regex: /sk-[a-zA-Z0-9\-_]{48,}/g },
+    { type: 'Anthropic API Key', regex: /sk-ant-[a-zA-Z0-9\-_]{40,}/g },
+    { type: 'SendGrid API Key', regex: /SG\.[a-zA-Z0-9\-_]{22}\.[a-zA-Z0-9\-_]{43}/g },
+    { type: 'Square Access Token', regex: /sq0atp-[0-9A-Za-z\-_]{22}/g },
+    { type: 'Square OAuth Secret', regex: /sq0csp-[0-9A-Za-z\-_]{43}/g },
+    { type: 'GitHub App Token', regex: /(ghu|ghs)_[0-9a-zA-Z]{36}/g },
+    { type: 'GitLab Personal Access Token', regex: /glpat-[0-9a-zA-Z\-\_]{20}/g },
+    { type: 'Mapbox API Key', regex: /pk\.[a-zA-Z0-9]{60,}\.[a-zA-Z0-9]{22}/g },
+    { type: 'Sentry DSN', regex: /https:\/\/[a-zA-Z0-9]{32}@([a-zA-Z0-9-]+\.)?sentry\.io\/[0-9]+/g },
+    { type: 'Discord Bot Token', regex: /[a-zA-Z0-9_-]{24}\.[a-zA-Z0-9_-]{6}\.[a-zA-Z0-9_-]{27}/g },
+    { type: 'Discord Webhook', regex: /https:\/\/discord\.com\/api\/webhooks\/[0-9]{18,19}\/[a-zA-Z0-9_-]{68}/g },
+    { type: 'Figma Personal Access Token', regex: /figd_[a-zA-Z0-9\-_]{43}/g },
+    { type: 'Postman API Key', regex: /PMAK-[a-zA-Z0-9]{59,60}/g },
+    { type: 'Supabase URL', regex: /https:\/\/[a-z0-9]{20}\.supabase\.co/g },
     { type: 'JSON Web Token (JWT)', regex: /eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}/g },
     { type: 'RSA Private Key', regex: /-----BEGIN RSA PRIVATE KEY-----/g },
-    { type: 'Generic API Key / Secret', regex: /(?:api_key|apikey|secret|token|password)\s*[:=]\s*["']?([a-zA-Z0-9\-_]{16,64})["']?/gi }
+    { type: 'SSH Private Key', regex: /-----BEGIN OPENSSH PRIVATE KEY-----/g },
+    { type: 'PGP Private Block', regex: /-----BEGIN PGP PRIVATE KEY BLOCK-----/g },
+    { type: 'Shopify Access Token', regex: /shpat_[a-fA-F0-9]{32}/g },
+    { type: 'Shopify Custom App Token', regex: /shpca_[a-fA-F0-9]{32}/g },
+    { type: 'Shopify Shared Secret', regex: /shpss_[a-fA-F0-9]{32}/g },
+    { type: 'Telegram Bot Token', regex: /[0-9]{9}:[a-zA-Z0-9_-]{35}/g },
+    { type: 'Heroku API Key', regex: /[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}/g }, // Note: Heroku keys are standard UUIDs, prone to false positives, but keeping for completeness if matched with key names. Will rely on generic fallback if standalone UUIDs.
+    { type: 'Mailchimp API Key', regex: /[0-9a-f]{32}-us[0-9]{1,2}/g },
+    { type: 'Typeform Personal Access Token', regex: /tfp_[a-zA-Z0-9]{43}_[a-zA-Z0-9]{43}/g },
+    { type: 'Databricks Personal Access Token', regex: /dapi[a-h0-9]{32}/g },
+    { type: 'Sendbird Access Token', regex: /[\w]{40}/g }, // generic 40 char hex, often used by sendbird but high false positive without context
+    { type: 'Plaid Client ID', regex: /client_id[=:]\s*["'][0-9a-fA-F]{24}["']/g },
+    { type: 'Plaid Secret', regex: /secret[=:]\s*["'][0-9a-fA-F]{30}["']/g },
+    { type: 'Algolia API Key', regex: /[a-zA-Z0-9]{32}/g }, // generic 32 char, high false positive
+    { type: 'Dynatrace API Token', regex: /dt0c01\.[a-zA-Z0-9]{24}\.[a-zA-Z0-9]{64}/g },
+    { type: 'Fastly Personal Token', regex: /fastly-tok-[a-zA-Z0-9\-_]{32}/g },
+    { type: 'Doppler Service Token', regex: /dp\.st\.(?:dev|tst|stg|prd)\.[a-zA-Z0-9]{43}/g },
+    { type: 'Contentful Delivery API Token', regex: /[a-zA-Z0-9\-_]{43}/g }, // generic 43 char
+    { type: 'Npm Access Token', regex: /npm_[a-zA-Z0-9]{36}/g },
+    { type: 'PyPI Upload Token', regex: /pypi-[a-zA-Z0-9_-]{164}/g },
+    { type: 'Vercel Token', regex: /vercel_[a-zA-Z0-9]{24}/g },
+    { type: 'Notion API Key', regex: /secret_[a-zA-Z0-9]{43}/g },
+    { type: 'Generic API Key / Secret', regex: /(?:api_key|apikey|secret|token|password|auth_token|access_token|client_secret)\s*[:=]\s*["']?([a-zA-Z0-9\-_]{16,64})["']?/gi }
   ];
 
   // Regex pattern para LinkFinder ampliado a Literal Clustering
   private static LINK_PATTERN = /(?:"|')(\/api\/[a-zA-Z0-9_\-\/]+|\/v[0-9]+\/[a-zA-Z0-9_\-\/]+|\/graphql[a-zA-Z0-9_\-\/]*|https?:\/\/[a-zA-Z0-9_\-\.]+\/api\/[a-zA-Z0-9_\-\/]+|[a-zA-Z0-9_\-\/]+\.json)(?:"|')/g;
 
-  static async analyze(targetUrl: string, jsCodes: string[], jsUrls: string[] = []): Promise<ArtifactIntelligence> {
+  static async analyze(targetUrl: string, jsChunks: {code: string, url: string, source: string}[], jsUrls: string[] = []): Promise<ArtifactIntelligence> {
     const intel: ArtifactIntelligence = {
       discoveredRoutes: [],
       hiddenRoutes: [],
@@ -64,7 +108,8 @@ export class ArtifactIntelligenceEngine {
     } catch (e) {}
 
     // --- FASE 1: Análisis de Manifests Original ---
-    for (const code of jsCodes) {
+    for (const chunk of jsChunks) {
+      const code = chunk.code;
       if (code.includes('__BUILD_MANIFEST') || code.includes('sortedPages')) {
         intel.manifestType = 'Next.js BuildManifest';
         const sortedPagesMatch = code.match(/sortedPages\s*:\s*\[(.*?)\]/);
@@ -98,25 +143,92 @@ export class ArtifactIntelligenceEngine {
     }
 
     // --- FASE 2: SecretFinder y LinkFinder ---
-    console.log(`[ArtifactIntelligence] Escaneando ${jsCodes.length} chunks de JS en busca de secretos y rutas ocultas...`);
+    console.log(`[ArtifactIntelligence] Escaneando ${jsChunks.length} chunks de JS en busca de secretos y rutas ocultas...`);
     
     // Usaremos un Set para evitar secretos duplicados si aparecen en múltiples chunks
     const foundSecrets = new Set<string>();
     const foundApis = new Set<string>();
 
-    for (const code of jsCodes) {
+    for (const chunk of jsChunks) {
+      const code = chunk.code;
       // SecretFinder
       for (const pattern of this.SECRET_PATTERNS) {
         let match;
         while ((match = pattern.regex.exec(code)) !== null) {
-          const secretValue = match[0];
+          let secretValue = match[0];
+          // Si el regex tiene un grupo de captura, usamos el grupo en vez del match entero
+          if (match.length > 1 && match[1]) {
+             secretValue = match[1];
+          }
+          
           const secretKey = `${pattern.type}::${secretValue}`;
           if (!foundSecrets.has(secretKey)) {
             foundSecrets.add(secretKey);
-            intel.exposedSecrets.push({ type: pattern.type, value: secretValue });
+
+            // Secondary Validation
+            let isLikelyFalsePositive = false;
+            let falsePositiveReason = undefined;
+            const entropy = this.calculateEntropy(secretValue);
+            const dictCheck = this.hasDictionaryWords(secretValue);
+
+            if (pattern.type.includes('Algolia')) {
+                if (entropy < 3.8 || secretValue.length !== 32 || !/^[A-Za-z0-9]+$/.test(secretValue)) {
+                    isLikelyFalsePositive = true;
+                    falsePositiveReason = `Falla validación estricta Algolia (Entropía: ${entropy.toFixed(2)})`;
+                }
+            } else if (pattern.type.includes('Heroku')) {
+                if (!/^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/.test(secretValue)) {
+                    isLikelyFalsePositive = true;
+                    falsePositiveReason = `Falla formato estricto UUID Heroku`;
+                }
+            } else if (pattern.type.includes('Stripe')) {
+                if (!/^(pk_live_|pk_test_|sk_live_|sk_test_)/.test(secretValue) || secretValue.length < 20 || entropy <= 4.0) {
+                    isLikelyFalsePositive = true;
+                    falsePositiveReason = `Falla validación estricta Stripe (Entropía: ${entropy.toFixed(2)})`;
+                }
+            } else if (pattern.type.includes('JWT')) {
+                if (entropy < 4.5) {
+                    isLikelyFalsePositive = true;
+                    falsePositiveReason = `Falla validación entropía JWT (Entropía: ${entropy.toFixed(2)})`;
+                }
+            } else if (pattern.type.includes('AWS')) {
+                if (!/^AKIA[A-Z0-9]{16}/.test(secretValue) || entropy <= 3.5) {
+                    isLikelyFalsePositive = true;
+                    falsePositiveReason = `Falla validación estricta AWS (Entropía: ${entropy.toFixed(2)})`;
+                }
+            } else if (pattern.type.includes('GitHub')) {
+                if (!/^(ghp_|gho_|ghs_|github_pat_)/.test(secretValue) || entropy <= 4.0) {
+                    isLikelyFalsePositive = true;
+                    falsePositiveReason = `Falla validación estricta GitHub (Entropía: ${entropy.toFixed(2)})`;
+                }
+            } else if (pattern.type.includes('Generic')) {
+                // Generico: Validar si es "unknown_high_entropy" o falso positivo
+                if (entropy > 4.2 && secretValue.length > 20 && !dictCheck.hasWords) {
+                    pattern.type = 'unknown_high_entropy';
+                } else {
+                    isLikelyFalsePositive = true;
+                    falsePositiveReason = dictCheck.hasWords ? dictCheck.reason : `Baja entropía para key genérica (${entropy.toFixed(2)})`;
+                }
+            } else {
+                // Cualquier otro tipo, validamos diccionario y entropia basica
+                if (dictCheck.hasWords) {
+                    isLikelyFalsePositive = true;
+                    falsePositiveReason = dictCheck.reason;
+                }
+            }
+
+            intel.exposedSecrets.push({ 
+                type: pattern.type, 
+                value: secretValue,
+                url: chunk.url,
+                source: chunk.source,
+                isLikelyFalsePositive,
+                falsePositiveReason
+            });
+
             // Redactamos una parte del valor en consola para seguridad visual
             const safeLog = secretValue.substring(0, 8) + '***';
-            console.log(`[ArtifactIntelligence] 🚨 Peligro: ${pattern.type} encontrado en el código fuente (${safeLog})`);
+            console.log(`[ArtifactIntelligence] ${isLikelyFalsePositive ? '⚠️' : '🚨'} ${isLikelyFalsePositive ? 'Posible Falso Positivo' : 'Peligro'}: ${pattern.type} encontrado en el código fuente (${safeLog})`);
           }
         }
       }
@@ -168,6 +280,52 @@ export class ArtifactIntelligenceEngine {
     intel.hiddenApiEndpoints = [...new Set(intel.hiddenApiEndpoints)];
 
     return intel;
+  }
+
+  private static calculateEntropy(str: string): number {
+    const len = str.length;
+    if (len === 0) return 0;
+    const frequencies: { [key: string]: number } = {};
+    for (let i = 0; i < len; i++) {
+      const char = str[i];
+      frequencies[char] = (frequencies[char] || 0) + 1;
+    }
+    let entropy = 0;
+    for (const key in frequencies) {
+      const p = frequencies[key] / len;
+      entropy -= p * Math.log2(p);
+    }
+    return entropy;
+  }
+
+  private static hasDictionaryWords(str: string): { hasWords: boolean, reason?: string } {
+    // Check for excessive repeating chars (>40%)
+    let maxRepeat = 0;
+    let currentRepeat = 1;
+    for (let i = 1; i < str.length; i++) {
+      if (str[i] === str[i-1]) currentRepeat++;
+      else {
+        if (currentRepeat > maxRepeat) maxRepeat = currentRepeat;
+        currentRepeat = 1;
+      }
+    }
+    if (currentRepeat > maxRepeat) maxRepeat = currentRepeat;
+    if (str.length > 0 && (maxRepeat / str.length) > 0.4) {
+      return { hasWords: true, reason: 'Demasiados caracteres repetidos (>40%)' };
+    }
+
+    // Check for camelCase / snake_case that looks like a variable
+    if (/^[a-z]{2,}[A-Z][a-z]{2,}([A-Z][a-z]{2,})*$/.test(str) || /^[a-z]{2,}(_[a-z]{2,})+$/.test(str)) {
+      return { hasWords: true, reason: 'Patrón de nombre de variable detectado (camelCase/snake_case)' };
+    }
+
+    // Check for common Spanish/English programming words
+    const commonWords = /(config|overlay|background|commands|focused|element|select|translate|wrapper|transition|function|return|false|true|null|undefined|string|number|boolean|array|object|class|interface|type|window|document|console|default|value|error|warn|info|debug|success|fail|start|stop|init|load|save|read|write|click|hover|change|input|submit|mouse|touch|event|handler|callback|promise|resolve|reject)/i;
+    if (commonWords.test(str)) {
+      return { hasWords: true, reason: 'Contiene palabras comunes de código' };
+    }
+
+    return { hasWords: false };
   }
 
   private static isHiddenOrAdminRoute(route: string): boolean {

@@ -33,6 +33,9 @@ import { AIFingerprintEngine } from './recon/AIFingerprintEngine';
 import { CorrelationEngine } from './recon/CorrelationEngine';
 import { EntityRelationshipEngine } from './scanner/entityEngine';
 import { WorkflowReconstructionEngine } from './recon/WorkflowReconstructionEngine';
+import { TruffleHogScanner } from './recon/TruffleHogScanner';
+import { SourceMapAnalyzer } from './recon/SourceMapAnalyzer';
+import { BreachAnalyzer } from './recon/BreachAnalyzer';
 import { BolaExploiter } from './scanner/logic/BolaExploiter';
 import { MassAssignmentExploiter } from './scanner/logic/MassAssignmentExploiter';
 import { WorkflowBypassExploiter } from './scanner/logic/WorkflowBypassExploiter';
@@ -139,10 +142,19 @@ app.post('/api/scan', async (req, res) => {
     ];
 
     // JS Recon ahora retorna los endpoints encontrados
-    const [jsEndpoints] = await Promise.all([
+    const [jsEndpoints, truffleHogSecrets] = await Promise.all([
       runJsReconScan(scanId, targetUrl),
+      TruffleHogScanner.runTruffleHogGithubScan(domain, targetUrl, normalizedEndpoints),
       ...passiveTasks
     ]);
+
+    // SourceMapAnalyzer (depende de los endpoints históricos encontrados por GAU y JS Recon)
+    const historicalSourceMaps = await SourceMapAnalyzer.runSourceMapAnalysis([...normalizedEndpoints, ...jsEndpoints.map(u => ({url: u, source: 'jsrecon'} as any))]);
+    // Agregamos las rutas ocultas descubiertas por SourceMapAnalyzer a los endpoints a procesar
+    const sourceMapEndpoints = historicalSourceMaps.hiddenRoutes.map(route => ({
+       url: route.replace('(SourceMap Histórico) ', `https://${domain}/`),
+       source: 'sourcemapper'
+    }));
 
     let urlsToAttack = [targetUrl];
     let jsFilesFromCrawler: string[] = [];
@@ -154,8 +166,8 @@ app.post('/api/scan', async (req, res) => {
       runtimeIntelligence = crawlerData.runtimeIntelligence;
     }
 
-    // Unir endpoints JS, Crawler, y GAU
-    const allDiscoveredPaths = Array.from(new Set([...jsEndpoints, ...gauUrls, ...urlsToAttack.map(u => {
+    // Unir endpoints JS, Crawler, GAU y SourceMapAnalyzer
+    const allDiscoveredPaths = Array.from(new Set([...jsEndpoints, ...gauUrls, ...sourceMapEndpoints.map(e => e.url), ...urlsToAttack.map(u => {
       try { return new URL(u).pathname; } catch { return u; }
     })]));
 
@@ -180,10 +192,14 @@ app.post('/api/scan', async (req, res) => {
     
     // Traer codigo fuente de JS
     const jsCodes: string[] = [];
+    const jsChunksWithMeta: {code: string, url: string, source: string}[] = [];
     for (const u of jsFilesFromCrawler) {
        try {
          const {data} = await axios.get(u, {timeout: 3000});
-         if (typeof data === 'string') jsCodes.push(data);
+         if (typeof data === 'string') {
+             jsCodes.push(data);
+             jsChunksWithMeta.push({ code: data, url: u, source: 'crawler' });
+         }
        } catch(e) {}
     }
 
@@ -197,8 +213,8 @@ app.post('/api/scan', async (req, res) => {
 
     // NUEVO: Motores Avanzados de Reconocimiento Funcional
     const subdomainIntelligence = await SubdomainIntelligenceEngine.discover(domain);
-    // --- FASE 3: Análisis de Artefactos (NUEVO: Pasamos las URLs de los JS para detectar Source Maps) ---
-    const artifactIntelligence = await ArtifactIntelligenceEngine.analyze(targetUrl, jsCodes, jsFilesFromCrawler);
+    // --- FASE 3: Análisis de Artefactos (NUEVO: Pasamos los chunks con meta para validación secundaria) ---
+    const artifactIntelligence = await ArtifactIntelligenceEngine.analyze(targetUrl, jsChunksWithMeta, jsFilesFromCrawler);
     
     // --- FASE 3.5: Extracción de Acciones Remotas (Next.js, Remix, SvelteKit, etc.) ---
     const isNextJs = techStack.some(t => t.name.toLowerCase().includes('next.js'));
@@ -236,6 +252,33 @@ app.post('/api/scan', async (req, res) => {
       ...WorkflowBypassExploiter.generateVectors(targetUrl, workflowIntelligence)
     ];
 
+    // Extraer emails para el Breach Analyzer
+    const emailsToCheck = new Set<string>();
+    // Simular que algunos pasivos pudieron haber extraído emails y puesto en el recon profile
+    // Además buscamos en el texto duro si hay algo con pinta de email (osint básico)
+    const emailRegex = /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g;
+    const bodyText = baseHtml;
+    let match;
+    while ((match = emailRegex.exec(bodyText)) !== null) {
+      emailsToCheck.add(match[0]);
+    }
+
+    // Correr BreachAnalyzer al final con todos los emails consolidados
+    const breachResults = await BreachAnalyzer.runBreachAnalysis(Array.from(emailsToCheck));
+
+    // Combinar los secretos de TruffleHog con los de HIBP
+    const finalCredentials: NormalizedReconProfile['credentials'] = [
+       ...breachResults,
+       ...truffleHogSecrets.map(s => ({
+         email: `repo:${s.repo}`,
+         type: s.secretType,
+         breach_count: 1,
+         has_plaintext: true,
+         high_risk: true,
+         breach_names: [s.detectorName]
+       }))
+    ];
+
     // 5. Normalizar Datos
     const normalizedData: NormalizedReconProfile = {
       scanId,
@@ -250,7 +293,7 @@ app.post('/api/scan', async (req, res) => {
       },
       endpoints: normalizedEndpoints,
       subdomains: subdomains.map(s => ({ domain: s, source: 'subfinder', takeover_candidate: false })),
-      credentials: [], // Se poblará en la fase de credenciales
+      credentials: finalCredentials,
       vulnerabilities_hints: []
     };
 

@@ -30,6 +30,8 @@ export interface NormalizedReconProfile {
     type: string;
     breach_count: number;
     has_plaintext: boolean;
+    high_risk?: boolean;
+    breach_names?: string[];
   }[];
   
   vulnerabilities_hints: {

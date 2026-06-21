@@ -77,8 +77,8 @@ export class PipelineSelector {
 
     // 4. Lógica de priorización
     if (recon.credentials.some(c => c.type === "jwt_secret")) {
-      decision.immediateActions.push("clerk_jwt");
-      decision.executionOrder.unshift("clerk_jwt");
+      decision.immediateActions.push("clerk_jwt", "jwt_tool");
+      decision.executionOrder.unshift("clerk_jwt", "jwt_tool");
     }
 
     if (recon.subdomains.some(s => s.takeover_candidate)) {
@@ -245,14 +245,16 @@ export class PipelineSelector {
 
     if (paths.length === 0) return null;
 
-    // Frecuencia
-    const frequency = paths.reduce((acc, path) => {
-      acc[path] = (acc[path] || 0) + 1;
+    // Frecuencia y pesos por source
+    const weights = paths.reduce((acc, p, index) => {
+      const source = endpoints[index].source;
+      const baseWeight = source === 'sourcemapper' ? 1000 : 1; // Priorizar sourcemapper masivamente
+      acc[p] = (acc[p] || 0) + baseWeight;
       return acc;
     }, {} as Record<string, number>);
 
-    // Únicos y ordenados por frecuencia (descendente)
-    const unique = [...new Set(paths)].sort((a, b) => (frequency[b] || 0) - (frequency[a] || 0));
+    // Únicos y ordenados por peso/frecuencia (descendente)
+    const unique = [...new Set(paths)].sort((a, b) => (weights[b] || 0) - (weights[a] || 0));
 
     const tempFilePath = path.join('/tmp', `fixguard_wordlist_${scanId}.txt`);
     try {
