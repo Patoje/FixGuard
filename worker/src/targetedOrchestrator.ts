@@ -43,8 +43,15 @@ function parseCliOutput(command: string, output: string): { severity: 'low' | 'm
   }
 
   if (command.includes('dalfox')) {
-    if (lowerOut.includes('[poc]') || lowerOut.includes('[v]') || lowerOut.includes('found')) {
-      return { severity: 'high', finding: 'Dalfox encontró y validó un vector de inyección XSS en el DOM/Reflected.' };
+    // Dalfox v3: outputs [POC][V], "XSS found", "WRN XSS found"
+    if (
+      lowerOut.includes('[poc]') ||
+      lowerOut.includes('[v]') ||
+      lowerOut.includes('xss found') ||
+      lowerOut.includes('wrn xss found') ||
+      lowerOut.includes('issue: xss')
+    ) {
+      return { severity: 'high', finding: 'Dalfox v3 encontró y validó un vector de inyección XSS en el DOM/Reflected.' };
     }
     return null;
   }

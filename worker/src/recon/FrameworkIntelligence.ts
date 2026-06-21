@@ -166,7 +166,7 @@ export const VECTOR_REGISTRY: Record<string, VectorItem> = {
   spa_localstorage: { id: 'spa_localstorage', name: 'Local Storage secrets', cliCommand: 'grep -ri "localStorage.setItem" .' },
   spa_secrets_scan: { id: 'spa_secrets_scan', name: 'JS Secrets Analyzer', cliCommand: 'nuclei -t exposed-tokens/ -u <TARGET>' },
   spa_dom_injection: { id: 'spa_dom_injection', name: 'DOM Injection Points', cliCommand: 'grep -riE "dangerouslySetInnerHTML|innerHTML|v-html" .' },
-  dalfox_spa: { id: 'dalfox_spa', name: 'XSS Automático (Verificación DOM)', cliCommand: 'dalfox scan <TARGET>' },
+  dalfox_spa: { id: 'dalfox_spa', name: 'XSS Automático (Verificación DOM)', cliCommand: 'dalfox url --url <TARGET>' },
   
   // Static & JAMStack
   static_takeover: { id: 'static_takeover', name: 'Subdomain Takeover', cliCommand: 'nuclei -t takeovers/ -u <TARGET>' },
@@ -206,9 +206,9 @@ export const VECTOR_REGISTRY: Record<string, VectorItem> = {
   nmap_full: { id: 'nmap_full', name: 'Escaneo de Puertos Total', cliCommand: 'nmap -sV -sC -Pn -T4 <TARGET>' },
   subfinder_enum: { id: 'subfinder_enum', name: 'Enumeración de Subdominios', cliCommand: 'subfinder -d <TARGET> -all' },
   wpscan_full: { id: 'wpscan_full', name: 'WPScan Arsenal Completo', cliCommand: 'wpscan --url <TARGET> --enumerate u,p,t --random-user-agent' },
-  dalfox_react: { id: 'dalfox_react', name: 'XSS Automático (Verificación DOM)', cliCommand: 'dalfox scan <TARGET>' },
+  dalfox_react: { id: 'dalfox_react', name: 'XSS Automático (Verificación DOM)', cliCommand: 'dalfox url --url <TARGET>' },
   sqlmap: { id: 'sqlmap', name: 'Inyección SQL con SQLMap', cliCommand: 'sqlmap -u <TARGET> --batch --level=3 --risk=2' },
-  dalfox: { id: 'dalfox', name: 'Ataque XSS con Dalfox', cliCommand: 'dalfox scan <TARGET>' },
+  dalfox: { id: 'dalfox', name: 'Ataque XSS con Dalfox', cliCommand: 'dalfox url --url <TARGET>' },
 
   // Arsenal Extendido (Cero Humo)
   // Arsenal Extendido
@@ -230,6 +230,6 @@ export const VECTOR_REGISTRY: Record<string, VectorItem> = {
   ffuf_dir: { id: 'ffuf_dir', name: 'Fuzzear Rutas (ffuf)', cliCommand: 'ffuf -s -ac -u <TARGET>/FUZZ' },
   nuclei_cve: { id: 'nuclei_cve', name: 'Scan CVEs (Nuclei)', cliCommand: 'nuclei -u <TARGET>' },
   sqli_time: { id: 'sqli_time', name: 'Time Based SQL Injection (SQLMap)', cliCommand: 'sqlmap -u <TARGET> --technique=T --batch --risk=3' },
-  xss_dalfox: { id: 'xss_dalfox', name: 'Cazar XSS (Dalfox)', cliCommand: 'dalfox scan <TARGET>' },
+  xss_dalfox: { id: 'xss_dalfox', name: 'Cazar XSS (Dalfox)', cliCommand: 'dalfox url --url <TARGET>' },
   jwt_tool: { id: 'jwt_tool', name: 'Testear JWT (jwt_tool)', cliCommand: 'jwt_tool <TARGET> -M pb' }
 };
