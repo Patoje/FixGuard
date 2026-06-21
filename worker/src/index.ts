@@ -1,5 +1,42 @@
 import express from 'express';
 import cors from 'cors';
+import { EventEmitter } from 'events';
+
+// --- Logger global para SSE ---
+export const logEmitter = new EventEmitter();
+
+const originalLog = console.log;
+console.log = function (...args) {
+  originalLog.apply(console, args);
+  const msg = args.map(a => typeof a === 'string' ? a : JSON.stringify(a)).join(' ');
+  const match = msg.match(/\[Scan (\d+)\]/);
+  
+  // Detectar severidad basica por emojis
+  let type = 'info';
+  if (msg.includes('🚨') || msg.includes('ERROR') || msg.includes('❌') || msg.includes('Falló')) type = 'error';
+  else if (msg.includes('⚠️')) type = 'warning';
+  else if (msg.includes('✅') || msg.includes('🎉') || msg.includes('completado')) type = 'success';
+
+  if (match) {
+    logEmitter.emit(`log-${match[1]}`, { message: msg, type, timestamp: new Date().toLocaleTimeString() });
+  } else {
+    logEmitter.emit('log-global', { message: msg, type, timestamp: new Date().toLocaleTimeString() });
+  }
+};
+
+const originalError = console.error;
+console.error = function (...args) {
+  originalError.apply(console, args);
+  const msg = args.map(a => typeof a === 'string' ? a : JSON.stringify(a)).join(' ');
+  const match = msg.match(/\[Scan (\d+)\]/);
+  if (match) {
+    logEmitter.emit(`log-${match[1]}`, { message: msg, type: 'error', timestamp: new Date().toLocaleTimeString() });
+  } else {
+    logEmitter.emit('log-global', { message: msg, type: 'error', timestamp: new Date().toLocaleTimeString() });
+  }
+};
+// ------------------------------
+
 import { runHeaderScan } from './scanner/headers';
 import { runTlsScan } from './scanner/tls';
 import { runDnsScan } from './scanner/dns';
@@ -466,6 +503,33 @@ app.post('/api/attack/targeted', async (req, res) => {
 
 
 import { DependencyChecker } from './utils/DependencyChecker';
+
+// --- SSE Endpoint for Real-time Logs ---
+app.get('/api/scan/:id/logs/stream', (req, res) => {
+  const { id } = req.params;
+  
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.flushHeaders();
+
+  const onLog = (logData: any) => {
+    res.write(`data: ${JSON.stringify(logData)}\n\n`);
+  };
+
+  logEmitter.on(`log-${id}`, onLog);
+
+  // Optional: Listen to global logs too
+  const onGlobalLog = (logData: any) => {
+    res.write(`data: ${JSON.stringify(logData)}\n\n`);
+  };
+  logEmitter.on('log-global', onGlobalLog);
+
+  req.on('close', () => {
+    logEmitter.off(`log-${id}`, onLog);
+    logEmitter.off('log-global', onGlobalLog);
+  });
+});
 
 const PORT = 4000;
 app.listen(PORT, () => {

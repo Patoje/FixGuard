@@ -19,17 +19,17 @@ export function runFrameworkIntelligence(techStack: TechStackItem[]): FrameworkV
   intelligence.push({
     framework: 'Reconocimiento Profundo',
     vectors: [
-      { id: 'deep_katana', name: 'Crawling Avanzado JS/DOM', cliCommand: 'katana -u <TARGET> -d 5 -jc -kf' },
-      { id: 'deep_gau', name: 'Historial GAU (Wayback/AlienVault)', cliCommand: 'gau <TARGET>' },
-      { id: 'deep_trufflehog', name: 'Búsqueda de API Keys (Trufflehog)', cliCommand: 'trufflehog --no-update filesystem <TARGET>' }
+      { id: 'deep_katana', name: 'Crawling Avanzado JS/DOM', cliCommand: 'katana -u <TARGET> -d 5 -jc -kf all' },
+      { id: 'deep_gau', name: 'Historial GAU (Wayback/AlienVault)', cliCommand: 'gau <HOSTNAME>' },
+      { id: 'deep_trufflehog', name: 'Búsqueda de API Keys (Trufflehog)', cliCommand: 'trufflehog --no-update http --url <TARGET>' }
     ]
   });
 
   intelligence.push({
     framework: 'Network & Infrastructure',
     vectors: [
-      { id: 'nmap_full', name: 'Escaneo de Puertos Total', cliCommand: 'nmap -sV -sC -Pn -T4 -p- <TARGET>' },
-      { id: 'subfinder_enum', name: 'Enumeración de Subdominios', cliCommand: 'subfinder -d <TARGET> -all' }
+      { id: 'nmap_full', name: 'Escaneo de Puertos Total', cliCommand: 'nmap -sV -sC -Pn -T4 <HOSTNAME>' },
+      { id: 'subfinder_enum', name: 'Enumeración de Subdominios', cliCommand: 'subfinder -d <HOSTNAME> -all' }
     ]
   });
 
@@ -137,13 +137,13 @@ export function runFrameworkIntelligence(techStack: TechStackItem[]): FrameworkV
     });
   }
 
-  // Authentication & JWT is a core concern, so we add it as an independent framework layer always
+  // Authentication & JWT — use nuclei templates; jwt_tool requires a real JWT token which we don't have at scan time
   intelligence.push({
     framework: 'JWT & Authentication',
     vectors: [
-      { id: 'jwt_tool_scan', name: 'JWT Misconfiguration Scan', cliCommand: 'jwt_tool <TARGET> -M pb' },
-      { id: 'jwt_none_alg', name: 'JWT None Algorithm test', cliCommand: 'jwt_tool <TARGET> -X a' },
-      { id: 'jwt_weak_secret', name: 'JWT Weak Secret Brute-force', cliCommand: 'jwt_tool <TARGET> -d ./wordlists/jwt_secrets.txt' }
+      { id: 'jwt_nuclei_alg', name: 'JWT Algorithm Confusion (Nuclei)', cliCommand: 'nuclei -tags jwt -u <TARGET>' },
+      { id: 'jwt_nuclei_weak', name: 'JWT Weak Secret Detection (Nuclei)', cliCommand: 'nuclei -id jwt-weak-secret -u <TARGET>' },
+      { id: 'jwt_nuclei_exposed', name: 'JWT Token Exposure (Nuclei)', cliCommand: 'nuclei -tags token,jwt,auth -severity medium,high,critical -u <TARGET>' }
     ]
   });
 
@@ -189,10 +189,16 @@ export const VECTOR_REGISTRY: Record<string, VectorItem> = {
   clerk_oauth: { id: 'clerk_oauth', name: 'OAuth bypass', cliCommand: 'nuclei -id clerk-oauth-bypass -u <TARGET>' },
   clerk_jwt: { id: 'clerk_jwt', name: 'JWT validation bypass', cliCommand: 'nuclei -id jwt-none-alg -u <TARGET>' },
   clerk_metadata: { id: 'clerk_metadata', name: 'User Metadata manipulation', cliCommand: 'curl -X PATCH -d "{\\"publicMetadata\\": {\\"role\\":\\"admin\\"}}" <TARGET>' },
-  // JWT
-  jwt_tool_scan: { id: 'jwt_tool_scan', name: 'JWT Misconfiguration Scan', cliCommand: 'jwt_tool <TARGET> -M pb' },
-  jwt_none_alg: { id: 'jwt_none_alg', name: 'JWT None Algorithm test', cliCommand: 'jwt_tool <TARGET> -X a' },
-  jwt_weak_secret: { id: 'jwt_weak_secret', name: 'JWT Weak Secret Brute-force', cliCommand: 'jwt_tool <TARGET> -d ./wordlists/jwt_secrets.txt' },
+  // JWT — nuclei-based since jwt_tool needs a real JWT token we don't have at scan time
+  jwt_nuclei_alg: { id: 'jwt_nuclei_alg', name: 'JWT Algorithm Confusion (Nuclei)', cliCommand: 'nuclei -tags jwt -u <TARGET>' },
+  jwt_nuclei_weak: { id: 'jwt_nuclei_weak', name: 'JWT Weak Secret Detection (Nuclei)', cliCommand: 'nuclei -id jwt-weak-secret -u <TARGET>' },
+  jwt_nuclei_exposed: { id: 'jwt_nuclei_exposed', name: 'JWT Token Exposure (Nuclei)', cliCommand: 'nuclei -tags token,jwt,auth -severity medium,high,critical -u <TARGET>' },
+  // jwt_tool kept for manual use (requires a real JWT)
+  jwt_tool_scan: { id: 'jwt_tool_scan', name: 'JWT Misconfiguration Scan (manual)', cliCommand: 'jwt_tool <TARGET> -M pb' },
+  jwt_none_alg: { id: 'jwt_none_alg', name: 'JWT None Algorithm test (manual)', cliCommand: 'jwt_tool <TARGET> -X a' },
+  jwt_weak_secret: { id: 'jwt_weak_secret', name: 'JWT Weak Secret Brute-force (manual)', cliCommand: 'jwt_tool <TARGET> -d ./wordlists/jwt_secrets.txt' },
+  // Legacy JWT registry entries kept for backwards compat
+  jwt_tool: { id: 'jwt_tool', name: 'Testear JWT (jwt_tool)', cliCommand: 'jwt_tool <TARGET> -M pb' },
   // Supabase
   supabase_bucket: { id: 'supabase_bucket', name: 'Bucket enumeration', cliCommand: 'nuclei -id supabase-bucket-enum -u <TARGET>' },
   supabase_realtime: { id: 'supabase_realtime', name: 'Realtime socket exposure', cliCommand: 'wscat -c wss://<TARGET>/realtime/v1/websocket' },
@@ -202,9 +208,9 @@ export const VECTOR_REGISTRY: Record<string, VectorItem> = {
   // Arsenal
   deep_katana: { id: 'deep_katana', name: 'Crawling Avanzado JS/DOM', cliCommand: 'katana -u <TARGET> -d 5 -jc -kf all' },
   deep_gau: { id: 'deep_gau', name: 'Historial GAU (Wayback/AlienVault)', cliCommand: 'gau <TARGET>' },
-  deep_trufflehog: { id: 'deep_trufflehog', name: 'Búsqueda de API Keys (Trufflehog)', cliCommand: 'trufflehog endpoint <TARGET> --no-verification' },
-  nmap_full: { id: 'nmap_full', name: 'Escaneo de Puertos Total', cliCommand: 'nmap -sV -sC -Pn -T4 <TARGET>' },
-  subfinder_enum: { id: 'subfinder_enum', name: 'Enumeración de Subdominios', cliCommand: 'subfinder -d <TARGET> -all' },
+  deep_trufflehog: { id: 'deep_trufflehog', name: 'Búsqueda de API Keys (Trufflehog)', cliCommand: 'trufflehog --no-update http --url <TARGET>' },
+  nmap_full: { id: 'nmap_full', name: 'Escaneo de Puertos Total', cliCommand: 'nmap -sV -sC -Pn -T4 <HOSTNAME>' },
+  subfinder_enum: { id: 'subfinder_enum', name: 'Enumeración de Subdominios', cliCommand: 'subfinder -d <HOSTNAME> -all' },
   wpscan_full: { id: 'wpscan_full', name: 'WPScan Arsenal Completo', cliCommand: 'wpscan --url <TARGET> --enumerate u,p,t --random-user-agent' },
   dalfox_react: { id: 'dalfox_react', name: 'XSS Automático (Verificación DOM)', cliCommand: 'dalfox url --url <TARGET>' },
   sqlmap: { id: 'sqlmap', name: 'Inyección SQL con SQLMap', cliCommand: 'sqlmap -u <TARGET> --batch --level=3 --risk=2' },
@@ -218,7 +224,7 @@ export const VECTOR_REGISTRY: Record<string, VectorItem> = {
   whatweb: { id: 'whatweb', name: 'WhatWeb (Fingerprint)', cliCommand: 'whatweb -v -a 3 <TARGET>' },
   feroxbuster: { id: 'feroxbuster', name: 'Feroxbuster (Dir Brute)', cliCommand: 'feroxbuster -u <TARGET> --silent' },
   gospider: { id: 'gospider', name: 'GoSpider (Crawling)', cliCommand: 'gospider -s <TARGET> -c 10' },
-  trufflehog: { id: 'trufflehog', name: 'TruffleHog (Secretos)', cliCommand: 'trufflehog endpoint <TARGET> --no-verification' },
+  trufflehog: { id: 'trufflehog', name: 'TruffleHog (Secretos)', cliCommand: 'trufflehog --no-update http --url <TARGET>' },
   shcheck: { id: 'shcheck', name: 'SHCheck (Security Headers)', cliCommand: 'shcheck <TARGET>' },
   crlfuzz: { id: 'crlfuzz', name: 'CRLFuzz (CRLF Injection)', cliCommand: 'crlfuzz -u <TARGET>' },
   kxss: { id: 'kxss', name: 'KXSS (XSS Finder)', cliCommand: 'gau <TARGET> | kxss' },

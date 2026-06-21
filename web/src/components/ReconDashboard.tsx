@@ -46,7 +46,7 @@ function groupEndpoints(endpoints: AttackSurfaceItem[]) {
     }
   });
 
-  const riskScore: Record<string, number> = { 'ALTO': 3, 'MEDIO': 2, 'BAJO': 1 };
+  const riskScore: Record<string, number> = { 'CRÍTICO': 4, 'CRITICO': 4, 'ALTO': 3, 'MEDIO': 2, 'BAJO': 1 };
   Object.values(groups).forEach(group => {
     group.sort((a, b) => (riskScore[b.riskLevel || 'BAJO'] || 0) - (riskScore[a.riskLevel || 'BAJO'] || 0));
   });
@@ -274,25 +274,13 @@ export default function ReconDashboard({ profile, targetUrl, onLaunchAttack }: P
         </motion.div>
       </section>
 
-      {/* SECTION 5.5: WORKFLOW RECONSTRUCTION */}
-      <motion.section initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{delay: 0.55}} className="mt-8">
-        <h3 className="text-2xl font-bold flex items-center gap-2 border-b border-white/10 pb-2 mb-4">
-          <Workflow className="text-emerald-400" /> Workflow Reconstruction
-        </h3>
-        <p className="text-sm text-zinc-400 mb-6">
-          Flujos de usuario inferidos lógicamente a partir de las rutas descubiertas.
-        </p>
-        
-        <WorkflowVisualizer workflows={profile.workflowIntelligence || []} />
-      </motion.section>
-
       {/* SECTION 6: ENDPOINT CATALOG */}
       <motion.section initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{delay: 0.6}}>
         <h3 className="text-2xl font-bold flex items-center gap-2 border-b border-white/10 pb-2"><Map className="text-cyan-400" /> Endpoint Catalog</h3>
         <p className="text-sm text-zinc-400 mb-4">Endpoints descubiertos agrupados por módulo funcional (Reconstrucción Semántica).</p>
         <div className="space-y-3">
           {Object.entries(endpointGroups).filter(([_, eps]) => eps.length > 0).map(([groupName, eps]) => (
-            <div key={groupName} className="glass-panel border-cyan-500/20 overflow-hidden">
+            <div key={groupName} className={`glass-panel border-cyan-500/20 ${openEntity === groupName ? 'overflow-visible' : 'overflow-hidden'}`}>
               <button 
                 onClick={() => setOpenEntity(openEntity === groupName ? null : groupName)}
                 className="w-full p-4 flex justify-between items-center hover:bg-white/5 transition-colors"
@@ -311,6 +299,12 @@ export default function ReconDashboard({ profile, targetUrl, onLaunchAttack }: P
                     animate={{ height: 'auto', opacity: 1 }}
                     exit={{ height: 0, opacity: 0 }}
                     className="border-t border-white/5 bg-black/20"
+                    onAnimationComplete={() => {
+                      // Necesitamos asegurar que el overflow sea visible para el dropdown
+                      const el = document.getElementById(`group-content-${groupName}`);
+                      if (el) el.style.overflow = 'visible';
+                    }}
+                    id={`group-content-${groupName}`}
                   >
                     <div className="p-2">
                       <table className="w-full text-left text-sm">
@@ -331,68 +325,67 @@ export default function ReconDashboard({ profile, targetUrl, onLaunchAttack }: P
                                     {ep.riskLevel}
                                   </span>
                                 </td>
-                                <td className="p-2 w-12 relative text-right">
-                                  {/* Mostrar el rayito si hay onLaunchAttack. Lo hacemos siempre visible en baja opacidad y full opacity al hover, o siempre encendido si el menú está abierto */}
+                                <td className="p-2 w-12 text-right">
                                   {onLaunchAttack && (
-                                    <button 
-                                      onClick={() => setOpenDropdownIdx(openDropdownIdx === `${groupName}-${idx}` ? null : `${groupName}-${idx}`)}
-                                      className={`p-1.5 rounded transition-all ${openDropdownIdx === `${groupName}-${idx}` ? 'bg-cyan-500/20 text-cyan-300 border-cyan-500/40 opacity-100' : 'bg-zinc-800 text-cyan-400 border-cyan-500/20 opacity-30 hover:opacity-100 hover:bg-zinc-700'} border`}
-                                      title="Ataque Táctico"
-                                    >
-                                      <Zap className="w-3.5 h-3.5" />
-                                    </button>
-                                  )}
-                                  
-                                  {openDropdownIdx === `${groupName}-${idx}` && (
-                                    <div className="absolute right-0 top-full mt-1 w-56 bg-zinc-900 border border-white/10 rounded-lg shadow-2xl z-[100] overflow-hidden text-left">
-                                      <div className="px-3 py-2 border-b border-white/5 text-[10px] font-mono text-zinc-500 uppercase tracking-widest bg-black/40">
-                                        Menú Táctico
-                                      </div>
+                                    <div className="relative inline-block">
+                                      <button 
+                                        onClick={() => setOpenDropdownIdx(openDropdownIdx === `${groupName}-${idx}` ? null : `${groupName}-${idx}`)}
+                                        className={`p-1.5 rounded transition-all ${openDropdownIdx === `${groupName}-${idx}` ? 'bg-cyan-500/20 text-cyan-300 border-cyan-500/40 opacity-100' : 'bg-zinc-800 text-cyan-400 border-cyan-500/20 opacity-30 hover:opacity-100 hover:bg-zinc-700'} border`}
+                                        title="Ataque Táctico"
+                                      >
+                                        <Zap className="w-3.5 h-3.5" />
+                                      </button>
                                       
-                                      {(() => {
-                                         // Logic for dropdown relevance
-                                         const hasParams = ep.path.includes('?');
-                                         let isNumeric = false;
-                                         if (hasParams) {
-                                           const paramVal = ep.path.split('=')[1];
-                                           if (paramVal && !isNaN(Number(paramVal))) {
-                                              isNumeric = true;
-                                           }
-                                         }
-                                         
-                                         const hasJwt = profile.credentials?.some(c => c.type === 'jwt_secret') ?? false;
+                                      {openDropdownIdx === `${groupName}-${idx}` && (
+                                        <div className="absolute right-0 top-full mt-1 w-56 bg-zinc-900 border border-white/10 rounded-lg shadow-2xl z-[100] text-left">
+                                          <div className="px-3 py-2 border-b border-white/5 text-[10px] font-mono text-zinc-500 uppercase tracking-widest bg-black/40">
+                                            Menú Táctico
+                                          </div>
+                                          
+                                          {(() => {
+                                             const hasParams = ep.path.includes('?');
+                                             let isNumeric = false;
+                                             if (hasParams) {
+                                               const paramVal = ep.path.split('=')[1];
+                                               if (paramVal && !isNaN(Number(paramVal))) {
+                                                  isNumeric = true;
+                                               }
+                                             }
+                                             
+                                             const hasJwt = profile.credentials?.some(c => c.type === 'jwt_secret') ?? false;
 
-                                         // Asegurarnos de que endpointPath sea una URL completa para que `new URL()` no falle en el backend
-                                         const cleanTarget = targetUrl.endsWith('/') ? targetUrl.slice(0, -1) : targetUrl;
-                                         const cleanPath = ep.path.startsWith('/') ? ep.path : `/${ep.path}`;
-                                         const fullEndpointUrl = ep.path.startsWith('http') ? ep.path : `${cleanTarget}${cleanPath}`;
+                                             const cleanTarget = targetUrl.endsWith('/') ? targetUrl.slice(0, -1) : targetUrl;
+                                             const cleanPath = ep.path.startsWith('/') ? ep.path : `/${ep.path}`;
+                                             const fullEndpointUrl = ep.path.startsWith('http') ? ep.path : `${cleanTarget}${cleanPath}`;
 
-                                         return (
-                                           <div className="flex flex-col text-xs">
-                                              {isNumeric && (
-                                                <button onClick={() => { onLaunchAttack?.(fullEndpointUrl, 'sqli_time'); setOpenDropdownIdx(null); }} className="px-3 py-2 hover:bg-white/5 flex items-center gap-2 text-zinc-300">
-                                                  <DatabaseZap className="w-3.5 h-3.5 text-orange-400" /> Inyectar SQL
-                                                </button>
-                                              )}
-                                              {hasParams && !isNumeric && (
-                                                <button onClick={() => { onLaunchAttack?.(fullEndpointUrl, 'xss_dalfox'); setOpenDropdownIdx(null); }} className="px-3 py-2 hover:bg-white/5 flex items-center gap-2 text-zinc-300">
-                                                  <Shield className="w-3.5 h-3.5 text-rose-400" /> Cazar XSS
-                                                </button>
-                                              )}
-                                              <button onClick={() => { onLaunchAttack?.(fullEndpointUrl, 'ffuf_dir'); setOpenDropdownIdx(null); }} className="px-3 py-2 hover:bg-white/5 flex items-center gap-2 text-zinc-300">
-                                                <Search className="w-3.5 h-3.5 text-blue-400" /> Fuzzear Rutas
-                                              </button>
-                                              {hasJwt && (
-                                                <button onClick={() => { onLaunchAttack?.(fullEndpointUrl, 'jwt_tool'); setOpenDropdownIdx(null); }} className="px-3 py-2 hover:bg-white/5 flex items-center gap-2 text-zinc-300">
-                                                  <Key className="w-3.5 h-3.5 text-amber-400" /> Testear JWT
-                                                </button>
-                                              )}
-                                              <button onClick={() => { onLaunchAttack?.(fullEndpointUrl, 'nuclei_cve'); setOpenDropdownIdx(null); }} className="px-3 py-2 hover:bg-white/5 flex items-center gap-2 text-zinc-300">
-                                                <Radio className="w-3.5 h-3.5 text-cyan-400" /> Scan CVEs
-                                              </button>
-                                           </div>
-                                         );
-                                      })()}
+                                             return (
+                                               <div className="flex flex-col text-xs">
+                                                  {isNumeric && (
+                                                    <button onClick={() => { onLaunchAttack?.(fullEndpointUrl, 'sqli_time'); setOpenDropdownIdx(null); }} className="px-3 py-2 hover:bg-white/5 flex items-center gap-2 text-zinc-300">
+                                                      <DatabaseZap className="w-3.5 h-3.5 text-orange-400" /> Inyectar SQL
+                                                    </button>
+                                                  )}
+                                                  {hasParams && !isNumeric && (
+                                                    <button onClick={() => { onLaunchAttack?.(fullEndpointUrl, 'xss_dalfox'); setOpenDropdownIdx(null); }} className="px-3 py-2 hover:bg-white/5 flex items-center gap-2 text-zinc-300">
+                                                      <Shield className="w-3.5 h-3.5 text-rose-400" /> Cazar XSS
+                                                    </button>
+                                                  )}
+                                                  <button onClick={() => { onLaunchAttack?.(fullEndpointUrl, 'ffuf_dir'); setOpenDropdownIdx(null); }} className="px-3 py-2 hover:bg-white/5 flex items-center gap-2 text-zinc-300">
+                                                    <Search className="w-3.5 h-3.5 text-blue-400" /> Fuzzear Rutas
+                                                  </button>
+                                                  {hasJwt && (
+                                                    <button onClick={() => { onLaunchAttack?.(fullEndpointUrl, 'jwt_tool'); setOpenDropdownIdx(null); }} className="px-3 py-2 hover:bg-white/5 flex items-center gap-2 text-zinc-300">
+                                                      <Key className="w-3.5 h-3.5 text-amber-400" /> Testear JWT
+                                                    </button>
+                                                  )}
+                                                  <button onClick={() => { onLaunchAttack?.(fullEndpointUrl, 'nuclei_cve'); setOpenDropdownIdx(null); }} className="px-3 py-2 hover:bg-white/5 flex items-center gap-2 text-zinc-300">
+                                                    <Radio className="w-3.5 h-3.5 text-cyan-400" /> Scan CVEs
+                                                  </button>
+                                               </div>
+                                             );
+                                          })()}
+                                        </div>
+                                      )}
                                     </div>
                                   )}
                                 </td>

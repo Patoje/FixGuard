@@ -1,13 +1,20 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Scan, ShieldAlert, Zap, Code, ShieldCheck, ArrowRight, Key } from "lucide-react";
+import { Scan, ShieldAlert, Zap, Code, ShieldCheck, ArrowRight, Key, CheckCircle2, Globe, AlertTriangle } from "lucide-react";
 import { ScanMode } from "../types";
 
 interface HeroScannerProps {
   onScan: (url: string, mode: ScanMode) => void;
   isScanning: boolean;
+}
+
+interface Authorization {
+  id: number;
+  userId: number;
+  targetDomain: string;
+  authorizedAt: string;
 }
 
 const MODES: { id: ScanMode; label: string; icon: any; color: string; desc: string }[] = [
@@ -24,6 +31,65 @@ export default function HeroScanner({ onScan, isScanning }: HeroScannerProps) {
   const [authType, setAuthType] = useState<"none" | "cookie" | "jwt">("none");
   const [authToken, setAuthToken] = useState("");
   const [isSavingAuth, setIsSavingAuth] = useState(false);
+
+  // --- Authorization state ---
+  const [aggressiveConsent, setAggressiveConsent] = useState(false);
+  const [isSavingConsent, setIsSavingConsent] = useState(false);
+  const [consentSaved, setConsentSaved] = useState(false);
+  const [authorizedDomains, setAuthorizedDomains] = useState<Authorization[]>([]);
+  const [loadingDomains, setLoadingDomains] = useState(false);
+  const [urlAlreadyAuthorized, setUrlAlreadyAuthorized] = useState(false);
+
+  const fetchAuthorizedDomains = useCallback(async () => {
+    setLoadingDomains(true);
+    try {
+      const res = await fetch("/api/authorizations");
+      if (res.ok) {
+        const data = await res.json();
+        setAuthorizedDomains(data.authorizations || []);
+      }
+    } catch {
+      // silent
+    } finally {
+      setLoadingDomains(false);
+    }
+  }, []);
+
+  // When stepping to "mode", fetch authorized domains
+  useEffect(() => {
+    if (step === "mode") {
+      fetchAuthorizedDomains();
+    }
+  }, [step, fetchAuthorizedDomains]);
+
+  // Check if current URL domain is already authorized
+  useEffect(() => {
+    if (!url || authorizedDomains.length === 0) {
+      setUrlAlreadyAuthorized(false);
+      return;
+    }
+    try {
+      let normalized = url.trim();
+      if (!normalized.startsWith("http://") && !normalized.startsWith("https://")) {
+        normalized = `https://${normalized}`;
+      }
+      const hostname = new URL(normalized).hostname;
+      const isAuth = authorizedDomains.some(
+        (r) => r.targetDomain === hostname || hostname.endsWith(`.${r.targetDomain}`)
+      );
+      setUrlAlreadyAuthorized(isAuth);
+    } catch {
+      setUrlAlreadyAuthorized(false);
+    }
+  }, [url, authorizedDomains]);
+
+  // Reset consent when mode changes away from aggressive
+  useEffect(() => {
+    if (mode !== "aggressive") {
+      setAggressiveConsent(false);
+      setConsentSaved(false);
+    }
+  }, [mode]);
 
   const handleContinue = (e: React.FormEvent) => {
     e.preventDefault();
@@ -51,6 +117,32 @@ export default function HeroScanner({ onScan, isScanning }: HeroScannerProps) {
     setStep("mode");
   };
 
+  const handleAggressiveConsent = async (checked: boolean) => {
+    setAggressiveConsent(checked);
+    if (!checked) {
+      setConsentSaved(false);
+      return;
+    }
+
+    // Auto-register domain when consent is checked
+    setIsSavingConsent(true);
+    try {
+      const res = await fetch("/api/authorizations", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ domain: url }),
+      });
+      if (res.ok || res.status === 200) {
+        setConsentSaved(true);
+        await fetchAuthorizedDomains();
+      }
+    } catch {
+      // If network error, still allow (UI consent is registered)
+    } finally {
+      setIsSavingConsent(false);
+    }
+  };
+
   const handleScan = (e: React.FormEvent) => {
     e.preventDefault();
     if (url.trim()) {
@@ -62,6 +154,8 @@ export default function HeroScanner({ onScan, isScanning }: HeroScannerProps) {
       onScan(normalizedUrl, mode);
     }
   };
+
+  const isAggressiveBlocked = mode === "aggressive" && !aggressiveConsent && !urlAlreadyAuthorized;
 
   return (
     <div className="w-full max-w-4xl mx-auto flex flex-col items-center justify-center pt-20 pb-10">
@@ -227,10 +321,157 @@ export default function HeroScanner({ onScan, isScanning }: HeroScannerProps) {
                 })}
               </div>
 
+              {/* ─── Aggressive consent block ─── */}
+              <AnimatePresence>
+                {mode === "aggressive" && (
+                  <motion.div
+                    key="aggressive-consent"
+                    initial={{ opacity: 0, height: 0, marginTop: 0 }}
+                    animate={{ opacity: 1, height: "auto", marginTop: 0 }}
+                    exit={{ opacity: 0, height: 0, marginTop: 0 }}
+                    transition={{ duration: 0.3 }}
+                    className="w-full overflow-hidden"
+                  >
+                    {/* Consent checkbox */}
+                    <div className="bg-rose-950/30 border border-rose-500/25 rounded-xl p-5 mb-4">
+                      <div className="flex items-start gap-3 mb-4">
+                        <AlertTriangle className="w-5 h-5 text-rose-400 shrink-0 mt-0.5" />
+                        <div>
+                          <h3 className="text-sm font-bold text-rose-300 mb-1">Modo Agresivo — Autorización Requerida</h3>
+                          <p className="text-xs text-zinc-400 leading-relaxed">
+                            Este modo ejecuta ataques reales: inyección de payloads masiva, SSRF, IDOR, crawling agresivo y herramientas CLI ofensivas. Solo úsalo en entornos que controlás o tenés permiso explícito de auditar.
+                          </p>
+                        </div>
+                      </div>
+
+                      <label
+                        htmlFor="aggressive-consent-checkbox"
+                        className={`flex items-start gap-3 cursor-pointer p-3 rounded-lg border transition-all ${
+                          aggressiveConsent || urlAlreadyAuthorized
+                            ? "bg-rose-500/10 border-rose-500/40"
+                            : "bg-zinc-950/50 border-zinc-800 hover:border-zinc-700"
+                        }`}
+                      >
+                        <div className="relative mt-0.5 shrink-0">
+                          <input
+                            id="aggressive-consent-checkbox"
+                            type="checkbox"
+                            checked={aggressiveConsent || urlAlreadyAuthorized}
+                            onChange={(e) => !urlAlreadyAuthorized && handleAggressiveConsent(e.target.checked)}
+                            disabled={isSavingConsent || urlAlreadyAuthorized}
+                            className="sr-only"
+                          />
+                          <div
+                            className={`w-5 h-5 rounded border-2 flex items-center justify-center transition-all ${
+                              aggressiveConsent || urlAlreadyAuthorized
+                                ? "bg-rose-500 border-rose-500"
+                                : "border-zinc-600 bg-zinc-900"
+                            }`}
+                          >
+                            {(aggressiveConsent || urlAlreadyAuthorized) && (
+                              <svg className="w-3 h-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                              </svg>
+                            )}
+                            {isSavingConsent && (
+                              <div className="w-3 h-3 border-2 border-white/50 border-t-white rounded-full animate-spin" />
+                            )}
+                          </div>
+                        </div>
+                        <div>
+                          <p className="text-sm font-semibold text-zinc-200">
+                            {urlAlreadyAuthorized
+                              ? "✓ Dominio ya autorizado previamente"
+                              : "Confirmo que estoy explícitamente autorizado a realizar ataques y escaneos agresivos sobre esta URL"}
+                          </p>
+                          <p className="text-xs text-zinc-500 mt-0.5">
+                            {urlAlreadyAuthorized
+                              ? "Este dominio ya está registrado en tu lista de dominios autorizados."
+                              : "Al marcar esta opción, el dominio quedará registrado en la base de datos como autorizado."}
+                          </p>
+                        </div>
+                      </label>
+
+                      {consentSaved && (
+                        <motion.div
+                          initial={{ opacity: 0, y: 4 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          className="mt-3 flex items-center gap-2 text-xs text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 rounded-lg px-3 py-2"
+                        >
+                          <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
+                          Autorización registrada en la base de datos correctamente.
+                        </motion.div>
+                      )}
+                    </div>
+
+                    {/* Authorized domains list (inline) */}
+                    <div className="bg-zinc-900/40 border border-zinc-800 rounded-xl p-4">
+                      <div className="flex items-center justify-between mb-3">
+                        <div className="flex items-center gap-2">
+                          <ShieldCheck className="w-4 h-4 text-emerald-500" />
+                          <span className="text-xs font-semibold text-zinc-400 uppercase tracking-wider">
+                            Dominios con permiso de auditoría
+                          </span>
+                        </div>
+                        <span className="text-xs font-mono text-zinc-600">
+                          {loadingDomains ? "..." : `${authorizedDomains.length} registros`}
+                        </span>
+                      </div>
+
+                      {loadingDomains ? (
+                        <div className="flex items-center gap-2 text-zinc-500 text-xs py-3">
+                          <div className="w-3 h-3 border border-zinc-600 border-t-zinc-400 rounded-full animate-spin" />
+                          Cargando...
+                        </div>
+                      ) : authorizedDomains.length === 0 ? (
+                        <p className="text-xs text-zinc-600 py-3 text-center">
+                          Aún no hay dominios autorizados. Marcá la casilla arriba para registrar este.
+                        </p>
+                      ) : (
+                        <div className="space-y-1.5 max-h-40 overflow-y-auto pr-1">
+                          {authorizedDomains.map((auth) => {
+                            let isCurrentUrl = false;
+                            try {
+                              let normalized = url.trim();
+                              if (!normalized.startsWith("http://") && !normalized.startsWith("https://")) {
+                                normalized = `https://${normalized}`;
+                              }
+                              const hostname = new URL(normalized).hostname;
+                              isCurrentUrl = auth.targetDomain === hostname || hostname.endsWith(`.${auth.targetDomain}`);
+                            } catch {}
+
+                            return (
+                              <div
+                                key={auth.id}
+                                className={`flex items-center gap-3 rounded-lg px-3 py-2 text-xs font-mono transition-colors ${
+                                  isCurrentUrl
+                                    ? "bg-emerald-500/10 border border-emerald-500/20 text-emerald-300"
+                                    : "bg-zinc-950/50 border border-zinc-800/50 text-zinc-400"
+                                }`}
+                              >
+                                <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${isCurrentUrl ? "bg-emerald-400 shadow-[0_0_4px_rgba(52,211,153,0.8)]" : "bg-zinc-600"}`} />
+                                <Globe className="w-3 h-3 shrink-0" />
+                                <span className="flex-1 truncate">{auth.targetDomain}</span>
+                                {isCurrentUrl && (
+                                  <span className="text-emerald-500 font-bold text-[10px] bg-emerald-500/10 px-1.5 py-0.5 rounded">
+                                    ACTUAL
+                                  </span>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+
               <div className="pt-4">
                 <button
                   type="submit"
-                  disabled={isScanning}
+                  disabled={isScanning || isAggressiveBlocked}
+                  title={isAggressiveBlocked ? "Debes confirmar la autorización para ejecutar el modo agresivo" : undefined}
                   className="relative group disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   <div
@@ -253,6 +494,16 @@ export default function HeroScanner({ onScan, isScanning }: HeroScannerProps) {
                     </span>
                   </div>
                 </button>
+
+                {isAggressiveBlocked && (
+                  <motion.p
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    className="mt-3 text-xs text-rose-400/80 text-center font-mono"
+                  >
+                    ⚠ Confirmá la autorización para habilitar el escaneo agresivo
+                  </motion.p>
+                )}
               </div>
             </motion.form>
           )}

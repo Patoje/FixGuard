@@ -1,5 +1,6 @@
 import { pgTable, serial, text, timestamp, varchar, integer, json } from 'drizzle-orm/pg-core';
 
+
 export const users = pgTable('users', {
   id: serial('id').primaryKey(),
   email: varchar('email', { length: 255 }).notNull().unique(),
@@ -71,6 +72,15 @@ export const findings = pgTable('findings', {
   toolSource: varchar('tool_source', { length: 50 }).notNull(),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
+});
+
+export const authorizations = pgTable('authorizations', {
+  id: serial('id').primaryKey(),
+  userId: integer('user_id').references(() => users.id).notNull(),
+  targetDomain: varchar('target_domain', { length: 255 }).notNull(),
+  authorizedAt: timestamp('authorized_at').defaultNow().notNull(),
+  expiresAt: timestamp('expires_at'),
+  signature: text('signature'),
 });
 
 export const sessions = pgTable('sessions', {

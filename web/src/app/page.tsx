@@ -9,6 +9,9 @@ import OffensiveArsenal from "@/components/OffensiveArsenal";
 
 import { ScanMode, TerminalLog, Vulnerability, ReconProfile, ScanStatus } from "@/types";
 import { AnimatePresence, motion } from "framer-motion";
+import AuthorizedDomainsPanel from "@/components/AuthorizedDomainsPanel";
+import { Settings } from "lucide-react";
+
 
 type FlowStep = "setup" | "scanning" | "results";
 
@@ -33,6 +36,10 @@ export default function Home() {
   
   // Ref to track if simulation is running
   const simulationRef = useRef<boolean>(false);
+
+  // Settings panel state
+  const [showSettings, setShowSettings] = useState(false);
+
 
   const addLog = (message: string, type: TerminalLog["type"] = "info") => {
     setLogs((prev) => [
@@ -144,8 +151,31 @@ export default function Home() {
   // Polling Effect — active scan
   useEffect(() => {
     let interval: NodeJS.Timeout;
+    let eventSource: EventSource | null = null;
 
     if (step === "scanning" && scanId && scanStatus !== "paused_for_approval") {
+      // 1. Conectar al stream de logs en tiempo real (SSE)
+      try {
+        eventSource = new EventSource(`http://localhost:4000/api/scan/${scanId}/logs/stream`);
+        eventSource.onmessage = (event) => {
+          try {
+            const logData = JSON.parse(event.data);
+            setLogs((prev) => [
+              ...prev,
+              {
+                id: Math.random().toString(36).substring(7),
+                timestamp: logData.timestamp,
+                message: logData.message,
+                type: logData.type || "info",
+              },
+            ]);
+          } catch (e) { }
+        };
+      } catch (err) {
+        console.error("No se pudo conectar al stream de logs", err);
+      }
+
+      // 2. Polling para chequear si el scan general terminó
       interval = setInterval(async () => {
         try {
           const res = await fetch(`/api/scans/${scanId}`);
@@ -156,6 +186,7 @@ export default function Home() {
               simulationRef.current = false;
               setScanStatus("paused_for_approval");
               clearInterval(interval);
+              if (eventSource) eventSource.close();
             } else if (data.scan.status === "completed" || data.scan.status === "failed") {
               simulationRef.current = false;
               addLog(`Escaneo finalizado con estado: ${data.scan.status}`, data.scan.status === "completed" ? "success" : "error");
@@ -163,6 +194,7 @@ export default function Home() {
               if (data.reconProfile) setReconProfile(data.reconProfile);
               setScanStatus(data.scan.status);
               clearInterval(interval);
+              if (eventSource) eventSource.close();
               setTimeout(() => { setStep("results"); }, 1500);
             }
           }
@@ -170,7 +202,10 @@ export default function Home() {
       }, 2000);
     }
 
-    return () => { if (interval) clearInterval(interval); };
+    return () => { 
+      if (interval) clearInterval(interval); 
+      if (eventSource) eventSource.close();
+    };
   }, [step, scanId, scanStatus]);
 
   // Live retroalimentation: re-fetch findings every 10s while on the results page
@@ -222,6 +257,37 @@ export default function Home() {
         <div className="absolute top-[-20%] left-[-10%] w-[50%] h-[50%] bg-blue-900/10 blur-[120px] rounded-full mix-blend-screen"></div>
         <div className="absolute bottom-[-20%] right-[-10%] w-[50%] h-[50%] bg-rose-900/10 blur-[120px] rounded-full mix-blend-screen"></div>
       </div>
+
+      {/* Settings button — always visible */}
+      <div className="fixed top-4 right-4 z-50">
+        <button
+          onClick={() => setShowSettings((v) => !v)}
+          title="Configuración"
+          className={`w-10 h-10 rounded-xl border flex items-center justify-center transition-all ${
+            showSettings
+              ? "bg-zinc-800 border-zinc-600 text-white shadow-lg"
+              : "bg-zinc-950/80 border-zinc-800 text-zinc-500 hover:text-zinc-200 hover:border-zinc-700 backdrop-blur"
+          }`}
+        >
+          <Settings className={`w-5 h-5 transition-transform duration-300 ${showSettings ? "rotate-90" : ""}`} />
+        </button>
+      </div>
+
+      {/* Settings overlay — Dominios Autorizados */}
+      <AnimatePresence>
+        {showSettings && (
+          <motion.div
+            key="settings-overlay"
+            initial={{ opacity: 0, x: 40 }}
+            animate={{ opacity: 1, x: 0 }}
+            exit={{ opacity: 0, x: 40 }}
+            transition={{ duration: 0.25, ease: "easeOut" }}
+            className="fixed top-16 right-4 z-40 w-full max-w-xl max-h-[85vh] overflow-y-auto bg-zinc-950/95 backdrop-blur-xl border border-zinc-800 rounded-2xl shadow-2xl shadow-black/50 p-6"
+          >
+            <AuthorizedDomainsPanel onClose={() => setShowSettings(false)} />
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       <AnimatePresence mode="wait">
         {step === "setup" && (

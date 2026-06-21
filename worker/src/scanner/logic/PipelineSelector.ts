@@ -155,9 +155,18 @@ export class PipelineSelector {
          }
       }
 
-      if (mutatedCommand.includes('ffuf') && decision.wordlistPath) {
-        // Reemplazar wordlist estática
-        mutatedCommand = mutatedCommand.replace(/-w\s+[^\s]+/, `-w ${decision.wordlistPath}`);
+      if (mutatedCommand.includes('ffuf')) {
+        // Reemplazar o añadir wordlist
+        if (decision.wordlistPath) {
+          if (mutatedCommand.includes('-w ')) {
+            mutatedCommand = mutatedCommand.replace(/-w\s+[^\s]+/, `-w ${decision.wordlistPath}`);
+          } else {
+            mutatedCommand += ` -w ${decision.wordlistPath}`;
+          }
+        } else if (!mutatedCommand.includes('-w ')) {
+          mutatedCommand += ` -w ./wordlists/api_wordlist.txt`;
+        }
+
         if (wafProfile.ffuf_flags.length > 0) {
           mutatedCommand += ` ${wafProfile.ffuf_flags.join(' ')}`;
         }

@@ -432,7 +432,7 @@ export default function OffensiveArsenal({ targetUrl, scanId, profile, initialTa
         </div>
 
         {/* Bottom: Tactical Console — full width */}
-        <div className="flex flex-col rounded-xl border border-rose-500/25 bg-[#030303] overflow-hidden shadow-xl shadow-rose-900/10">
+        <div className="flex flex-col h-96 lg:h-[500px] rounded-xl border border-rose-500/25 bg-[#030303] overflow-hidden shadow-xl shadow-rose-900/10 shrink-0">
 
           {/* Console header */}
           <div className="flex items-center justify-between px-4 py-2.5 border-b border-rose-500/20 bg-rose-950/20 shrink-0">

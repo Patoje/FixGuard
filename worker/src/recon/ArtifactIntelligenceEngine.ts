@@ -203,7 +203,7 @@ export class ArtifactIntelligenceEngine {
                 }
             } else if (pattern.type.includes('Generic')) {
                 // Generico: Validar si es "unknown_high_entropy" o falso positivo
-                if (entropy > 4.2 && secretValue.length > 20 && !dictCheck.hasWords) {
+                if (entropy > 4.2 && secretValue.length > 20 && !dictCheck.hasWords && !/^[A-Z][a-zA-Z0-9]+Id$/.test(secretValue)) {
                     pattern.type = 'unknown_high_entropy';
                 } else {
                     isLikelyFalsePositive = true;
@@ -214,6 +214,9 @@ export class ArtifactIntelligenceEngine {
                 if (dictCheck.hasWords) {
                     isLikelyFalsePositive = true;
                     falsePositiveReason = dictCheck.reason;
+                } else if (entropy < 3.2) {
+                    isLikelyFalsePositive = true;
+                    falsePositiveReason = `Entropía general muy baja (${entropy.toFixed(2)})`;
                 }
             }
 
@@ -320,9 +323,14 @@ export class ArtifactIntelligenceEngine {
     }
 
     // Check for common Spanish/English programming words
-    const commonWords = /(config|overlay|background|commands|focused|element|select|translate|wrapper|transition|function|return|false|true|null|undefined|string|number|boolean|array|object|class|interface|type|window|document|console|default|value|error|warn|info|debug|success|fail|start|stop|init|load|save|read|write|click|hover|change|input|submit|mouse|touch|event|handler|callback|promise|resolve|reject)/i;
+    const commonWords = /(config|overlay|background|commands|focused|element|select|translate|wrapper|transition|function|return|false|true|null|undefined|string|number|boolean|array|object|class|interface|type|window|document|console|default|value|error|warn|info|debug|success|fail|start|stop|init|load|save|read|write|click|hover|change|input|submit|mouse|touch|event|handler|callback|promise|resolve|reject|id|key|name|app|api)/i;
     if (commonWords.test(str)) {
       return { hasWords: true, reason: 'Contiene palabras comunes de código' };
+    }
+
+    // Check for simple sequential/keyboard patterns
+    if (/123456|abcdef|qwerty|asdfgh/i.test(str)) {
+      return { hasWords: true, reason: 'Secuencia de teclado trivial' };
     }
 
     return { hasWords: false };

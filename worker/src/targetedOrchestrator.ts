@@ -97,6 +97,11 @@ function parseCliOutput(command: string, output: string): { severity: 'low' | 'm
   }
   
   if (command.includes('ffuf')) {
+    // Si la salida es la pantalla de ayuda (faltan argumentos), ignorar
+    if (output.includes('HTTP OPTIONS:') || output.includes('GENERAL OPTIONS:')) {
+      return null;
+    }
+
     const cleanOutput = output.replace(/Fuzz Faster U Fool.*/gi, '').trim();
     const lines = cleanOutput.split('\n').filter(line => {
       const trimmed = line.trim();
@@ -261,6 +266,7 @@ export async function runTargetedAttack(scanId: number, userId: number, targetUr
 
   try {
     const cleanTargetUrl = targetUrl.replace(/\/+$/, '');
+    const hostname = (() => { try { return new URL(cleanTargetUrl).hostname; } catch { return cleanTargetUrl; } })();
     
     let vector = VECTOR_REGISTRY[vectorId];
     if (!vector) {
@@ -268,6 +274,9 @@ export async function runTargetedAttack(scanId: number, userId: number, targetUr
         vector = { id: vectorId, name: 'BOLA Attack', cliCommand: `curl -i -s -k -X GET <TARGET>` };
       } else if (vectorId.startsWith('mass_assignment_')) {
         vector = { id: vectorId, name: 'Mass Assignment Attack', cliCommand: `curl -i -s -k -X POST -H "Content-Type: application/json" -d '{"role":"admin","isAdmin":true}' <TARGET>` };
+      } else if (vectorId.startsWith('workflow_bypass_')) {
+        // Inline command: try direct access to the last step endpoint bypassing intermediate auth steps
+        vector = { id: vectorId, name: 'Business Logic Bypass', cliCommand: `curl -i -s -k -X POST -H "Content-Type: application/json" -d '{}' <TARGET>` };
       }
     }
     if (!vector || !vector.cliCommand) {
@@ -276,7 +285,10 @@ export async function runTargetedAttack(scanId: number, userId: number, targetUr
     
     // Obtener flags de autenticación
     const authFlags = await SessionManager.getCliAuthFlags(cleanTargetUrl, vector.cliCommand);
-    let finalCommand = vector.cliCommand.replace('<TARGET>', cleanTargetUrl);
+    // Replace both <TARGET> (full URL) and <HOSTNAME> (hostname only)
+    let finalCommand = vector.cliCommand
+      .replace(/<TARGET>/g, cleanTargetUrl)
+      .replace(/<HOSTNAME>/g, hostname);
     
     if (authFlags) {
       finalCommand = `${finalCommand} ${authFlags}`;
