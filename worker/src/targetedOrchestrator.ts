@@ -43,12 +43,12 @@ function parseCliOutput(command: string, output: string): { severity: 'low' | 'm
   }
 
   if (command.includes('dalfox')) {
-    // Dalfox v3: outputs [POC][V], "XSS found", "WRN XSS found"
+    // Dalfox v3 outputs. We must be careful to avoid matching "XSS found 0 XSS"
+    // To be safe we look for "[poc]" or a regex match for XSS found with a number > 0.
+    const xssFoundMatch = lowerOut.match(/xss found ([1-9][0-9]*) xss/);
     if (
       lowerOut.includes('[poc]') ||
-      lowerOut.includes('[v]') ||
-      lowerOut.includes('xss found') ||
-      lowerOut.includes('wrn xss found') ||
+      xssFoundMatch !== null ||
       lowerOut.includes('issue: xss')
     ) {
       return { severity: 'high', finding: 'Dalfox v3 encontró y validó un vector de inyección XSS en el DOM/Reflected.' };
