@@ -344,7 +344,7 @@ export default function ReconDashboard({ profile, targetUrl, onLaunchAttack }: P
                                       </button>
                                       
                                       {openDropdownIdx === `${groupName}-${idx}` && (
-                                        <div className="absolute right-0 top-full mt-1 w-56 bg-zinc-900 border border-white/10 rounded-lg shadow-2xl z-[100] text-left">
+                                        <div className="absolute right-0 bottom-full mb-1 w-56 bg-zinc-900 border border-white/10 rounded-lg shadow-2xl z-[9999] text-left transform-gpu" style={{ minWidth: 'max-content' }}>
                                           <div className="px-3 py-2 border-b border-white/5 text-[10px] font-mono text-zinc-500 uppercase tracking-widest bg-black/40">
                                             Menú Táctico
                                           </div>
