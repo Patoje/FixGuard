@@ -372,7 +372,7 @@ export async function runTargetedAttack(scanId: number, userId: number, targetUr
                }
              }
           }
-          fs.unlinkSync(ffufFile);
+          await fs.promises.unlink(ffufFile);
         }
       }
 
@@ -397,7 +397,7 @@ export async function runTargetedAttack(scanId: number, userId: number, targetUr
                 }
              } catch(e) {}
           }
-          fs.unlinkSync(nucleiFile);
+          await fs.promises.unlink(nucleiFile);
         }
       }
     } catch(err: any) {
