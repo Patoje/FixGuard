@@ -51,14 +51,14 @@ function parseCliOutput(command: string, output: string): { severity: 'low' | 'm
       xssFoundMatch !== null ||
       lowerOut.includes('issue: xss')
     ) {
-      return { severity: 'high', finding: 'Dalfox v3 encontró y validó un vector de inyección XSS en el DOM/Reflected.' };
+      return { severity: 'high', finding: 'Cross-Site Scripting (XSS) detectado y validado en el DOM/Reflected.' };
     }
     return null;
   }
 
   if (command.includes('xsstrike')) {
     if (lowerOut.includes('vulnerable') || lowerOut.includes('payload:')) {
-      return { severity: 'high', finding: 'Dalfox encontró y validó un vector de inyección XSS en el DOM/Reflected.' };
+      return { severity: 'high', finding: 'Cross-Site Scripting (XSS) detectado y validado en el DOM/Reflected.' };
     }
     return null;
   }
