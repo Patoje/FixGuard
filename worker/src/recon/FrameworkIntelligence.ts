@@ -21,7 +21,7 @@ export function runFrameworkIntelligence(techStack: TechStackItem[]): FrameworkV
     vectors: [
       { id: 'deep_katana', name: 'Crawling Avanzado JS/DOM', cliCommand: 'katana -u <TARGET> -d 5 -jc -kf all' },
       { id: 'deep_gau', name: 'Historial GAU (Wayback/AlienVault)', cliCommand: 'gau <HOSTNAME>' },
-      { id: 'deep_trufflehog', name: 'Búsqueda de API Keys (Trufflehog)', cliCommand: 'trufflehog --no-update http --url <TARGET>' }
+      { id: 'deep_trufflehog', name: 'Búsqueda de API Keys (Trufflehog)', cliCommand: 'trufflehog --no-update http <TARGET>' }
     ]
   });
 
@@ -208,7 +208,7 @@ export const VECTOR_REGISTRY: Record<string, VectorItem> = {
   // Arsenal
   deep_katana: { id: 'deep_katana', name: 'Crawling Avanzado JS/DOM', cliCommand: 'katana -u <TARGET> -d 5 -jc -kf all' },
   deep_gau: { id: 'deep_gau', name: 'Historial GAU (Wayback/AlienVault)', cliCommand: 'gau <TARGET>' },
-  deep_trufflehog: { id: 'deep_trufflehog', name: 'Búsqueda de API Keys (Trufflehog)', cliCommand: 'trufflehog --no-update http --url <TARGET>' },
+  deep_trufflehog: { id: 'deep_trufflehog', name: 'Búsqueda de API Keys (Trufflehog)', cliCommand: 'trufflehog --no-update http <TARGET>' },
   nmap_full: { id: 'nmap_full', name: 'Escaneo de Puertos Total', cliCommand: 'nmap -sV -sC -Pn -T4 <HOSTNAME>' },
   subfinder_enum: { id: 'subfinder_enum', name: 'Enumeración de Subdominios', cliCommand: 'subfinder -d <HOSTNAME> -all' },
   wpscan_full: { id: 'wpscan_full', name: 'WPScan Arsenal Completo', cliCommand: 'wpscan --url <TARGET> --enumerate u,p,t --random-user-agent' },
@@ -224,7 +224,7 @@ export const VECTOR_REGISTRY: Record<string, VectorItem> = {
   whatweb: { id: 'whatweb', name: 'WhatWeb (Fingerprint)', cliCommand: 'whatweb -v -a 3 <TARGET>' },
   feroxbuster: { id: 'feroxbuster', name: 'Feroxbuster (Dir Brute)', cliCommand: 'feroxbuster -u <TARGET> --silent' },
   gospider: { id: 'gospider', name: 'GoSpider (Crawling)', cliCommand: 'gospider -s <TARGET> -c 10' },
-  trufflehog: { id: 'trufflehog', name: 'TruffleHog (Secretos)', cliCommand: 'trufflehog --no-update http --url <TARGET>' },
+  trufflehog: { id: 'trufflehog', name: 'TruffleHog (Secretos)', cliCommand: 'trufflehog --no-update http <TARGET>' },
   shcheck: { id: 'shcheck', name: 'SHCheck (Security Headers)', cliCommand: 'shcheck <TARGET>' },
   crlfuzz: { id: 'crlfuzz', name: 'CRLFuzz (CRLF Injection)', cliCommand: 'crlfuzz -u <TARGET>' },
   kxss: { id: 'kxss', name: 'KXSS (XSS Finder)', cliCommand: 'gau <TARGET> | kxss' },
