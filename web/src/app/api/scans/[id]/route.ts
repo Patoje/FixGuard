@@ -27,25 +27,25 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
     // Fetch vulnerabilities from this scan (passive recon results)
     const vulnRecords = await db.select().from(vulnerabilities).where(eq(vulnerabilities.scanId, scanId));
 
-    // Fetch findings from child targeted attack scans and convert to vulnerability format
+    // Fetch findings from child targeted attack scans (stored with child scanId)
     let childFindings: typeof vulnRecords = [];
+    const allFindingConditions = [eq(findings.scanId, scanId)]; // also fetch findings saved directly under parent
     if (childScanIds.length > 0) {
-      const rawFindings = await db.select().from(findings).where(
-        or(...childScanIds.map(id => eq(findings.scanId, id)))
-      );
-      // Map findings → vulnerability shape so the frontend renders them uniformly
-      childFindings = rawFindings.map(f => ({
-        id: f.id + 100000, // offset to avoid ID collisions with vulnerabilities table
-        scanId: f.scanId,
-        type: f.title,
-        severity: f.severity.toUpperCase(),
-        description: `[Arsenal] ${f.endpoint || ''} — ${f.title}`,
-        metadata: JSON.stringify({ endpoint: f.endpoint, method: f.method, payload: f.payloadUsed }),
-        parentId: null,
-        autoFixCode: null,
-        createdAt: f.createdAt,
-      }));
+      allFindingConditions.push(...childScanIds.map(id => eq(findings.scanId, id)));
     }
+    const rawFindings = await db.select().from(findings).where(or(...allFindingConditions));
+    // Map findings → vulnerability shape so the frontend renders them uniformly
+    childFindings = rawFindings.map(f => ({
+      id: f.id + 100000, // offset to avoid ID collisions with vulnerabilities table
+      scanId: f.scanId,
+      type: f.title,
+      severity: f.severity.toUpperCase(),
+      description: `[Arsenal] ${f.endpoint || ''} — ${f.title}`,
+      metadata: JSON.stringify({ endpoint: f.endpoint, method: f.method, payload: f.payloadUsed }),
+      parentId: null,
+      autoFixCode: null,
+      createdAt: f.createdAt,
+    }));
 
     const reconRecords = await db.select().from(reconProfiles).where(eq(reconProfiles.scanId, scanId));
 
