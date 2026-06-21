@@ -276,7 +276,14 @@ export default function ReconDashboard({ profile, targetUrl, onLaunchAttack }: P
 
       {/* SECTION 6: ENDPOINT CATALOG */}
       <motion.section initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{delay: 0.6}}>
-        <h3 className="text-2xl font-bold flex items-center gap-2 border-b border-white/10 pb-2"><Map className="text-cyan-400" /> Endpoint Catalog</h3>
+        <h3 className="text-2xl font-bold flex items-center gap-2 border-b border-white/10 pb-2">
+          <Map className="text-cyan-400" /> Endpoint Catalog
+          {profile.normalizedData?.stack?.pipeline === 'legacy' && (
+            <span className="ml-2 text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded border bg-purple-500/20 text-purple-300 border-purple-500/30">
+              Legacy Stack
+            </span>
+          )}
+        </h3>
         <p className="text-sm text-zinc-400 mb-4">Endpoints descubiertos agrupados por módulo funcional (Reconstrucción Semántica).</p>
         <div className="space-y-3">
           {Object.entries(endpointGroups).filter(([_, eps]) => eps.length > 0).map(([groupName, eps]) => (
@@ -357,16 +364,28 @@ export default function ReconDashboard({ profile, targetUrl, onLaunchAttack }: P
                                              const cleanTarget = targetUrl.endsWith('/') ? targetUrl.slice(0, -1) : targetUrl;
                                              const cleanPath = ep.path.startsWith('/') ? ep.path : `/${ep.path}`;
                                              const fullEndpointUrl = ep.path.startsWith('http') ? ep.path : `${cleanTarget}${cleanPath}`;
+                                             const isLegacy = profile.normalizedData?.stack?.pipeline === 'legacy';
+                                             const hasWordPress = profile.techStack.some(t => t.name.toLowerCase().includes('wordpress'));
 
                                              return (
                                                <div className="flex flex-col text-xs">
+                                                  {isLegacy && hasParams && (ep.path.includes('page=') || ep.path.includes('file=') || ep.path.includes('include=')) && (
+                                                    <button onClick={() => { onLaunchAttack?.(fullEndpointUrl, 'lfi_fuzzer'); setOpenDropdownIdx(null); }} className="px-3 py-2 hover:bg-white/5 flex items-center gap-2 text-zinc-300">
+                                                      <PackageSearch className="w-3.5 h-3.5 text-purple-400" /> LFI Fuzzer
+                                                    </button>
+                                                  )}
+                                                  {isLegacy && hasWordPress && (
+                                                    <button onClick={() => { onLaunchAttack?.(fullEndpointUrl, 'wpscan_enum'); setOpenDropdownIdx(null); }} className="px-3 py-2 hover:bg-white/5 flex items-center gap-2 text-zinc-300">
+                                                      <Radio className="w-3.5 h-3.5 text-blue-500" /> WPScan Enum
+                                                    </button>
+                                                  )}
                                                   {isNumeric && (
-                                                    <button onClick={() => { onLaunchAttack?.(fullEndpointUrl, 'sqli_time'); setOpenDropdownIdx(null); }} className="px-3 py-2 hover:bg-white/5 flex items-center gap-2 text-zinc-300">
+                                                    <button onClick={() => { onLaunchAttack?.(fullEndpointUrl, isLegacy ? 'sqli_php_legacy' : 'sqli_time'); setOpenDropdownIdx(null); }} className="px-3 py-2 hover:bg-white/5 flex items-center gap-2 text-zinc-300">
                                                       <DatabaseZap className="w-3.5 h-3.5 text-orange-400" /> Inyectar SQL
                                                     </button>
                                                   )}
                                                   {hasParams && !isNumeric && (
-                                                    <button onClick={() => { onLaunchAttack?.(fullEndpointUrl, 'xss_dalfox'); setOpenDropdownIdx(null); }} className="px-3 py-2 hover:bg-white/5 flex items-center gap-2 text-zinc-300">
+                                                    <button onClick={() => { onLaunchAttack?.(fullEndpointUrl, isLegacy ? 'xss_legacy' : 'xss_dalfox'); setOpenDropdownIdx(null); }} className="px-3 py-2 hover:bg-white/5 flex items-center gap-2 text-zinc-300">
                                                       <Shield className="w-3.5 h-3.5 text-rose-400" /> Cazar XSS
                                                     </button>
                                                   )}
@@ -381,6 +400,11 @@ export default function ReconDashboard({ profile, targetUrl, onLaunchAttack }: P
                                                   <button onClick={() => { onLaunchAttack?.(fullEndpointUrl, 'nuclei_cve'); setOpenDropdownIdx(null); }} className="px-3 py-2 hover:bg-white/5 flex items-center gap-2 text-zinc-300">
                                                     <Radio className="w-3.5 h-3.5 text-cyan-400" /> Scan CVEs
                                                   </button>
+                                                  {isLegacy && (
+                                                    <button onClick={() => { onLaunchAttack?.(fullEndpointUrl, 'nikto_scan'); setOpenDropdownIdx(null); }} className="px-3 py-2 hover:bg-white/5 flex items-center gap-2 text-zinc-300">
+                                                      <Globe className="w-3.5 h-3.5 text-green-400" /> Nikto Scan
+                                                    </button>
+                                                  )}
                                                </div>
                                              );
                                           })()}

@@ -237,5 +237,12 @@ export const VECTOR_REGISTRY: Record<string, VectorItem> = {
   nuclei_cve: { id: 'nuclei_cve', name: 'Scan CVEs (Nuclei)', cliCommand: 'nuclei -u <TARGET>' },
   sqli_time: { id: 'sqli_time', name: 'Time Based SQL Injection (SQLMap)', cliCommand: 'sqlmap -u <TARGET> --technique=T --batch --risk=3' },
   xss_dalfox: { id: 'xss_dalfox', name: 'Cazar XSS (Dalfox)', cliCommand: 'dalfox url --url <TARGET>' },
-  jwt_tool: { id: 'jwt_tool', name: 'Testear JWT (jwt_tool)', cliCommand: 'jwt_tool <TARGET> -M pb' }
+  jwt_tool: { id: 'jwt_tool', name: 'Testear JWT (jwt_tool)', cliCommand: 'jwt_tool <TARGET> -M pb' },
+
+  // Legacy Vectors
+  wpscan_enum: { id: 'wpscan_enum', name: 'WPScan Enum', cliCommand: 'wpscan --url <TARGET> --enumerate u,p,t --random-user-agent' },
+  nikto_scan: { id: 'nikto_scan', name: 'Nikto Scan', cliCommand: 'nikto -h <TARGET> -Format json' },
+  sqli_php_legacy: { id: 'sqli_php_legacy', name: 'PHP SQL Injection', cliCommand: 'sqlmap -u <TARGET> --batch --level=3 --risk=2' },
+  lfi_fuzzer: { id: 'lfi_fuzzer', name: 'LFI Fuzzer', cliCommand: 'ffuf -u <TARGET> -w ./wordlists/lfi_payloads.txt' },
+  xss_legacy: { id: 'xss_legacy', name: 'XSS Legacy (XSStrike)', cliCommand: 'xsstrike -u <TARGET>' }
 };

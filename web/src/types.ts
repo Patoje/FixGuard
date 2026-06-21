@@ -207,6 +207,7 @@ export interface ReconProfile {
       cdn: string | null;
       confidence: number;
       database_hints?: string[];
+      pipeline?: 'modern_spa' | 'legacy';
     };
     endpoints: {
       url: string;

@@ -11,6 +11,7 @@ export interface NormalizedReconProfile {
     cdn: string | null;           // "Vercel"
     confidence: number;           // 0.0 - 1.0
     database_hints?: string[];    // ["MongoDB", "PostgreSQL"]
+    pipeline?: 'modern_spa' | 'legacy';
   };
   
   endpoints: {

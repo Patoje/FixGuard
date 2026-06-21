@@ -58,6 +58,21 @@ export class PipelineSelector {
     // 1. Detección específica Next.js desde endpoints históricos
     const isNextJs = this.detectNextjsFromEndpoints(recon?.endpoints || []) || recon?.stack?.frontend?.toLowerCase().includes('next');
     
+    // 1.5 Detección Legacy (PHP, WordPress, Apache, Nginx, .php, .asp, .aspx)
+    const stackFrontend = recon?.stack?.frontend?.toLowerCase() || '';
+    const stackRuntime = recon?.stack?.runtime?.toLowerCase() || '';
+    const hasLegacyStackHint = stackFrontend.includes('wordpress') || stackRuntime.includes('php') || stackRuntime.includes('apache') || stackRuntime.includes('nginx');
+    const hasLegacyEndpoints = recon?.endpoints?.some(e => {
+       const urlLower = e.url.toLowerCase();
+       return urlLower.includes('.php') || urlLower.includes('.asp') || urlLower.includes('.aspx') || urlLower.includes('/wp-content/') || urlLower.includes('/wp-admin/') || urlLower.includes('/wp-json/');
+    });
+
+    if (hasLegacyStackHint || hasLegacyEndpoints) {
+       recon.stack.pipeline = 'legacy';
+    } else {
+       recon.stack.pipeline = 'modern_spa';
+    }
+
     // 2. WAF Profile
     const wafName = recon.stack.waf?.toLowerCase() || 'none';
     let wafProfile = WAF_EVASION_PROFILES['none'];
@@ -87,9 +102,9 @@ export class PipelineSelector {
     }
 
     const hasSqlHints = recon.stack.database_hints?.some(h => ['mysql', 'postgresql', 'postgres'].includes(h.toLowerCase()));
-    if (!hasSqlHints) {
+    if (!hasSqlHints && recon.stack.pipeline !== 'legacy') { // Keep SQLi for legacy as it's common
       decision.disabledModules.push("pg_sqli", "pg_blind_sqli", "pg_time_sqli", "sqlmap");
-    } else {
+    } else if (hasSqlHints) {
       // If we have SQL hints, disable NoSQL
       decision.disabledModules.push("nosql_injection");
     }
@@ -106,7 +121,7 @@ export class PipelineSelector {
       const tampersApplied: string[] = [];
       let isMutated = false;
 
-      // Inyectar evasiones
+      // Inyectar evasiones (sqlmap y legacy php sqlmap)
       if (mutatedCommand.includes('sqlmap') && wafProfile.sqlmap_tampers.length > 0) {
         mutatedCommand += ` --tamper=${wafProfile.sqlmap_tampers.join(',')}`;
         tampersApplied.push(...wafProfile.sqlmap_tampers);
@@ -146,6 +161,14 @@ export class PipelineSelector {
          }
       }
 
+      // WPScan Enum Env Token Injection
+      if (vector.id === 'wpscan_enum') {
+         if (process.env.WPSCAN_API_TOKEN) {
+             mutatedCommand += ` --api-token ${process.env.WPSCAN_API_TOKEN}`;
+             isMutated = true;
+         }
+      }
+
       // JWT Secret Brute-forcing
       if (mutatedCommand.includes('jwt_tool')) {
          const jwtCred = recon.credentials.find(c => c.type === 'jwt_secret');
@@ -157,7 +180,7 @@ export class PipelineSelector {
 
       if (mutatedCommand.includes('ffuf')) {
         // Reemplazar o añadir wordlist
-        if (decision.wordlistPath) {
+        if (decision.wordlistPath && !vector.id.includes('lfi_fuzzer')) {
           if (mutatedCommand.includes('-w ')) {
             mutatedCommand = mutatedCommand.replace(/-w\s+[^\s]+/, `-w ${decision.wordlistPath}`);
           } else {
