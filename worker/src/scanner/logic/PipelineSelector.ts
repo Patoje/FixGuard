@@ -64,7 +64,7 @@ export class PipelineSelector {
     const hasLegacyStackHint = stackFrontend.includes('wordpress') || stackRuntime.includes('php') || stackRuntime.includes('apache') || stackRuntime.includes('nginx');
     const hasLegacyEndpoints = recon?.endpoints?.some(e => {
        const urlLower = e.url.toLowerCase();
-       return urlLower.includes('.php') || urlLower.includes('.asp') || urlLower.includes('.aspx') || urlLower.includes('/wp-content/') || urlLower.includes('/wp-admin/') || urlLower.includes('/wp-json/');
+       return urlLower.includes('.php') || urlLower.includes('.asp') || urlLower.includes('.aspx') || urlLower.includes('.jsp') || urlLower.includes('.cfm') || urlLower.includes('.cgi') || urlLower.includes('/wp-content/') || urlLower.includes('/wp-admin/') || urlLower.includes('/wp-json/');
     });
 
     if (hasLegacyStackHint || hasLegacyEndpoints) {
