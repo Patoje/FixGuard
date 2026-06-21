@@ -337,16 +337,33 @@ export async function runTargetedAttack(scanId: number, userId: number, targetUr
     }
 
     console.log(`[Scan ${scanId}] ⚙️ Ejecutando herramienta profesional CLI mediante ActiveExploitationEngine: ${finalCommand}`);
-    
+
+    // Pre-step for trufflehog: download target JS/HTML to /tmp so filesystem scan has content
+    if (finalCommand.includes('trufflehog') && finalCommand.includes('filesystem')) {
+      const scanDir = `/tmp/trufflehog_scan_${scanId}`;
+      try {
+        await ActiveExploitationEngine.executeAuthorized(
+          scanId, userId, cleanTargetUrl,
+          `mkdir -p ${scanDir} && wget -q -r -l 1 -nd -np -A "*.js,*.html" -P ${scanDir} ${cleanTargetUrl}`
+        );
+        // Override the generic /tmp/trufflehog_scan path with our scan-specific dir
+        finalCommand = finalCommand.replace('/tmp/trufflehog_scan', scanDir);
+        console.log(`[Scan ${scanId}] 🕷️ Trufflehog: contenido web descargado en ${scanDir}`);
+      } catch (e) {
+        console.warn(`[Scan ${scanId}] ⚠️ wget pre-crawl falló, trufflehog escaneará /tmp vacío`);
+      }
+    }
+
     // Run the actual CLI tool using the secure active engine
     const output = await ActiveExploitationEngine.executeAuthorized(scanId, userId, cleanTargetUrl, finalCommand);
     
     console.log(`[Scan ${scanId}] 📄 Output recibido (Longitud: ${output.length} bytes)`);
 
     // Parse output for vulnerabilities
-    const result = parseCliOutput(vector.cliCommand, output);
+    let result = parseCliOutput(vector.cliCommand, output);
 
     // FFUF and Nuclei JSON Parsing & Cleanup
+    let jsonFindingsCount = 0;
     try {
       if (finalCommand.includes('ffuf')) {
         const ffufFile = `/tmp/ffuf_${scanId}.json`;
@@ -366,9 +383,11 @@ export async function runTargetedAttack(scanId: number, userId: number, targetUr
                    toolSource: 'ffuf'
                  });
                  // Inject into endpoint catalog directly so it shows up in UI
-                 result!.metadata = result!.metadata || {};
-                 result!.metadata.discovered_urls = result!.metadata.discovered_urls || [];
-                 result!.metadata.discovered_urls.push(res.url);
+                 if (!result) result = { severity: 'low', finding: 'FFUF descubrió rutas accesibles.' };
+                 result.metadata = result.metadata || {};
+                 result.metadata.discovered_urls = result.metadata.discovered_urls || [];
+                 result.metadata.discovered_urls.push(res.url);
+                 jsonFindingsCount++;
                }
              }
           }
@@ -394,8 +413,12 @@ export async function runTargetedAttack(scanId: number, userId: number, targetUr
                     payloadUsed: data.type || 'nuclei-template',
                     toolSource: 'nuclei'
                   });
+                  jsonFindingsCount++;
                 }
              } catch(e) {}
+          }
+          if (jsonFindingsCount > 0 && !result) {
+            result = { severity: 'high', finding: `Nuclei detectó ${jsonFindingsCount} posibles vulnerabilidades (revisar Issue Manager).` };
           }
           await fs.promises.unlink(nucleiFile);
         }

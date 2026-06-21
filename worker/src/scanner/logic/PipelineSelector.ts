@@ -47,6 +47,18 @@ const WAF_EVASION_PROFILES: Record<string, any> = {
 
 export class PipelineSelector {
 
+  static detectPipelineType(recon: NormalizedReconProfile): 'modern_spa' | 'legacy' {
+    const stackFrontend = recon?.stack?.frontend?.toLowerCase() || '';
+    const stackRuntime = recon?.stack?.runtime?.toLowerCase() || '';
+    const hasLegacyStackHint = stackFrontend.includes('wordpress') || stackRuntime.includes('php') || stackRuntime.includes('apache') || stackRuntime.includes('nginx');
+    const hasLegacyEndpoints = recon?.endpoints?.some(e => {
+       const urlLower = e.url.toLowerCase();
+       return urlLower.includes('.php') || urlLower.includes('.asp') || urlLower.includes('.aspx') || urlLower.includes('.jsp') || urlLower.includes('.cfm') || urlLower.includes('.cgi') || urlLower.includes('/wp-content/') || urlLower.includes('/wp-admin/') || urlLower.includes('/wp-json/');
+    });
+
+    return (hasLegacyStackHint || hasLegacyEndpoints) ? 'legacy' : 'modern_spa';
+  }
+
   static selectPipeline(recon: NormalizedReconProfile, rawVectors: {id: string, command: string}[]): PipelineDecision {
     const decision: PipelineDecision = {
       executionOrder: [],
@@ -59,19 +71,7 @@ export class PipelineSelector {
     const isNextJs = this.detectNextjsFromEndpoints(recon?.endpoints || []) || recon?.stack?.frontend?.toLowerCase().includes('next');
     
     // 1.5 Detección Legacy (PHP, WordPress, Apache, Nginx, .php, .asp, .aspx)
-    const stackFrontend = recon?.stack?.frontend?.toLowerCase() || '';
-    const stackRuntime = recon?.stack?.runtime?.toLowerCase() || '';
-    const hasLegacyStackHint = stackFrontend.includes('wordpress') || stackRuntime.includes('php') || stackRuntime.includes('apache') || stackRuntime.includes('nginx');
-    const hasLegacyEndpoints = recon?.endpoints?.some(e => {
-       const urlLower = e.url.toLowerCase();
-       return urlLower.includes('.php') || urlLower.includes('.asp') || urlLower.includes('.aspx') || urlLower.includes('.jsp') || urlLower.includes('.cfm') || urlLower.includes('.cgi') || urlLower.includes('/wp-content/') || urlLower.includes('/wp-admin/') || urlLower.includes('/wp-json/');
-    });
-
-    if (hasLegacyStackHint || hasLegacyEndpoints) {
-       recon.stack.pipeline = 'legacy';
-    } else {
-       recon.stack.pipeline = 'modern_spa';
-    }
+    recon.stack.pipeline = this.detectPipelineType(recon);
 
     // 2. WAF Profile
     const wafName = recon.stack.waf?.toLowerCase() || 'none';
@@ -180,7 +180,14 @@ export class PipelineSelector {
 
       if (mutatedCommand.includes('ffuf')) {
         const ext = recon.stack.pipeline === 'legacy' ? '.php,.asp,.aspx,.config,.bak' : '.json,.js,.map';
-        mutatedCommand = `ffuf -u <TARGET>/FUZZ -w /tmp/fixguard_wordlist_${recon.scanId}.txt -ac -mc 200,201,204,301,302,307,401,403,405 -fc 404 -fs 0 -H "X-Originating-IP: 127.0.0.1" -H "X-Forwarded-For: 127.0.0.1" -H "X-Real-IP: 127.0.0.1" -rate 10 -timeout 10 -recursion -recursion-depth 2 -e ${ext} -o /tmp/ffuf_${recon.scanId}.json -of json`;
+        
+        if (vector.id === 'ffuf_dir' || mutatedCommand.includes('/FUZZ')) {
+          mutatedCommand = `ffuf -u <TARGET>/FUZZ -w /tmp/fixguard_wordlist_${recon.scanId}.txt -ac -mc 200,201,204,301,302,307,401,403,405 -fc 404 -fs 0 -H "X-Originating-IP: 127.0.0.1" -H "X-Forwarded-For: 127.0.0.1" -H "X-Real-IP: 127.0.0.1" -rate 10 -timeout 10 -recursion -recursion-depth 2 -e ${ext} -o /tmp/ffuf_${recon.scanId}.json -of json`;
+        } else {
+          // Keep the original base command (like lfi_fuzzer) but append the output formatting
+          mutatedCommand += ` -o /tmp/ffuf_${recon.scanId}.json -of json`;
+        }
+        
         if (wafProfile.ffuf_flags.length > 0) {
           mutatedCommand += ` ${wafProfile.ffuf_flags.join(' ')}`;
         }
@@ -266,25 +273,35 @@ export class PipelineSelector {
   }
 
   private static buildDynamicWordlist(scanId: number, endpoints: {url: string, source: string}[]): string | null {
-    if (!endpoints || endpoints.length === 0) return null;
+    const fallbackPaths = ['/.env', '/admin', '/login', '/api', '/swagger', '/graphql', '/config.json', '/.git/config'];
+    let paths: string[] = [];
+    
+    if (endpoints && endpoints.length > 0) {
+      paths = endpoints.map(e => {
+        try { return new URL(e.url).pathname }
+        catch { return null }
+      }).filter(Boolean) as string[];
+    }
 
-    const paths = endpoints.map(e => {
-      try { return new URL(e.url).pathname }
-      catch { return null }
-    }).filter(Boolean) as string[];
-
-    if (paths.length === 0) return null;
+    if (paths.length === 0) {
+      paths = fallbackPaths;
+    }
 
     // Frecuencia y pesos por source
     const weights = paths.reduce((acc, p, index) => {
-      const source = endpoints[index].source;
+      const source = endpoints?.[index]?.source || 'fallback';
       const baseWeight = source === 'sourcemapper' ? 1000 : 1; // Priorizar sourcemapper masivamente
       acc[p] = (acc[p] || 0) + baseWeight;
       return acc;
     }, {} as Record<string, number>);
 
-    // Únicos y ordenados por peso/frecuencia (descendente)
-    const unique = [...new Set(paths)].sort((a, b) => (weights[b] || 0) - (weights[a] || 0));
+    // Únicos y ordenados por peso/frecuencia (descendente), asegurando agregar los fallback si no estaban
+    let unique = [...new Set(paths)].sort((a, b) => (weights[b] || 0) - (weights[a] || 0));
+    
+    // Si la lista generada desde endpoints es muy pobre, inyectar los fallbacks al final
+    if (unique.length < 10) {
+       unique = [...new Set([...unique, ...fallbackPaths])];
+    }
 
     const tempFilePath = path.join('/tmp', `fixguard_wordlist_${scanId}.txt`);
     try {

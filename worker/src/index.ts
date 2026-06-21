@@ -101,6 +101,7 @@ import { scans, reconProfiles } from './db/schema';
 import { eq } from 'drizzle-orm';
 import 'dotenv/config';
 import fs from 'fs';
+import { PipelineSelector } from './scanner/logic/PipelineSelector';
 
 const app = express();
 app.use(cors());
@@ -335,6 +336,9 @@ app.post('/api/scan', async (req, res) => {
       vulnerabilities_hints: []
     };
 
+    // Evaluate pipeline type statically based on the gathered recon data
+    normalizedData.stack.pipeline = PipelineSelector.detectPipelineType(normalizedData);
+
     // 6. Guardar Perfil de Reconocimiento
     await db.insert(reconProfiles).values({
       scanId,
@@ -407,6 +411,11 @@ app.post('/api/scan', async (req, res) => {
         if (fs.existsSync(file)) {
           fs.unlinkSync(file);
         }
+      }
+      // Cleanup trufflehog dir if it was created
+      const truffleDir = `/tmp/trufflehog_scan_${scanId}`;
+      if (fs.existsSync(truffleDir)) {
+        fs.rmSync(truffleDir, { recursive: true, force: true });
       }
     } catch(e) {}
   }
