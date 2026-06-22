@@ -404,7 +404,12 @@ export default function OffensiveArsenal({ targetUrl, scanId, profile, initialTa
                       {/* Target info */}
                       <div className="flex items-center gap-1 mb-2 bg-black/40 rounded px-1.5 py-1 font-mono">
                         <span className="text-zinc-600 text-[8px] font-bold uppercase shrink-0">{method}</span>
-                        <span className="text-zinc-400 text-[9px] truncate">{path || targetUrl}</span>
+                        <span 
+                          className="text-zinc-400 text-[9px] truncate cursor-help" 
+                          title={path || targetUrl}
+                        >
+                          {path || targetUrl}
+                        </span>
                       </div>
 
                       {/* Framework badge */}
