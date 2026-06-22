@@ -1,6 +1,7 @@
 import axios, { type AxiosRequestConfig, type AxiosResponse } from 'axios';
 import { SessionManager } from './SessionManager';
 import { IssueManager } from './IssueManager';
+import { SimilarityUtils } from './logic/SimilarityUtils';
 
 export interface SmartVector {
   id: string;
@@ -37,11 +38,22 @@ export class AttackExecutor {
 
       // 1. Ejecutar baseline (si hay)
       let baselineRes: AxiosResponse | null = null;
-      if (vector.baselinePayload) {
+      if (vector.baselinePayload !== undefined) {
+        // Ejecutar con baselinePayload explícito (puede ser null/object para POST/PUT)
         baselineRes = await axios({
           ...configBase,
           data: vector.baselinePayload,
-        });
+        }).catch(e => e.response);
+      } else {
+        // Auto-generar baseline request: hacer GET al targetUrl o al endpoint limpio
+        // Para BOLA, endpoint ya está mutado, pero targetUrl es la base limpia
+        baselineRes = await axios({
+          url: vector.endpoint, // Podríamos usar targetUrl, pero para ser precisos usamos el mismo endpoint pero con GET normal si es posible, o lo dejamos fallar amablemente
+          method: 'GET',
+          headers: authHeaders,
+          validateStatus: () => true,
+          timeout: 10000,
+        }).catch(e => e.response);
       }
 
       // 2. Ejecutar ataque
@@ -100,16 +112,24 @@ export class AttackExecutor {
          return true; // Pudo elevar privilegios
        }
        
-       if (baseline && JSON.stringify(baseline.data) !== respStr && attack.status === 200) {
-         // La respuesta cambió respecto al baseline y fue exitosa
-         return true; 
+       if (attack.status >= 200 && attack.status < 300) {
+         if (baseline && SimilarityUtils.isSimilar(baseline.data, attack.data)) {
+           // Es un falso positivo: la página devolvió 200 pero el contenido es igual (el payload fue ignorado)
+           return false;
+         }
+         // Si cambió estructuralmente, o si no hay baseline y la respuesta es exitosa (sospechoso)
+         // Para evitar falsos positivos sin baseline, podríamos ser más estrictos, pero con SimilarityUtils
+         // ya filtramos la mayoría de los casos de páginas estáticas.
+         return baseline ? true : false; // Si no hay baseline para BOLA, asumimos falso para evitar ruido excesivo
        }
     }
 
-    // Fallback conservador: Para MVP, si logramos un 2xx en un payload de inyección que 
-    // no falló con 400/500, marcamos como posible para revisión.
-    if (!baseline && attack.status >= 200 && attack.status < 300) {
-        return true;
+    // Fallback conservador: Para MVP, evitamos tirar falsos positivos por 200 OK genéricos
+    // a menos que sea un bypass explícito
+    if (vector.attackType === 'Workflow Bypass' && attack.status >= 200 && attack.status < 300) {
+       // Si nos saltamos pasos y nos da 200, pero la respuesta es igual al baseline (ej. la misma pantalla de login), falló
+       if (baseline && SimilarityUtils.isSimilar(baseline.data, attack.data)) return false;
+       return true;
     }
 
     return false;

@@ -61,14 +61,11 @@ export class ArtifactIntelligenceEngine {
     { type: 'Mailchimp API Key', regex: /[0-9a-f]{32}-us[0-9]{1,2}/g },
     { type: 'Typeform Personal Access Token', regex: /tfp_[a-zA-Z0-9]{43}_[a-zA-Z0-9]{43}/g },
     { type: 'Databricks Personal Access Token', regex: /dapi[a-h0-9]{32}/g },
-    { type: 'Sendbird Access Token', regex: /[\w]{40}/g }, // generic 40 char hex, often used by sendbird but high false positive without context
     { type: 'Plaid Client ID', regex: /client_id[=:]\s*["'][0-9a-fA-F]{24}["']/g },
     { type: 'Plaid Secret', regex: /secret[=:]\s*["'][0-9a-fA-F]{30}["']/g },
-    { type: 'Algolia API Key', regex: /[a-zA-Z0-9]{32}/g }, // generic 32 char, high false positive
     { type: 'Dynatrace API Token', regex: /dt0c01\.[a-zA-Z0-9]{24}\.[a-zA-Z0-9]{64}/g },
     { type: 'Fastly Personal Token', regex: /fastly-tok-[a-zA-Z0-9\-_]{32}/g },
     { type: 'Doppler Service Token', regex: /dp\.st\.(?:dev|tst|stg|prd)\.[a-zA-Z0-9]{43}/g },
-    { type: 'Contentful Delivery API Token', regex: /[a-zA-Z0-9\-_]{43}/g }, // generic 43 char
     { type: 'Npm Access Token', regex: /npm_[a-zA-Z0-9]{36}/g },
     { type: 'PyPI Upload Token', regex: /pypi-[a-zA-Z0-9_-]{164}/g },
     { type: 'Vercel Token', regex: /vercel_[a-zA-Z0-9]{24}/g },
