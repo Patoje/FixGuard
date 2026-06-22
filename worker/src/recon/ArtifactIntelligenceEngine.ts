@@ -58,6 +58,10 @@ export class ArtifactIntelligenceEngine {
     { type: 'Shopify Access Token', regex: /shpat_[a-fA-F0-9]{32}/g },
     { type: 'Shopify Custom App Token', regex: /shpca_[a-fA-F0-9]{32}/g },
     { type: 'Shopify Shared Secret', regex: /shpss_[a-fA-F0-9]{32}/g },
+    { type: 'Hugging Face Token', regex: /hf_[a-zA-Z0-9]{34}/g },
+    { type: 'Cloudinary URL', regex: /cloudinary:\/\/[0-9]+:[a-zA-Z0-9\-_]+@[a-zA-Z0-9\-_]+/g },
+    { type: 'WhatsApp API Token', regex: /EA[A-Za-z0-9]{10,}/g },
+    { type: 'Bitbucket App Password', regex: /[a-zA-Z0-9]{24}/g }, // Generico, requiere contexto
     { type: 'Telegram Bot Token', regex: /[0-9]{9}:[a-zA-Z0-9_-]{35}/g },
     { type: 'Heroku API Key', regex: /[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}/g }, // Note: Heroku keys are standard UUIDs, prone to false positives, but keeping for completeness if matched with key names. Will rely on generic fallback if standalone UUIDs.
     { type: 'Mailchimp API Key', regex: /[0-9a-f]{32}-us[0-9]{1,2}/g },
