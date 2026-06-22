@@ -442,8 +442,14 @@ export async function runTargetedAttack(scanId: number, userId: number, targetUr
           }
           await fs.promises.unlink(nucleiFile);
         } else {
-           console.warn(`[Scan ${scanId}] Nuclei falló o fue interrumpido — exit code no cero o sin output file`);
-           overrideMessage = `⚠️ Nuclei falló o fue interrumpido (timeout o error CLI)`;
+           // Nuclei doesn't create the JSON file if it finds 0 results. 
+           // We must check the stdout/stderr to ensure it actually ran and didn't crash.
+           if (output && (output.includes('projectdiscovery.io') || output.includes('No results found') || output.includes('Nuclei Engine'))) {
+              console.log(`[Scan ${scanId}] Nuclei se ejecutó correctamente pero no encontró vulnerabilidades (no se generó JSON).`);
+           } else {
+              console.warn(`[Scan ${scanId}] Nuclei falló o fue interrumpido — exit code no cero o sin output file`);
+              overrideMessage = `⚠️ Nuclei falló o fue interrumpido (timeout o error CLI)`;
+           }
         }
       }
     } catch(err: any) {
