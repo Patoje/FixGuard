@@ -265,6 +265,10 @@ export async function previewTargetedAttack(scanId: number, targetUrl: string, v
 export async function runTargetedAttack(scanId: number, userId: number, targetUrl: string, vectorId: string, parentId?: number): Promise<string> {
   console.log(`[Scan ${scanId}] Iniciando ataque dirigido REAL [${vectorId}] contra ${targetUrl}`);
 
+  // Iniciar Heartbeat para mantener sesión viva durante el ataque dirigido
+  const { SessionHeartbeat } = await import('./scanner/SessionHeartbeat');
+  await SessionHeartbeat.start(scanId, targetUrl);
+
   try {
     const cleanTargetUrl = targetUrl.replace(/\/+$/, '');
     const hostname = (() => { try { return new URL(cleanTargetUrl).hostname; } catch { return cleanTargetUrl; } })();
@@ -552,6 +556,9 @@ export async function runTargetedAttack(scanId: number, userId: number, targetUr
     console.error(`[Scan ${scanId}] Error en ataque dirigido [${vectorId}]: ${error.message}`);
     return `❌ Error ejecutando el ataque: ${error.message}`;
     // Opcionalmente podemos registrar el fallo como un log, pero no romper la app
+  } finally {
+    const { SessionHeartbeat } = await import('./scanner/SessionHeartbeat');
+    SessionHeartbeat.stop(scanId);
   }
 }
 

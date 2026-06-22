@@ -145,6 +145,10 @@ app.post('/api/scan', async (req, res) => {
       }
     }
     
+    // Iniciar Heartbeat para mantener la sesión viva durante el escaneo pesado
+    const { SessionHeartbeat } = await import('./scanner/SessionHeartbeat');
+    await SessionHeartbeat.start(scanId, targetUrl);
+
     // --- FASE 1: RECONOCIMIENTO INTELIGENTE ---
     console.log(`[Scan ${scanId}] Ejecutando Inteligencia de Superficie de Ataque...`);
     
@@ -426,6 +430,9 @@ app.post('/api/scan', async (req, res) => {
       if (fs.existsSync(truffleDir)) {
         fs.rmSync(truffleDir, { recursive: true, force: true });
       }
+      
+      const { SessionHeartbeat } = await import('./scanner/SessionHeartbeat');
+      SessionHeartbeat.stop(scanId);
     } catch(e) {}
   }
 });
