@@ -233,8 +233,8 @@ export const VECTOR_REGISTRY: Record<string, VectorItem> = {
   xss_xsstrike: { id: 'xss_xsstrike', name: 'XSStrike XSS confirmation', cliCommand: 'xsstrike -u <TARGET>' },
   
   // Tactical Dropdown Vectors
-  ffuf_dir: { id: 'ffuf_dir', name: 'Fuzzear Rutas (ffuf)', cliCommand: 'ffuf -s -ac -u <TARGET>/FUZZ' },
-  nuclei_cve: { id: 'nuclei_cve', name: 'Scan CVEs (Nuclei)', cliCommand: 'nuclei -u <TARGET>' },
+  ffuf_dir: { id: 'ffuf_dir', name: 'Fuzzear Rutas (ffuf)', cliCommand: 'ffuf -w ./wordlists/core/api-endpoints.txt -s -ac -u <TARGET>/FUZZ' },
+  nuclei_cve: { id: 'nuclei_cve', name: 'Scan CVEs (Nuclei)', cliCommand: 'nuclei -tags cve,vuln -u <TARGET>' },
   sqli_time: { id: 'sqli_time', name: 'Time Based SQL Injection (SQLMap)', cliCommand: 'sqlmap -u <TARGET> --technique=T --batch --risk=3' },
   xss_dalfox: { id: 'xss_dalfox', name: 'Cazar XSS (Dalfox)', cliCommand: 'dalfox url --url <TARGET>' },
   jwt_tool: { id: 'jwt_tool', name: 'Testear JWT (jwt_tool)', cliCommand: 'jwt_tool <TARGET> -M pb' },
