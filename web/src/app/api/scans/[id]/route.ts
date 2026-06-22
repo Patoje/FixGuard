@@ -3,6 +3,8 @@ import { db } from '@/db/db';
 import { scans, vulnerabilities, reconProfiles, findings } from '@/db/schema';
 import { eq, or } from 'drizzle-orm';
 
+export const dynamic = 'force-dynamic';
+
 export async function GET(request: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
     const { id: scanIdStr } = await params;
