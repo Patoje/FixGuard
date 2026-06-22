@@ -1,4 +1,5 @@
 import axios from 'axios';
+import { ActiveSecretValidator } from './ActiveSecretValidator';
 
 export interface ArtifactIntelligence {
   discoveredRoutes: string[];
@@ -11,6 +12,7 @@ export interface ArtifactIntelligence {
     source?: string;
     isLikelyFalsePositive?: boolean;
     falsePositiveReason?: string;
+    verified?: boolean; // true = Activo, false = Revocado, undefined = No comprobable
   }>;
   hiddenApiEndpoints: string[];
   exposedSourceMaps: string[];
@@ -70,11 +72,34 @@ export class ArtifactIntelligenceEngine {
     { type: 'PyPI Upload Token', regex: /pypi-[a-zA-Z0-9_-]{164}/g },
     { type: 'Vercel Token', regex: /vercel_[a-zA-Z0-9]{24}/g },
     { type: 'Notion API Key', regex: /secret_[a-zA-Z0-9]{43}/g },
-    { type: 'Generic API Key / Secret', regex: /(?:api_key|apikey|secret|token|password|auth_token|access_token|client_secret)\s*[:=]\s*["']?([a-zA-Z0-9\-_]{16,64})["']?/gi }
+    { type: 'Generic API Key / Secret', regex: /(?:api_key|apikey|secret|token|password|auth_token|access_token|client_secret)\s*[:=]\s*["']?([a-zA-Z0-9\-_]{16,64})["']?/gi },
+    // Generic high-risk strings (will be heavily filtered by entropy and context)
+    { type: 'Generic 40-char Hex (Sendbird/AWS/Commit)', regex: /\b[a-fA-F0-9]{40}\b/g },
+    { type: 'Generic 32-char Hex (MD5/Algolia/Various)', regex: /\b[a-fA-F0-9]{32}\b/g },
+    { type: 'Generic 43-char Base62 (Contentful/Typeform)', regex: /\b[a-zA-Z0-9\-_]{43}\b/g }
   ];
 
   // Regex pattern para LinkFinder ampliado a Literal Clustering
   private static LINK_PATTERN = /(?:"|')(\/api\/[a-zA-Z0-9_\-\/]+|\/v[0-9]+\/[a-zA-Z0-9_\-\/]+|\/graphql[a-zA-Z0-9_\-\/]*|https?:\/\/[a-zA-Z0-9_\-\.]+\/api\/[a-zA-Z0-9_\-\/]+|[a-zA-Z0-9_\-\/]+\.json)(?:"|')/g;
+
+  /**
+   * Calcula la entropía matemática de Shannon para detectar si un string es aleatorio o lenguaje humano.
+   */
+  private static calculateShannonEntropy(str: string): number {
+    const len = str.length;
+    if (len === 0) return 0;
+    const frequencies: Record<string, number> = {};
+    for (let i = 0; i < len; i++) {
+      const char = str[i];
+      frequencies[char] = (frequencies[char] || 0) + 1;
+    }
+    let entropy = 0;
+    for (const char in frequencies) {
+      const p = frequencies[char] / len;
+      entropy -= p * Math.log2(p);
+    }
+    return entropy;
+  }
 
   static async analyze(targetUrl: string, jsChunks: {code: string, url: string, source: string}[], jsUrls: string[] = []): Promise<ArtifactIntelligence> {
     const intel: ArtifactIntelligence = {
@@ -162,7 +187,24 @@ export class ArtifactIntelligenceEngine {
           if (!foundSecrets.has(secretKey)) {
             foundSecrets.add(secretKey);
 
-            // Secondary Validation
+            // --- FASE 2: Context Analysis ---
+            let snippet = "";
+            if (match.index !== undefined) {
+               snippet = code.substring(Math.max(0, match.index - 30), Math.min(code.length, match.index + secretValue.length + 30)).toLowerCase();
+            }
+            
+            let contextBonus = false;
+            let contextPenalty = false;
+            if (snippet) {
+               if (snippet.includes('api_key') || snippet.includes('token') || snippet.includes('bearer') || snippet.includes('secret') || snippet.includes('authorization') || snippet.includes('password')) {
+                   contextBonus = true;
+               }
+               if (snippet.includes('class=') || snippet.includes('href=') || snippet.includes('src=') || snippet.includes('classname=') || snippet.includes('.png') || snippet.includes('.jpg') || snippet.includes('.svg') || snippet.includes('style=')) {
+                   contextPenalty = true;
+               }
+            }
+
+            // Secondary Validation (Phase 1 Entropy + Dictionary)
             let isLikelyFalsePositive = false;
             let falsePositiveReason = undefined;
             const entropy = this.calculateEntropy(secretValue);
@@ -202,19 +244,35 @@ export class ArtifactIntelligenceEngine {
                 // Generico: Validar si es "unknown_high_entropy" o falso positivo
                 if (entropy > 4.2 && secretValue.length > 20 && !dictCheck.hasWords && !/^[A-Z][a-zA-Z0-9]+Id$/.test(secretValue)) {
                     pattern.type = 'unknown_high_entropy';
+                } else if (contextBonus && entropy > 3.0 && !dictCheck.hasWords) {
+                    // Si el contexto es bueno, bajamos la exigencia de entropía a 3.0
+                    pattern.type = 'Contextual Generic Secret';
                 } else {
                     isLikelyFalsePositive = true;
                     falsePositiveReason = dictCheck.hasWords ? dictCheck.reason : `Baja entropía para key genérica (${entropy.toFixed(2)})`;
                 }
             } else {
                 // Cualquier otro tipo, validamos diccionario y entropia basica
-                if (dictCheck.hasWords) {
+                if (dictCheck.hasWords && !contextBonus) {
                     isLikelyFalsePositive = true;
                     falsePositiveReason = dictCheck.reason;
-                } else if (entropy < 3.2) {
+                } else if (entropy < 3.2 && !contextBonus) {
                     isLikelyFalsePositive = true;
                     falsePositiveReason = `Entropía general muy baja (${entropy.toFixed(2)})`;
                 }
+            }
+
+            // Aplicar penalización estricta por contexto HTML/CSS
+            if (contextPenalty && !contextBonus) {
+                isLikelyFalsePositive = true;
+                falsePositiveReason = `Contexto HTML/CSS detectado (Posible clase o atributo)`;
+            }
+
+            // --- FASE 3: Active Validation ---
+            let verified: boolean | undefined = undefined;
+            if (!isLikelyFalsePositive) {
+                const isValid = await ActiveSecretValidator.validate(pattern.type, secretValue);
+                if (isValid !== null) verified = isValid;
             }
 
             intel.exposedSecrets.push({ 
@@ -223,7 +281,8 @@ export class ArtifactIntelligenceEngine {
                 url: chunk.url,
                 source: chunk.source,
                 isLikelyFalsePositive,
-                falsePositiveReason
+                falsePositiveReason,
+                verified
             });
 
             // Redactamos una parte del valor en consola para seguridad visual
