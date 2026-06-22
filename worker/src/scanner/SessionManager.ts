@@ -55,16 +55,22 @@ export class SessionManager {
 
     if (!headerStr) return '';
 
-    // Formatear el flag según la herramienta
+    // Allowlist estricta para inyección de auth headers en comandos CLI
+    if (tool.includes('curl') || tool.includes('ffuf') || tool.includes('nuclei') || tool.includes('dalfox') || tool.includes('katana') || tool.includes('httpx')) {
+      return `-H "${headerStr}"`;
+    }
+    if (tool.includes('wpscan')) {
+      return `--header "${headerStr}"`;
+    }
     if (tool.includes('sqlmap')) {
       return `--headers="${headerStr}"`;
     }
-    if (tool.includes('gau') || tool.includes('wayback')) {
-      return ''; // No soportado directamente por CLI flags simples
+    if (tool.includes('xsstrike')) {
+      return `--headers "${headerStr}"`;
     }
     
-    // Por defecto la mayoría usa -H
-    return `-H "${headerStr}"`;
+    // Si la herramienta no soporta inyección de headers (ej: nmap, trufflehog, subfinder, gau), retornamos vacío
+    return '';
   }
 
   /**

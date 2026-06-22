@@ -338,6 +338,14 @@ export async function runTargetedAttack(scanId: number, userId: number, targetUr
 
     console.log(`[Scan ${scanId}] ⚙️ Ejecutando herramienta profesional CLI mediante ActiveExploitationEngine: ${finalCommand}`);
 
+    // Inyectar flags de output JSON para asegurar que el parseador posterior funcione
+    if (finalCommand.includes('ffuf') && !finalCommand.includes('-o ')) {
+      finalCommand += ` -o /tmp/ffuf_${scanId}.json -of json`;
+    }
+    if (finalCommand.includes('nuclei') && !finalCommand.includes('-je ')) {
+      finalCommand += ` -je /tmp/nuclei_${scanId}.json`;
+    }
+
     // Pre-step for trufflehog: download target JS/HTML to /tmp so filesystem scan has content
     if (finalCommand.includes('trufflehog') && finalCommand.includes('filesystem')) {
       const scanDir = `/tmp/trufflehog_scan_${scanId}`;
@@ -361,6 +369,7 @@ export async function runTargetedAttack(scanId: number, userId: number, targetUr
 
     // Parse output for vulnerabilities
     let result = parseCliOutput(vector.cliCommand, output);
+    let overrideMessage: string | null = null;
 
     // FFUF and Nuclei JSON Parsing & Cleanup
     let jsonFindingsCount = 0;
@@ -369,29 +378,36 @@ export async function runTargetedAttack(scanId: number, userId: number, targetUr
         const ffufFile = `/tmp/ffuf_${scanId}.json`;
         if (fs.existsSync(ffufFile)) {
           const content = fs.readFileSync(ffufFile, 'utf8');
-          const data = JSON.parse(content);
-          if (data.results && Array.isArray(data.results)) {
-             for (const res of data.results) {
-               if (res.status && res.status !== 404) {
-                 await IssueManager.reportFinding({
-                   scanId: parentId ?? scanId,
-                   title: 'Ruta descubierta por FFUF',
-                   severity: 'low',
-                   endpoint: res.url,
-                   method: 'GET',
-                   payloadUsed: `Fuzzing de rutas`,
-                   toolSource: 'ffuf'
-                 });
-                 // Inject into endpoint catalog directly so it shows up in UI
-                 if (!result) result = { severity: 'low', finding: 'FFUF descubrió rutas accesibles.' };
-                 result.metadata = result.metadata || {};
-                 result.metadata.discovered_urls = result.metadata.discovered_urls || [];
-                 result.metadata.discovered_urls.push(res.url);
-                 jsonFindingsCount++;
+          try {
+            const data = JSON.parse(content);
+            if (data.results && Array.isArray(data.results) && data.results.length > 0) {
+               for (const res of data.results) {
+                 if (res.status && res.status !== 404) {
+                   await IssueManager.reportFinding({
+                     scanId: parentId ?? scanId,
+                     title: 'Ruta descubierta por FFUF',
+                     severity: 'low',
+                     endpoint: res.url,
+                     method: 'GET',
+                     payloadUsed: `Fuzzing de rutas`,
+                     toolSource: 'ffuf'
+                   });
+                   // Inject into endpoint catalog directly so it shows up in UI
+                   if (!result) result = { severity: 'low', finding: 'FFUF descubrió rutas accesibles.' };
+                   result.metadata = result.metadata || {};
+                   result.metadata.discovered_urls = result.metadata.discovered_urls || [];
+                   result.metadata.discovered_urls.push(res.url);
+                   jsonFindingsCount++;
+                 }
                }
-             }
-          }
+            } else {
+               console.log(`[Scan ${scanId}] FFUF completó el scan: 0 rutas descubiertas en ${targetUrl}`);
+            }
+          } catch(e) { /* JSON malformado */ }
           await fs.promises.unlink(ffufFile);
+        } else {
+          console.warn(`[Scan ${scanId}] FFUF no generó output — posible error de ejecución o timeout`);
+          overrideMessage = `⚠️ FFUF no pudo ejecutarse (timeout o error CLI)`;
         }
       }
 
@@ -400,31 +416,43 @@ export async function runTargetedAttack(scanId: number, userId: number, targetUr
         if (fs.existsSync(nucleiFile)) {
           const content = fs.readFileSync(nucleiFile, 'utf8');
           const lines = content.split('\n').filter(l => l.trim().length > 0);
-          for (const line of lines) {
-             try {
-                const data = JSON.parse(line);
-                if (data.info) {
-                  await IssueManager.reportFinding({
-                    scanId: parentId ?? scanId,
-                    title: data.info.name || 'Hallazgo de Nuclei',
-                    severity: data.info.severity || 'info',
-                    endpoint: data['matched-at'] || targetUrl,
-                    method: 'GET',
-                    payloadUsed: data.type || 'nuclei-template',
-                    toolSource: 'nuclei'
-                  });
-                  jsonFindingsCount++;
-                }
-             } catch(e) {}
-          }
-          if (jsonFindingsCount > 0 && !result) {
-            result = { severity: 'high', finding: `Nuclei detectó ${jsonFindingsCount} posibles vulnerabilidades (revisar Issue Manager).` };
+          if (lines.length > 0) {
+            for (const line of lines) {
+               try {
+                  const data = JSON.parse(line);
+                  if (data.info) {
+                    await IssueManager.reportFinding({
+                      scanId: parentId ?? scanId,
+                      title: data.info.name || 'Hallazgo de Nuclei',
+                      severity: data.info.severity || 'info',
+                      endpoint: data['matched-at'] || targetUrl,
+                      method: 'GET',
+                      payloadUsed: data.type || 'nuclei-template',
+                      toolSource: 'nuclei'
+                    });
+                    jsonFindingsCount++;
+                  }
+               } catch(e) {}
+            }
+            if (jsonFindingsCount > 0 && !result) {
+              result = { severity: 'high', finding: `Nuclei detectó ${jsonFindingsCount} posibles vulnerabilidades (revisar Issue Manager).` };
+            }
+          } else {
+             console.log(`[Scan ${scanId}] Nuclei completó: 0 vulnerabilidades detectadas en ${targetUrl}`);
           }
           await fs.promises.unlink(nucleiFile);
+        } else {
+           console.warn(`[Scan ${scanId}] Nuclei falló o fue interrumpido — exit code no cero o sin output file`);
+           overrideMessage = `⚠️ Nuclei falló o fue interrumpido (timeout o error CLI)`;
         }
       }
     } catch(err: any) {
       console.warn(`[Scan ${scanId}] Error procesando archivos JSON de FFUF/Nuclei:`, err.message);
+    }
+
+    if (overrideMessage) {
+       console.log(`[Scan ${scanId}] Devolviendo mensaje de error sobreescrito: ${overrideMessage}`);
+       return overrideMessage;
     }
 
     if (result) {

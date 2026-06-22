@@ -1,6 +1,7 @@
 import axios from 'axios';
+import { filterInScope } from '../utils/scope';
 
-export async function runGauScan(scanId: number, subdomains: string[]): Promise<string[]> {
+export async function runGauScan(scanId: number, subdomains: string[], targetUrl: string): Promise<string[]> {
   if (subdomains.length === 0) return [];
 
   console.log(`[GAU Fallback] Extrayendo historial de URLs para ${subdomains.length} hosts usando AlienVault OTX...`);
@@ -30,6 +31,7 @@ export async function runGauScan(scanId: number, subdomains: string[]): Promise<
   }
 
   const uniqueUrls = Array.from(allUrls);
-  console.log(`[GAU] Extraídas ${uniqueUrls.length} URLs históricas únicas.`);
-  return uniqueUrls;
+  const { inScope, filtered } = filterInScope(uniqueUrls, targetUrl);
+  console.log(`[GAU] Extraídas ${inScope.length} URLs históricas únicas. ${filtered} externas eliminadas.`);
+  return inScope;
 }

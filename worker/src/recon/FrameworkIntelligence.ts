@@ -154,7 +154,7 @@ export const VECTOR_REGISTRY: Record<string, VectorItem> = {
   // Next.js
   nextjs_bfla: { id: 'nextjs_bfla', name: 'Server Actions (BFLA/IDOR)', cliCommand: 'nuclei -t http/exposed-panels/ -t http/misconfiguration/ -u <TARGET>' },
   nextjs_middleware: { id: 'nextjs_middleware', name: 'Middleware bypass', cliCommand: 'curl -H "x-middleware-prefetch: 1" <TARGET>/admin' },
-  nextjs_api: { id: 'nextjs_api', name: 'API Routes exposure', cliCommand: 'ffuf -s -ac -w ./wordlists/api_wordlist.txt -u <TARGET>/FUZZ' },
+  nextjs_api: { id: 'nextjs_api', name: 'API Routes exposure', cliCommand: 'ffuf -s -ac -w ./wordlists/core/api-endpoints.txt -u <TARGET>/FUZZ' },
   nextjs_build_data: { id: 'nextjs_build_data', name: 'Build Data (_next/data)', cliCommand: 'nuclei -id nextjs-data-leak -u <TARGET>' },
   nextjs_static: { id: 'nextjs_static', name: 'Static Assets', cliCommand: 'nuclei -id nextjs-static-leak -u <TARGET>' },
   nextjs_isr: { id: 'nextjs_isr', name: 'ISR cache poisoning', cliCommand: 'curl -X PURGE <TARGET>' },
@@ -174,7 +174,7 @@ export const VECTOR_REGISTRY: Record<string, VectorItem> = {
   static_cors: { id: 'static_cors', name: 'CORS Misconfiguration', cliCommand: 'nuclei -id cors-misconfig -u <TARGET>' },
   static_s3: { id: 'static_s3', name: 'S3 Bucket Exposure', cliCommand: 'nuclei -id s3-detect -u <TARGET>' },
   // Node / Express
-  express_routing: { id: 'express_routing', name: 'Express Route enumeration', cliCommand: 'ffuf -s -ac -w ./wordlists/api_wordlist.txt -u <TARGET>/FUZZ' },
+  express_routing: { id: 'express_routing', name: 'Express Route enumeration', cliCommand: 'ffuf -s -ac -w ./wordlists/core/api-endpoints.txt -u <TARGET>/FUZZ' },
   express_pollution: { id: 'express_pollution', name: 'Prototype Pollution', cliCommand: 'nuclei -t http/vulnerabilities/generic/prototype-pollution.yaml -u <TARGET>' },
   express_uncaught: { id: 'express_uncaught', name: 'Uncaught Exceptions DOS', cliCommand: 'curl -H "Content-Type: application/json" -d "{"badjson"}" <TARGET>' },
   express_redos: { id: 'express_redos', name: 'Regex DOS (ReDoS)', cliCommand: 'nuclei -id redos -u <TARGET>' },
@@ -196,7 +196,7 @@ export const VECTOR_REGISTRY: Record<string, VectorItem> = {
   // jwt_tool kept for manual use (requires a real JWT)
   jwt_tool_scan: { id: 'jwt_tool_scan', name: 'JWT Misconfiguration Scan (manual)', cliCommand: 'jwt_tool <TARGET> -M pb' },
   jwt_none_alg: { id: 'jwt_none_alg', name: 'JWT None Algorithm test (manual)', cliCommand: 'jwt_tool <TARGET> -X a' },
-  jwt_weak_secret: { id: 'jwt_weak_secret', name: 'JWT Weak Secret Brute-force (manual)', cliCommand: 'jwt_tool <TARGET> -d ./wordlists/jwt_secrets.txt' },
+  jwt_weak_secret: { id: 'jwt_weak_secret', name: 'JWT Weak Secret Brute-force (manual)', cliCommand: 'jwt_tool <TARGET> -d ./wordlists/payloads/jwt.secrets.list' },
   // Legacy JWT registry entries kept for backwards compat
   jwt_tool: { id: 'jwt_tool', name: 'Testear JWT (jwt_tool)', cliCommand: 'jwt_tool <TARGET> -M pb' },
   // Supabase
@@ -243,6 +243,6 @@ export const VECTOR_REGISTRY: Record<string, VectorItem> = {
   wpscan_enum: { id: 'wpscan_enum', name: 'WPScan Enum', cliCommand: 'wpscan --url <TARGET> --enumerate u,p,t --random-user-agent' },
   nikto_scan: { id: 'nikto_scan', name: 'Nikto Scan', cliCommand: 'nikto -h <TARGET> -Format json' },
   sqli_php_legacy: { id: 'sqli_php_legacy', name: 'PHP SQL Injection', cliCommand: 'sqlmap -u <TARGET> --batch --level=3 --risk=2' },
-  lfi_fuzzer: { id: 'lfi_fuzzer', name: 'LFI Fuzzer', cliCommand: 'ffuf -u <TARGET> -w ./wordlists/lfi_payloads.txt' },
+  lfi_fuzzer: { id: 'lfi_fuzzer', name: 'LFI Fuzzer', cliCommand: 'ffuf -u <TARGET> -w ./wordlists/payloads/LFI-Jhaddix.txt' },
   xss_legacy: { id: 'xss_legacy', name: 'XSS Legacy (XSStrike)', cliCommand: 'xsstrike -u <TARGET>' }
 };

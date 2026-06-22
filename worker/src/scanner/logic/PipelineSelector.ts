@@ -1,6 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import type { NormalizedReconProfile } from '../../db/schema';
+import { filterInScope } from '../../utils/scope';
 
 export interface MutatedVector {
   id: string;
@@ -85,7 +86,7 @@ export class PipelineSelector {
     }
 
     // 3. Wordlist dinámica
-    const wordlistPath = this.buildDynamicWordlist(recon.scanId, recon.endpoints);
+    const wordlistPath = this.buildDynamicWordlist(recon);
     if (wordlistPath) {
       decision.wordlistPath = wordlistPath;
     }
@@ -272,19 +273,25 @@ export class PipelineSelector {
      }
   }
 
-  private static buildDynamicWordlist(scanId: number, endpoints: {url: string, source: string}[]): string | null {
+  private static buildDynamicWordlist(recon: NormalizedReconProfile): string | null {
+    const scanId = recon.scanId;
+    const endpoints = recon.endpoints;
+    const targetUrl = recon.target;
+    
     const fallbackPaths = ['/.env', '/admin', '/login', '/api', '/swagger', '/graphql', '/config.json', '/.git/config'];
     let paths: string[] = [];
     
+    // 1. Recolectar rutas descubiertas dinámicamente
     if (endpoints && endpoints.length > 0) {
-      paths = endpoints.map(e => {
-        try { return new URL(e.url).pathname }
+      const urls = endpoints.map(e => e.url);
+      const { inScope, filtered } = filterInScope(urls, targetUrl);
+      if (filtered > 0) {
+         console.log(`[PipelineSelector] Wordlist dinámica: ${filtered} URLs fuera de scope eliminadas.`);
+      }
+      paths = inScope.map(u => {
+        try { return new URL(u).pathname }
         catch { return null }
       }).filter(Boolean) as string[];
-    }
-
-    if (paths.length === 0) {
-      paths = fallbackPaths;
     }
 
     // Frecuencia y pesos por source
@@ -295,12 +302,57 @@ export class PipelineSelector {
       return acc;
     }, {} as Record<string, number>);
 
-    // Únicos y ordenados por peso/frecuencia (descendente), asegurando agregar los fallback si no estaban
+    // Únicos y ordenados por peso/frecuencia (descendente)
     let unique = [...new Set(paths)].sort((a, b) => (weights[b] || 0) - (weights[a] || 0));
     
-    // Si la lista generada desde endpoints es muy pobre, inyectar los fallbacks al final
-    if (unique.length < 10) {
-       unique = [...new Set([...unique, ...fallbackPaths])];
+    // 2. Inyección Inteligente Basada en Fingerprint (Diccionarios de Alta Calidad)
+    const baseWordlistsDir = path.resolve(process.cwd(), 'wordlists');
+    const injectWordlist = (category: string, filename: string) => {
+        const filePath = path.join(baseWordlistsDir, category, filename);
+        if (fs.existsSync(filePath)) {
+            const content = fs.readFileSync(filePath, 'utf-8');
+            const lines = content.split('\n').map(l => l.trim()).filter(l => l && !l.startsWith('#'));
+            // Agregar con un peso alto artificial para que queden arriba o intermedios
+            unique = [...new Set([...unique, ...lines])];
+        }
+    };
+
+    // Siempre inyectar el Core
+    injectWordlist('core', 'raft-small-directories.txt');
+    injectWordlist('core', 'api-endpoints.txt');
+    injectWordlist('core', 'common.txt');
+    injectWordlist('core', 'trickest-directories.txt');
+
+    // Analizar el Stack y decidir qué más inyectar
+    const pipeline = recon.stack.pipeline || 'modern_spa';
+    const isNextJs = recon.stack.frontend?.toLowerCase().includes('next') || false;
+    const isExpress = recon.stack.runtime?.toLowerCase().includes('node') || false;
+    const isWp = recon.stack.frontend?.toLowerCase().includes('wordpress') || false;
+
+    if (pipeline === 'legacy') {
+        injectWordlist('legacy', 'PHP.txt');
+        injectWordlist('legacy', 'cgis.txt');
+        injectWordlist('legacy', 'IIS.txt');
+        injectWordlist('legacy', 'fuzzdb-cgi-bin.txt');
+    }
+
+    if (pipeline === 'modern_spa' || isExpress || isNextJs) {
+        injectWordlist('modern', 'graphql.txt');
+        injectWordlist('modern', 'swagger.txt');
+        injectWordlist('modern', 'api-metrics.txt');
+        injectWordlist('modern', 'assetnote-httparchive.txt');
+        injectWordlist('modern', 'trickest-api.txt');
+    }
+
+    if (isWp) {
+        injectWordlist('cms', 'wp-plugins.txt');
+        injectWordlist('cms', 'wp-themes.txt');
+        injectWordlist('cms', 'trickest-wordpress.txt');
+    }
+
+    // Si aún así no hay nada (falla de lectura o algo), usar fallbacks tontos
+    if (unique.length === 0) {
+       unique = fallbackPaths;
     }
 
     const tempFilePath = path.join('/tmp', `fixguard_wordlist_${scanId}.txt`);

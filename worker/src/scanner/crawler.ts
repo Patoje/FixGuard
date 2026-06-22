@@ -2,6 +2,8 @@ import { chromium } from 'playwright';
 import type { Browser, Page } from 'playwright';
 import fs from 'fs';
 import path from 'path';
+import { SessionManager } from './SessionManager';
+import { scoreUrl, getHighValueRoutesForStack } from './urlPrioritizer';
 
 /**
  * Realiza un Crawling Dinámico de la aplicación objetivo usando Playwright.
@@ -12,7 +14,7 @@ import path from 'path';
  * - Llena formularios "fantasma"
  * - Extrae APIs de Fetch/XHR, GraphQL, WebSockets y Service Workers
  */
-export async function runCrawler(scanId: number, targetUrl: string): Promise<{
+export async function runCrawler(scanId: number, targetUrl: string, detectedStack?: string): Promise<{
   endpoints: string[], 
   jsFiles: string[],
   runtimeIntelligence: {
@@ -28,9 +30,15 @@ export async function runCrawler(scanId: number, targetUrl: string): Promise<{
   discoveredUrls.add(targetUrl);
   
   const baseUrl = new URL(targetUrl).origin;
-  const maxPagesToVisit = 15; // Límite para no atascar el escaneo profundo
+  const maxPagesToVisit = 50; // Límite extendido para permitir exploración profunda
   
-  const queue = [targetUrl];
+  let queue: {url: string, score: number}[] = [{url: targetUrl, score: scoreUrl(targetUrl, detectedStack)}];
+  if (detectedStack) {
+    const highValueRoutes = getHighValueRoutesForStack(targetUrl, detectedStack);
+    for (const route of highValueRoutes) {
+      queue.push({ url: route, score: 90 });
+    }
+  }
   const visited = new Set<string>();
 
   // Metrics
@@ -50,30 +58,34 @@ export async function runCrawler(scanId: number, targetUrl: string): Promise<{
     
     const context = await browser.newContext({ ignoreHTTPSErrors: true });
 
-    // 1. Inyección de Estado de Autenticación (Auth State)
-    // Verifica si el usuario dejó un archivo auth.json en la raíz del worker
+    // 1. Inyección de Estado de Autenticación (Auth State) dinámico desde DB
     try {
-      const authPath = path.resolve(process.cwd(), 'auth.json');
-      if (fs.existsSync(authPath)) {
-        const authData = JSON.parse(fs.readFileSync(authPath, 'utf8'));
-        // Si tiene cookies guardadas (ej. exportadas de EditThisCookie o Playwright)
-        if (authData.cookies) {
-           await context.addCookies(authData.cookies);
-           console.log(`[Scan ${scanId}] Crawler: Autenticación inyectada vía cookies.`);
-        }
-        // Si tiene LocalStorage guardado
-        if (authData.origins) {
-          await context.addInitScript((storageData: any) => {
-             if (window.location.origin === storageData.origin) {
-               for (const [k, v] of Object.entries(storageData.localStorage)) {
-                 window.localStorage.setItem(k, v as string);
-               }
+      const activeSession = await SessionManager.getActiveSession(targetUrl);
+      if (activeSession) {
+        if (activeSession.authType === 'cookie' && activeSession.cookieHeader) {
+          // Asumimos formato simple CookieName=CookieValue
+          const parts = activeSession.cookieHeader.split(';');
+          for (const part of parts) {
+             const [name, ...valParts] = part.split('=');
+             if (name && valParts.length > 0) {
+                 await context.addCookies([{ 
+                    name: name.trim(), 
+                    value: valParts.join('=').trim(), 
+                    domain: new URL(targetUrl).hostname, 
+                    path: '/' 
+                 }]);
              }
-          }, authData.origins[0]); // Toma el primer origin como base
+          }
+          console.log(`[Scan ${scanId}] Crawler: Sesión COOKIE inyectada dinámicamente desde DB.`);
+        } else if (activeSession.authType === 'jwt' && activeSession.jwtToken) {
+          await context.setExtraHTTPHeaders({
+            'Authorization': `Bearer ${activeSession.jwtToken}`
+          });
+          console.log(`[Scan ${scanId}] Crawler: Sesión JWT inyectada dinámicamente desde DB.`);
         }
       }
     } catch(e) {
-      console.log(`[Scan ${scanId}] Crawler: Fallo al intentar inyectar auth.json. Ignorando.`);
+      console.log(`[Scan ${scanId}] Crawler: Fallo al intentar inyectar sesión de la DB. Ignorando.`);
     }
     
     // Intercepción global (Network Intelligence)
@@ -96,12 +108,16 @@ export async function runCrawler(scanId: number, targetUrl: string): Promise<{
     const page = await context.newPage();
 
     while (queue.length > 0 && visited.size < maxPagesToVisit) {
-      const currentUrl = queue.shift()!;
+      // Reordenar la cola por score descendente (Priorización Semántica)
+      queue.sort((a, b) => b.score - a.score);
+      
+      const currentItem = queue.shift()!;
+      const currentUrl = currentItem.url;
       
       if (visited.has(currentUrl)) continue;
       visited.add(currentUrl);
 
-      console.log(`[Scan ${scanId}] Crawler: Explorando a fondo ${currentUrl}...`);
+      console.log(`[Scan ${scanId}] Crawler: Explorando a fondo ${currentUrl} (Score Semántico: ${currentItem.score})...`);
 
       try {
         await page.goto(currentUrl, { waitUntil: 'domcontentloaded', timeout: 10000 });
@@ -151,8 +167,8 @@ export async function runCrawler(scanId: number, targetUrl: string): Promise<{
         // 4. Component Discovery & Auto-Clickeador
         // Encontrar botones, tabs, y dropdowns que puedan cargar cosas nuevas
         const interactables = await page.$$('button, [role="button"], [role="tab"], .dropdown-toggle, [aria-expanded]');
-        // Limitamos los clics a 10 por página para no volvernos locos
-        const maxClicks = Math.min(interactables.length, 10);
+        // Limitamos los clics a 25 por página para no volvernos locos pero explorar más
+        const maxClicks = Math.min(interactables.length, 25);
         if (maxClicks > 0) {
           console.log(`[Scan ${scanId}] Crawler: Interactuando con ${maxClicks} componentes UI...`);
         }
@@ -209,7 +225,7 @@ export async function runCrawler(scanId: number, targetUrl: string): Promise<{
               const finalUrl = resolvedUrl.toString();
               if (!discoveredUrls.has(finalUrl)) {
                 discoveredUrls.add(finalUrl);
-                queue.push(finalUrl);
+                queue.push({url: finalUrl, score: scoreUrl(finalUrl, detectedStack)});
               }
             }
           } catch(e) {}

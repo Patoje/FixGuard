@@ -103,9 +103,18 @@ import 'dotenv/config';
 import fs from 'fs';
 import { PipelineSelector } from './scanner/logic/PipelineSelector';
 
+import { exec } from 'child_process';
+
 const app = express();
 app.use(cors());
 app.use(express.json());
+
+// Auto-actualizar wordlists al inicio
+console.log("Iniciando actualización de diccionarios...");
+exec('bash ./setup_wordlists.sh', (err, stdout, stderr) => {
+  if (err) console.error("Error al actualizar wordlists:", err);
+  else console.log(stdout);
+});
 
 app.post('/api/scan', async (req, res) => {
   const { targetUrl, scanId, mode } = req.body;
@@ -158,7 +167,7 @@ app.post('/api/scan', async (req, res) => {
     const liveHosts = httpxResults.map(r => r.url);
     
     // 3. GAU
-    const gauUrls = await runGauScan(scanId, liveHosts.length > 0 ? liveHosts : [domain]);
+    const gauUrls = await runGauScan(scanId, liveHosts.length > 0 ? liveHosts : [domain], targetUrl);
     const normalizedEndpoints: NormalizedReconProfile['endpoints'] = gauUrls.map(url => ({
       url,
       source: 'gau',
@@ -199,7 +208,7 @@ app.post('/api/scan', async (req, res) => {
     let jsFilesFromCrawler: string[] = [];
     let runtimeIntelligence = undefined;
     if (mode === 'aggressive') {
-      const crawlerData = await runCrawler(scanId, targetUrl);
+      const crawlerData = await runCrawler(scanId, targetUrl, techStack.join(', '));
       urlsToAttack = Array.from(new Set([...urlsToAttack, ...crawlerData.endpoints]));
       jsFilesFromCrawler = crawlerData.jsFiles;
       runtimeIntelligence = crawlerData.runtimeIntelligence;
