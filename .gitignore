@@ -1,3 +1,10 @@
+*.exe
 worker/tools/*.exe
 node_modules/
 .env
+
+# Herramientas de terceros ignoradas
+tools/XSStrike/
+tools/sqlmap-dev/
+worker/tools/XSStrike/
+worker/tools/sqlmap-dev/
