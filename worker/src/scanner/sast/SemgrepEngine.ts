@@ -1,5 +1,4 @@
-import { execSync } from 'child_process';
-import path from 'path';
+import { runCliCommand } from '../cliRunner';
 
 export interface SastFinding {
   type: string;
@@ -11,34 +10,29 @@ export interface SastFinding {
 
 export class SemgrepEngine {
   /**
-   * Ejecuta Semgrep en un directorio local
+   * Runs Semgrep static analysis on a local directory.
+   * Uses the shared cliRunner (spawn-based, no shell injection) for execution.
    */
   static async scanDirectory(targetPath: string): Promise<SastFinding[]> {
     const findings: SastFinding[] = [];
 
-    // Validar path (previene ejecución en rutas peligrosas o vacías)
+    // Validate path (prevents execution on dangerous or empty paths)
     if (!targetPath || targetPath.trim() === '') {
       throw new Error('Ruta local no válida.');
     }
 
     try {
       console.log(`[SemgrepEngine] Ejecutando análisis estático (SAST) en: ${targetPath}`);
-      
-      // --json para parsear el resultado
-      // --config auto usa las reglas por defecto (muy robustas para seguridad)
-      const cmd = `semgrep scan --config auto --json "${targetPath}"`;
-      
-      // Semgrep devuelve exit code 1 si encuentra vulnerabilidades, así que hay que atrapar el error
-      let output = '';
-      try {
-        output = execSync(cmd, { maxBuffer: 1024 * 1024 * 50 }).toString(); // 50MB buffer
-      } catch (error: any) {
-        if (error.stdout) {
-          output = error.stdout.toString();
-        } else {
-          throw new Error('Semgrep falló al ejecutarse. Revisa la consola.');
-        }
-      }
+
+      // Build the command with quoted path to handle spaces in directory names.
+      // <TARGET> is replaced by cliRunner with the targetPath value.
+      // --json for structured output parsing
+      // --config auto uses Semgrep's default ruleset (comprehensive security coverage)
+      const cmd = 'semgrep scan --config auto --json "<TARGET>"';
+
+      // Semgrep exits with code 1 when it finds vulnerabilities (normal behavior).
+      // cliRunner always returns output regardless of exit code.
+      const output = await runCliCommand(cmd, targetPath);
 
       const parsed = JSON.parse(output);
 
@@ -53,7 +47,7 @@ export class SemgrepEngine {
           });
         }
       }
-      
+
       console.log(`[SemgrepEngine] Se encontraron ${findings.length} vulnerabilidades estáticas.`);
 
     } catch (e: any) {
