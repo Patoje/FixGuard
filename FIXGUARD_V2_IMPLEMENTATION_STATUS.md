@@ -408,10 +408,19 @@ This smoke test successfully validated the first full V2 loop:
 - Created deterministic smoke test (`milestone14_runtime_lifecycle_guards_smoke.ts`) verifying that all 5 mutating methods are rejected for all terminal (`completed`, `failed`) and running (`initial_execution_running`, `intelligence_running`, `approved_execution_running`) states.
 - No new DB/Drizzle/API/UI/queues added.
 
+### Milestone 15 — Drizzle/PostgreSQL Persistence Planning (DONE)
+**Goal:** Write a precise durable persistence plan for a future Drizzle/PostgreSQL-backed `AssessmentRepository`.
+- Created `FIXGUARD_V2_DRIZZLE_POSTGRES_PLAN.md`.
+- Explicitly defined a hybrid persistence model (snapshot + append-only logs).
+- Defined conceptual schema design separating JSONB payload storage from relational columns.
+- Documented strict optimistic concurrency and non-executable persistence rules.
+- Documented transaction strategy and gap analysis.
+- **No implementation code, schemas, or migrations were written (planning only).**
+
 ---
 
-*Last Updated: After Milestone 14 — Runtime Lifecycle Mutation Guards*
-*Next update due: After Milestone 15 (Database/Drizzle Setup)*
+*Last Updated: After Milestone 15 — Drizzle/PostgreSQL Persistence Planning*
+*Next update due: After Milestone 16 (Drizzle schema only, no adapter)*
 
 ## Intelligence Layer Rule
 
