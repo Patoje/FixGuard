@@ -417,10 +417,17 @@ This smoke test successfully validated the first full V2 loop:
 - Documented transaction strategy and gap analysis.
 - **No implementation code, schemas, or migrations were written (planning only).**
 
+### Milestone 16 — Drizzle/PostgreSQL Schema Implementation (DONE)
+**Goal:** Implement the pg-core schema definitions for V2 AssessmentRepository tables.
+- Created `schema.ts` defining 5 core tables matching the Milestone 15 plan exactly.
+- Enforced strict structural types leveraging `AssessmentState`, `EvidenceCollection`, etc via Drizzle's `$type`.
+- Established required compound indexes for lookup optimization.
+- **Implemented schema only.** (No adapter, no DB client, no migrations, no runtime integration).
+
 ---
 
-*Last Updated: After Milestone 15 — Drizzle/PostgreSQL Persistence Planning*
-*Next update due: After Milestone 16 (Drizzle schema only, no adapter)*
+*Last Updated: After Milestone 16 — Drizzle/PostgreSQL Schema Implementation*
+*Next update due: After Milestone 17 (Reusable AssessmentRepository conformance test suite)*
 
 ## Intelligence Layer Rule
 
