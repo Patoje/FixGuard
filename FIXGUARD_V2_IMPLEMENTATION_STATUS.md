@@ -1,0 +1,348 @@
+# FixGuard V2 — Implementation Status
+
+> This document tracks the current state of the V2 migration.
+> It is updated as milestones are completed.
+> For architectural decisions and frozen contracts, see: FIXGUARD_V2_ARCHITECTURE.md
+
+---
+
+## Quick Reference
+
+| Layer | Status |
+|---|---|
+| Execution Core — Contracts | FROZEN |
+| Execution Core — ProcessRunner | FROZEN |
+| Execution Core — Subfinder Adapter | FROZEN |
+| Execution Core — Subfinder Parser | FROZEN |
+| Execution Core — Orchestrator (minimal) | FROZEN |
+| Execution Core — ToolDefinition Registry | COMPLETE |
+| Intelligence Layer | FOUNDATION COMPLETE |
+| Approval Boundary | FROZEN |
+| Second Capability | COMPLETE |
+| End-to-End Smoke Test | PASSING |
+| V1 Legacy System | UNTOUCHED (intentional) |
+
+---
+
+## Completed Components
+
+### worker/src/v2/core/ExecutionContracts.ts
+**Status:** Complete and frozen.
+
+Defines the foundational data contracts for the entire V2 execution pipeline:
+- `TargetContext` — extensible target descriptor (uri, headers, env)
+- `CapabilityRequest` — input to the execution core (capability string, TargetContext, config)
+- `ExecutionRequest` — instruction passed to the runner (binary, args[], env, timeoutMs)
+- `RawExecutionOutput` — captured result (stdout, stderr, exitCode, durationMs, timedOut)
+
+These types must not be modified without a formal architectural review.
+
+---
+
+### worker/src/v2/core/Evidence.ts
+**Status:** Complete and frozen.
+
+Defines the output contracts of the execution pipeline:
+- `Finding` — a single structured observation (id, type, severity, title, description, target, evidence, confidence, metadata)
+- `EvidenceCollection` — the complete output of one execution cycle (findings[], metadata)
+
+These types must not be modified without a formal architectural review.
+
+---
+
+### worker/src/v2/core/ProcessRunner.ts
+**Status:** Complete.
+
+- Defines the `ProcessRunner` interface: `execute(request: ExecutionRequest): Promise<RawExecutionOutput>`
+- Implements `LocalProcessRunner`:
+  - Spawns binaries using `child_process.spawn` with `shell: false` (no string interpolation, no shell injection)
+  - Collects stdout and stderr independently
+  - Captures exit code and wall-clock duration
+  - Handles timeout via SIGTERM and sets `timedOut: true` in output
+  - ProcessRunner receives `ExecutionRequest.env` from adapters
+  - Runner performs no tool-specific environment configuration
+
+---
+
+### worker/src/v2/adapters/ToolAdapter.ts
+**Status:** Complete and frozen.
+
+Defines the `ToolAdapter` interface:
+- `readonly capability: string`
+- `prepare(request: CapabilityRequest): ExecutionRequest`
+- `validate(config: Record<string, unknown>, targetUri: string): ValidationResult`
+
+Also defines `ValidationResult`:
+- `isValid: boolean`
+- `errors: string[]`
+
+---
+
+### worker/src/v2/adapters/SubfinderAdapter.ts
+**Status:** Complete. First V2 adapter implementation.
+
+Implements `ToolAdapter` for the `subdomain_discovery` capability:
+- Extracts bare domain from any valid URL or raw domain string
+- Enforces `-j` (JSON output) unconditionally — this is a hard contract, not a config option
+- Enforces `-silent` to suppress progress noise
+- Sets `timeoutMs: 120000` (2 minutes)
+- Validates that the target is a domain name and not a bare IP address
+
+The `-j` flag must never be made optional. Removing it breaks the parser contract.
+
+---
+
+### worker/src/v2/adapters/ToolAdapterRegistry.ts
+**Status:** DEPRECATED.
+
+Current state:
+- Unused by V2 code.
+- Retained temporarily only for V1 proofOfConcepts.
+- Will be deleted once V1 dependencies are removed.
+
+---
+
+### worker/src/v2/parsers/Parser.ts
+**Status:** Complete and frozen.
+
+Defines the `Parser` interface:
+- `parse(output: RawExecutionOutput): EvidenceCollection`
+
+---
+
+### worker/src/v2/parsers/SubfinderJsonParser.ts
+**Status:** Complete. First V2 parser implementation.
+
+Implements `Parser` for Subfinder's newline-delimited JSON output (`-j` flag):
+- Splits stdout by newline and parses each line as a JSON record independently
+- Maps each valid record to a `Finding` with `type: 'subdomain_discovery'`, `severity: 'info'`, `confidence: 0.9`
+- Skips malformed lines without crashing — parse errors are recorded in `EvidenceCollection.metadata`
+- Returns empty `EvidenceCollection` for empty stdout (not an error condition)
+
+---
+
+### worker/src/v2/core/MinimalOrchestrator.ts
+**Status:** COMPLETE and FROZEN.
+
+Current behavior:
+1. Accepts a `CapabilityRequest`
+2. Resolves a `ToolDefinition` from `ToolRegistry.resolve()`
+3. Validates the request via `adapter.validate()`
+4. Calls `adapter.prepare()` to produce an `ExecutionRequest`
+5. Calls `LocalProcessRunner.execute()` to produce `RawExecutionOutput`
+6. Calls `parser.parse()` to produce `EvidenceCollection`
+7. Returns `EvidenceCollection` to the caller
+
+**Final Architecture Flow:**
+CapabilityRequest
+→ ToolRegistry.resolve()
+→ ToolDefinition
+→ Adapter.prepare()
+→ Runner.execute()
+→ Parser.parse()
+→ EvidenceCollection
+
+---
+
+## Current Migration State
+
+### V1 Legacy System
+
+The V1 system (`worker/src/scanner/`, `worker/src/recon/`, `worker/src/targetedOrchestrator.ts`) is **intentionally untouched**.
+
+It remains in production use during the V2 migration.
+V1 files contain pre-existing TypeScript errors that are **not V2 issues** and must not be fixed as part of V2 work.
+
+The V1-to-V2 migration path is additive, not destructive:
+- V2 is built alongside V1 in `worker/src/v2/`
+- Individual capabilities migrate when their V2 equivalents are proven
+- V1 components are deprecated only when V2 coverage is confirmed complete
+
+### TypeScript Compilation State
+
+V2 files (`worker/src/v2/**`) compile with zero TypeScript errors.
+The overall `npx tsc --noEmit` reports failures due to pre-existing V1 errors only.
+
+Pre-existing V1 errors are documented separately and are not a V2 concern.
+
+---
+
+## Completed Milestones
+
+### Milestone 0 — Architecture Design (DONE)
+- Execution Core boundaries defined and frozen
+- Intelligence Layer designed
+- Approval Boundary designed
+- Full lifecycle reviewed and validated
+- FIXGUARD_V2_ARCHITECTURE.md created
+
+### Milestone 1 — V2 Core Isolation (DONE)
+- `worker/src/v2/` namespace established
+- Zero imports from V1 legacy code
+- All core contracts defined in TypeScript with no `any` types
+
+### Milestone 2 — Subfinder Vertical Slice (DONE)
+- End-to-end flow proven: CapabilityRequest → Adapter → Runner → Parser → EvidenceCollection
+- No shell string interpolation at any point
+- No V1 code touched or invoked
+- TypeScript clean within v2 namespace
+
+### Milestone 3 — ToolDefinition Registry (DONE)
+- `ToolDefinition` created as the single wiring point.
+- `ToolRegistry` implemented focusing strictly on resolution and static requirements.
+- Multiple tools per capability supported (priority-based).
+- `MinimalOrchestrator` refactored to depend only on `ToolRegistry`.
+- `ToolAdapterRegistry` deprecated.
+- Execution Core now architecturally FROZEN.
+
+---
+
+## Next Milestones
+
+---
+
+### Milestone 4 — Intelligence Layer Foundation (DONE)
+**Goal:** Implement the first version of the Intelligence Layer.
+
+Components to create (in `worker/src/v2/intelligence/`):
+- `EvidenceAccumulator.ts` — session-scoped evidence ledger
+- `CorrelationEngine.ts` — deduplication and signal combination
+- `TargetProfileBuilder.ts` — semantic interpretation via ProfilerRules
+- `RecommendationEngine.ts` — produces AttackRecommendations via RecommendationRules
+- `TargetProfile.ts` — the central intelligence contract
+- `AttackRecommendation.ts` — the frozen output contract
+
+First rules to implement:
+- ProfilerRule: subdomain → infrastructure signal
+- RecommendationRule: live subdomain → suggest HTTP probing capability
+
+**Verification:** Feeding a Subfinder `EvidenceCollection` into the Intelligence Layer produces a `TargetProfile` and at least one `AttackRecommendation` for HTTP probing.
+
+---
+
+### Milestone 5 — Approval Boundary Foundation (DONE)
+**Goal:** Implement the structural human approval layer.
+
+Components created (in `worker/src/v2/approval/`):
+- `ApprovalContracts.ts`
+- `RecommendationInbox.ts`
+- `ApprovalGateway.ts`
+- `IntentTranslator.ts`
+- `AuditLog.ts`
+
+**Verification:** An `AttackRecommendation` can be approved via the `ApprovalGateway` and produces a valid `CapabilityRequest` with a `sourceRecommendationId` field that traces back to the original recommendation.
+
+---
+
+### Milestone 6 — Second Capability (DONE)
+**Goal:** Prove the architecture is genuinely extensible by adding a second tool.
+
+**Capability implemented:** `http_probe` (using `httpx`)
+
+Files created:
+- `worker/src/v2/adapters/HttpxAdapter.ts`
+  - implements capability: `http_probe`
+  - uses binary: `'httpx'`
+  - uses discrete args[]
+  - single-target only via `-u <targetUri>`
+  - enforces JSON output via `-json`
+  - does not execute or parse
+  - validation rejects malformed/multi-target/shell-control inputs
+- `worker/src/v2/parsers/HttpxJsonParser.ts`
+  - parses JSONL stdout
+  - emits only `http_live_host` findings
+  - skips failed records
+  - skips malformed JSON lines safely
+  - records parse errors in metadata
+  - stores scheme and raw record in finding metadata/evidence
+- `worker/src/v2/intelligence/rules/HttpProbeProfilerRule.ts`
+  - reasons only over `finding.type === 'http_live_host'`
+  - never references the tool name
+  - adds only semantic `'http_service_detected'` to exposedCapabilities
+  - stores concrete service details in TargetProfile.metadata.httpServices[]
+  - deduplicates services by URL
+- `worker/src/v2/composition/createV2ToolRegistry.ts`
+  - introduces the first formal V2 composition root
+  - wires subdomain_discovery and http_probe ToolDefinitions
+  - does not modify ToolRegistry, ToolDefinition, or MinimalOrchestrator
+
+**Verification:** The `MinimalOrchestrator` and `ToolRegistry` required zero changes. Only new files were added.
+
+---
+
+## Known Technical Debt
+
+No active V2 architectural technical debt is currently tracked.
+
+V1 TypeScript errors remain intentionally out of scope for V2 migration work.
+
+*Operational / Repository Hygiene Note:*
+- `worker/src/v2/` should be committed/tracked cleanly so future git diff audits can prove file boundaries precisely.
+
+---
+
+## Forbidden Shortcuts
+
+These shortcuts will not be accepted regardless of time pressure.
+
+1. **Importing V1 code into V2** — No V2 file may import from `worker/src/scanner/`, `worker/src/recon/`, or any V1 path. If shared logic is needed, it must be extracted into a shared utility and kept separate from both V1 and V2.
+
+2. **Using shell: true in spawn()** — All process execution must use `shell: false` with explicit argument arrays. No exceptions. Shell interpolation is a security violation in a security tool.
+
+3. **Adding tool names to Intelligence rules** — Any rule inside the Intelligence Layer that references a specific binary name (subfinder, nuclei, katana, etc.) is an architectural violation. All rules must reason over capability names and profile concepts only.
+
+4. **Making AttackRecommendation executable** — The `AttackRecommendation` type must never gain fields for binary paths, argument arrays, or direct execution parameters. It is a human-facing proposal record.
+
+5. **Skipping ToolDefinition and coupling Adapter to Parser directly** — Adapters and parsers must remain mutually unaware. They are wired exclusively through the `ToolDefinition` record. No adapter may import a parser or vice versa.
+
+6. **Bypassing Approval Boundary for attack capabilities** — No code path may programmatically create an attack `CapabilityRequest` without a corresponding `ApprovalDecision`. Reconnaissance capabilities may be initiated programmatically. Attack capabilities may not.
+
+7. **Modifying V1 files to accommodate V2** — V1 files must not be changed to support V2 needs. If V2 needs something V1 has, extract it into a shared utility. If that is not possible, reimplement it cleanly in V2.
+
+---
+
+### Milestone 6.5 — End-to-End V2 Smoke Test (DONE)
+**Goal:** Verify the first complete V2 loop.
+
+This smoke test successfully validated the first full V2 loop:
+
+`subdomain_discovery`
+→ EvidenceCollection
+→ Intelligence
+→ AttackRecommendation: `http_probe`
+→ Approval Boundary
+→ CapabilityRequest
+→ `http_probe`
+→ new EvidenceCollection
+→ updated TargetProfile
+
+**Files created:**
+- `worker/src/v2/smoke/milestone6_5_smoke.ts`
+  - standalone smoke/demo harness
+  - not a production entrypoint
+  - executable from `worker/` with: `npx tsx src/v2/smoke/milestone6_5_smoke.ts`
+
+**Runtime result:**
+- `subfinder` and `httpx` preflight checks passed
+- `subdomain_discovery` returned zero findings for `https://example.com`
+- deterministic fallback trigger was injected
+- Intelligence produced `http_probe` recommendation
+- Approval Boundary produced approved `CapabilityRequest`
+- `http_probe` returned 1 live host
+- second intelligence pass enriched `TargetProfile.metadata.httpServices`
+- smoke test completed successfully
+
+---
+
+### Milestone 7 — V2 Runtime Integration Planning (NOT STARTED)
+**Goal:** Plan how V2 will be invoked from the real application flow without turning the smoke harness into production code.
+
+---
+
+*Last Updated: After Milestone 6.5 — End-to-End Smoke Test Passing*
+*Next update due: After Milestone 7 planning*
+
+## Intelligence Layer Rule
+
+The Intelligence Layer may transform evidence into understanding.
+It may never transform understanding directly into execution.
