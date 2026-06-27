@@ -368,10 +368,18 @@ This smoke test successfully validated the first full V2 loop:
 - Storage never creates `CapabilityRequest` or calls runtime services.
 - `StaleStateError` added for future optimistic locking.
 
+### Milestone 11 — In-Memory AssessmentRepository Adapter (DONE)
+**Goal:** Implement the storage contracts safely in memory.
+- `InMemoryAssessmentRepository` created.
+- Deep cloning prevents external state mutation.
+- Strict session-scoping applied to all append methods.
+- Optimistic concurrency (expectedVersion) implemented and throwing StaleStateError.
+- Storage smoke test asserts behavior independently from runtime.
+
 ---
 
-*Last Updated: After Milestone 10 — Storage Port Contracts*
-*Next update due: After Milestone 11 (In-Memory Storage Adapter)*
+*Last Updated: After Milestone 11 — In-Memory AssessmentRepository Adapter*
+*Next update due: After Milestone 12 (Runtime Storage Integration)*
 
 ## Intelligence Layer Rule
 
