@@ -98,6 +98,10 @@ async function runSmoke() {
 
   console.log(`[+] Approved request recorded for ${approvedRecord.capability} targeting ${approvedRecord.targetUri}`);
   
+  if ('approvedRequests' in state) {
+    throw new Error('AssessmentState must not store raw CapabilityRequest[]');
+  }
+
   // Note: we injected the fallback earlier, so evidenceCollections[0] is the fallback. evidenceCollections[1] is the http_probe result.
   if (state.evidenceCollections.length < 2) {
     console.error('[!] Expected second evidence collection from http_probe.');

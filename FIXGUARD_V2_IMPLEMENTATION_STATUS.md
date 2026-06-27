@@ -334,13 +334,32 @@ This smoke test successfully validated the first full V2 loop:
 
 ---
 
-### Milestone 7 — V2 Runtime Integration Planning (NOT STARTED)
+### Milestone 7 — V2 Runtime Integration Planning (DONE)
 **Goal:** Plan how V2 will be invoked from the real application flow without turning the smoke harness into production code.
+**Status:** Completed via FIXGUARD_V2_RUNTIME_INTEGRATION_PLAN.md
 
 ---
 
-*Last Updated: After Milestone 6.5 — End-to-End Smoke Test Passing*
-*Next update due: After Milestone 7 planning*
+### Milestone 8 — V2 Runtime Foundation Implementation (DONE)
+**Goal:** Implement the thin application-service coordinator.
+- Implements `V2AssessmentRuntime` and `V2AssessmentSession` (in-memory).
+- `AssessmentState` defines strict, serializable boundaries with transient `CapabilityRequest`s.
+- `milestone8_runtime_smoke.ts` validates the end-to-end loop via runtime methods.
+
+---
+
+### Milestone 8.5 — Runtime Boundary Audit / Hardening (DONE)
+**Goal:** Harden the runtime boundaries before adding persistence or APIs.
+**Focus:**
+- `cloneState` helper to ensure safe state snapshotting.
+- Stable intent key helper for recommendation deduplication.
+- Smoke assertion against raw `approvedRequests` to prevent executable leakage into state.
+- Runtime README clearly defining limitations (in-memory only, no API/UI/persistence).
+
+---
+
+*Last Updated: After Milestone 8.5 — Runtime Boundary Audit / Hardening*
+*Next update due: After Milestone 9 (Persistence) planning*
 
 ## Intelligence Layer Rule
 

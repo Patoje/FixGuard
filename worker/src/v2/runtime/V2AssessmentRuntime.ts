@@ -108,15 +108,15 @@ export class V2AssessmentRuntime {
     const existingIntents = new Set<string>();
 
     for (const r of state.pendingRecommendations) {
-      existingIntents.add(`${r.capability}:${r.targetContext.uri}`);
+      existingIntents.add(this.getIntentKey(r.capability, r.targetContext.uri));
     }
     
     for (const r of state.approvedRequestRecords) {
-      existingIntents.add(`${r.capability}:${r.targetUri}`);
+      existingIntents.add(this.getIntentKey(r.capability, r.targetUri));
     }
 
     const newRecs = recommendations.filter((r: AttackRecommendation) => {
-      const intent = `${r.capability}:${r.targetContext.uri}`;
+      const intent = this.getIntentKey(r.capability, r.targetContext.uri);
       return !existingIntents.has(intent);
     });
 
@@ -274,5 +274,13 @@ export class V2AssessmentRuntime {
       throw new Error(`Session not found: ${sessionId}`);
     }
     return session;
+  }
+
+  /**
+   * Generates a stable intent key for deduplicating recommendations.
+   * Future richer dedupe may need config/source-finding/auth-context, but capability+targetUri is sufficient for now.
+   */
+  private getIntentKey(capability: string, targetUri: string): string {
+    return `${capability}:${targetUri}`;
   }
 }

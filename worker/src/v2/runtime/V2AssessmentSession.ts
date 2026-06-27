@@ -24,14 +24,14 @@ export class V2AssessmentSession {
   }
 
   public getState(): AssessmentState {
-    return JSON.parse(JSON.stringify(this.state));
+    return this.cloneState(this.state);
   }
 
   /**
    * Internal/runtime use only. Replaces internal state with a versioned clone.
    */
   public update(updater: (state: AssessmentState) => Partial<AssessmentState>): void {
-    const currentStateClone = JSON.parse(JSON.stringify(this.state));
+    const currentStateClone = this.cloneState(this.state);
     const changes = updater(currentStateClone);
     
     this.state = {
@@ -43,5 +43,9 @@ export class V2AssessmentSession {
       },
       version: currentStateClone.version + 1
     };
+  }
+
+  private cloneState(state: AssessmentState): AssessmentState {
+    return JSON.parse(JSON.stringify(state));
   }
 }
