@@ -1,6 +1,7 @@
 import { MinimalOrchestrator } from '../core/MinimalOrchestrator';
 import { LocalProcessRunner } from '../core/ProcessRunner';
 import { createV2ToolRegistry } from '../composition/createV2ToolRegistry';
+import type { ToolRegistry } from '../core/ToolRegistry';
 import { LocalEvidenceAccumulator } from '../intelligence/EvidenceAccumulator';
 import { LocalCorrelationEngine } from '../intelligence/CorrelationEngine';
 import { LocalTargetProfileBuilder } from '../intelligence/TargetProfileBuilder';
@@ -17,23 +18,47 @@ import type { CapabilityRequest } from '../core/ExecutionContracts';
 import type { AttackRecommendation } from '../intelligence/AttackRecommendation';
 import type { AssessmentState, ApprovedRequestRecord, ExecutionFailureRecord } from './AssessmentState';
 import { V2AssessmentSession } from './V2AssessmentSession';
+import type { AssessmentRepository } from '../storage/AssessmentRepository';
+import { InMemoryAssessmentRepository } from '../storage/InMemoryAssessmentRepository';
+import type { AuditEntry } from '../approval/ApprovalContracts';
 
 export class V2AssessmentRuntime {
   private sessions = new Map<string, V2AssessmentSession>();
 
-  // Shared internal services for in-memory milestone 8.
-  private registry = createV2ToolRegistry();
-  private runner = new LocalProcessRunner();
-  private orchestrator = new MinimalOrchestrator(this.registry, this.runner);
+  // Shared internal services.
+  private readonly orchestrator: MinimalOrchestrator;
   
   private inbox = new LocalRecommendationInbox();
   private auditLog = new LocalAuditLog();
   private intentTranslator = new LocalIntentTranslator();
   private approvalGateway = new LocalApprovalGateway(this.inbox, this.auditLog, this.intentTranslator);
 
-  public createSession(targetUri: string): V2AssessmentSession {
+  constructor(
+    private readonly repository: AssessmentRepository = new InMemoryAssessmentRepository(),
+    orchestratorOrRegistry?: MinimalOrchestrator | ToolRegistry
+  ) {
+    if (orchestratorOrRegistry instanceof MinimalOrchestrator) {
+      this.orchestrator = orchestratorOrRegistry;
+    } else if (orchestratorOrRegistry !== undefined) {
+      // Treat as a ToolRegistry — compose the orchestrator from it
+      this.orchestrator = new MinimalOrchestrator(orchestratorOrRegistry, new LocalProcessRunner());
+    } else {
+      // Default: production registry + local process runner
+      const registry = createV2ToolRegistry();
+      this.orchestrator = new MinimalOrchestrator(registry, new LocalProcessRunner());
+    }
+  }
+
+  private async persistState(session: V2AssessmentSession, isNew: boolean = false): Promise<void> {
+    const state = session.getState();
+    const expectedVersion = isNew ? 0 : state.version - 1;
+    await this.repository.saveAssessmentState({ state, expectedVersion });
+  }
+
+  public async createSession(targetUri: string): Promise<V2AssessmentSession> {
     const session = new V2AssessmentSession(targetUri);
     this.sessions.set(session.getState().sessionId, session);
+    await this.persistState(session, true);
     return session;
   }
 
@@ -46,6 +71,7 @@ export class V2AssessmentRuntime {
     const targetUri = session.getState().targetUri;
 
     session.update(() => ({ lifecycleStatus: 'initial_execution_running' }));
+    await this.persistState(session);
 
     const req: CapabilityRequest = {
       capability: 'subdomain_discovery',
@@ -59,6 +85,13 @@ export class V2AssessmentRuntime {
         evidenceCollections: [...state.evidenceCollections, evidence],
         lifecycleStatus: 'profile_updated'
       }));
+      await this.persistState(session);
+      await this.repository.appendEvidence({
+        sessionId,
+        evidence,
+        capability: req.capability,
+        recordedAt: Date.now()
+      });
     } catch (err: any) {
       const failure: ExecutionFailureRecord = {
         id: `fail_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`,
@@ -75,16 +108,23 @@ export class V2AssessmentRuntime {
         errors: [...state.errors, `Initial recon failed: ${err.message}`],
         lifecycleStatus: 'profile_updated'
       }));
+      await this.persistState(session);
+      await this.repository.appendExecutionFailure({
+        sessionId,
+        record: failure,
+        recordedAt: failure.failedAt
+      });
     }
 
     return session.getState();
   }
 
-  public runIntelligence(sessionId: string): AssessmentState {
+  public async runIntelligence(sessionId: string): Promise<AssessmentState> {
     const session = this.getSessionOrThrow(sessionId);
     const state = session.getState();
 
     session.update(() => ({ lifecycleStatus: 'intelligence_running' }));
+    await this.persistState(session);
 
     const accumulator = new LocalEvidenceAccumulator();
     for (const ec of state.evidenceCollections) {
@@ -129,6 +169,7 @@ export class V2AssessmentRuntime {
       pendingRecommendations: [...s.pendingRecommendations, ...newRecs],
       lifecycleStatus: (s.pendingRecommendations.length + newRecs.length) > 0 ? 'awaiting_approval' : 'completed'
     }));
+    await this.persistState(session);
 
     return session.getState();
   }
@@ -157,6 +198,7 @@ export class V2AssessmentRuntime {
         lifecycleStatus: 'failed',
         errors: [...state.errors, `Approval translation failure: ${err.message}`]
       }));
+      await this.persistState(session);
       return session.getState();
     }
 
@@ -165,6 +207,7 @@ export class V2AssessmentRuntime {
         lifecycleStatus: 'failed',
         errors: [...state.errors, `Approval failed to yield a CapabilityRequest`]
       }));
+      await this.persistState(session);
       return session.getState();
     }
 
@@ -182,20 +225,33 @@ export class V2AssessmentRuntime {
       requestSummary: { ...request.config }
     };
 
+    let auditEntry!: AuditEntry;
     session.update(state => {
       const sourceRec = state.pendingRecommendations.find(r => r.id === recommendationId)!;
+      auditEntry = {
+        id: `audit_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`,
+        recommendationId,
+        decision: approvalResult.decision,
+        sourceRecommendation: sourceRec,
+        recordedAt: Date.now()
+      };
       return {
         lifecycleStatus: 'approved_execution_running',
         pendingRecommendations: state.pendingRecommendations.filter(r => r.id !== recommendationId),
         approvedRequestRecords: [...state.approvedRequestRecords, record],
-        auditEntries: [...state.auditEntries, {
-          id: `audit_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`,
-          recommendationId,
-          decision: approvalResult.decision,
-          sourceRecommendation: sourceRec,
-          recordedAt: Date.now()
-        }]
+        auditEntries: [...state.auditEntries, auditEntry]
       };
+    });
+    await this.persistState(session);
+    await this.repository.appendApprovedRequest({
+      sessionId,
+      record,
+      recordedAt: record.approvedAt
+    });
+    await this.repository.appendAuditEntry({
+      sessionId,
+      entry: auditEntry,
+      recordedAt: auditEntry.recordedAt
     });
 
     try {
@@ -204,6 +260,14 @@ export class V2AssessmentRuntime {
         evidenceCollections: [...state.evidenceCollections, evidence],
         lifecycleStatus: 'profile_updated'
       }));
+      await this.persistState(session);
+      await this.repository.appendEvidence({
+        sessionId,
+        evidence,
+        capability: request.capability,
+        recordedAt: Date.now(),
+        sourceApprovedRequestRecordId: record.id
+      });
     } catch (err: any) {
       const failure: ExecutionFailureRecord = {
         id: `fail_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`,
@@ -221,12 +285,18 @@ export class V2AssessmentRuntime {
         errors: [...state.errors, `Approved execution failed: ${err.message}`],
         lifecycleStatus: state.pendingRecommendations.length > 0 ? 'awaiting_approval' : 'completed'
       }));
+      await this.persistState(session);
+      await this.repository.appendExecutionFailure({
+        sessionId,
+        record: failure,
+        recordedAt: failure.failedAt
+      });
     }
 
     return session.getState();
   }
 
-  public rejectRecommendation(sessionId: string, recommendationId: string, operatorId: string, reason: string): AssessmentState {
+  public async rejectRecommendation(sessionId: string, recommendationId: string, operatorId: string, reason: string): Promise<AssessmentState> {
     const session = this.getSessionOrThrow(sessionId);
     
     // Verify recommendation belongs to this session
@@ -237,26 +307,34 @@ export class V2AssessmentRuntime {
 
     const approvalResult = this.approvalGateway.reject(recommendationId, operatorId, reason);
 
+    let auditEntry!: AuditEntry;
     session.update(state => {
       const pending = state.pendingRecommendations.filter(r => r.id !== recommendationId);
       const sourceRec = state.pendingRecommendations.find(r => r.id === recommendationId)!;
+      auditEntry = {
+        id: `audit_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`,
+        recommendationId,
+        decision: approvalResult.decision,
+        sourceRecommendation: sourceRec,
+        recordedAt: Date.now()
+      };
       return {
         pendingRecommendations: pending,
         lifecycleStatus: pending.length > 0 ? 'awaiting_approval' : 'completed',
-        auditEntries: [...state.auditEntries, {
-          id: `audit_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`,
-          recommendationId,
-          decision: approvalResult.decision,
-          sourceRecommendation: sourceRec,
-          recordedAt: Date.now()
-        }]
+        auditEntries: [...state.auditEntries, auditEntry]
       };
+    });
+    await this.persistState(session);
+    await this.repository.appendAuditEntry({
+      sessionId,
+      entry: auditEntry,
+      recordedAt: auditEntry.recordedAt
     });
 
     return session.getState();
   }
 
-  public completeSession(sessionId: string): AssessmentState {
+  public async completeSession(sessionId: string): Promise<AssessmentState> {
     const session = this.getSessionOrThrow(sessionId);
     const status = session.getState().lifecycleStatus;
     
@@ -265,6 +343,7 @@ export class V2AssessmentRuntime {
     }
 
     session.update(() => ({ lifecycleStatus: 'completed' }));
+    await this.persistState(session);
     return session.getState();
   }
 

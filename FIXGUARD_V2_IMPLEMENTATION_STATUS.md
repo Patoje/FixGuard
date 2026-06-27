@@ -376,10 +376,22 @@ This smoke test successfully validated the first full V2 loop:
 - Optimistic concurrency (expectedVersion) implemented and throwing StaleStateError.
 - Storage smoke test asserts behavior independently from runtime.
 
+### Milestone 12 — Runtime Storage Integration (DONE)
+**Goal:** Safely integrate V2AssessmentRuntime with AssessmentRepository.
+- Constructor injection used for `AssessmentRepository`.
+- `InMemoryAssessmentRepository` is the default.
+- Optional constructor injection used for `MinimalOrchestrator` to enable deterministic, storage-boundary-respecting smoke tests without direct repository patching.
+- Runtime methods involved in persistence are now `async` (`Promise<AssessmentState>`).
+- Persistence is awaited inline directly after the in-memory state transition completes.
+- Strict optimistic versioning enforced: no dynamic `expectedVersion` repair, and no background queue.
+- Repository failures reject/throw through async runtime methods naturally.
+- All state transitions correctly persist full snapshots and append appropriate evidence/audit/approval/failure records.
+- Zero raw `CapabilityRequest` objects are persisted.
+
 ---
 
-*Last Updated: After Milestone 11 — In-Memory AssessmentRepository Adapter*
-*Next update due: After Milestone 12 (Runtime Storage Integration)*
+*Last Updated: After Milestone 12 — Runtime Storage Integration*
+*Next update due: After Milestone 13 (Database/Drizzle Setup)*
 
 ## Intelligence Layer Rule
 

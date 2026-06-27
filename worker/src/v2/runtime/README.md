@@ -5,16 +5,22 @@ This module acts as the thin application-service coordinator that moves data bet
 **Core Philosophy:** Tools execute. Intelligence decides. Humans authorize.
 
 ## Key Concepts
-*   `V2AssessmentRuntime`: Coordinates the assessment session lifecycle.
-*   `V2AssessmentSession`: In-memory container for an assessment.
-*   `AssessmentState`: Serializable, versioned snapshot of the current state.
+*   `AssessmentState`: The core data object containing findings, recommendations, profiles, and immutable trace logs (evidence, audits).
+*   `V2AssessmentSession`: The state container that enforces immutable state transitions and version increments via `update()`.
+*   `V2AssessmentRuntime`: The workflow controller. It accepts two optional constructor arguments:
+    *   `repository?: AssessmentRepository` — defaults to `InMemoryAssessmentRepository`.
+    *   `orchestratorOrRegistry?: MinimalOrchestrator | ToolRegistry` — when omitted, the default production registry (`createV2ToolRegistry()`) and `LocalProcessRunner` are used. Smoke tests inject a deterministic `MinimalOrchestrator` (backed by `StubToolRegistry` + `StubProcessRunner`) to exercise the full runtime/intelligence/approval flow without spawning real processes.
 
-## Rules & Limitations
-*   **In-Memory Only:** For Milestone 8, the runtime manages sessions strictly in memory.
+## Important Constraints
+*   **Awaited Inline Persistence:** The runtime methods present an asynchronous API (`Promise<AssessmentState>`) and wait for the repository to safely persist the state transition before returning.
+*   **Strict Optimistic Versioning:** Optimistic locking is strictly enforced without dynamic repair. A new session saves with `expectedVersion = 0`, and any subsequent update saves with `expectedVersion = state.version - 1`.
+*   **Repository Failures:** Any failures during `saveAssessmentState` or appending records (such as `StaleStateError`) propagate naturally, rejecting the runtime operation.
+*   **Storage Boundaries:** Storage strictly persists `ApprovedRequestRecord`. Executable `CapabilityRequest` objects are transient and never stored or leaked in state summaries.
+*   **Non-Transactional Risk:** Appending evidence/audit records currently happens as separate storage calls after the state snapshot is saved. This is a known future adapter risk that may need transactional adapters.
 *   **No Unrelated Services:** The runtime does not implement APIs, UIs, database persistence, or queues.
 *   **Global Singletons:** `RecommendationInbox` and `AuditLog` are currently runtime-global, which is acceptable only for the current in-memory scope.
 *   **Transient Requests:** `CapabilityRequest` remains transient only and is NOT stored in the session state. `AssessmentState` stores `ApprovedRequestRecord` instead.
 *   **Deduplication:** The current recommendation deduplication key is intentionally simple (`capability + targetUri`). Future richer deduplication may need configuration, source findings, or auth context.
 *   **Internal State API:** `V2AssessmentSession.update` is for runtime/internal use only.
-*   **Composition Bound:** The runtime MUST use `createV2ToolRegistry` and MUST NOT import concrete adapters, parsers, or V1 legacy code directly.
+*   **Composition Bound:** The runtime uses `createV2ToolRegistry` and `LocalProcessRunner` by default. Smoke tests may inject a deterministic `MinimalOrchestrator` through the constructor. The runtime MUST NOT import concrete adapters, parsers, or V1 legacy code directly.
 *   **Execution Recovery:** `ExecutionFailureRecord` handles recoverable capability failures safely.
