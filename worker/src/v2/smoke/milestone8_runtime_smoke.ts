@@ -1,12 +1,12 @@
 /**
- * Milestone 8 — V2 Runtime End-to-End Smoke Test
+ * Milestone 8 - V2 Runtime End-to-End Smoke Test
  *
  * Uses a deterministic StubOrchestrator injected via the runtime constructor so
  * the test is independent of real tool binaries (subfinder / httpx). The stub
  * travels through the real MinimalOrchestrator ? Intelligence ? Approval path;
  * only execution is deterministic.
  *
- * Mechanical async changes only — no private reflection, no repository patching,
+ * Mechanical async changes only - no private reflection, no repository patching,
  * no state mutation behind the runtime persistence boundary.
  */
 import { V2AssessmentRuntime } from '../runtime/V2AssessmentRuntime';
@@ -84,8 +84,10 @@ async function runSmoke() {
   }
   console.log('[+] TargetProfile enriched with HTTP service metadata');
 
-  console.log('[*] Completing Session...');
-  state = await runtime.completeSession(sessionId);
+  if (state.lifecycleStatus !== 'completed') {
+    console.log('[*] Completing Session...');
+    state = await runtime.completeSession(sessionId);
+  }
 
   console.log(`[+] Session complete. Final lifecycleStatus: ${state.lifecycleStatus}`);
   console.log('--- Smoke Test Completed Successfully ---');

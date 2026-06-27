@@ -399,10 +399,19 @@ This smoke test successfully validated the first full V2 loop:
 - Deterministic smoke test implemented.
 - No DB/Drizzle/API/UI/queues added.
 
+### Milestone 14 — Runtime Lifecycle Mutation Guards (DONE)
+**Goal:** Add explicit lifecycle mutation guards to `V2AssessmentRuntime`.
+- Created `RuntimeLifecycleError` for invalid transitions.
+- Added explicit method-specific guards (`assertCanStartInitialRecon`, `assertCanRunIntelligence`, etc.).
+- Protected terminal (`completed`, `failed`) and running states from mutations.
+- Ensured invalid attempts throw immediately without side effects (no mutation, no persistence, no appends, no execution).
+- Created deterministic smoke test (`milestone14_runtime_lifecycle_guards_smoke.ts`) verifying that all 5 mutating methods are rejected for all terminal (`completed`, `failed`) and running (`initial_execution_running`, `intelligence_running`, `approved_execution_running`) states.
+- No new DB/Drizzle/API/UI/queues added.
+
 ---
 
-*Last Updated: After Milestone 13 — Runtime Session Resume / Repository-backed Session Lookup*
-*Next update due: After Milestone 14 (Database/Drizzle Setup)*
+*Last Updated: After Milestone 14 — Runtime Lifecycle Mutation Guards*
+*Next update due: After Milestone 15 (Database/Drizzle Setup)*
 
 ## Intelligence Layer Rule
 

@@ -97,8 +97,10 @@ async function runSmoke() {
   console.log('[+] Missing session check passed.');
 
   // 18. Assert next valid runtime transition preserves optimistic versioning
-  console.log('[*] Runtime B: Completing Session...');
-  state = await runtimeB.completeSession(sessionId);
+  if (state.lifecycleStatus !== 'completed') {
+    console.log('[*] Runtime B: Completing Session...');
+    state = await runtimeB.completeSession(sessionId);
+  }
 
   const finalSnapshot = await repository.loadAssessmentState(sessionId);
   if (!finalSnapshot) throw new Error('Failed to load final snapshot');

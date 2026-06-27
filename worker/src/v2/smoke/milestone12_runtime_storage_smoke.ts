@@ -1,5 +1,5 @@
-﻿/**
- * Milestone 12 — Runtime Storage Integration Smoke Test
+/**
+ * Milestone 12 - Runtime Storage Integration Smoke Test
  *
  * Deterministically exercises the full runtime-storage integration loop:
  *   createSession ? startInitialRecon ? runIntelligence ? approveRecommendation
@@ -49,7 +49,7 @@ async function runSmoke() {
   console.log('[*] Running First Intelligence Pass...');
   state = await runtime.runIntelligence(sessionId);
 
-  // 3. Must have a recommendation — stub always produces subdomain_discovery finding
+  // 3. Must have a recommendation - stub always produces subdomain_discovery finding
   //    which triggers the SubdomainHttpProbeRule recommendation.
   if (state.pendingRecommendations.length === 0) {
     throw new Error('Deterministic stub failed to produce a recommendation. Cannot test approval path.');
@@ -104,8 +104,10 @@ async function runSmoke() {
   }
   console.log('[+] TargetProfile enriched with HTTP service metadata');
 
-  console.log('[*] Completing Session...');
-  state = await runtime.completeSession(sessionId);
+  if (state.lifecycleStatus !== 'completed') {
+    console.log('[*] Completing Session...');
+    state = await runtime.completeSession(sessionId);
+  }
 
   // 10. Repository-loaded final state must be completed
   savedState = await repository.loadAssessmentState(sessionId);

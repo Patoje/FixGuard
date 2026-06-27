@@ -16,8 +16,9 @@ import { LocalIntentTranslator } from '../approval/IntentTranslator';
 
 import type { CapabilityRequest } from '../core/ExecutionContracts';
 import type { AttackRecommendation } from '../intelligence/AttackRecommendation';
-import type { AssessmentState, ApprovedRequestRecord, ExecutionFailureRecord } from './AssessmentState';
+import type { AssessmentState, ApprovedRequestRecord, ExecutionFailureRecord, LifecycleState } from './AssessmentState';
 import { V2AssessmentSession } from './V2AssessmentSession';
+import { RuntimeLifecycleError } from './RuntimeLifecycleError';
 import type { AssessmentRepository } from '../storage/AssessmentRepository';
 import { InMemoryAssessmentRepository } from '../storage/InMemoryAssessmentRepository';
 import type { AuditEntry } from '../approval/ApprovalContracts';
@@ -84,7 +85,10 @@ export class V2AssessmentRuntime {
 
   public async startInitialRecon(sessionId: string): Promise<AssessmentState> {
     const session = this.getSessionOrThrow(sessionId);
-    const targetUri = session.getState().targetUri;
+    const state = session.getState();
+    this.assertCanStartInitialRecon(state);
+
+    const targetUri = state.targetUri;
 
     session.update(() => ({ lifecycleStatus: 'initial_execution_running' }));
     await this.persistState(session);
@@ -138,6 +142,7 @@ export class V2AssessmentRuntime {
   public async runIntelligence(sessionId: string): Promise<AssessmentState> {
     const session = this.getSessionOrThrow(sessionId);
     const state = session.getState();
+    this.assertCanRunIntelligence(state);
 
     session.update(() => ({ lifecycleStatus: 'intelligence_running' }));
     await this.persistState(session);
@@ -197,9 +202,11 @@ export class V2AssessmentRuntime {
     overrides?: Record<string, unknown>
   ): Promise<AssessmentState> {
     const session = this.getSessionOrThrow(sessionId);
+    const state = session.getState();
+    this.assertCanApproveRecommendation(state);
     
     // Verify recommendation belongs to this session
-    const pendingRec = session.getState().pendingRecommendations.find(r => r.id === recommendationId);
+    const pendingRec = state.pendingRecommendations.find(r => r.id === recommendationId);
     if (!pendingRec) {
       throw new Error(`Recommendation ${recommendationId} not found in pending state for session ${sessionId}`);
     }
@@ -314,9 +321,11 @@ export class V2AssessmentRuntime {
 
   public async rejectRecommendation(sessionId: string, recommendationId: string, operatorId: string, reason: string): Promise<AssessmentState> {
     const session = this.getSessionOrThrow(sessionId);
+    const state = session.getState();
+    this.assertCanRejectRecommendation(state);
     
     // Verify recommendation belongs to this session
-    const pendingRec = session.getState().pendingRecommendations.find(r => r.id === recommendationId);
+    const pendingRec = state.pendingRecommendations.find(r => r.id === recommendationId);
     if (!pendingRec) {
       throw new Error(`Recommendation ${recommendationId} not found in pending state for session ${sessionId}`);
     }
@@ -352,11 +361,8 @@ export class V2AssessmentRuntime {
 
   public async completeSession(sessionId: string): Promise<AssessmentState> {
     const session = this.getSessionOrThrow(sessionId);
-    const status = session.getState().lifecycleStatus;
-    
-    if (status === 'initial_execution_running' || status === 'intelligence_running' || status === 'approved_execution_running') {
-      throw new Error(`Cannot complete session while operations are running (current status: ${status})`);
-    }
+    const state = session.getState();
+    this.assertCanComplete(state);
 
     session.update(() => ({ lifecycleStatus: 'completed' }));
     await this.persistState(session);
@@ -377,5 +383,56 @@ export class V2AssessmentRuntime {
    */
   private getIntentKey(capability: string, targetUri: string): string {
     return `${capability}:${targetUri}`;
+  }
+
+  // --- Lifecycle Guards ---
+
+  private assertCanStartInitialRecon(state: AssessmentState): void {
+    this.assertNotTerminal(state, 'startInitialRecon');
+    if (this.isRunningStatus(state.lifecycleStatus) || state.lifecycleStatus !== 'initialized') {
+      throw new RuntimeLifecycleError(state.sessionId, 'startInitialRecon', state.lifecycleStatus);
+    }
+  }
+
+  private assertCanRunIntelligence(state: AssessmentState): void {
+    this.assertNotTerminal(state, 'runIntelligence');
+    const allowed: LifecycleState[] = ['initialized', 'profile_updated', 'awaiting_approval'];
+    if (this.isRunningStatus(state.lifecycleStatus) || !allowed.includes(state.lifecycleStatus)) {
+      throw new RuntimeLifecycleError(state.sessionId, 'runIntelligence', state.lifecycleStatus);
+    }
+  }
+
+  private assertCanApproveRecommendation(state: AssessmentState): void {
+    this.assertNotTerminal(state, 'approveRecommendation');
+    if (this.isRunningStatus(state.lifecycleStatus) || state.lifecycleStatus !== 'awaiting_approval') {
+      throw new RuntimeLifecycleError(state.sessionId, 'approveRecommendation', state.lifecycleStatus);
+    }
+  }
+
+  private assertCanRejectRecommendation(state: AssessmentState): void {
+    this.assertNotTerminal(state, 'rejectRecommendation');
+    if (this.isRunningStatus(state.lifecycleStatus) || state.lifecycleStatus !== 'awaiting_approval') {
+      throw new RuntimeLifecycleError(state.sessionId, 'rejectRecommendation', state.lifecycleStatus);
+    }
+  }
+
+  private assertCanComplete(state: AssessmentState): void {
+    this.assertNotTerminal(state, 'completeSession');
+    const allowed: LifecycleState[] = ['initialized', 'profile_updated', 'awaiting_approval'];
+    if (this.isRunningStatus(state.lifecycleStatus) || !allowed.includes(state.lifecycleStatus)) {
+      throw new RuntimeLifecycleError(state.sessionId, 'completeSession', state.lifecycleStatus);
+    }
+  }
+
+  private assertNotTerminal(state: AssessmentState, action: string): void {
+    if (state.lifecycleStatus === 'completed' || state.lifecycleStatus === 'failed') {
+      throw new RuntimeLifecycleError(state.sessionId, action, state.lifecycleStatus);
+    }
+  }
+
+  private isRunningStatus(status: LifecycleState): boolean {
+    return status === 'initial_execution_running' ||
+           status === 'intelligence_running' ||
+           status === 'approved_execution_running';
   }
 }
