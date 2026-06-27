@@ -8,3 +8,14 @@ tools/XSStrike/
 tools/sqlmap-dev/
 worker/tools/XSStrike/
 worker/tools/sqlmap-dev/
+
+
+# Local AI/tooling artifacts
+.ai/
+.skills/
+.external-skills/
+skills-lock.json
+
+# Local cleanup diagnostics
+fixguard_dirty_status_before_cleanup.txt
+fixguard_staged_files_before_reset.txt
