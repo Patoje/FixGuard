@@ -19,7 +19,8 @@ This module acts as the thin application-service coordinator that moves data bet
 *   **Non-Transactional Risk:** Appending evidence/audit records currently happens as separate storage calls after the state snapshot is saved. This is a known future adapter risk that may need transactional adapters.
 *   **No Unrelated Services:** The runtime does not implement APIs, UIs, database persistence, or queues.
 *   **Global Singletons:** `RecommendationInbox` and `AuditLog` are currently runtime-global, which is acceptable only for the current in-memory scope.
-*   **Transient Requests:** `CapabilityRequest` remains transient only and is NOT stored in the session state. `AssessmentState` stores `ApprovedRequestRecord` instead.
+*   **Transient Requests:** `CapabilityRequest` remains transient only and is NOT stored in the session state. `AssessmentState` stores `ApprovedRequestRecord` instead. There is no CapabilityRequest reconstruction during session load.
+*   **Session Resume:** `loadSession(sessionId)` supports snapshot-only loading. It checks the active collision map first (returning the active session if one exists) and returns undefined for missing sessions. It does not trigger auto-execution or replay append-only logs.
 *   **Deduplication:** The current recommendation deduplication key is intentionally simple (`capability + targetUri`). Future richer deduplication may need configuration, source findings, or auth context.
 *   **Internal State API:** `V2AssessmentSession.update` is for runtime/internal use only.
 *   **Composition Bound:** The runtime uses `createV2ToolRegistry` and `LocalProcessRunner` by default. Smoke tests may inject a deterministic `MinimalOrchestrator` through the constructor. The runtime MUST NOT import concrete adapters, parsers, or V1 legacy code directly.

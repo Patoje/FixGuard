@@ -388,10 +388,21 @@ This smoke test successfully validated the first full V2 loop:
 - All state transitions correctly persist full snapshots and append appropriate evidence/audit/approval/failure records.
 - Zero raw `CapabilityRequest` objects are persisted.
 
+### Milestone 13 — Runtime Session Resume / Repository-backed Session Lookup (DONE)
+**Goal:** Add snapshot-only repository-backed session loading to `V2AssessmentRuntime`.
+- Added `V2AssessmentSession.fromState` to rehydrate active session from a snapshot (deep clone, no version increment).
+- Added `loadSession(sessionId)` to perform repository-backed snapshot load.
+- Active collision handled: returns active session directly.
+- Missing session handled: returns undefined.
+- Strict optimistic versioning preserved across loads.
+- No auto-execution, no append-only log replay, no `CapabilityRequest` reconstruction.
+- Deterministic smoke test implemented.
+- No DB/Drizzle/API/UI/queues added.
+
 ---
 
-*Last Updated: After Milestone 12 — Runtime Storage Integration*
-*Next update due: After Milestone 13 (Database/Drizzle Setup)*
+*Last Updated: After Milestone 13 — Runtime Session Resume / Repository-backed Session Lookup*
+*Next update due: After Milestone 14 (Database/Drizzle Setup)*
 
 ## Intelligence Layer Rule
 

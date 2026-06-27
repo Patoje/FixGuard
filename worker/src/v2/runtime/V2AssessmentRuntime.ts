@@ -66,6 +66,22 @@ export class V2AssessmentRuntime {
     return this.sessions.get(sessionId);
   }
 
+  public async loadSession(sessionId: string): Promise<V2AssessmentSession | undefined> {
+    const active = this.getSession(sessionId);
+    if (active) {
+      return active;
+    }
+
+    const state = await this.repository.loadAssessmentState(sessionId);
+    if (!state) {
+      return undefined;
+    }
+
+    const session = V2AssessmentSession.fromState(state);
+    this.sessions.set(session.getState().sessionId, session);
+    return session;
+  }
+
   public async startInitialRecon(sessionId: string): Promise<AssessmentState> {
     const session = this.getSessionOrThrow(sessionId);
     const targetUri = session.getState().targetUri;

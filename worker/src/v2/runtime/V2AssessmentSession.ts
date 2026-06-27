@@ -28,6 +28,16 @@ export class V2AssessmentSession {
   }
 
   /**
+   * Rehydrates a session exactly from a persisted snapshot.
+   * Deep clones the state, preserving version, status, and all logs.
+   */
+  public static fromState(state: AssessmentState): V2AssessmentSession {
+    const session = new V2AssessmentSession(state.targetUri, state.sessionId);
+    session.state = JSON.parse(JSON.stringify(state));
+    return session;
+  }
+
+  /**
    * Internal/runtime use only. Replaces internal state with a versioned clone.
    */
   public update(updater: (state: AssessmentState) => Partial<AssessmentState>): void {
