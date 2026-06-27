@@ -356,10 +356,22 @@ This smoke test successfully validated the first full V2 loop:
 - Smoke assertion against raw `approvedRequests` to prevent executable leakage into state.
 - Runtime README clearly defining limitations (in-memory only, no API/UI/persistence).
 
+### Milestone 9 — Persistence / Storage Contract Planning (DONE)
+**Goal:** Design the storage boundaries and rules.
+**Status:** Completed via FIXGUARD_V2_PERSISTENCE_CONTRACT_PLAN.md
+
 ---
 
-*Last Updated: After Milestone 8.5 — Runtime Boundary Audit / Hardening*
-*Next update due: After Milestone 9 (Persistence) planning*
+### Milestone 10 — Storage Port Contracts (DONE)
+**Goal:** Define the TypeScript storage contracts.
+- `AssessmentRepository` created.
+- Storage never creates `CapabilityRequest` or calls runtime services.
+- `StaleStateError` added for future optimistic locking.
+
+---
+
+*Last Updated: After Milestone 10 — Storage Port Contracts*
+*Next update due: After Milestone 11 (In-Memory Storage Adapter)*
 
 ## Intelligence Layer Rule
 
