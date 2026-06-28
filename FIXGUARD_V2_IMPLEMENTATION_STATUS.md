@@ -544,5 +544,21 @@ It may never transform understanding directly into execution.
 - M25 prioritizes correctness and continuity over speed.
 
 ---
-*Last Updated: After Milestone 25 - Recommendation Continuity*
+
+---
+### Milestone 26 - Formal V2 Validation Scripts / Smoke Command Boundary (DONE)
+**Goal:** Create formal, repeatable V2 validation scripts so future milestones no longer depend on manually remembered chat commands.
+- Updated `worker/package.json` with explicit `smoke:v2`, `check:v2`, and `typecheck:v2` npm scripts.
+- Replaced the placeholder `test` script with safe DB-free validation (`npm run check:v2`).
+- Default validations (`npm test`, `npm run check:v2`, `npm run smoke:v2`) are fully DB-free and safe.
+- Added explicit opt-in script `npm run smoke:v2:db` for destructive DB validation, guarded by environment variables.
+- Created `FIXGUARD_V2_VALIDATION_SCRIPTS_PLAN.md` and `worker/src/v2/smoke/README.md` to document DB safety policies, environment guards, and validation workflows.
+- Reaffirmed that DB validation uses disposable test branches only and does not claim production readiness.
+- No DB URLs are committed or documented.
+- Did not change `worker/package-lock.json`, and no new dependencies were added.
+- Did not modify runtime, approval, storage, composition, or application behavior.
+
+---
+*Last Updated: After Milestone 26 - Formal V2 Validation Scripts*
 *Next update due: After API/UI Integration or scan scheduling.*
+
