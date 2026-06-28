@@ -424,10 +424,17 @@ This smoke test successfully validated the first full V2 loop:
 - Established required compound indexes for lookup optimization.
 - **Implemented schema only.** (No adapter, no DB client, no migrations, no runtime integration).
 
+### Milestone 17 — AssessmentRepository Conformance Suite (DONE)
+**Goal:** Create a reusable conformance suite that validates any `AssessmentRepository` implementation against the same behavioral contract.
+- Created `AssessmentRepositoryConformanceSuite.ts`.
+- Validates 21 explicit behaviors, including session isolation, StaleStateError, snapshot loading, external mutation protection, and append-only constraints.
+- Created `milestone17_repository_conformance_smoke.ts` and successfully verified the existing `InMemoryAssessmentRepository`.
+- Did not modify production storage logic, schemas, or runtime execution.
+
 ---
 
-*Last Updated: After Milestone 16 — Drizzle/PostgreSQL Schema Implementation*
-*Next update due: After Milestone 17 (Reusable AssessmentRepository conformance test suite)*
+*Last Updated: After Milestone 17 — AssessmentRepository Conformance Suite*
+*Next update due: After Milestone 18 (PostgresAssessmentRepository implementation)*
 
 ## Intelligence Layer Rule
 
