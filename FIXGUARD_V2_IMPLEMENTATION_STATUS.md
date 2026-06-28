@@ -559,6 +559,20 @@ It may never transform understanding directly into execution.
 - Did not modify runtime, approval, storage, composition, or application behavior.
 
 ---
-*Last Updated: After Milestone 26 - Formal V2 Validation Scripts*
-*Next update due: After API/UI Integration or scan scheduling.*
 
+---
+### Milestone 27 - Capability Contract / Safe Tool Invocation Boundary (DONE)
+**Goal:** Add a standalone safe capability contract boundary.
+- Created `worker/src/v2/capabilities/CapabilityDefinition.ts` and `SafeCapabilityInput.ts`.
+- Created `worker/src/v2/capabilities/CapabilityRegistry.ts`.
+- Added strict recursive validation to reject executable keys (`binary`, `command`, `spawn`, etc.) from both capability metadata and invocation inputs.
+- Registry acts purely as a contract boundary. It is not a tool runner, process spawner, or executor.
+- Preserved existing transient `CapabilityRequest` behavior without modifications.
+- Added `milestone27_capability_contract_smoke.ts` to prove rejection of unsafe nested shapes without requiring database interaction.
+- M27 does not expand scanner execution, API/UI, or database orchestration.
+- M27 remains fully DB-free.
+- Default `npm run check:v2` updated to include M27 smoke.
+
+---
+*Last Updated: After Milestone 27 - Capability Contract*
+*Next update due: After API/UI Integration or scan scheduling.*
