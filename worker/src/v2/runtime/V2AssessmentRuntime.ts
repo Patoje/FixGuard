@@ -12,7 +12,10 @@ import { SubdomainHttpProbeRule } from '../intelligence/rules/SubdomainHttpProbe
 import { LocalRecommendationInbox } from '../approval/RecommendationInbox';
 import { LocalApprovalGateway } from '../approval/ApprovalGateway';
 import { LocalAuditLog } from '../approval/AuditLog';
-import { LocalIntentTranslator } from '../approval/IntentTranslator';
+import { LocalIntentTranslator, CapabilityValidationError } from '../approval/IntentTranslator';
+import type { IntentTranslator } from '../approval/IntentTranslator';
+import type { CapabilityRegistry } from '../capabilities/CapabilityRegistry';
+import { createDefaultCapabilityRegistry } from '../capabilities/DefaultCapabilityRegistry';
 
 import type { CapabilityRequest } from '../core/ExecutionContracts';
 import type { AttackRecommendation } from '../intelligence/AttackRecommendation';
@@ -51,6 +54,11 @@ function assertNoExecutableKeys(obj: any): void {
   }
 }
 
+export interface V2AssessmentRuntimeOptions {
+  intentTranslator?: IntentTranslator;
+  capabilityRegistry?: CapabilityRegistry;
+}
+
 export class V2AssessmentRuntime {
   private sessions = new Map<string, V2AssessmentSession>();
 
@@ -59,12 +67,13 @@ export class V2AssessmentRuntime {
   
   private inbox = new LocalRecommendationInbox();
   private auditLog = new LocalAuditLog();
-  private intentTranslator = new LocalIntentTranslator();
-  private approvalGateway = new LocalApprovalGateway(this.inbox, this.auditLog, this.intentTranslator);
+  private intentTranslator: IntentTranslator;
+  private approvalGateway: LocalApprovalGateway;
 
   constructor(
     private readonly repository: AssessmentRepository = new InMemoryAssessmentRepository(),
-    orchestratorOrRegistry?: MinimalOrchestrator | ToolRegistry
+    orchestratorOrRegistry?: MinimalOrchestrator | ToolRegistry,
+    options?: V2AssessmentRuntimeOptions
   ) {
     if (orchestratorOrRegistry instanceof MinimalOrchestrator) {
       this.orchestrator = orchestratorOrRegistry;
@@ -76,6 +85,10 @@ export class V2AssessmentRuntime {
       const registry = createV2ToolRegistry();
       this.orchestrator = new MinimalOrchestrator(registry, new LocalProcessRunner());
     }
+
+    const registry = options?.capabilityRegistry ?? createDefaultCapabilityRegistry();
+    this.intentTranslator = options?.intentTranslator ?? new LocalIntentTranslator(registry);
+    this.approvalGateway = new LocalApprovalGateway(this.inbox, this.auditLog, this.intentTranslator);
   }
 
   private async runWithRepositoryTransactionIfAvailable<T>(
@@ -282,6 +295,9 @@ export class V2AssessmentRuntime {
         ? this.approvalGateway.approveRecommendation(pendingRec, operatorId, overrides)
         : this.approvalGateway.approveRecommendation(pendingRec, operatorId);
     } catch (err: any) {
+      if (err instanceof CapabilityValidationError) {
+        throw err;
+      }
       let draft = V2AssessmentSession.fromState(session.getState());
       draft.update(state => ({
         lifecycleStatus: 'failed',

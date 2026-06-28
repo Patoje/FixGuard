@@ -34,3 +34,11 @@ The capabilities directory establishes a strict metadata boundary to define what
 ## Execution and Production Readiness
 
 Real scanner execution remains future work. V1 is only a source of concepts, not code to patch or import blindly. Default validation remains DB-free. This module does **not** claim production readiness; it simply defines the boundaries and validation structures for future integrations.
+
+### Milestone 28 updates
+In M28, the registry was integrated into the approval translation path.
+- Approval now requires a registered safe capability id.
+- The registry validates the final safe config before transient CapabilityRequest creation.
+- The registry is strictly metadata/validation, not a runner. No real scanner execution added.
+- CapabilityRequest remains transient, and ExecutionRequest is never persisted.
+- There are no production readiness claims.

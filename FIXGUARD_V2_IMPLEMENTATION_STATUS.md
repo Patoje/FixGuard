@@ -573,6 +573,22 @@ It may never transform understanding directly into execution.
 - M27 remains fully DB-free.
 - Default `npm run check:v2` updated to include M27 smoke.
 
+
 ---
-*Last Updated: After Milestone 27 - Capability Contract*
+### Milestone 28 - Capability Registry Integration / Approval Enforcement Boundary (DONE)
+**Goal:** Enforce capability registry during approval.
+- Updated `IntentTranslator` to consult the `CapabilityRegistry` during translation.
+- Unknown capability ids are rejected before mutation/persistence/execution.
+- Unsafe final capability inputs are rejected before mutation/persistence/execution via `CapabilityValidationError`.
+- Registered safe capabilities still approve successfully.
+- Preserved M25 approval-after-reload behavior.
+- `CapabilityRequest` remains transient and unchanged.
+- `ExecutionRequest` is never persisted.
+- Registry remains metadata/validation only.
+- No real scanner, tool, or process execution was added.
+- No runtime DB, Postgres coupling, or storage schema changes were introduced.
+- Default `npm run check:v2` updated to include M28 smoke test.
+
+---
+*Last Updated: After Milestone 28 - Capability Registry Integration*
 *Next update due: After API/UI Integration or scan scheduling.*
