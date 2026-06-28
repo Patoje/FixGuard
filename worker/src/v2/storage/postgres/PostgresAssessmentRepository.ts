@@ -10,6 +10,7 @@ import type {
   AppendApprovedRequestInput,
   AppendExecutionFailureInput
 } from '../AssessmentRepository';
+import type { TransactionalAssessmentRepository } from '../TransactionalAssessmentRepository';
 import { StaleStateError } from '../StorageErrors';
 import type { AssessmentState } from '../../runtime/AssessmentState';
 import type { EvidenceCollection } from '../../core/Evidence';
@@ -55,7 +56,7 @@ function clone<T>(obj: T): T {
 // Minimal type for generic DB
 type GenericDb = any;
 
-export class PostgresAssessmentRepository implements AssessmentRepository {
+export class PostgresAssessmentRepository implements TransactionalAssessmentRepository {
   constructor(private readonly db: GenericDb) {}
 
   public async saveAssessmentState(input: SaveAssessmentStateInput): Promise<void> {
@@ -343,5 +344,14 @@ export class PostgresAssessmentRepository implements AssessmentRepository {
       .orderBy(asc(v2_execution_failure_records.insertion_order));
     
     return rows.map((r: any) => clone(r.record_json));
+  }
+
+  public async withTransaction<T>(
+    work: (repository: AssessmentRepository) => Promise<T>
+  ): Promise<T> {
+    return this.db.transaction(async (tx: GenericDb) => {
+      const transactionalRepository = new PostgresAssessmentRepository(tx);
+      return work(transactionalRepository);
+    });
   }
 }

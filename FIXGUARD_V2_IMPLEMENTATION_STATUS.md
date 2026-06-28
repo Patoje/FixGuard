@@ -451,6 +451,18 @@ This smoke test successfully validated the first full V2 loop:
 - Adapted `AssessmentRepositoryConformanceSuite.ts` with test-layer hooks (`beforeEachCase`, `afterEachCase`, `seedParentSession`) to handle schema FK dependencies without polluting production persistence logic.
 - Runtime integration remains untouched and defaults to `InMemoryAssessmentRepository`.
 
+### Milestone 20 — Persistence Transaction Boundary (DONE)
+**Goal:** Add explicit repository transaction-boundary support before any runtime Postgres integration.
+- Created `TransactionalAssessmentRepository.ts` as an optional extension to `AssessmentRepository`.
+- Added `withTransaction` deep-clone rollback implementation to `InMemoryAssessmentRepository`.
+- Added `withTransaction` using Drizzle's `db.transaction` to `PostgresAssessmentRepository`.
+- Created `AssessmentRepositoryTransactionConformanceSuite.ts` to verify commit, rollback (snapshot + append), and `StaleStateError` rollback behaviors.
+- Created `milestone20_repository_transaction_smoke.ts` and `milestone20_postgres_repository_transaction_smoke.ts`.
+- InMemory transaction conformance passed.
+- The configured Neon Postgres transaction smoke passed with `FIXGUARD_PG_TEST_URL` and `FIXGUARD_PG_TEST_ALLOW_DESTRUCTIVE=1` using the transaction-capable Neon serverless Pool driver.
+- Runtime integration remains out of scope. Postgres is not the runtime default, and no production DB client/composition exists yet.
+- Nested transactions remain out of scope for M20.
+
 ---
 
 *Last Updated: After Milestone 19 — Postgres Migration + DB Conformance Smoke*

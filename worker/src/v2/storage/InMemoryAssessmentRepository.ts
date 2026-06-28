@@ -8,6 +8,7 @@ import type {
   AppendApprovedRequestInput,
   AppendExecutionFailureInput
 } from './AssessmentRepository';
+import type { TransactionalAssessmentRepository } from './TransactionalAssessmentRepository';
 import { StaleStateError } from './StorageErrors';
 import type { 
   AssessmentState,
@@ -17,7 +18,7 @@ import type {
 import type { EvidenceCollection } from '../core/Evidence';
 import type { AuditEntry } from '../approval/ApprovalContracts';
 
-export class InMemoryAssessmentRepository implements AssessmentRepository {
+export class InMemoryAssessmentRepository implements TransactionalAssessmentRepository {
   private readonly states = new Map<string, AssessmentState>();
   private readonly evidence = new Map<string, EvidenceCollection[]>();
   private readonly auditEntries = new Map<string, AuditEntry[]>();
@@ -147,5 +148,39 @@ export class InMemoryAssessmentRepository implements AssessmentRepository {
 
   public async listExecutionFailures(sessionId: string): Promise<ExecutionFailureRecord[]> {
     return this.clone(this.executionFailures.get(sessionId) || []);
+  }
+
+  public async withTransaction<T>(
+    work: (repository: AssessmentRepository) => Promise<T>
+  ): Promise<T> {
+    // Deep clone all internal state before running the transaction callback
+    const backupStates = new Map(Array.from(this.states.entries()).map(([k, v]) => [k, this.clone(v)]));
+    const backupEvidence = new Map(Array.from(this.evidence.entries()).map(([k, v]) => [k, this.clone(v)]));
+    const backupAuditEntries = new Map(Array.from(this.auditEntries.entries()).map(([k, v]) => [k, this.clone(v)]));
+    const backupApprovedRequests = new Map(Array.from(this.approvedRequests.entries()).map(([k, v]) => [k, this.clone(v)]));
+    const backupExecutionFailures = new Map(Array.from(this.executionFailures.entries()).map(([k, v]) => [k, this.clone(v)]));
+
+    try {
+      return await work(this);
+    } catch (error) {
+      // Rollback: restore all maps exactly
+      this.states.clear();
+      for (const [k, v] of backupStates) this.states.set(k, v);
+
+      this.evidence.clear();
+      for (const [k, v] of backupEvidence) this.evidence.set(k, v);
+
+      this.auditEntries.clear();
+      for (const [k, v] of backupAuditEntries) this.auditEntries.set(k, v);
+
+      this.approvedRequests.clear();
+      for (const [k, v] of backupApprovedRequests) this.approvedRequests.set(k, v);
+
+      this.executionFailures.clear();
+      for (const [k, v] of backupExecutionFailures) this.executionFailures.set(k, v);
+
+      // Re-throw the original error without wrapping
+      throw error;
+    }
   }
 }
