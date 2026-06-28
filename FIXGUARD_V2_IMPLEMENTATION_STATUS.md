@@ -475,10 +475,25 @@ This smoke test successfully validated the first full V2 loop:
 
 ---
 
-*Last Updated: After Milestone 19 — Postgres Migration + DB Conformance Smoke*
-*Next update due: After API/UI Integration or scan scheduling.*
+
+
 
 ## Intelligence Layer Rule
 
 The Intelligence Layer may transform evidence into understanding.
 It may never transform understanding directly into execution.
+
+### Milestone 22 - Explicit Postgres Runtime Composition Boundary (DONE)
+**Goal:** Add an explicit, opt-in composition boundary for Postgres without polluting runtime core.
+- Added \worker/src/v2/runtime/composition/PostgresV2RuntimeComposition.ts\.
+- Exposed \createPostgresBackedV2Runtime\ and \createPostgresBackedV2RuntimeFromEnv\.
+- Enforced strict env opt-in: \FIXGUARD_V2_RUNTIME_REPOSITORY=postgres\, \FIXGUARD_V2_ENABLE_POSTGRES_RUNTIME=1\, and \FIXGUARD_V2_DATABASE_URL\.
+- Used Neon serverless Pool driver for full transaction compatibility.
+- Ensured Postgres is explicitly NOT the runtime default.
+- Added \worker/src/v2/smoke/milestone22_postgres_runtime_composition_smoke.ts\ with safe-by-default behavior (skips if env vars, destructive guard, or explicit test branch confirmation missing).
+- Runtime remains completely repository-agnostic and free of DB client imports.
+- Production API/UI/queue integration utilizing this boundary remains future work.
+
+---
+*Last Updated: After Milestone 22 - Postgres Runtime Composition Boundary*
+*Next update due: After API/UI Integration or scan scheduling.*
