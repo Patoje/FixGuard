@@ -21,7 +21,9 @@ import { V2AssessmentSession } from './V2AssessmentSession';
 import { RuntimeLifecycleError } from './RuntimeLifecycleError';
 import type { AssessmentRepository } from '../storage/AssessmentRepository';
 import { InMemoryAssessmentRepository } from '../storage/InMemoryAssessmentRepository';
+import { isTransactionalAssessmentRepository } from '../storage/TransactionalAssessmentRepository';
 import type { AuditEntry } from '../approval/ApprovalContracts';
+import type { EvidenceCollection } from '../core/Evidence';
 
 export class V2AssessmentRuntime {
   private sessions = new Map<string, V2AssessmentSession>();
@@ -50,16 +52,25 @@ export class V2AssessmentRuntime {
     }
   }
 
-  private async persistState(session: V2AssessmentSession, isNew: boolean = false): Promise<void> {
+  private async runWithRepositoryTransactionIfAvailable<T>(
+    work: (repository: AssessmentRepository) => Promise<T>
+  ): Promise<T> {
+    if (isTransactionalAssessmentRepository(this.repository)) {
+      return this.repository.withTransaction(work);
+    }
+    return work(this.repository);
+  }
+
+  private async persistState(repository: AssessmentRepository, session: V2AssessmentSession, isNew: boolean = false): Promise<void> {
     const state = session.getState();
     const expectedVersion = isNew ? 0 : state.version - 1;
-    await this.repository.saveAssessmentState({ state, expectedVersion });
+    await repository.saveAssessmentState({ state, expectedVersion });
   }
 
   public async createSession(targetUri: string): Promise<V2AssessmentSession> {
     const session = new V2AssessmentSession(targetUri);
+    await this.persistState(this.repository, session, true);
     this.sessions.set(session.getState().sessionId, session);
-    await this.persistState(session, true);
     return session;
   }
 
@@ -90,8 +101,10 @@ export class V2AssessmentRuntime {
 
     const targetUri = state.targetUri;
 
-    session.update(() => ({ lifecycleStatus: 'initial_execution_running' }));
-    await this.persistState(session);
+    let draft = V2AssessmentSession.fromState(session.getState());
+    draft.update(() => ({ lifecycleStatus: 'initial_execution_running' }));
+    await this.persistState(this.repository, draft);
+    this.sessions.set(sessionId, draft);
 
     const req: CapabilityRequest = {
       capability: 'subdomain_discovery',
@@ -99,44 +112,61 @@ export class V2AssessmentRuntime {
       config: {}
     };
 
+    let evidence!: EvidenceCollection;
+    let executionErr: any;
     try {
-      const evidence = await this.orchestrator.run(req);
-      session.update(state => ({
-        evidenceCollections: [...state.evidenceCollections, evidence],
-        lifecycleStatus: 'profile_updated'
-      }));
-      await this.persistState(session);
-      await this.repository.appendEvidence({
-        sessionId,
-        evidence,
-        capability: req.capability,
-        recordedAt: Date.now()
-      });
+      evidence = await this.orchestrator.run(req);
     } catch (err: any) {
+      executionErr = err;
+    }
+
+    if (executionErr) {
+      draft = V2AssessmentSession.fromState(this.sessions.get(sessionId)!.getState());
       const failure: ExecutionFailureRecord = {
         id: `fail_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`,
         capability: req.capability,
         targetUri,
         failedAt: Date.now(),
-        errorMessage: err.message || String(err),
+        errorMessage: executionErr.message || String(executionErr),
         recoverable: true,
-        lifecycleStatusAtFailure: session.getState().lifecycleStatus
+        lifecycleStatusAtFailure: draft.getState().lifecycleStatus
       };
       
-      session.update(state => ({
+      draft.update(state => ({
         executionFailures: [...state.executionFailures, failure],
-        errors: [...state.errors, `Initial recon failed: ${err.message}`],
+        errors: [...state.errors, `Initial recon failed: ${executionErr.message}`],
         lifecycleStatus: 'profile_updated'
       }));
-      await this.persistState(session);
-      await this.repository.appendExecutionFailure({
-        sessionId,
-        record: failure,
-        recordedAt: failure.failedAt
+
+      await this.runWithRepositoryTransactionIfAvailable(async (txRepo) => {
+        await this.persistState(txRepo, draft);
+        await txRepo.appendExecutionFailure({
+          sessionId,
+          record: failure,
+          recordedAt: failure.failedAt
+        });
       });
+      this.sessions.set(sessionId, draft);
+      return draft.getState();
     }
 
-    return session.getState();
+    draft = V2AssessmentSession.fromState(this.sessions.get(sessionId)!.getState());
+    draft.update(state => ({
+      evidenceCollections: [...state.evidenceCollections, evidence],
+      lifecycleStatus: 'profile_updated'
+    }));
+
+    await this.runWithRepositoryTransactionIfAvailable(async (txRepo) => {
+      await this.persistState(txRepo, draft);
+      await txRepo.appendEvidence({
+        sessionId,
+        evidence,
+        capability: req.capability,
+        recordedAt: Date.now()
+      });
+    });
+    this.sessions.set(sessionId, draft);
+    return draft.getState();
   }
 
   public async runIntelligence(sessionId: string): Promise<AssessmentState> {
@@ -144,8 +174,10 @@ export class V2AssessmentRuntime {
     const state = session.getState();
     this.assertCanRunIntelligence(state);
 
-    session.update(() => ({ lifecycleStatus: 'intelligence_running' }));
-    await this.persistState(session);
+    let draft = V2AssessmentSession.fromState(session.getState());
+    draft.update(() => ({ lifecycleStatus: 'intelligence_running' }));
+    await this.persistState(this.repository, draft);
+    this.sessions.set(sessionId, draft);
 
     const accumulator = new LocalEvidenceAccumulator();
     for (const ec of state.evidenceCollections) {
@@ -185,14 +217,19 @@ export class V2AssessmentRuntime {
       this.inbox.add(rec);
     }
 
-    session.update(s => ({
+    // Refresh draft from active session in case it wasn't modified? 
+    // It's the same draft object so we can just update it again, 
+    // but wait! If we mutated draft earlier, it's the active session now, so we can just make a new draft from active session
+    draft = V2AssessmentSession.fromState(this.sessions.get(sessionId)!.getState());
+    draft.update(s => ({
       currentProfile: profile,
       pendingRecommendations: [...s.pendingRecommendations, ...newRecs],
       lifecycleStatus: (s.pendingRecommendations.length + newRecs.length) > 0 ? 'awaiting_approval' : 'completed'
     }));
-    await this.persistState(session);
+    await this.persistState(this.repository, draft);
+    this.sessions.set(sessionId, draft);
 
-    return session.getState();
+    return draft.getState();
   }
 
   public async approveRecommendation(
@@ -217,26 +254,31 @@ export class V2AssessmentRuntime {
         ? this.approvalGateway.approveWithOverrides(recommendationId, operatorId, overrides)
         : this.approvalGateway.approve(recommendationId, operatorId);
     } catch (err: any) {
-      session.update(state => ({
+      let draft = V2AssessmentSession.fromState(session.getState());
+      draft.update(state => ({
         lifecycleStatus: 'failed',
         errors: [...state.errors, `Approval translation failure: ${err.message}`]
       }));
-      await this.persistState(session);
-      return session.getState();
+      await this.persistState(this.repository, draft);
+      this.sessions.set(sessionId, draft);
+      return draft.getState();
     }
 
     if (!approvalResult.request) {
-      session.update(state => ({
+      let draft = V2AssessmentSession.fromState(session.getState());
+      draft.update(state => ({
         lifecycleStatus: 'failed',
         errors: [...state.errors, `Approval failed to yield a CapabilityRequest`]
       }));
-      await this.persistState(session);
-      return session.getState();
+      await this.persistState(this.repository, draft);
+      this.sessions.set(sessionId, draft);
+      return draft.getState();
     }
 
     const request = approvalResult.request;
     const sourceRecId = request.config?.sourceRecommendationId as string || recommendationId;
 
+    let draft = V2AssessmentSession.fromState(session.getState());
     const record: ApprovedRequestRecord = {
       id: `ar_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`,
       recommendationId,
@@ -249,7 +291,7 @@ export class V2AssessmentRuntime {
     };
 
     let auditEntry!: AuditEntry;
-    session.update(state => {
+    draft.update(state => {
       const sourceRec = state.pendingRecommendations.find(r => r.id === recommendationId)!;
       auditEntry = {
         id: `audit_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`,
@@ -265,58 +307,79 @@ export class V2AssessmentRuntime {
         auditEntries: [...state.auditEntries, auditEntry]
       };
     });
-    await this.persistState(session);
-    await this.repository.appendApprovedRequest({
-      sessionId,
-      record,
-      recordedAt: record.approvedAt
-    });
-    await this.repository.appendAuditEntry({
-      sessionId,
-      entry: auditEntry,
-      recordedAt: auditEntry.recordedAt
-    });
 
+    await this.runWithRepositoryTransactionIfAvailable(async (txRepo) => {
+      await this.persistState(txRepo, draft);
+      await txRepo.appendApprovedRequest({
+        sessionId,
+        record,
+        recordedAt: record.approvedAt
+      });
+      await txRepo.appendAuditEntry({
+        sessionId,
+        entry: auditEntry,
+        recordedAt: auditEntry.recordedAt
+      });
+    });
+    this.sessions.set(sessionId, draft);
+
+    let evidence!: EvidenceCollection;
+    let executionErr: any;
     try {
-      const evidence = await this.orchestrator.run(request);
-      session.update(state => ({
-        evidenceCollections: [...state.evidenceCollections, evidence],
-        lifecycleStatus: 'profile_updated'
+      evidence = await this.orchestrator.run(request);
+    } catch (err: any) {
+      executionErr = err;
+    }
+
+    if (executionErr) {
+      draft = V2AssessmentSession.fromState(this.sessions.get(sessionId)!.getState());
+      const failure: ExecutionFailureRecord = {
+        id: `fail_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`,
+        capability: request.capability,
+        targetUri: request.target.uri,
+        failedAt: Date.now(),
+        errorMessage: executionErr.message || String(executionErr),
+        recoverable: true,
+        sourceRecommendationId: recommendationId,
+        lifecycleStatusAtFailure: draft.getState().lifecycleStatus
+      };
+      
+      draft.update(state => ({
+        executionFailures: [...state.executionFailures, failure],
+        errors: [...state.errors, `Approved execution failed: ${executionErr.message}`],
+        lifecycleStatus: state.pendingRecommendations.length > 0 ? 'awaiting_approval' : 'completed'
       }));
-      await this.persistState(session);
-      await this.repository.appendEvidence({
+
+      await this.runWithRepositoryTransactionIfAvailable(async (txRepo) => {
+        await this.persistState(txRepo, draft);
+        await txRepo.appendExecutionFailure({
+          sessionId,
+          record: failure,
+          recordedAt: failure.failedAt
+        });
+      });
+      this.sessions.set(sessionId, draft);
+      return draft.getState();
+    }
+
+    draft = V2AssessmentSession.fromState(this.sessions.get(sessionId)!.getState());
+    draft.update(state => ({
+      evidenceCollections: [...state.evidenceCollections, evidence],
+      lifecycleStatus: 'profile_updated'
+    }));
+
+    await this.runWithRepositoryTransactionIfAvailable(async (txRepo) => {
+      await this.persistState(txRepo, draft);
+      await txRepo.appendEvidence({
         sessionId,
         evidence,
         capability: request.capability,
         recordedAt: Date.now(),
         sourceApprovedRequestRecordId: record.id
       });
-    } catch (err: any) {
-      const failure: ExecutionFailureRecord = {
-        id: `fail_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`,
-        capability: request.capability,
-        targetUri: request.target.uri,
-        failedAt: Date.now(),
-        errorMessage: err.message || String(err),
-        recoverable: true,
-        sourceRecommendationId: recommendationId,
-        lifecycleStatusAtFailure: session.getState().lifecycleStatus
-      };
-      
-      session.update(state => ({
-        executionFailures: [...state.executionFailures, failure],
-        errors: [...state.errors, `Approved execution failed: ${err.message}`],
-        lifecycleStatus: state.pendingRecommendations.length > 0 ? 'awaiting_approval' : 'completed'
-      }));
-      await this.persistState(session);
-      await this.repository.appendExecutionFailure({
-        sessionId,
-        record: failure,
-        recordedAt: failure.failedAt
-      });
-    }
-
-    return session.getState();
+    });
+    this.sessions.set(sessionId, draft);
+    return draft.getState();
   }
 
   public async rejectRecommendation(sessionId: string, recommendationId: string, operatorId: string, reason: string): Promise<AssessmentState> {
@@ -332,8 +395,9 @@ export class V2AssessmentRuntime {
 
     const approvalResult = this.approvalGateway.reject(recommendationId, operatorId, reason);
 
+    const draft = V2AssessmentSession.fromState(session.getState());
     let auditEntry!: AuditEntry;
-    session.update(state => {
+    draft.update(state => {
       const pending = state.pendingRecommendations.filter(r => r.id !== recommendationId);
       const sourceRec = state.pendingRecommendations.find(r => r.id === recommendationId)!;
       auditEntry = {
@@ -349,14 +413,18 @@ export class V2AssessmentRuntime {
         auditEntries: [...state.auditEntries, auditEntry]
       };
     });
-    await this.persistState(session);
-    await this.repository.appendAuditEntry({
-      sessionId,
-      entry: auditEntry,
-      recordedAt: auditEntry.recordedAt
+
+    await this.runWithRepositoryTransactionIfAvailable(async (txRepo) => {
+      await this.persistState(txRepo, draft);
+      await txRepo.appendAuditEntry({
+        sessionId,
+        entry: auditEntry,
+        recordedAt: auditEntry.recordedAt
+      });
     });
 
-    return session.getState();
+    this.sessions.set(sessionId, draft);
+    return draft.getState();
   }
 
   public async completeSession(sessionId: string): Promise<AssessmentState> {
@@ -364,9 +432,11 @@ export class V2AssessmentRuntime {
     const state = session.getState();
     this.assertCanComplete(state);
 
-    session.update(() => ({ lifecycleStatus: 'completed' }));
-    await this.persistState(session);
-    return session.getState();
+    const draft = V2AssessmentSession.fromState(session.getState());
+    draft.update(() => ({ lifecycleStatus: 'completed' }));
+    await this.persistState(this.repository, draft);
+    this.sessions.set(sessionId, draft);
+    return draft.getState();
   }
 
   private getSessionOrThrow(sessionId: string): V2AssessmentSession {

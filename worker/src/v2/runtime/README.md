@@ -16,7 +16,8 @@ This module acts as the thin application-service coordinator that moves data bet
 *   **Strict Optimistic Versioning:** Optimistic locking is strictly enforced without dynamic repair. A new session saves with `expectedVersion = 0`, and any subsequent update saves with `expectedVersion = state.version - 1`.
 *   **Repository Failures:** Any failures during `saveAssessmentState` or appending records (such as `StaleStateError`) propagate naturally, rejecting the runtime operation.
 *   **Storage Boundaries:** Storage strictly persists `ApprovedRequestRecord`. Executable `CapabilityRequest` objects are transient and never stored or leaked in state summaries.
-*   **Non-Transactional Risk:** Appending evidence/audit records currently happens as separate storage calls after the state snapshot is saved. This is a known future adapter risk that may need transactional adapters.
+*   **Transaction Adoption:** The runtime now detects if the injected repository implements `TransactionalAssessmentRepository`. If it does, mutating multi-write flows (such as `startInitialRecon`, `approveRecommendation`, and `rejectRecommendation`) are wrapped in transactions to ensure atomicity. If a non-transactional repository is provided, the runtime gracefully falls back to the original non-transactional behavior.
+*   **Postgres Not Default:** The default injected repository remains the `InMemoryAssessmentRepository`. Postgres runtime integration remains future work.
 *   **No Unrelated Services:** The runtime does not implement APIs, UIs, database persistence, or queues.
 *   **Global Singletons:** `RecommendationInbox` and `AuditLog` are currently runtime-global, which is acceptable only for the current in-memory scope.
 *   **Transient Requests:** `CapabilityRequest` remains transient only and is NOT stored in the session state. `AssessmentState` stores `ApprovedRequestRecord` instead. There is no CapabilityRequest reconstruction during session load.

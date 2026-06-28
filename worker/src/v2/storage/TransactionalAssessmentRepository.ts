@@ -12,3 +12,9 @@ export interface TransactionalAssessmentRepository extends AssessmentRepository 
     work: (repository: AssessmentRepository) => Promise<T>
   ): Promise<T>;
 }
+
+export function isTransactionalAssessmentRepository(
+  repository: AssessmentRepository
+): repository is TransactionalAssessmentRepository {
+  return typeof (repository as Partial<TransactionalAssessmentRepository>).withTransaction === 'function';
+}

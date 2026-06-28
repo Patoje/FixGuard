@@ -463,6 +463,16 @@ This smoke test successfully validated the first full V2 loop:
 - Runtime integration remains out of scope. Postgres is not the runtime default, and no production DB client/composition exists yet.
 - Nested transactions remain out of scope for M20.
 
+### Milestone 21 — Runtime Transaction Adoption (DONE)
+**Goal:** Update `V2AssessmentRuntime` to use optional repository transactions for multi-write flows.
+- Added `isTransactionalAssessmentRepository` type guard to `TransactionalAssessmentRepository.ts`.
+- Added `runWithRepositoryTransactionIfAvailable` helper to `V2AssessmentRuntime.ts`.
+- Wrapped `startInitialRecon`, `approveRecommendation`, and `rejectRecommendation` in transactions to ensure snapshot and append-only records commit atomically.
+- Ensured `StaleStateError` propagates unchanged and triggers rollbacks.
+- Verified lifecycle guard semantics remain unchanged (they perform no writes and prevent execution).
+- Created DB-free `milestone21_runtime_transaction_smoke.ts` to prove transactional commits, rollbacks on append failures, and non-transactional fallback.
+- Postgres transaction runtime integration remains future work (not the default repository).
+
 ---
 
 *Last Updated: After Milestone 19 — Postgres Migration + DB Conformance Smoke*
