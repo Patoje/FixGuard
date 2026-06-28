@@ -519,5 +519,17 @@ It may never transform understanding directly into execution.
 - **Safety Note:** The DB URL must never be committed or documented. Because a DB connection string was exposed during manual validation, the disposable Neon branch/password should be deleted or rotated after validation. Do not include the actual URL in any file.
 
 ---
-*Last Updated: After Milestone 23 - DB-Proven Postgres Runtime Composition Validation*
+### Milestone 24 - Application Service Boundary (DONE)
+**Goal:** Add a narrow application-layer boundary that future API/UI/queue/worker code can call safely.
+- Added `worker/src/v2/application/AssessmentApplicationService.ts`.
+- Added `worker/src/v2/application/ApplicationDtos.ts` with safe DTO mappings that explicitly strip out internal runtime fields, repository identifiers, and executable keys (`binary`, `args`, etc.).
+- Created DB-free `milestone24_application_service_boundary_smoke.ts` using stub orchestration to prove DTO isolation.
+- M24 does not add API/UI/queues/workers.
+- M24 does not add production bootstrap.
+- M24 does not make Postgres default.
+- M24 does not expand scanner/tool execution.
+- M24 does not claim production readiness.
+
+---
+*Last Updated: After Milestone 24 - Application Service Boundary*
 *Next update due: After API/UI Integration or scan scheduling.*
