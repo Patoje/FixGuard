@@ -15,6 +15,9 @@ export interface ApprovalGateway {
   approve(id: string, operatorId: string, configOverrides?: Record<string, unknown>): ApprovalResult;
   approveWithOverrides(id: string, operatorId: string, overrides: Record<string, unknown>): ApprovalResult;
   reject(id: string, operatorId: string, reason: string): ApprovalResult;
+  
+  approveRecommendation(recommendation: AttackRecommendation, operatorId: string, configOverrides?: Record<string, unknown>): ApprovalResult;
+  rejectRecommendation(recommendation: AttackRecommendation, operatorId: string, reason: string): ApprovalResult;
 }
 
 export class LocalApprovalGateway implements ApprovalGateway {
@@ -30,9 +33,21 @@ export class LocalApprovalGateway implements ApprovalGateway {
 
   approve(id: string, operatorId: string, configOverrides?: Record<string, unknown>): ApprovalResult {
     const recommendation = this.getRecommendationOrThrow(id);
-    
+    return this.approveRecommendation(recommendation, operatorId, configOverrides);
+  }
+
+  approveWithOverrides(id: string, operatorId: string, overrides: Record<string, unknown>): ApprovalResult {
+    return this.approve(id, operatorId, overrides);
+  }
+
+  reject(id: string, operatorId: string, reason: string): ApprovalResult {
+    const recommendation = this.getRecommendationOrThrow(id);
+    return this.rejectRecommendation(recommendation, operatorId, reason);
+  }
+
+  approveRecommendation(recommendation: AttackRecommendation, operatorId: string, configOverrides?: Record<string, unknown>): ApprovalResult {
     const decision: ApprovalDecision = {
-      recommendationId: id,
+      recommendationId: recommendation.id,
       status: configOverrides ? 'approved_with_overrides' : 'approved',
       operatorId,
       decidedAt: Date.now()
@@ -49,15 +64,9 @@ export class LocalApprovalGateway implements ApprovalGateway {
     return { decision, request };
   }
 
-  approveWithOverrides(id: string, operatorId: string, overrides: Record<string, unknown>): ApprovalResult {
-    return this.approve(id, operatorId, overrides);
-  }
-
-  reject(id: string, operatorId: string, reason: string): ApprovalResult {
-    const recommendation = this.getRecommendationOrThrow(id);
-    
+  rejectRecommendation(recommendation: AttackRecommendation, operatorId: string, reason: string): ApprovalResult {
     const decision: ApprovalDecision = {
-      recommendationId: id,
+      recommendationId: recommendation.id,
       status: 'rejected',
       operatorId,
       decidedAt: Date.now(),

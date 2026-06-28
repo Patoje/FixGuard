@@ -531,5 +531,18 @@ It may never transform understanding directly into execution.
 - M24 does not claim production readiness.
 
 ---
-*Last Updated: After Milestone 24 - Application Service Boundary*
+### Milestone 25 - Recommendation Continuity / Approval Resume Boundary (DONE)
+**Goal:** Fix recommendation approval continuity after session reload.
+- Modified `ApprovalGateway` and `V2AssessmentRuntime` to translate `AttackRecommendation` directly from `AssessmentState.pendingRecommendations` during explicit approval.
+- Approval after `loadSession` in a fresh runtime now succeeds without depending on the ephemeral `RecommendationInbox`.
+- `CapabilityRequest` remains strictly transient and is never persisted.
+- `ExecutionRequest` is never persisted.
+- Executable keys (`binary`, `args`, `env`, `command`, `shell`, `stdin`) are strictly not exposed or persisted.
+- Created deterministic DB-free `milestone25_recommendation_continuity_smoke.ts`.
+- M25 does not add API/UI/queues/workers.
+- M25 does not change Postgres schemas/migrations or storage contracts.
+- M25 prioritizes correctness and continuity over speed.
+
+---
+*Last Updated: After Milestone 25 - Recommendation Continuity*
 *Next update due: After API/UI Integration or scan scheduling.*

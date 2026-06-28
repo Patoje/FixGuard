@@ -25,6 +25,32 @@ import { isTransactionalAssessmentRepository } from '../storage/TransactionalAss
 import type { AuditEntry } from '../approval/ApprovalContracts';
 import type { EvidenceCollection } from '../core/Evidence';
 
+const FORBIDDEN_OVERRIDE_KEYS = new Set([
+  'binary', 'args', 'env', 'command', 'shell', 'stdin'
+]);
+
+function assertNoExecutableKeys(obj: any): void {
+  if (obj === null || obj === undefined) {
+    return;
+  }
+  
+  if (Array.isArray(obj)) {
+    for (const item of obj) {
+      assertNoExecutableKeys(item);
+    }
+    return;
+  }
+  
+  if (typeof obj === 'object') {
+    for (const [key, value] of Object.entries(obj)) {
+      if (FORBIDDEN_OVERRIDE_KEYS.has(key)) {
+        throw new Error(`Approval validation failed: Executable override key '${key}' is forbidden`);
+      }
+      assertNoExecutableKeys(value);
+    }
+  }
+}
+
 export class V2AssessmentRuntime {
   private sessions = new Map<string, V2AssessmentSession>();
 
@@ -238,6 +264,8 @@ export class V2AssessmentRuntime {
     operatorId: string, 
     overrides?: Record<string, unknown>
   ): Promise<AssessmentState> {
+    assertNoExecutableKeys(overrides);
+
     const session = this.getSessionOrThrow(sessionId);
     const state = session.getState();
     this.assertCanApproveRecommendation(state);
@@ -251,8 +279,8 @@ export class V2AssessmentRuntime {
     let approvalResult;
     try {
       approvalResult = overrides 
-        ? this.approvalGateway.approveWithOverrides(recommendationId, operatorId, overrides)
-        : this.approvalGateway.approve(recommendationId, operatorId);
+        ? this.approvalGateway.approveRecommendation(pendingRec, operatorId, overrides)
+        : this.approvalGateway.approveRecommendation(pendingRec, operatorId);
     } catch (err: any) {
       let draft = V2AssessmentSession.fromState(session.getState());
       draft.update(state => ({
@@ -393,7 +421,7 @@ export class V2AssessmentRuntime {
       throw new Error(`Recommendation ${recommendationId} not found in pending state for session ${sessionId}`);
     }
 
-    const approvalResult = this.approvalGateway.reject(recommendationId, operatorId, reason);
+    const approvalResult = this.approvalGateway.rejectRecommendation(pendingRec, operatorId, reason);
 
     const draft = V2AssessmentSession.fromState(session.getState());
     let auditEntry!: AuditEntry;
