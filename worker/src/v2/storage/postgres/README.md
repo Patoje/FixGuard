@@ -5,7 +5,7 @@ This namespace contains the relational schema definitions and the implementation
 ## Current Status (Milestone 19)
 * **Schema Exists:** V2-specific Drizzle schema is fully defined in `schema.ts`.
 * **Adapter Exists:** `PostgresAssessmentRepository.ts` implements the `AssessmentRepository` contract.
-* **DB Conformance Testing:** Milestone 19 adds env-gated DB conformance testing support. It can validate the adapter against a real PostgreSQL instance when configured, using the `AssessmentRepositoryConformanceSuite`. (Note: In the current local environment, only compilation and the DB-free missing-env skip path were verified).
+* **DB Conformance Testing:** Milestone 19 adds V2-specific migrations and an env-gated Postgres repository conformance smoke. The configured Neon test branch run passed with `FIXGUARD_PG_TEST_URL` and `FIXGUARD_PG_TEST_ALLOW_DESTRUCTIVE=1`. DB-free regression smokes and the missing-env skip path also pass. Runtime integration with Postgres remains future work. Postgres is not the runtime default, and no production DB client/composition exists yet.
   * **Migration Metadata Isolation:** The M19 smoke uses a V2-specific migration metadata namespace (schema: `drizzle_v2`, table: `__drizzle_migrations_v2`) to completely separate it from any legacy/default Drizzle migration metadata.
 * **Runtime is NOT Integrated:** The V2 runtime remains entirely decoupled from Drizzle and PostgreSQL. It continues to operate via the `AssessmentRepository` interface and defaults to the InMemory adapter.
 

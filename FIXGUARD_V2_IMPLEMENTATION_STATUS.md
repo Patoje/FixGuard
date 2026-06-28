@@ -446,7 +446,7 @@ This smoke test successfully validated the first full V2 loop:
 - Created `worker/drizzle.v2.config.ts` to cleanly isolate V2 schemas from V1.
 - Generated real V2 Drizzle migration artifacts under `worker/drizzle-v2/`.
 - Created `milestone19_postgres_repository_conformance_smoke.ts` to run the suite against Postgres.
-- The test can validate the adapter against a real DB when configured with `FIXGUARD_PG_TEST_URL` and `FIXGUARD_PG_TEST_ALLOW_DESTRUCTIVE=1` (skips cleanly otherwise). Note: in the current local run, only compile, DB-free smokes, and the missing-env skip path were verified.
+- Milestone 19 adds V2-specific migrations and an env-gated Postgres repository conformance smoke. The configured Neon test branch run passed with `FIXGUARD_PG_TEST_URL` and `FIXGUARD_PG_TEST_ALLOW_DESTRUCTIVE=1`. DB-free regression smokes and the missing-env skip path also pass. Runtime integration with Postgres remains future work. Postgres is not the runtime default, and no production DB client/composition exists yet.
 - Migration metadata is explicitly isolated from legacy Drizzle by using a V2-specific namespace (`drizzle_v2` / `__drizzle_migrations_v2`).
 - Adapted `AssessmentRepositoryConformanceSuite.ts` with test-layer hooks (`beforeEachCase`, `afterEachCase`, `seedParentSession`) to handle schema FK dependencies without polluting production persistence logic.
 - Runtime integration remains untouched and defaults to `InMemoryAssessmentRepository`.

@@ -203,21 +203,21 @@ export async function runAssessmentRepositoryConformanceSuite(
     await runBefore();
     const repo = await createRepository();
     const sessionId = 'session-stale';
-    const state = createMinimalAssessmentState(sessionId, 0);
+    const state = createMinimalAssessmentState(sessionId, 1);
     await repo.saveAssessmentState({ state, expectedVersion: 0 });
     
-    // Simulate updating with wrong expectedVersion (repo is at 0, we expect 1)
-    state.version = 2;
+    // Simulate updating with wrong expectedVersion (repo is at 1, we expect 2)
+    state.version = 3;
     let caughtError: any;
     try {
-      await repo.saveAssessmentState({ state, expectedVersion: 1 });
+      await repo.saveAssessmentState({ state, expectedVersion: 2 });
     } catch (e) {
       caughtError = e;
     }
     assert(caughtError instanceof StaleStateError, 'Should throw StaleStateError');
     assert.strictEqual(caughtError.sessionId, sessionId);
-    assert.strictEqual(caughtError.expectedVersion, 1);
-    assert.strictEqual(caughtError.actualVersion, 0); // it was 0 in repo
+    assert.strictEqual(caughtError.expectedVersion, 2);
+    assert.strictEqual(caughtError.actualVersion, 1); // it was 1 in repo
     console.log('[+] 7 & 8. expectedVersion mismatch throws correctly shaped StaleStateError');
     await runAfter();
   }
@@ -227,14 +227,14 @@ export async function runAssessmentRepositoryConformanceSuite(
     await runBefore();
     const repo = await createRepository();
     const sessionId = 'session-update';
-    const state = createMinimalAssessmentState(sessionId, 0);
+    const state = createMinimalAssessmentState(sessionId, 1);
     await repo.saveAssessmentState({ state, expectedVersion: 0 });
     
-    state.version = 1;
-    await repo.saveAssessmentState({ state, expectedVersion: 0 });
+    state.version = 2;
+    await repo.saveAssessmentState({ state, expectedVersion: 1 });
     
     const loaded = await repo.loadAssessmentState(sessionId);
-    assert.strictEqual(loaded?.version, 1);
+    assert.strictEqual(loaded?.version, 2);
     console.log('[+] 9. Matching expectedVersion updates successfully');
     await runAfter();
   }
