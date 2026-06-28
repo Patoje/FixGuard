@@ -16,3 +16,6 @@ This directory contains explicit outer composition boundaries for \V2AssessmentR
   * \FIXGUARD_V2_RUNTIME_COMPOSITION_ALLOW_DESTRUCTIVE=1\ (allows destructive V2-table cleanup)
   * \FIXGUARD_V2_RUNTIME_COMPOSITION_CONFIRM_TEST_BRANCH=1\ (explicit human confirmation that the DB is a disposable/test branch)
 * **No Overclaims:** This demonstrates architectural capability but does not inherently claim production readiness on its own.
+
+## Milestone 23 DB-Proven Validation Safety Note
+Because a DB connection string was exposed during manual validation, the disposable Neon branch/password should be deleted or rotated after validation. Do not include the actual URL in any file.

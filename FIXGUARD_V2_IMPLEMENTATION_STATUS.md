@@ -495,5 +495,29 @@ It may never transform understanding directly into execution.
 - Production API/UI/queue integration utilizing this boundary remains future work.
 
 ---
-*Last Updated: After Milestone 22 - Postgres Runtime Composition Boundary*
+
+
+
+### Milestone 23 - DB-Proven Postgres Runtime Composition Validation (DONE)
+**Goal:** Validate M22 composition boundary against a real Postgres database.
+- Milestone 23 DB-proven validation passed against a configured disposable Neon test branch.
+- This proves explicit Postgres runtime composition works end-to-end with a real DB.
+- It proves:
+  - V2 migrations/conformance through M19.
+  - Postgres-backed runtime creation through composition.
+  - deterministic stub orchestration, no real tools/scanners.
+  - snapshot persistence to Postgres.
+  - independent reload from a fresh runtime/composition.
+  - append-only evidence row persistence in `v2_evidence_records`.
+  - expected finding type `subdomain_discovery`.
+  - V2-only cleanup.
+  - pool close behavior.
+- Postgres remains explicit opt-in.
+- Postgres is still not runtime default.
+- No production API/UI/queue/worker integration exists yet.
+- This is test-branch DB proof, not a production readiness claim.
+- **Safety Note:** The DB URL must never be committed or documented. Because a DB connection string was exposed during manual validation, the disposable Neon branch/password should be deleted or rotated after validation. Do not include the actual URL in any file.
+
+---
+*Last Updated: After Milestone 23 - DB-Proven Postgres Runtime Composition Validation*
 *Next update due: After API/UI Integration or scan scheduling.*

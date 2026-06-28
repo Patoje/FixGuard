@@ -37,3 +37,6 @@ Leverages `@neondatabase/serverless` (specifically the `Pool` class) and `drizzl
 
 ## Future Work
 * Integrating this composition boundary with actual REST API routes, UI hooks, and background worker queues.
+
+## Milestone 23 DB-Proven Validation Safety Note
+Because a DB connection string was exposed during manual validation, the disposable Neon branch/password should be deleted or rotated after validation. Do not include the actual URL in any file.
