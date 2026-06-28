@@ -441,10 +441,20 @@ This smoke test successfully validated the first full V2 loop:
 - Exported from the postgres namespace only. 
 - Fully compiles, no real DB connectivity or migrations added yet. Note: The Postgres adapter is NOT yet ready to run the M17 conformance suite unchanged. Real Postgres conformance requires a future DB test setup/migration milestone that handles creating parent session rows (due to FK constraints on append tables) or adapts setup/teardown appropriately.
 
+### Milestone 19 — Postgres Migration + DB Conformance Smoke (DONE)
+**Goal:** Add env-gated DB conformance testing support for the Postgres adapter.
+- Created `worker/drizzle.v2.config.ts` to cleanly isolate V2 schemas from V1.
+- Generated real V2 Drizzle migration artifacts under `worker/drizzle-v2/`.
+- Created `milestone19_postgres_repository_conformance_smoke.ts` to run the suite against Postgres.
+- The test can validate the adapter against a real DB when configured with `FIXGUARD_PG_TEST_URL` and `FIXGUARD_PG_TEST_ALLOW_DESTRUCTIVE=1` (skips cleanly otherwise). Note: in the current local run, only compile, DB-free smokes, and the missing-env skip path were verified.
+- Migration metadata is explicitly isolated from legacy Drizzle by using a V2-specific namespace (`drizzle_v2` / `__drizzle_migrations_v2`).
+- Adapted `AssessmentRepositoryConformanceSuite.ts` with test-layer hooks (`beforeEachCase`, `afterEachCase`, `seedParentSession`) to handle schema FK dependencies without polluting production persistence logic.
+- Runtime integration remains untouched and defaults to `InMemoryAssessmentRepository`.
+
 ---
 
-*Last Updated: After Milestone 18 — PostgresAssessmentRepository Adapter*
-*Next update due: After Milestone 19 (Transaction boundary hardening or migrations)*
+*Last Updated: After Milestone 19 — Postgres Migration + DB Conformance Smoke*
+*Next update due: After API/UI Integration or scan scheduling.*
 
 ## Intelligence Layer Rule
 

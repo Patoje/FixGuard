@@ -11,6 +11,12 @@ import type { AttackRecommendation } from '../../intelligence/AttackRecommendati
 
 export type AssessmentRepositoryFactory = () => AssessmentRepository | Promise<AssessmentRepository>;
 
+export interface ConformanceSuiteHooks {
+  beforeEachCase?: () => Promise<void>;
+  afterEachCase?: () => Promise<void>;
+  seedParentSession?: (sessionId: string) => Promise<void>;
+}
+
 function createMinimalAssessmentState(sessionId: string, version: number = 0): AssessmentState {
   return {
     sessionId,
@@ -92,12 +98,18 @@ function createMinimalExecutionFailure(): ExecutionFailureRecord {
 
 export async function runAssessmentRepositoryConformanceSuite(
   name: string,
-  createRepository: AssessmentRepositoryFactory
+  createRepository: AssessmentRepositoryFactory,
+  hooks?: ConformanceSuiteHooks
 ): Promise<void> {
   console.log(`\n--- Running AssessmentRepositoryConformanceSuite for ${name} ---`);
 
+  const runBefore = async () => { if (hooks?.beforeEachCase) await hooks.beforeEachCase(); };
+  const runAfter = async () => { if (hooks?.afterEachCase) await hooks.afterEachCase(); };
+  const seed = async (sessionId: string) => { if (hooks?.seedParentSession) await hooks.seedParentSession(sessionId); };
+
   // 1 & 2. saveAssessmentState creates a new session with expectedVersion: 0, load returns it.
   {
+    await runBefore();
     const repo = await createRepository();
     const sessionId = 'session-1';
     const state = createMinimalAssessmentState(sessionId);
@@ -105,18 +117,22 @@ export async function runAssessmentRepositoryConformanceSuite(
     const loaded = await repo.loadAssessmentState(sessionId);
     assert.deepStrictEqual(loaded, state);
     console.log('[+] 1 & 2. saveAssessmentState(expectedVersion: 0) and loadAssessmentState works');
+    await runAfter();
   }
 
   // 3. Missing loadAssessmentState(sessionId) returns undefined.
   {
+    await runBefore();
     const repo = await createRepository();
     const loaded = await repo.loadAssessmentState('missing-session');
     assert.strictEqual(loaded, undefined);
     console.log('[+] 3. Missing loadAssessmentState returns undefined');
+    await runAfter();
   }
 
   // 4 & 5. External mutation does not mutate stored state.
   {
+    await runBefore();
     const repo = await createRepository();
     const sessionId = 'session-clone';
     const state = createMinimalAssessmentState(sessionId);
@@ -134,18 +150,24 @@ export async function runAssessmentRepositoryConformanceSuite(
     const loaded2 = await repo.loadAssessmentState(sessionId);
     assert.strictEqual(loaded2?.targetUri, 'https://example.com');
     console.log('[+] 4 & 5. External mutation does not mutate stored state (cloned)');
+    await runAfter();
   }
 
   // 6. Returned list items are cloned, not live references.
   {
+    await runBefore();
     const repo = await createRepository();
     const sessionId = 'session-list-clone';
+    await seed(sessionId);
     const ev = createMinimalEvidence();
     await repo.appendEvidence({ sessionId, evidence: ev, capability: 'recon', recordedAt: 1000 });
     await repo.appendAuditEntry({ sessionId, entry: createMinimalAuditEntry(), recordedAt: 1000 });
     await repo.appendApprovedRequest({ sessionId, record: createMinimalApprovedRequest(), recordedAt: 1000 });
     await repo.appendExecutionFailure({ sessionId, record: createMinimalExecutionFailure(), recordedAt: 1000 });
-    await repo.saveAssessmentState({ state: createMinimalAssessmentState(sessionId), expectedVersion: 0 });
+    
+    if (!hooks?.seedParentSession) {
+      await repo.saveAssessmentState({ state: createMinimalAssessmentState(sessionId), expectedVersion: 0 });
+    }
     
     const list1 = await repo.listEvidence(sessionId);
     list1[0].metadata = { mutated: true };
@@ -173,10 +195,12 @@ export async function runAssessmentRepositoryConformanceSuite(
     assert.strictEqual(s2[0].lifecycleStatus, 'initialized');
 
     console.log('[+] 6. Returned list items are cloned');
+    await runAfter();
   }
 
   // 7 & 8. expectedVersion mismatch throws StaleStateError + Error shape.
   {
+    await runBefore();
     const repo = await createRepository();
     const sessionId = 'session-stale';
     const state = createMinimalAssessmentState(sessionId, 0);
@@ -195,10 +219,12 @@ export async function runAssessmentRepositoryConformanceSuite(
     assert.strictEqual(caughtError.expectedVersion, 1);
     assert.strictEqual(caughtError.actualVersion, 0); // it was 0 in repo
     console.log('[+] 7 & 8. expectedVersion mismatch throws correctly shaped StaleStateError');
+    await runAfter();
   }
 
   // 9. Matching expectedVersion updates successfully.
   {
+    await runBefore();
     const repo = await createRepository();
     const sessionId = 'session-update';
     const state = createMinimalAssessmentState(sessionId, 0);
@@ -210,10 +236,12 @@ export async function runAssessmentRepositoryConformanceSuite(
     const loaded = await repo.loadAssessmentState(sessionId);
     assert.strictEqual(loaded?.version, 1);
     console.log('[+] 9. Matching expectedVersion updates successfully');
+    await runAfter();
   }
 
   // 10 & 11 & 12 & 20. listSessions summaries, fields, filters, and counts
   {
+    await runBefore();
     const repo = await createRepository();
     const sessionId1 = 'session-s1';
     const state1 = createMinimalAssessmentState(sessionId1);
@@ -295,13 +323,17 @@ export async function runAssessmentRepositoryConformanceSuite(
     assert.strictEqual(fOffset.length, 2);
 
     console.log('[+] 10 & 11 & 12 & 20. listSessions summaries, counts, and filters work correctly');
+    await runAfter();
   }
 
   // 13, 14, 15, 16, 17, 18, 19, 21. Append-only methods, isolation, and deterministic ordering.
   {
+    await runBefore();
     const repo = await createRepository();
     const sa = 'session-a';
     const sb = 'session-b';
+    await seed(sa);
+    await seed(sb);
 
     // Append record A (higher timestamp, second in time but first inserted)
     const evA1 = createMinimalEvidence();
@@ -378,6 +410,7 @@ export async function runAssessmentRepositoryConformanceSuite(
     assert.strictEqual(efB.length, 1);
 
     console.log('[+] 13-19, 21. Append-only, session isolation, ordering, and approved-request shape all verified');
+    await runAfter();
   }
 
   console.log('--- Conformance Suite Passed ---\n');
