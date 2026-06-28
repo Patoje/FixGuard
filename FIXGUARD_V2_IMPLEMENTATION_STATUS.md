@@ -431,10 +431,20 @@ This smoke test successfully validated the first full V2 loop:
 - Created `milestone17_repository_conformance_smoke.ts` and successfully verified the existing `InMemoryAssessmentRepository`.
 - Did not modify production storage logic, schemas, or runtime execution.
 
+### Milestone 18 — PostgresAssessmentRepository Adapter (DONE)
+**Goal:** Implement a Drizzle/PostgreSQL-backed `AssessmentRepository` adapter that satisfies the existing `AssessmentRepository` contract.
+- Safely patched `schema.ts` to add a DB-generated `insertion_order` column and corresponding index to the four append-only tables to support deterministic insertion ordering.
+- Implemented `PostgresAssessmentRepository.ts` accepting an injected Drizzle `db` connection.
+- Deep clones and rigorously rejects JSON objects containing executable keys (e.g. `binary`, `command`, `args`, `env`, `shell`).
+- Strictly enforces optimistic concurrency explicitly returning `StaleStateError` on failure (using robust `.returning()` checks rather than driver-specific rowCount heuristics).
+- Properly includes `created_at_ms` in all update and upsert conflict paths.
+- Exported from the postgres namespace only. 
+- Fully compiles, no real DB connectivity or migrations added yet. Note: The Postgres adapter is NOT yet ready to run the M17 conformance suite unchanged. Real Postgres conformance requires a future DB test setup/migration milestone that handles creating parent session rows (due to FK constraints on append tables) or adapts setup/teardown appropriately.
+
 ---
 
-*Last Updated: After Milestone 17 — AssessmentRepository Conformance Suite*
-*Next update due: After Milestone 18 (PostgresAssessmentRepository implementation)*
+*Last Updated: After Milestone 18 — PostgresAssessmentRepository Adapter*
+*Next update due: After Milestone 19 (Transaction boundary hardening or migrations)*
 
 ## Intelligence Layer Rule
 

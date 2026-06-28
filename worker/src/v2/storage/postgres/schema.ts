@@ -5,7 +5,8 @@ import {
   bigint, 
   jsonb, 
   boolean,
-  index 
+  index,
+  serial
 } from 'drizzle-orm/pg-core';
 import type { 
   AssessmentState, 
@@ -44,9 +45,11 @@ export const v2_evidence_records = pgTable('v2_evidence_records', {
   recorded_at_ms: bigint('recorded_at_ms', { mode: 'number' }).notNull(),
   source_approved_request_record_id: text('source_approved_request_record_id'),
   finding_count: integer('finding_count').notNull().default(0),
+  insertion_order: serial('insertion_order').notNull(),
   evidence_json: jsonb('evidence_json').$type<EvidenceCollection>().notNull()
 }, (table) => ({
   sessionIdIdx: index('idx_v2_evidence_session_id').on(table.session_id),
+  sessionInsertionOrderIdx: index('idx_v2_evidence_session_insertion_order').on(table.session_id, table.insertion_order),
   sessionRecordedAtIdx: index('idx_v2_evidence_session_recorded_at').on(table.session_id, table.recorded_at_ms),
   sessionCapabilityIdx: index('idx_v2_evidence_session_capability').on(table.session_id, table.capability)
 }));
@@ -60,9 +63,11 @@ export const v2_audit_entries = pgTable('v2_audit_entries', {
   recommendation_id: text('recommendation_id'),
   decision: text('decision'),
   recorded_at_ms: bigint('recorded_at_ms', { mode: 'number' }).notNull(),
+  insertion_order: serial('insertion_order').notNull(),
   entry_json: jsonb('entry_json').$type<AuditEntry>().notNull()
 }, (table) => ({
   sessionIdIdx: index('idx_v2_audit_session_id').on(table.session_id),
+  sessionInsertionOrderIdx: index('idx_v2_audit_session_insertion_order').on(table.session_id, table.insertion_order),
   sessionRecordedAtIdx: index('idx_v2_audit_session_recorded_at').on(table.session_id, table.recorded_at_ms)
 }));
 
@@ -79,9 +84,11 @@ export const v2_approved_request_records = pgTable('v2_approved_request_records'
   source_recommendation_id: text('source_recommendation_id'),
   approved_at_ms: bigint('approved_at_ms', { mode: 'number' }).notNull(),
   request_summary_json: jsonb('request_summary_json').notNull(),
+  insertion_order: serial('insertion_order').notNull(),
   record_json: jsonb('record_json').$type<ApprovedRequestRecord>().notNull()
 }, (table) => ({
   sessionIdIdx: index('idx_v2_approved_session_id').on(table.session_id),
+  sessionInsertionOrderIdx: index('idx_v2_approved_session_insertion_order').on(table.session_id, table.insertion_order),
   sessionApprovedAtIdx: index('idx_v2_approved_session_approved_at').on(table.session_id, table.approved_at_ms),
   sessionCapabilityIdx: index('idx_v2_approved_session_capability').on(table.session_id, table.capability)
 }));
@@ -99,9 +106,11 @@ export const v2_execution_failure_records = pgTable('v2_execution_failure_record
   source_recommendation_id: text('source_recommendation_id'),
   lifecycle_status_at_failure: text('lifecycle_status_at_failure').notNull(),
   error_message: text('error_message').notNull(),
+  insertion_order: serial('insertion_order').notNull(),
   record_json: jsonb('record_json').$type<ExecutionFailureRecord>().notNull()
 }, (table) => ({
   sessionIdIdx: index('idx_v2_failure_session_id').on(table.session_id),
+  sessionInsertionOrderIdx: index('idx_v2_failure_session_insertion_order').on(table.session_id, table.insertion_order),
   sessionFailedAtIdx: index('idx_v2_failure_session_failed_at').on(table.session_id, table.failed_at_ms),
   sessionCapabilityIdx: index('idx_v2_failure_session_capability').on(table.session_id, table.capability),
   sessionRecoverableIdx: index('idx_v2_failure_session_recoverable').on(table.session_id, table.recoverable)
