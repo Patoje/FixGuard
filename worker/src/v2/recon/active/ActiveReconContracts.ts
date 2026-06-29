@@ -11,21 +11,44 @@ export interface ActiveReconProbeRequest {
   requestedAtMs: number;
 }
 
-export type SafeActiveReconObservation = {
-  kind: 'robots_metadata' | 'security_txt_metadata';
-  safeSummary: string;
-  confidence: 'low' | 'medium' | 'high';
-  metadata?: {
-    reachable?: boolean;
-    contentTypeLookedTextLike?: boolean;
-    recognizedDirectiveLineCount?: number;
-    hasUserAgentDirective?: boolean;
-    hasDisallowDirective?: boolean;
-    hasAllowDirective?: boolean;
-    hasSitemapDirective?: boolean;
-    bodyTruncated?: boolean;
-  };
+export type SafeRobotsTxtMetadata = {
+  reachable?: boolean;
+  contentTypeLookedTextLike?: boolean;
+  recognizedDirectiveLineCount?: number;
+  hasUserAgentDirective?: boolean;
+  hasDisallowDirective?: boolean;
+  hasAllowDirective?: boolean;
+  hasSitemapDirective?: boolean;
+  bodyTruncated?: boolean;
 };
+
+export type SafeSecurityTxtMetadata = {
+  reachable?: boolean;
+  contentTypeLookedTextLike?: boolean;
+  recognizedFieldLineCount?: number;
+  hasContactField?: boolean;
+  hasExpiresField?: boolean;
+  hasEncryptionField?: boolean;
+  hasAcknowledgmentsField?: boolean;
+  hasPreferredLanguagesField?: boolean;
+  hasCanonicalField?: boolean;
+  hasPolicyField?: boolean;
+  bodyTruncated?: boolean;
+};
+
+export type SafeActiveReconObservation =
+  | {
+      kind: 'robots_metadata';
+      safeSummary: string;
+      confidence: 'low' | 'medium' | 'high';
+      metadata?: SafeRobotsTxtMetadata;
+    }
+  | {
+      kind: 'security_txt_metadata';
+      safeSummary: string;
+      confidence: 'low' | 'medium' | 'high';
+      metadata?: SafeSecurityTxtMetadata;
+    };
 
 export type ActiveReconProbeStatus =
   | 'observed'

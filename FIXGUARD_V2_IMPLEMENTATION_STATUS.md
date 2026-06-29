@@ -684,5 +684,15 @@ It may never transform understanding directly into execution.
 - Verified default no-egress behavior and programmatic out-of-scope/invalid URL checks.
 
 ---
-*Last Updated: After Milestone 35 - Explicit Opt-in Real Active Robots Probe Validation*
-*Next update due: After guarded real HTTP active probe adapter for other targets is introduced (M36).*
+### Milestone 36 - Active Recon Safe Document Metadata Boundary (DONE)
+**Goal:** Create safe, fixed-shape, DB-free/network-free sanitizers for active recon document-like probes.
+- Created `worker/src/v2/recon/active/ActiveReconDocumentSanitizers.ts` with explicit sanitizers for `robots.txt` and `security.txt`.
+- Restricted `SafeActiveReconObservation` in `ActiveReconContracts.ts` to be a discriminated union (`robots_metadata` / `security_txt_metadata`) containing strictly defined metadata shapes without arbitrary index signatures.
+- Updated `FakeActiveReconAdapter.ts` to process modeled hostile fixtures through the new sanitizers, returning safe parsed metadata.
+- Implemented `worker/src/v2/smoke/milestone36_active_recon_safe_document_metadata_smoke.ts` to prove hostile paths, parameters, emails, API keys, tokens, and PGP blocks never survive serialization.
+- Fully DB-free, network-free, finding-free, and evidence-free.
+- The real M35 adapter remains entirely untouched. No real `security.txt` probe execution was implemented.
+
+---
+*Last Updated: After Milestone 36 - Active Recon Safe Document Metadata Boundary*
+*Next update due: After guarded real HTTP active probe adapter for other targets is introduced (M37).*

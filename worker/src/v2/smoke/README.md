@@ -25,7 +25,7 @@ This runs:
 - `npm run smoke:v2:storage`: M17 repository conformance, M20 in-memory transactions.
 - `npm run smoke:v2:application`: M24 application service boundary.
 - `npm run smoke:v2:capabilities`: M27 capability contract boundary, M28 capability registry enforcement, and M29 passive http header inspect vertical flow.
-- `npm run smoke:v2:recon`: M30 authorized scope / egress policy boundary, M31 guarded real HTTP header inspect adapter, M33 egress policy audit boundary, and M34 active recon adapter boundary. These tests are included in `smoke:v2` and `check:v2`. All are DB-free and network-free (M31 uses a fake transport, M33 uses a pure in-memory mapper/recorder, M34 uses a fake adapter).
+- `npm run smoke:v2:recon`: M30 authorized scope / egress policy boundary, M31 guarded real HTTP header inspect adapter, M33 egress policy audit boundary, M34 active recon adapter boundary, and M36 active recon safe document metadata boundary. These tests are included in `smoke:v2` and `check:v2`. All are DB-free and network-free (M31 uses a fake transport, M33 uses a pure in-memory mapper/recorder, M34 uses a fake adapter, M36 uses local sanitizers and fake adapter).
 
 ## DB Opt-In Validation
 

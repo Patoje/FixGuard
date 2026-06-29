@@ -15,4 +15,9 @@ This boundary models the contracts and adapter interfaces for active target inte
 - **Resolved-IP guard:** Real adapters use the M31-style DNS resolution guard to block internal/SSRF targets at the socket level.
 - **Audit-safe:** All decisions map safely to the M33 control-plane audit model in smoke tests.
 
-`security.txt` and scanners are future milestones. M35 is explicit opt-in only. No production-readiness claims are made.
+- **M36 DB-Free Sanitizers:** M36 introduces DB-free, network-free metadata sanitizers for document-like probes (robots.txt, security.txt).
+- **No Real security.txt Network:** M36 does not execute real network requests for security.txt. The real adapter remains completely untouched from M35.
+- **Fixed Shapes:** Sanitizers emit strictly fixed shapes. No raw payload values or generic metadata containers (`[key: string]: unknown`) exist.
+- **Fake Fixtures:** Fake active recon adapter responses are strictly mock behavior to prove fixed shapes. They do not represent real target evidence.
+
+`security.txt` real network and scanners are future milestones. M35 is explicit opt-in only. No production-readiness claims are made.
