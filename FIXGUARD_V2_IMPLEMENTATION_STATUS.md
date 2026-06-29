@@ -615,5 +615,16 @@ It may never transform understanding directly into execution.
 - Pure decision outputs without runtime, storage, evidence, or finding persistence.
 
 ---
-*Last Updated: After Milestone 30 - Egress Policy Boundary*
+### Milestone 31 - Guarded Real HTTP Header Inspect Adapter (DONE)
+**Goal:** Introduce the first real network-backed passive adapter for `http.header.inspect` guarded by the M30 egress policy.
+- Real egress is opt-in (`RealHttpHeaderInspectTransport`).
+- Transport abstraction separates policy/sanitization from `node:http`/`node:https` fetching.
+- M30 egress policy is strictly evaluated before transport invocation.
+- DNS IP resolution guard blocks internal/loopback/SSRF targets.
+- Headers are sanitized heavily before evidence creation, masking auth/tokens/cookies.
+- Response bodies are strictly ignored.
+- Fake transport (`FakeHttpHeaderInspectTransport`) ensures DB-free, network-free default smokes.
+
+---
+*Last Updated: After Milestone 31 - Guarded Real HTTP Header Inspect Adapter*
 *Next update due: After Active Recon network adapters are introduced.*

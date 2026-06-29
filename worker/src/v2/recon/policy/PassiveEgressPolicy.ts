@@ -27,19 +27,116 @@ function isBlockedIpv4Address(octets: [number, number, number, number]): boolean
   return false;
 }
 
-function isInternalOrSsrfTarget(hostname: string): boolean {
+/**
+ * Expand an IPv6 address string (without brackets, already lowercase) into
+ * exactly 8 16-bit groups represented as numbers.
+ * Returns null if the string is not a syntactically valid IPv6 address.
+ * Handles :: compressed forms and dotted-decimal suffixes.
+ */
+function expandIpv6Groups(ip: string): number[] | null {
+  // Handle dotted-decimal suffix (::ffff:127.0.0.1)
+  const dottedMatch = ip.match(/^(.*:)(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})$/);
+  if (dottedMatch) {
+    const prefix = dottedMatch[1]; // e.g. "::ffff:"
+    const v4str = dottedMatch[2];
+    const v4 = parseIpv4(v4str);
+    if (!v4) return null;
+    // Convert dotted IPv4 into two 16-bit hex groups
+    const hi = (v4[0] << 8) | v4[1];
+    const lo = (v4[2] << 8) | v4[3];
+    const reconstructed = prefix + hi.toString(16) + ':' + lo.toString(16);
+    return expandIpv6Groups(reconstructed); // recurse, now fully hex
+  }
+
+  // Split on '::'
+  const halves = ip.split('::');
+  if (halves.length > 2) return null; // multiple :: is invalid
+
+  const parseGroups = (s: string): number[] | null => {
+    if (s === '') return [];
+    const parts = s.split(':');
+    const nums = parts.map(p => {
+      if (!/^[0-9a-f]{1,4}$/.test(p)) return NaN;
+      return parseInt(p, 16);
+    });
+    if (nums.some(n => isNaN(n) || n < 0 || n > 0xffff)) return null;
+    return nums;
+  };
+
+  if (halves.length === 1) {
+    // No :: — must be exactly 8 groups
+    const groups = parseGroups(halves[0]);
+    if (!groups || groups.length !== 8) return null;
+    return groups;
+  }
+
+  // Has ::
+  const left = parseGroups(halves[0]);
+  const right = parseGroups(halves[1]);
+  if (!left || !right) return null;
+  const missing = 8 - left.length - right.length;
+  if (missing < 0) return null;
+  return [...left, ...Array(missing).fill(0), ...right];
+}
+
+/**
+ * Return the IPv4 octets encoded in an IPv4-mapped IPv6 address,
+ * or null if the address is not IPv4-mapped.
+ * IPv4-mapped = first 80 bits zero, bits 80–95 are 0xffff, last 32 bits are IPv4.
+ */
+function ipv4MappedOctets(groups: number[]): [number, number, number, number] | null {
+  if (groups.length !== 8) return null;
+  for (let i = 0; i < 5; i++) {
+    if (groups[i] !== 0) return null;
+  }
+  if (groups[5] !== 0xffff) return null;
+  const hi = groups[6];
+  const lo = groups[7];
+  return [(hi >> 8) & 0xff, hi & 0xff, (lo >> 8) & 0xff, lo & 0xff];
+}
+
+function isBlockedIpv6Address(hostname: string): boolean {
+  let ip = hostname.startsWith('[') && hostname.endsWith(']') ? hostname.slice(1, -1) : hostname;
+  ip = ip.toLowerCase();
+
+  if (ip === '::1' || ip === '::') return true; // Loopback and Unspecified
+
+  // Expand to 8 groups; treat malformed as safe-to-fail-closed
+  const groups = expandIpv6Groups(ip);
+  if (!groups) return false;
+
+  // Loopback: ::1 expanded is [0,0,0,0,0,0,0,1]
+  if (groups.every((g, i) => i < 7 ? g === 0 : g === 1)) return true;
+
+  // Unspecified: :: expanded is [0,0,0,0,0,0,0,0]
+  if (groups.every(g => g === 0)) return true;
+
+  // Link-local: fe80::/10 — first group starts with 0xfe8x..0xfebx
+  const g0 = groups[0];
+  if ((g0 & 0xffc0) === 0xfe80) return true;
+
+  // Unique-local: fc00::/7 — starts with fc or fd
+  if ((g0 & 0xfe00) === 0xfc00) return true;
+
+  // Multicast: ff00::/8
+  if ((g0 & 0xff00) === 0xff00) return true;
+
+  // IPv4-mapped: ::ffff:x.x.x.x
+  const mapped = ipv4MappedOctets(groups);
+  if (mapped && isBlockedIpv4Address(mapped)) return true;
+
+  return false;
+}
+
+
+export function isInternalOrSsrfTarget(hostname: string): boolean {
   // Loopback / Localhost
   if (hostname === 'localhost' || hostname.endsWith('.localhost')) return true;
 
   const ipv4 = parseIpv4(hostname);
   if (ipv4 && isBlockedIpv4Address(ipv4)) return true;
   
-  // IPv6
-  if (hostname === '[::1]') return true;
-  if (hostname.startsWith('[fe80:')) return true;
-  if (hostname.startsWith('[fc00:')) return true;
-  if (hostname.startsWith('[fd00:')) return true;
-  if (hostname.startsWith('[::ffff:')) return true;
+  if (hostname.includes(':') && isBlockedIpv6Address(hostname)) return true;
 
   return false;
 }
