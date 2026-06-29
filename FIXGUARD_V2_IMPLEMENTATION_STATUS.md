@@ -657,6 +657,20 @@ It may never transform understanding directly into execution.
 - `smoke:v2:recon:real` untouched.
 - No package-lock changes. No forbidden files touched.
 
+
 ---
-*Last Updated: After Milestone 33 - Egress Policy Decision Audit Boundary*
-*Next update due: After Active Recon network adapters are introduced.*
+### Milestone 34 - Active Recon Adapter Boundary (DONE)
+**Goal:** Introduce the first Active Recon boundary in FixGuard V2 while remaining completely DB-free, network-free, runtime-free, and storage-free.
+- Defined `ActiveReconProbeKind` for `http.robots.inspect` and `http.security_txt.inspect` only.
+- Created `ActiveReconAdapter` interface and a `FakeActiveReconAdapter` that returns modeled safe observations.
+- Active probes are strictly gated by M30 `EgressPolicyDecision`.
+- Blocked and candidate targets do not execute fake adapter behavior.
+- Results use `safeDisplayUrl` with no raw requests, tokens, or credentials persisted.
+- M33 audit events are purely generated in smoke tests to confirm mapped shape, but not integrated into runtime/storage.
+- No scanner binaries, subprocesses, or real network dependencies were introduced.
+- No `Finding` or `Evidence` entities are created.
+- Package-lock and other milestones remain completely untouched.
+
+---
+*Last Updated: After Milestone 34 - Active Recon Adapter Boundary*
+*Next update due: After guarded real HTTP active probe adapter is introduced (M35).*
