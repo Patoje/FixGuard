@@ -24,7 +24,7 @@ This runs:
 - `npm run smoke:v2:runtime`: M14 lifecycle guards, M21 runtime transactions, M25 recommendation continuity.
 - `npm run smoke:v2:storage`: M17 repository conformance, M20 in-memory transactions.
 - `npm run smoke:v2:application`: M24 application service boundary.
-- `npm run smoke:v2:capabilities`: M27 capability contract boundary and M28 capability registry enforcement.
+- `npm run smoke:v2:capabilities`: M27 capability contract boundary, M28 capability registry enforcement, and M29 passive http header inspect vertical flow.
 
 ## DB Opt-In Validation
 

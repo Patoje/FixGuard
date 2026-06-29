@@ -29,5 +29,18 @@ export function createDefaultCapabilityRegistry(): CapabilityRegistry {
     allowedTargetKinds: ['host', 'subdomain']
   });
 
+  registry.register({
+    id: 'http.header.inspect',
+    name: 'HTTP Header Inspect',
+    description: 'Passively inspects HTTP response headers',
+    category: 'passive',
+    riskLevel: 'info',
+    requiresApproval: true,
+    inputSchema: { type: 'object' },
+    outputKind: 'http_headers',
+    evidenceKind: 'observation',
+    allowedTargetKinds: ['url', 'uri']
+  });
+
   return registry;
 }

@@ -16,6 +16,7 @@ import { LocalIntentTranslator, CapabilityValidationError } from '../approval/In
 import type { IntentTranslator } from '../approval/IntentTranslator';
 import type { CapabilityRegistry } from '../capabilities/CapabilityRegistry';
 import { createDefaultCapabilityRegistry } from '../capabilities/DefaultCapabilityRegistry';
+import type { PassiveCapabilityExecutor } from '../recon/passive/PassiveCapabilityExecutor';
 
 import type { CapabilityRequest } from '../core/ExecutionContracts';
 import type { AttackRecommendation } from '../intelligence/AttackRecommendation';
@@ -57,6 +58,7 @@ function assertNoExecutableKeys(obj: any): void {
 export interface V2AssessmentRuntimeOptions {
   intentTranslator?: IntentTranslator;
   capabilityRegistry?: CapabilityRegistry;
+  passiveExecutor?: PassiveCapabilityExecutor;
 }
 
 export class V2AssessmentRuntime {
@@ -69,6 +71,8 @@ export class V2AssessmentRuntime {
   private auditLog = new LocalAuditLog();
   private intentTranslator: IntentTranslator;
   private approvalGateway: LocalApprovalGateway;
+  private capabilityRegistry: CapabilityRegistry;
+  private passiveExecutor?: PassiveCapabilityExecutor;
 
   constructor(
     private readonly repository: AssessmentRepository = new InMemoryAssessmentRepository(),
@@ -87,6 +91,8 @@ export class V2AssessmentRuntime {
     }
 
     const registry = options?.capabilityRegistry ?? createDefaultCapabilityRegistry();
+    this.capabilityRegistry = registry;
+    this.passiveExecutor = options?.passiveExecutor;
     this.intentTranslator = options?.intentTranslator ?? new LocalIntentTranslator(registry);
     this.approvalGateway = new LocalApprovalGateway(this.inbox, this.auditLog, this.intentTranslator);
   }
@@ -370,7 +376,12 @@ export class V2AssessmentRuntime {
     let evidence!: EvidenceCollection;
     let executionErr: any;
     try {
-      evidence = await this.orchestrator.run(request);
+      if (request.capability === 'http.header.inspect') {
+        if (!this.passiveExecutor) throw new Error('Passive execution requires a passiveExecutor');
+        evidence = await this.passiveExecutor.execute(request);
+      } else {
+        evidence = await this.orchestrator.run(request);
+      }
     } catch (err: any) {
       executionErr = err;
     }

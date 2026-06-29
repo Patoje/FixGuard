@@ -589,6 +589,21 @@ It may never transform understanding directly into execution.
 - No runtime DB, Postgres coupling, or storage schema changes were introduced.
 - Default `npm run check:v2` updated to include M28 smoke test.
 
+
 ---
-*Last Updated: After Milestone 28 - Capability Registry Integration*
+### Milestone 29 - First Passive Recon Vertical Flow (DONE)
+**Goal:** Introduce the first deterministic passive execution boundary (`http.header.inspect`) utilizing human approval and safe observation extraction without external network dependencies.
+- `http.header.inspect` registered as a passive capability.
+- Established passive adapter boundary (`worker/src/v2/recon/passive/`).
+- `FixtureHttpHeaderInspectAdapter` provides deterministic safe execution and avoids real fetch.
+- `V2AssessmentRuntime` injects and routes passive execution efficiently.
+- Unsafe configs continue to be completely rejected at the capability layer, preventing mutated records.
+- Evidence strictly enforces no bodies, cookies, tokens, or raw requests are saved.
+- No vulnerability findings created.
+- Application/Postgres/Schema/UI unmodified.
+- No production readiness claims.
+- M29 included securely in DB-free `check:v2`.
+
+---
+*Last Updated: After Milestone 29 - First Passive Recon Vertical Flow*
 *Next update due: After API/UI Integration or scan scheduling.*

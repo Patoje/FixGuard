@@ -42,3 +42,7 @@ In M28, the registry was integrated into the approval translation path.
 - The registry is strictly metadata/validation, not a runner. No real scanner execution added.
 - CapabilityRequest remains transient, and ExecutionRequest is never persisted.
 - There are no production readiness claims.
+
+### Milestone 29 updates
+In M29, http.header.inspect was registered as a passive capability. 
+It supports deterministic, fixture-backed observation of safe HTTP header metadata without any real network fetch.
