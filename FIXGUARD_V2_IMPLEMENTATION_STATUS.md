@@ -637,6 +637,26 @@ It may never transform understanding directly into execution.
 - Explicit real egress testing is excluded from default validations (`check:v2`, `smoke:v2`).
 - Did not touch production runtime, storage, application boundaries, Postgres schemas, API, or package-lock.
 
+
 ---
-*Last Updated: After Milestone 32 - Explicit Opt-in Real HTTP Header Inspect Validation*
+### Milestone 33 - Egress Policy Decision Audit Boundary (DONE)
+**Goal:** Represent M30 egress policy decisions as sanitized control-plane audit events without treating blocks/candidates as findings, without leaking secrets, and without adding persistence/Postgres/runtime defaults.
+- Created `worker/src/v2/recon/audit/` boundary with three files:
+  - `EgressPolicyAuditContracts.ts` — strict event shape with literal classification/safety flags.
+  - `EgressPolicyAuditMapper.ts` — pure mapper from `EgressPolicyDecision` → `EgressPolicyAuditEvent`.
+  - `InMemoryEgressPolicyAuditRecorder.ts` — in-memory, test-only recorder with clone isolation and forbidden-field rejection.
+- Policy audit events carry literal flags: `controlPlaneEvent: true`, `finding: false`, `evidence: false`, `vulnerability: false`, `riskClaim: false`.
+- Block and candidate decisions can never be mistaken for findings, evidence, vulnerabilities, or risk claims.
+- `safeDisplayUrl` from M30 is always used — no raw URLs reconstructed.
+- Credentials, tokens, passwords, and sensitive query values are never present in events.
+- Recorder stores and returns deep clones; external mutation cannot affect internal state.
+- Recorder rejects events containing forbidden executable/secret fields.
+- M33 smoke proves all 21 required behaviors (allow/block/candidate mapping, recorder mutation-safety, secret redaction, classification flags, no executable fields, etc.).
+- M33 is DB-free, network-free, runtime-free, and storage-free.
+- M33 smoke added to `smoke:v2:recon` (flows into `smoke:v2` and `check:v2`).
+- `smoke:v2:recon:real` untouched.
+- No package-lock changes. No forbidden files touched.
+
+---
+*Last Updated: After Milestone 33 - Egress Policy Decision Audit Boundary*
 *Next update due: After Active Recon network adapters are introduced.*
