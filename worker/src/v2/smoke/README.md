@@ -25,6 +25,7 @@ This runs:
 - `npm run smoke:v2:storage`: M17 repository conformance, M20 in-memory transactions.
 - `npm run smoke:v2:application`: M24 application service boundary.
 - `npm run smoke:v2:capabilities`: M27 capability contract boundary, M28 capability registry enforcement, and M29 passive http header inspect vertical flow.
+- `npm run smoke:v2:recon`: M30 authorized scope / egress policy boundary. This pure policy test is included in `smoke:v2` and `check:v2`. Note that M30 is policy-only and does not perform real network egress.
 
 ## DB Opt-In Validation
 

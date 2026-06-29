@@ -604,6 +604,16 @@ It may never transform understanding directly into execution.
 - No production readiness claims.
 - M29 included securely in DB-free `check:v2`.
 
+
 ---
-*Last Updated: After Milestone 29 - First Passive Recon Vertical Flow*
-*Next update due: After API/UI Integration or scan scheduling.*
+### Milestone 30 - Authorized Scope / Egress Policy Boundary (DONE)
+**Goal:** Introduce a pure deterministic egress/scope policy module that answers "is this outbound request authorized and safe?" before real network execution.
+- Policy module (`worker/src/v2/recon/policy/`) implements strict SSRF/internal target blocking and permissive authorized scope matching.
+- Developed `TargetUrlNormalizer` to enforce valid URL constraints and classify sensitive query keys without destructive internal loss.
+- `EgressPolicyDecision` models strict allows, blocks, and subdomains as `DiscoveredScopeCandidate`.
+- Zero network requests, zero DNS resolutions, zero child process imports.
+- Pure decision outputs without runtime, storage, evidence, or finding persistence.
+
+---
+*Last Updated: After Milestone 30 - Egress Policy Boundary*
+*Next update due: After Active Recon network adapters are introduced.*
