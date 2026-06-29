@@ -626,5 +626,17 @@ It may never transform understanding directly into execution.
 - Fake transport (`FakeHttpHeaderInspectTransport`) ensures DB-free, network-free default smokes.
 
 ---
-*Last Updated: After Milestone 31 - Guarded Real HTTP Header Inspect Adapter*
+---
+### Milestone 32 - Explicit Opt-in Real HTTP Header Inspect Validation (DONE)
+**Goal:** Prove that real egress can be invoked explicitly for one bounded guarded HTTP header inspection, while remaining impossible by default.
+- Added explicitly opted-in real validation script `worker/src/v2/smoke/milestone32_opt_in_real_http_header_inspect_smoke.ts`.
+- `smoke:v2:recon:real` script added to `package.json`.
+- Strict environment variables are required to activate real egress (`FIXGUARD_V2_REAL_HTTP_HEADER_INSPECT`, `FIXGUARD_V2_REAL_HTTP_HEADER_INSPECT_URL`, `FIXGUARD_V2_REAL_HTTP_HEADER_INSPECT_ALLOWED_ORIGIN`, `FIXGUARD_V2_REAL_HTTP_HEADER_INSPECT_CONFIRM_AUTHORIZED`).
+- Fails closed safely if environment variables are partial, missing, or mismatched.
+- Executes one bounded guarded HEAD request using `RealHttpHeaderInspectTransport`.
+- Explicit real egress testing is excluded from default validations (`check:v2`, `smoke:v2`).
+- Did not touch production runtime, storage, application boundaries, Postgres schemas, API, or package-lock.
+
+---
+*Last Updated: After Milestone 32 - Explicit Opt-in Real HTTP Header Inspect Validation*
 *Next update due: After Active Recon network adapters are introduced.*

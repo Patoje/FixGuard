@@ -14,3 +14,10 @@ M31 real egress is explicit and opt-in. The default execution environment (`chec
 
 ## No Vulnerability Claims
 The evidence produced by M31 always contains `findings: []`. It gathers defensive reconnaissance observations but does not simulate an active attack or produce inflated risk scores.
+
+## Opt-in Real Validation (M32)
+M32 introduces a formal, explicit, opt-in validation path for the real HTTP header inspect adapter.
+* **Opt-in Only**: M32 requires exact environment variables to run.
+* **Validation Only**: M32 proves real egress works but does not add real egress executors to the production composition.
+* **Hermetic Defaults**: M32 validation (`smoke:v2:recon:real`) is intentionally excluded from `check:v2` and `smoke:v2`.
+* **Bounded Output**: M32 performs exactly one bounded `HEAD` request and produces no vulnerability claims or findings.

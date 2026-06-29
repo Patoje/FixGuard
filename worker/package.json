@@ -14,7 +14,8 @@
     "smoke:v2:db": "tsx src/v2/smoke/milestone19_postgres_repository_conformance_smoke.ts && tsx src/v2/smoke/milestone20_postgres_repository_transaction_smoke.ts && tsx src/v2/smoke/milestone22_postgres_runtime_composition_smoke.ts",
     "test": "npm run check:v2",
     "dev": "tsx watch src/index.ts",
-    "smoke:v2:recon": "tsx src/v2/smoke/milestone30_scope_egress_policy_smoke.ts && tsx src/v2/smoke/milestone31_guarded_http_header_inspect_smoke.ts"
+    "smoke:v2:recon": "tsx src/v2/smoke/milestone30_scope_egress_policy_smoke.ts && tsx src/v2/smoke/milestone31_guarded_http_header_inspect_smoke.ts",
+    "smoke:v2:recon:real": "tsx src/v2/smoke/milestone32_opt_in_real_http_header_inspect_smoke.ts"
   },
   "keywords": [],
   "author": "",

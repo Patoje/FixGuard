@@ -56,3 +56,31 @@ DB validations must strictly follow these rules:
 * `FIXGUARD_V2_DATABASE_URL`
 * `FIXGUARD_V2_RUNTIME_COMPOSITION_ALLOW_DESTRUCTIVE=1`
 * `FIXGUARD_V2_RUNTIME_COMPOSITION_CONFIRM_TEST_BRANCH=1`
+
+## Real Egress Opt-In Validation
+
+Real egress validations are **explicitly opt-in only**. By default, all tests (including `check:v2` and `smoke:v2`) use fake transports and are strictly DB-free and network-free. 
+
+To run the M32 real egress validation:
+
+```powershell
+npm run smoke:v2:recon:real
+```
+
+### Real Egress Safety Policies
+
+* M32 is opt-in only.
+* M32 is real egress validation only.
+* M32 is not production readiness.
+* M32 is not crawling, scanning, or vulnerability validation.
+* M32 performs one bounded `HEAD` request.
+* M32 reads no body and follows no redirects.
+* M32 creates no findings.
+* M32 is excluded from `check:v2`, `smoke:v2`, and `smoke:v2:recon`.
+* Default validations remain DB-free and external-network-free.
+
+**Required Real Egress Environment Guards:**
+* `FIXGUARD_V2_REAL_HTTP_HEADER_INSPECT=1`
+* `FIXGUARD_V2_REAL_HTTP_HEADER_INSPECT_URL=<https://your-authorized-url.com/>`
+* `FIXGUARD_V2_REAL_HTTP_HEADER_INSPECT_ALLOWED_ORIGIN=<https://your-authorized-url.com>`
+* `FIXGUARD_V2_REAL_HTTP_HEADER_INSPECT_CONFIRM_AUTHORIZED=I_CONFIRM_AUTHORIZED_TEST_TARGET`
