@@ -672,5 +672,17 @@ It may never transform understanding directly into execution.
 - Package-lock and other milestones remain completely untouched.
 
 ---
-*Last Updated: After Milestone 34 - Active Recon Adapter Boundary*
-*Next update due: After guarded real HTTP active probe adapter is introduced (M35).*
+### Milestone 35 - Explicit Opt-in Real Active Robots Probe Validation (DONE)
+**Goal:** Introduce the first guarded real Active Recon probe path in V2, but only behind explicit opt-in validation and excluded from all default checks.
+- Introduced `RealActiveReconHttpProbeAdapter` supporting only `http.robots.inspect`.
+- Enforces strict 3000ms timeout, max 16 KiB read, and 0 redirects for the `GET` request.
+- Integrates the M31-style DNS resolution guard to block SSRF and internal targets at the socket level.
+- Excluded from all default DB-free and network-free checks (`check:v2`, `smoke:v2`, `smoke:v2:recon`).
+- Real egress is protected by explicit strict environment variables (`FIXGUARD_V2_REAL_ACTIVE_RECON` etc.) and the M30 egress policy check.
+- Emits only safe metadata summaries (`SafeActiveReconObservation`); never persists or emits raw body, headers, or directive values.
+- M33 audit events remain smoke-only; no new runtime, storage, Postgres, API, or UI integration was introduced.
+- Verified default no-egress behavior and programmatic out-of-scope/invalid URL checks.
+
+---
+*Last Updated: After Milestone 35 - Explicit Opt-in Real Active Robots Probe Validation*
+*Next update due: After guarded real HTTP active probe adapter for other targets is introduced (M36).*

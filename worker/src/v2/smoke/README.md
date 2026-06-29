@@ -79,8 +79,33 @@ npm run smoke:v2:recon:real
 * M32 is excluded from `check:v2`, `smoke:v2`, and `smoke:v2:recon`.
 * Default validations remain DB-free and external-network-free.
 
-**Required Real Egress Environment Guards:**
+**Required M32 Real Egress Environment Guards:**
 * `FIXGUARD_V2_REAL_HTTP_HEADER_INSPECT=1`
 * `FIXGUARD_V2_REAL_HTTP_HEADER_INSPECT_URL=<https://your-authorized-url.com/>`
 * `FIXGUARD_V2_REAL_HTTP_HEADER_INSPECT_ALLOWED_ORIGIN=<https://your-authorized-url.com>`
 * `FIXGUARD_V2_REAL_HTTP_HEADER_INSPECT_CONFIRM_AUTHORIZED=I_CONFIRM_AUTHORIZED_TEST_TARGET`
+
+To run the M35 real active recon validation:
+
+```powershell
+npm run smoke:v2:recon:active:real
+```
+
+### M35 Real Active Recon Safety Policies
+
+* M35 is opt-in only.
+* M35 is real egress validation only.
+* M35 is not production readiness.
+* M35 is not crawling, scanning, or vulnerability validation.
+* M35 performs exactly one bounded `GET` request to `/robots.txt`.
+* M35 reads max 16 KiB and follows no redirects.
+* M35 emits no raw bodies, headers, URLs, or directive paths.
+* M35 creates no findings or product evidence.
+* M35 is excluded from `check:v2`, `smoke:v2`, and `smoke:v2:recon`.
+
+**Required M35 Real Egress Environment Guards:**
+* `FIXGUARD_V2_REAL_ACTIVE_RECON=1`
+* `FIXGUARD_V2_REAL_ACTIVE_RECON_PROBE=http.robots.inspect`
+* `FIXGUARD_V2_REAL_ACTIVE_RECON_URL=<https://your-authorized-url.com/robots.txt>`
+* `FIXGUARD_V2_REAL_ACTIVE_RECON_ALLOWED_ORIGIN=<https://your-authorized-url.com>`
+* `FIXGUARD_V2_REAL_ACTIVE_RECON_CONFIRM_AUTHORIZED=I_CONFIRM_AUTHORIZED_ACTIVE_RECON_TARGET`

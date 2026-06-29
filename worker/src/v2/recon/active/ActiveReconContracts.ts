@@ -15,6 +15,16 @@ export type SafeActiveReconObservation = {
   kind: 'robots_metadata' | 'security_txt_metadata';
   safeSummary: string;
   confidence: 'low' | 'medium' | 'high';
+  metadata?: {
+    reachable?: boolean;
+    contentTypeLookedTextLike?: boolean;
+    recognizedDirectiveLineCount?: number;
+    hasUserAgentDirective?: boolean;
+    hasDisallowDirective?: boolean;
+    hasAllowDirective?: boolean;
+    hasSitemapDirective?: boolean;
+    bodyTruncated?: boolean;
+  };
 };
 
 export type ActiveReconProbeStatus =
