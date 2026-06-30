@@ -109,3 +109,33 @@ npm run smoke:v2:recon:active:real
 * `FIXGUARD_V2_REAL_ACTIVE_RECON_URL=<https://your-authorized-url.com/robots.txt>`
 * `FIXGUARD_V2_REAL_ACTIVE_RECON_ALLOWED_ORIGIN=<https://your-authorized-url.com>`
 * `FIXGUARD_V2_REAL_ACTIVE_RECON_CONFIRM_AUTHORIZED=I_CONFIRM_AUTHORIZED_ACTIVE_RECON_TARGET`
+
+To run the M37 real security.txt active recon validation:
+
+```powershell
+npm run smoke:v2:recon:active:security-txt:real
+```
+
+### M37 Real security.txt Active Recon Safety Policies
+
+* M37 is opt-in only.
+* M37 is real egress validation only.
+* M37 is not production readiness.
+* M37 is not crawling, scanning, or vulnerability validation.
+* M37 adds exactly one real opt-in active recon probe: `http.security_txt.inspect`.
+* M37 allows only `/.well-known/security.txt` — `/security.txt` is explicitly forbidden.
+* M37 performs exactly one bounded `GET` request to `/.well-known/security.txt`.
+* M37 reads max 16 KiB and follows no redirects.
+* M37 uses the M36 `sanitizeSecurityTxtMetadata` — no emails, URLs, PGP, or field values survive serialization.
+* M37 emits no raw bodies, headers, or field values.
+* M37 creates no findings or product evidence.
+* M37 does not integrate runtime, storage, Postgres, API, or UI.
+* M37 is excluded from `check:v2`, `smoke:v2`, and `smoke:v2:recon`.
+* M35 robots adapter (`RealActiveReconHttpProbeAdapter.ts`) remains untouched.
+
+**Required M37 Real Egress Environment Guards:**
+* `FIXGUARD_V2_REAL_ACTIVE_RECON=1`
+* `FIXGUARD_V2_REAL_ACTIVE_RECON_PROBE=http.security_txt.inspect`
+* `FIXGUARD_V2_REAL_ACTIVE_RECON_URL=<https://your-authorized-url.com/.well-known/security.txt>`
+* `FIXGUARD_V2_REAL_ACTIVE_RECON_ALLOWED_ORIGIN=<https://your-authorized-url.com>`
+* `FIXGUARD_V2_REAL_ACTIVE_RECON_CONFIRM_AUTHORIZED=I_CONFIRM_AUTHORIZED_SECURITY_TXT_TARGET`

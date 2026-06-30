@@ -1,4 +1,4 @@
-# FixGuard V2 — Implementation Status
+﻿# FixGuard V2 — Implementation Status
 
 > This document tracks the current state of the V2 migration.
 > It is updated as milestones are completed.
@@ -694,5 +694,22 @@ It may never transform understanding directly into execution.
 - The real M35 adapter remains entirely untouched. No real `security.txt` probe execution was implemented.
 
 ---
-*Last Updated: After Milestone 36 - Active Recon Safe Document Metadata Boundary*
-*Next update due: After guarded real HTTP active probe adapter for other targets is introduced (M37).*
+### Milestone 37 - Explicit Opt-in Real security.txt Probe Validation (DONE)
+**Goal:** Add exactly one new explicit opt-in real active recon probe for `http.security_txt.inspect`.
+- Created `worker/src/v2/recon/active/RealActiveReconSecurityTxtProbeAdapter.ts` — isolated from the M35 robots adapter.
+- Enforces exact `/.well-known/security.txt` path only; `/security.txt`, root paths, queries, and fragments are explicitly rejected before transport.
+- Integrates the M31/M35-style literal IP SSRF pre-request guard and request-bound DNS resolution guard.
+- Uses the M36 `sanitizeSecurityTxtMetadata` for all output — no contact emails, policy URLs, PGP blocks, encryption keys, or raw field values survive serialization.
+- GET only; 3000ms timeout; max 16 KiB; 0 redirects; no Location header forwarded.
+- `RealActiveReconHttpProbeAdapter.ts` (M35 robots adapter) is completely untouched.
+- Real egress is opt-in via `FIXGUARD_V2_REAL_ACTIVE_RECON_CONFIRM_AUTHORIZED=I_CONFIRM_AUTHORIZED_SECURITY_TXT_TARGET`.
+- Created `worker/src/v2/smoke/milestone37_opt_in_real_security_txt_probe_smoke.ts` covering all negative cases (absent/partial/wrong env, wrong probe kind, wrong/root/query/fragment paths, IPv4/IPv6/IPv4-mapped-IPv6 literals, DNS-resolved blocked IP) and the opt-in real flow.
+- Added `smoke:v2:recon:active:security-txt:real` to `package.json` — excluded from `check:v2`, `smoke:v2`, `smoke:v2:recon`, and `npm test`.
+- No findings, evidence, risk, severity, impact, or exploit claims.
+- No runtime/storage/Postgres/API/UI integration.
+- No scanner, crawler, or subprocess execution.
+- No package-lock changes.
+
+---
+*Last Updated: After Milestone 37 - Explicit Opt-in Real security.txt Probe Validation*
+*Next update due: After next guarded active probe kind is introduced.*

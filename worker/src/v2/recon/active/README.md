@@ -20,4 +20,4 @@ This boundary models the contracts and adapter interfaces for active target inte
 - **Fixed Shapes:** Sanitizers emit strictly fixed shapes. No raw payload values or generic metadata containers (`[key: string]: unknown`) exist.
 - **Fake Fixtures:** Fake active recon adapter responses are strictly mock behavior to prove fixed shapes. They do not represent real target evidence.
 
-`security.txt` real network and scanners are future milestones. M35 is explicit opt-in only. No production-readiness claims are made.
+`security.txt` real network (M37) is explicit opt-in only behind `FIXGUARD_V2_REAL_ACTIVE_RECON_CONFIRM_AUTHORIZED=I_CONFIRM_AUTHORIZED_SECURITY_TXT_TARGET`. Scanners remain future milestones. M35 is explicit opt-in only. No production-readiness claims are made.
