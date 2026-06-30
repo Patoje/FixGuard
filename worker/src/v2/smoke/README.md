@@ -139,3 +139,42 @@ npm run smoke:v2:recon:active:security-txt:real
 * `FIXGUARD_V2_REAL_ACTIVE_RECON_URL=<https://your-authorized-url.com/.well-known/security.txt>`
 * `FIXGUARD_V2_REAL_ACTIVE_RECON_ALLOWED_ORIGIN=<https://your-authorized-url.com>`
 * `FIXGUARD_V2_REAL_ACTIVE_RECON_CONFIRM_AUTHORIZED=I_CONFIRM_AUTHORIZED_SECURITY_TXT_TARGET`
+
+## M38 Active Recon Document Probe Runner
+
+### M38 DB-Free Runner Smoke
+
+The M38 DB-free runner smoke is included in `smoke:v2:recon` (and by extension `smoke:v2` and `check:v2`):
+
+```powershell
+npm run smoke:v2:recon:active:runner
+```
+
+### M38 Real Combined Opt-in Runner Smoke
+
+To run the M38 real combined opt-in validation:
+
+```powershell
+npm run smoke:v2:recon:active:runner:real
+```
+
+### M38 Safety Policies
+
+* M38 is a runner boundary — it orchestrates already-approved probes only.
+* M38 does not add new probe kinds beyond `http.robots.inspect` and `http.security_txt.inspect`.
+* M38 does not derive target URLs from origins (no auto-generation of `/robots.txt` or `/.well-known/security.txt`).
+* M38 does not modify real adapters (`RealActiveReconHttpProbeAdapter.ts`, `RealActiveReconSecurityTxtProbeAdapter.ts`).
+* M38 does not persist anything. No findings or evidence are created.
+* M38 does not integrate runtime, storage, Postgres, API, or UI.
+* M38 uses dependency injection — real adapters must be explicitly injected, never instantiated by default.
+* M38 evaluates M30 egress policy per-target before adapter invocation. Blocked/candidate decisions never reach adapters.
+* Fake fixtures in the DB-free smoke are not real target evidence.
+* No production-readiness claims are made.
+
+**Required M38 Real Opt-in Environment Guards:**
+* `FIXGUARD_V2_REAL_ACTIVE_RECON_RUN=1`
+* `FIXGUARD_V2_REAL_ACTIVE_RECON_RUN_PROBES=http.robots.inspect,http.security_txt.inspect`
+* `FIXGUARD_V2_REAL_ACTIVE_RECON_ROBOTS_URL=<https://your-authorized-url.com/robots.txt>`
+* `FIXGUARD_V2_REAL_ACTIVE_RECON_SECURITY_TXT_URL=<https://your-authorized-url.com/.well-known/security.txt>`
+* `FIXGUARD_V2_REAL_ACTIVE_RECON_ALLOWED_ORIGIN=<https://your-authorized-url.com>`
+* `FIXGUARD_V2_REAL_ACTIVE_RECON_CONFIRM_AUTHORIZED=I_CONFIRM_AUTHORIZED_ACTIVE_RECON_RUN_TARGET`

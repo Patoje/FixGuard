@@ -1,4 +1,4 @@
-﻿# FixGuard V2 — Implementation Status
+# FixGuard V2 — Implementation Status
 
 > This document tracks the current state of the V2 migration.
 > It is updated as milestones are completed.
@@ -711,5 +711,29 @@ It may never transform understanding directly into execution.
 - No package-lock changes.
 
 ---
-*Last Updated: After Milestone 37 - Explicit Opt-in Real security.txt Probe Validation*
-*Next update due: After next guarded active probe kind is introduced.*
+### Milestone 38 - Active Recon Document Probe Runner Boundary (DONE)
+**Goal:** Create a controlled DB-free active recon document probe runner that orchestrates already-approved probes.
+- Created `worker/src/v2/recon/active/ActiveReconDocumentProbeRunContracts.ts` with explicit run request and result shapes. `targetUrl` is transient input only and never appears in output.
+- Created `worker/src/v2/recon/active/ActiveReconDocumentProbeRunner.ts` — a pure async function that accepts a fixed injected adapter table (`ActiveReconDocumentProbeAdapters`) and does not instantiate real adapters by default.
+- Runner supports only `http.robots.inspect` and `http.security_txt.inspect`. Unsupported probe kinds are rejected safely.
+- Runner evaluates M30 egress policy per-target before any adapter invocation. Blocked/candidate decisions do not invoke adapters.
+- Blocked → `policy_blocked`, candidate → `policy_candidate`, adapter missing → `adapter_missing`, adapter throws → `adapter_failed` (raw exception message is never echoed).
+- Result shape never includes raw `targetUrl`, raw bodies, raw headers, raw request/response, or any finding/evidence/risk/severity/impact/exploit claims.
+- Result target contains only `normalizedOrigin` and `safeDisplayUrl` from M30 policy output.
+- Safe per-probe statuses and aggregate counts are always returned.
+- `classification` flags are always `false` (`finding`, `evidence`, `vulnerability`, `riskClaim`).
+- M38 does not add new probe kinds beyond those in M35/M37.
+- M38 does not derive target URLs from origins (no auto-generation). Origin-derived planning deferred to M39.
+- `RealActiveReconHttpProbeAdapter.ts` and `RealActiveReconSecurityTxtProbeAdapter.ts` are completely untouched.
+- Implemented `worker/src/v2/smoke/milestone38_active_recon_document_probe_runner_smoke.ts` proving 15 runner safety test groups, including runtime authorization enforcement, safe generated run/probe identifiers, unsupported-kind sanitization, blocked/candidate non-invocation, adapter failure safety, sanitized aggregation, and no findings/evidence/risk claims.
+- Created `worker/src/v2/smoke/milestone38_opt_in_real_active_recon_document_probe_runner_smoke.ts` for real combined opt-in validation — excluded from defaults.
+- Added `smoke:v2:recon:active:runner` to `package.json` and included in `smoke:v2:recon` chain.
+- Added `smoke:v2:recon:active:runner:real` to `package.json` — excluded from `check:v2`, `smoke:v2`, `smoke:v2:recon`, and `npm test`.
+- No findings, evidence, risk, severity, impact, or exploit claims.
+- No runtime/storage/Postgres/API/UI integration.
+- No scanner, crawler, or subprocess execution.
+- No package-lock changes.
+
+---
+*Last Updated: After Milestone 38 - Active Recon Document Probe Runner Boundary*
+*Next update due: After origin-derived target planning is introduced (M39).*
