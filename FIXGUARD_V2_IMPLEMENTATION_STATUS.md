@@ -735,5 +735,25 @@ It may never transform understanding directly into execution.
 - No package-lock changes.
 
 ---
-*Last Updated: After Milestone 38 - Active Recon Document Probe Runner Boundary*
-*Next update due: After origin-derived target planning is introduced (M39).*
+### Milestone 39 - Authorized Origin Active Recon Run v0 (DONE)
+**Goal:** Create the first DB-free authorized origin active recon flow.
+- Created `worker/src/v2/recon/active/ActiveReconOriginRunContracts.ts` and `ActiveReconOriginRunService.ts`.
+- Validates runtime authorization (`authorization.confirmed === true`) and fails closed securely.
+- Enforces strict origin shape requirements: must be `http:` or `https:`, rejects paths, queries, fragments, and credentials.
+- Rejects unsafe literal IP origins using M30 logic.
+- Safely deduplicates and filters explicitly requested document probes (`http.robots.inspect`, `http.security_txt.inspect`), returning the safe `unknown` sentinel and omitting raw requested strings for unsupported values.
+- M39 generates exact targets internally (`/robots.txt`, `/.well-known/security.txt`) and delegates entirely to the M38 runner (`ActiveReconDocumentProbeRunner.ts`).
+- No scanner behavior, crawler behavior, endpoint discovery, subdomain enumeration, or arbitrary paths exist.
+- Does not modify the real adapters (`RealActiveReconHttpProbeAdapter.ts`, `RealActiveReconSecurityTxtProbeAdapter.ts`).
+- Emits no raw URL with queries, fragments, or secrets; no raw `targetUrl` appears in safe output.
+- Generates its own safe internal `runId` and does not echo caller-provided IDs.
+- Implemented `worker/src/v2/smoke/milestone39_active_recon_origin_run_smoke.ts` to prove DB-free boundary integrity with 25 test points (e.g., missing auth fails closed, unsafe IPs blocked, unsupported kinds sanitized, fake outputs not represented as real evidence).
+- Implemented `worker/src/v2/smoke/milestone39_opt_in_real_active_recon_origin_run_smoke.ts` to demonstrate real combined origin run (excluded from defaults).
+- DB-free origin-run smoke included in `smoke:v2:recon`.
+- No findings, evidence, risk, severity, impact, or exploit claims.
+- No storage/runtime/Postgres/API/UI integration.
+- No package-lock changes.
+
+---
+*Last Updated: After Milestone 39 - Authorized Origin Active Recon Run v0*
+*Next update due: After Active Recon Scan boundary is established (M40).*

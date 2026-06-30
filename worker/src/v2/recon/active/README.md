@@ -32,3 +32,15 @@ This boundary models the contracts and adapter interfaces for active target inte
 - **No Runtime/Storage/API/UI:** M38 does not integrate runtime, storage, Postgres, API, or UI.
 - **Safe Result Shape:** Result never includes raw targetUrl, raw bodies, raw headers, raw request/response, or any finding/evidence/risk/severity/impact/exploit claims.
 - **Real Opt-in Combined Smoke:** M38 may inject real adapters via an explicit opt-in combined smoke (`smoke:v2:recon:active:runner:real`), excluded from all defaults.
+
+- **M39 Authorized Origin Run Boundary:** M39 introduces the first DB-free authorized origin active recon flow (`ActiveReconOriginRunService.ts`).
+- **Exact Targets Only:** M39 derives only two approved document targets (`/robots.txt`, `/.well-known/security.txt`) from a clean authorized origin.
+- **No Crawling:** M39 does not crawl, does not discover endpoints, does not guess subdomains, and does not accept arbitrary paths.
+- **Uses M38 Runner:** M39 maps exact targets to the M38 runner. It does not duplicate runner behavior.
+- **No Modifications to Real Adapters:** M39 does not touch real adapters or add new probe kinds.
+- **No Persistence:** M39 does not persist anything, create findings, or create evidence.
+- **No Runtime/Storage/API/UI:** M39 does not integrate runtime, storage, Postgres, API, or UI.
+- **DB-Free Smoke:** DB-free origin-run smoke is included in `smoke:v2:recon`.
+- **Real Opt-in Smoke:** Real origin-run smoke is explicit opt-in only and excluded from defaults.
+- **Fake Outputs:** Fake outputs are not real target evidence.
+- **No Production-Readiness Claims.**

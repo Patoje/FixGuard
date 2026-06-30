@@ -178,3 +178,39 @@ npm run smoke:v2:recon:active:runner:real
 * `FIXGUARD_V2_REAL_ACTIVE_RECON_SECURITY_TXT_URL=<https://your-authorized-url.com/.well-known/security.txt>`
 * `FIXGUARD_V2_REAL_ACTIVE_RECON_ALLOWED_ORIGIN=<https://your-authorized-url.com>`
 * `FIXGUARD_V2_REAL_ACTIVE_RECON_CONFIRM_AUTHORIZED=I_CONFIRM_AUTHORIZED_ACTIVE_RECON_RUN_TARGET`
+
+## M39 Authorized Origin Active Recon Run
+
+### M39 DB-Free Smoke
+
+The M39 DB-free smoke is included in `smoke:v2:recon` (and by extension `smoke:v2` and `check:v2`):
+
+```powershell
+npm run smoke:v2:recon:active:origin-run
+```
+
+### M39 Real Opt-in Smoke
+
+To run the M39 real opt-in validation:
+
+```powershell
+npm run smoke:v2:recon:active:origin-run:real
+```
+
+### M39 Safety Policies
+
+* M39 is the first authorized origin active recon run boundary.
+* M39 does not crawl, does not discover endpoints, does not guess subdomains, and does not accept arbitrary paths.
+* M39 maps a clean authorized origin to exactly two targets: `/robots.txt` and `/.well-known/security.txt`.
+* M39 uses the M38 runner internally and injects real adapters only in the explicit real opt-in smoke.
+* M39 does not add new probe kinds or modify real adapters.
+* M39 does not persist anything, create findings, or create evidence.
+* M39 does not integrate runtime, storage, Postgres, API, or UI.
+* Fake outputs in DB-free smoke are not real target evidence.
+* No production-readiness claims are made.
+
+**Required M39 Real Opt-in Environment Guards:**
+* `FIXGUARD_V2_REAL_ACTIVE_RECON_ORIGIN_RUN=1`
+* `FIXGUARD_V2_REAL_ACTIVE_RECON_ORIGIN=<https://your-authorized-url.com>`
+* `FIXGUARD_V2_REAL_ACTIVE_RECON_ORIGIN_RUN_PROBES=http.robots.inspect,http.security_txt.inspect`
+* `FIXGUARD_V2_REAL_ACTIVE_RECON_CONFIRM_AUTHORIZED=I_CONFIRM_AUTHORIZED_ACTIVE_RECON_ORIGIN_RUN_TARGET`
