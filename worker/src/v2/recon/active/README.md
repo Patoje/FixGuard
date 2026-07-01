@@ -44,3 +44,14 @@ This boundary models the contracts and adapter interfaces for active target inte
 - **Real Opt-in Smoke:** Real origin-run smoke is explicit opt-in only and excluded from defaults.
 - **Fake Outputs:** Fake outputs are not real target evidence.
 - **No Production-Readiness Claims.**
+
+- **M40 Active Recon Origin Run Persistence Boundary:** M40 introduces persistence for safe M39 origin run summaries (`ActiveReconOriginRunRepository.ts`).
+- **No Postgres/Storage Integration:** M40 uses a DB-free in-memory repository (`InMemoryActiveReconOriginRunRepository.ts`) and does not add Postgres or migrations.
+- **No Raw Data:** M40 does not persist raw target URLs, body, headers, request, response, or payloads.
+- **No Secrets:** M40 does not persist cookies, auth headers, tokens, passwords, or API keys.
+- **No Findings/Evidence:** M40 does not create findings or evidence records.
+- **No Scanners:** M40 does not run scanners or crawlers.
+- **No UI/API:** M40 does not integrate UI or API surfaces.
+- **DB-Free Smoke:** DB-free persistence smoke is included in `smoke:v2:recon`.
+- **Fake Outputs:** Fake smoke output is not real target evidence.
+- **No Production-Readiness Claims.**

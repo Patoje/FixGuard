@@ -755,5 +755,24 @@ It may never transform understanding directly into execution.
 - No package-lock changes.
 
 ---
-*Last Updated: After Milestone 39 - Authorized Origin Active Recon Run v0*
-*Next update due: After Active Recon Scan boundary is established (M40).*
+### Milestone 40 - Active Recon Origin Run Persistence Boundary (DONE)
+**Goal:** Persist safe M39 authorized origin active recon run summaries behind a DB-free repository boundary.
+- Created `worker/src/v2/recon/active/ActiveReconOriginRunPersistenceContracts.ts` and `ActiveReconOriginRunRepository.ts`.
+- Introduced `InMemoryActiveReconOriginRunRepository.ts` to store persistence states without using Postgres or any DB.
+- Created `worker/src/v2/recon/active/ActiveReconOriginRunPersistenceService.ts`.
+- Enforces strict safety validation before saving: rejects any serialized candidate that contains raw target URLs, internal generated URLs, or raw body/headers/request/response/payloads.
+- Validates classification flags (ensures all are false), explicitly rejecting true finding/evidence/vulnerability/riskClaim claims.
+- Validates that persisted item union remains closed to document items only.
+- In-memory repository clones on save/read/list to prevent external state mutation.
+- Does not create findings or evidence records.
+- Does not integrate UI, API surfaces, scanners, or crawlers.
+- Safe `runId` generated; duplicate save rejected.
+- Failed runs and run errors (like `empty_probe_set`) persist safely.
+- Implemented `worker/src/v2/smoke/milestone40_persisted_active_recon_origin_run_smoke.ts` to prove DB-free boundary integrity with comprehensive checks for safe fields, no raw secrets, and cloning semantics.
+- Included M40 smoke in `smoke:v2:recon` pipeline.
+- No real adapters were modified; no new real network behavior introduced.
+- No package-lock changes.
+
+---
+*Last Updated: After Milestone 40 - Active Recon Origin Run Persistence Boundary*
+*Next update due: After further V2 boundaries are established.*

@@ -214,3 +214,26 @@ npm run smoke:v2:recon:active:origin-run:real
 * `FIXGUARD_V2_REAL_ACTIVE_RECON_ORIGIN=<https://your-authorized-url.com>`
 * `FIXGUARD_V2_REAL_ACTIVE_RECON_ORIGIN_RUN_PROBES=http.robots.inspect,http.security_txt.inspect`
 * `FIXGUARD_V2_REAL_ACTIVE_RECON_CONFIRM_AUTHORIZED=I_CONFIRM_AUTHORIZED_ACTIVE_RECON_ORIGIN_RUN_TARGET`
+
+## M40 Active Recon Origin Run Persistence Boundary
+
+### M40 DB-Free Persistence Smoke
+
+The M40 DB-free persistence smoke is included in `smoke:v2:recon` (and by extension `smoke:v2` and `check:v2`):
+
+```powershell
+npm run smoke:v2:recon:active:persistence
+```
+
+### M40 Safety Policies
+
+* M40 persists only safe M39 origin run summaries.
+* M40 uses a DB-free in-memory repository (`InMemoryActiveReconOriginRunRepository.ts`).
+* M40 does not add Postgres or migrations.
+* M40 does not persist raw target URLs, internal generated URLs, or raw body/headers/request/response/payloads.
+* M40 does not persist cookies/auth/tokens/passwords/API keys.
+* M40 does not create findings or evidence records.
+* M40 does not integrate UI or API surfaces.
+* M40 does not run scanners or crawlers.
+* Fake smoke output is not real target evidence.
+* No production-readiness claim.
