@@ -8,6 +8,13 @@
       "when": 1782661500115,
       "tag": "0000_last_venus",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1782909989531,
+      "tag": "0001_tiresome_warhawk",
+      "breakpoints": true
     }
   ]
 }
