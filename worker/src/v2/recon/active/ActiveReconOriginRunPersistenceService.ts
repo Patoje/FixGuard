@@ -129,6 +129,12 @@ export async function persistActiveReconOriginRunResult(
     updatedAt: now,
   };
 
+  validatePersistedActiveReconRunRecord(record);
+
+  return repository.saveRun(record);
+}
+
+export function validatePersistedActiveReconRunRecord(record: PersistedActiveReconRunRecord): void {
   // Stringify candidate and validate
   const serialized = JSON.stringify(record);
 
@@ -242,6 +248,4 @@ export async function persistActiveReconOriginRunResult(
   }
 
   recursivelyValidateStrings(record);
-
-  return repository.saveRun(record);
 }

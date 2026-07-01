@@ -23,7 +23,8 @@
     "smoke:v2:recon:active:runner:real": "tsx src/v2/smoke/milestone38_opt_in_real_active_recon_document_probe_runner_smoke.ts",
     "smoke:v2:recon:active:origin-run": "tsx src/v2/smoke/milestone39_active_recon_origin_run_smoke.ts",
     "smoke:v2:recon:active:origin-run:real": "tsx src/v2/smoke/milestone39_opt_in_real_active_recon_origin_run_smoke.ts",
-    "smoke:v2:recon:active:persistence": "tsx src/v2/smoke/milestone40_persisted_active_recon_origin_run_smoke.ts"
+    "smoke:v2:recon:active:persistence": "tsx src/v2/smoke/milestone40_persisted_active_recon_origin_run_smoke.ts",
+    "smoke:v2:recon:active:persistence:postgres": "tsx src/v2/smoke/milestone41_postgres_active_recon_run_persistence_smoke.ts"
   },
   "keywords": [],
   "author": "",

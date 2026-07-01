@@ -237,3 +237,26 @@ npm run smoke:v2:recon:active:persistence
 * M40 does not run scanners or crawlers.
 * Fake smoke output is not real target evidence.
 * No production-readiness claim.
+
+## M41 Postgres Active Recon Run Persistence Validation
+
+M41 introduces real Postgres-backed persistence for the validated M40 active recon run record shape. It is strictly explicitly opt-in and validates that the Postgres adapter (`PostgresActiveReconRunRepository`) integrates safely with Drizzle migrations without persisting executable findings, evidence, or raw request/response boundaries.
+
+To run the M41 Postgres smoke validation:
+
+```powershell
+npm run smoke:v2:recon:active:persistence:postgres
+```
+
+### M41 Postgres Safety Policies
+
+* M41 is explicitly opt-in only.
+* M41 does NOT run in `check:v2` or `smoke:v2`.
+* M41 requires a real, disposable Neon Postgres branch.
+* M41 uses a strict `run_id` test prefix (`m41_pg_smoke_`) for targeted record deletion, rather than broad table truncation.
+* M41 enforces `validatePersistedActiveReconRunRecord` on all `saveRun`, `getRun`, and `listRuns` calls to ensure database-layer corruption or tampering is rejected before re-entering the application boundary.
+
+**Required M41 Environment Guards:**
+* `FIXGUARD_PG_TEST_URL`
+* `FIXGUARD_V2_POSTGRES_ACTIVE_RECON_RUN_PERSISTENCE=1`
+* `FIXGUARD_V2_POSTGRES_ACTIVE_RECON_CONFIRM=I_CONFIRM_POSTGRES_ACTIVE_RECON_PERSISTENCE_TEST`

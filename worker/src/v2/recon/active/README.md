@@ -55,3 +55,5 @@ This boundary models the contracts and adapter interfaces for active target inte
 - **DB-Free Smoke:** DB-free persistence smoke is included in `smoke:v2:recon`.
 - **Fake Outputs:** Fake smoke output is not real target evidence.
 - **No Production-Readiness Claims.**
+
+- **M41 Postgres Active Recon Run Persistence:** M41 implements `PostgresActiveReconRunRepository`. The complete safe record is stored as JSONB alongside safe indexed columns. Re-validates data both before insert and **after reading from the database** (get/list) to protect against corrupt or unsafe JSON data already in storage. Implements strict DB smoke tests in explicit opt-in execution only. Still enforces all M40 safety rules (no raw request/response objects, no executable evidence findings).

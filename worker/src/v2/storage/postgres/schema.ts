@@ -6,7 +6,8 @@ import {
   jsonb, 
   boolean,
   index,
-  serial
+  serial,
+  timestamp
 } from 'drizzle-orm/pg-core';
 import type { 
   AssessmentState, 
@@ -15,6 +16,26 @@ import type {
 } from '../../runtime/AssessmentState';
 import type { EvidenceCollection } from '../../core/Evidence';
 import type { AuditEntry } from '../../approval/ApprovalContracts';
+import type { PersistedActiveReconRunRecord } from '../../recon/active/ActiveReconOriginRunPersistenceContracts';
+
+export const v2_active_recon_run_records = pgTable('v2_active_recon_run_records', {
+  run_id: text('run_id').primaryKey(),
+  record_version: text('record_version').notNull(),
+  record_kind: text('record_kind').notNull(),
+  subject_kind: text('subject_kind').notNull(),
+  normalized_origin: text('normalized_origin'),
+  status: text('status').notNull(),
+  record_json: jsonb('record_json').$type<PersistedActiveReconRunRecord>().notNull(),
+  created_at: timestamp('created_at', { withTimezone: true }).notNull(),
+  updated_at: timestamp('updated_at', { withTimezone: true }).notNull(),
+}, (table) => ({
+  recordKindIdx: index('idx_v2_arr_record_kind').on(table.record_kind),
+  normalizedOriginIdx: index('idx_v2_arr_normalized_origin').on(table.normalized_origin),
+  statusIdx: index('idx_v2_arr_status').on(table.status),
+}));
+
+export type V2ActiveReconRunRecordRow = typeof v2_active_recon_run_records.$inferSelect;
+export type NewV2ActiveReconRunRecordRow = typeof v2_active_recon_run_records.$inferInsert;
 
 export const v2_assessment_sessions = pgTable('v2_assessment_sessions', {
   session_id: text('session_id').primaryKey(),

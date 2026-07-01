@@ -195,11 +195,22 @@ Pre-existing V1 errors are documented separately and are not a V2 concern.
 - `ToolAdapterRegistry` deprecated.
 - Execution Core now architecturally FROZEN.
 
+### Milestone 41 — Postgres Active Recon Run Persistence (IMPLEMENTED, REAL DB SMOKE PENDING)
+- Implemented real Postgres table `v2_active_recon_run_records` and migration via Drizzle.
+- Added `PostgresActiveReconRunRepository` implementing `ActiveReconRunRepository`.
+- Reuses robust strict safety validation from M40 both before DB insert and upon reading from DB.
+- Implemented strict safety bounds on reading invalid/corrupt database records.
+- The opt-in Postgres smoke is implemented and was verified to skip safely with no env, fail closed on partial/wrong env, and remain excluded from defaults. Real DB insert/get/list/reload validation is pending until `FIXGUARD_PG_TEST_URL` and the explicit confirmation env are provided.
+- Maintained zero UI/API, findings, evidence, scanner dependencies, and real adapter modifications.
+
 ---
 
 ## Next Milestones
 
 ---
+
+### Milestone 42 — TBD
+**Goal:** TBD
 
 ### Milestone 4 — Intelligence Layer Foundation (DONE)
 **Goal:** Implement the first version of the Intelligence Layer.
