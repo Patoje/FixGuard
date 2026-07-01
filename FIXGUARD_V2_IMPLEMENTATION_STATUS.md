@@ -205,11 +205,22 @@ Pre-existing V1 errors are documented separately and are not a V2 concern.
 
 ---
 
+### Milestone 42 — Active Recon Execution Persistence Service (IMPLEMENTED, PENDING AUDIT)
+- Composes M39 active recon origin execution with M40 persistence validation into a complete safe run -> persist -> reload boundary.
+- Defines closed M42 result envelope with fixed safe persistence error messages to guarantee no raw unsafe exceptions leak.
+- Supports DB-free smoke proving run -> persist -> reload with fake adapters and in-memory repository.
+- Supports explicitly opt-in real smoke proving run -> persist -> reload with guarded real adapters and in-memory repository.
+- Strictly validates real environment and guards real adapter instantiation.
+- Remains repository-generic, introducing zero Postgres schema/migration changes in M42.
+- Maintains zero UI/API, findings, evidence, and scanner dependencies.
+
+---
+
 ## Next Milestones
 
 ---
 
-### Milestone 42 — TBD
+### Milestone 43 — TBD
 **Goal:** TBD
 
 ### Milestone 4 — Intelligence Layer Foundation (DONE)

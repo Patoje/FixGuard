@@ -57,3 +57,5 @@ This boundary models the contracts and adapter interfaces for active target inte
 - **No Production-Readiness Claims.**
 
 - **M41 Postgres Active Recon Run Persistence:** M41 implements `PostgresActiveReconRunRepository`. The complete safe record is stored as JSONB alongside safe indexed columns. Re-validates data both before insert and **after reading from the database** (get/list) to protect against corrupt or unsafe JSON data already in storage. Implements strict DB smoke tests in explicit opt-in execution only. Still enforces all M40 safety rules (no raw request/response objects, no executable evidence findings).
+
+- **M42 Active Recon Execution Persistence Service:** M42 composes M39 execution with M40 persistence. M42 is repository-generic and does not add Postgres schema/migrations, UI/API, findings/evidence records, or scanners/crawlers. DB-free smoke uses fake adapters and in-memory repository. Real opt-in smoke uses existing guarded real adapters and in-memory repository. Real opt-in smoke is explicit only and excluded from defaults. Smoke fixtures/fake adapter outputs are not real target evidence. No production-readiness claim.

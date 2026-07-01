@@ -260,3 +260,32 @@ npm run smoke:v2:recon:active:persistence:postgres
 * `FIXGUARD_PG_TEST_URL`
 * `FIXGUARD_V2_POSTGRES_ACTIVE_RECON_RUN_PERSISTENCE=1`
 * `FIXGUARD_V2_POSTGRES_ACTIVE_RECON_CONFIRM=I_CONFIRM_POSTGRES_ACTIVE_RECON_PERSISTENCE_TEST`
+
+## M42 Active Recon Execution Persistence Service
+
+M42 composes M39 (execution) and M40 (persistence) without duplicating either. It enforces DB-free, scanner-free, and API/UI-free boundaries while orchestrating real behavior. 
+
+**DB-Free Smoke (Included in `smoke:v2:recon`)**
+```powershell
+npm run smoke:v2:recon:active:execution-persistence
+```
+Proves run -> persist -> reload using fake adapters and the in-memory repository.
+
+**Real Opt-in Smoke (Excluded from defaults)**
+```powershell
+npm run smoke:v2:recon:active:execution-persistence:real
+```
+Proves run -> persist -> reload using existing guarded real adapters and the in-memory repository. M42 does not introduce Postgres-integrated components; the real smoke is generic.
+
+### M42 Real Smoke Safety Policies
+
+* M42 real smoke is explicitly opt-in only.
+* M42 real smoke does NOT run in `check:v2`, `smoke:v2`, or `smoke:v2:recon`.
+* Validates origin and probes BEFORE adapter construction.
+* Fails safely and completely on partial/missing environment variables.
+
+**Required M42 Real Environment Guards:**
+* `FIXGUARD_V2_REAL_ACTIVE_RECON_PERSISTED_RUN=1`
+* `FIXGUARD_V2_REAL_ACTIVE_RECON_PERSISTED_RUN_ORIGIN=https://example.com`
+* `FIXGUARD_V2_REAL_ACTIVE_RECON_PERSISTED_RUN_PROBES=http.robots.inspect,http.security_txt.inspect`
+* `FIXGUARD_V2_REAL_ACTIVE_RECON_PERSISTED_RUN_CONFIRM=I_CONFIRM_AUTHORIZED_ACTIVE_RECON_PERSISTED_RUN_TARGET`
