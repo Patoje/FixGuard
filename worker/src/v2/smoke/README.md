@@ -284,8 +284,28 @@ Proves run -> persist -> reload using existing guarded real adapters and the in-
 * Validates origin and probes BEFORE adapter construction.
 * Fails safely and completely on partial/missing environment variables.
 
-**Required M42 Real Environment Guards:**
+
+**Required M42 Environment Guards:**
 * `FIXGUARD_V2_REAL_ACTIVE_RECON_PERSISTED_RUN=1`
-* `FIXGUARD_V2_REAL_ACTIVE_RECON_PERSISTED_RUN_ORIGIN=https://example.com`
-* `FIXGUARD_V2_REAL_ACTIVE_RECON_PERSISTED_RUN_PROBES=http.robots.inspect,http.security_txt.inspect`
+* `FIXGUARD_V2_REAL_ACTIVE_RECON_PERSISTED_RUN_ORIGIN` (must be strict origin)
+* `FIXGUARD_V2_REAL_ACTIVE_RECON_PERSISTED_RUN_PROBES`
 * `FIXGUARD_V2_REAL_ACTIVE_RECON_PERSISTED_RUN_CONFIRM=I_CONFIRM_AUTHORIZED_ACTIVE_RECON_PERSISTED_RUN_TARGET`
+
+## M43 Active Recon Run Read Model + Safe Report Snapshot Validation
+
+M43 adds read models and safe report snapshots from persisted active recon records. M43 consumes persisted safe records only and does not execute probes.
+
+**DB-Free Smoke (Included in `smoke:v2:recon`)**
+```powershell
+npm run smoke:v2:recon:active:read-model
+```
+Proves read model list/detail functions and report snapshot builder using the M42 DB-free execution flow into an in-memory repository.
+
+### M43 Safety Policies
+
+* M43 does not execute probes.
+* M43 does not add Postgres schema/migrations.
+* M43 does not add UI/API.
+* M43 does not create findings/evidence records.
+* Report snapshot contains explicit non-claims and is not a vulnerability report.
+* Smoke fixtures are test-only and not real target evidence.

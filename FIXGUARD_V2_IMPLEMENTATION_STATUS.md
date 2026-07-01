@@ -220,8 +220,13 @@ Pre-existing V1 errors are documented separately and are not a V2 concern.
 
 ---
 
-### Milestone 43 — TBD
-**Goal:** TBD
+### Milestone 43 — Active Recon Run Read Model + Safe Report Snapshot (IMPLEMENTED, PENDING AUDIT)
+
+*   `v2/recon/active/ActiveReconRunReadModelContracts.ts`
+*   `v2/recon/active/ActiveReconRunReadModelService.ts`
+*   `v2/recon/active/ActiveReconRunSafeReportContracts.ts`
+*   `v2/recon/active/ActiveReconRunSafeReportService.ts`
+*   `v2/smoke/milestone43_active_recon_run_read_model_smoke.ts`
 
 ### Milestone 4 — Intelligence Layer Foundation (DONE)
 **Goal:** Implement the first version of the Intelligence Layer.
