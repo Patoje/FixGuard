@@ -228,6 +228,14 @@ Pre-existing V1 errors are documented separately and are not a V2 concern.
 *   `v2/recon/active/ActiveReconRunSafeReportService.ts`
 *   `v2/smoke/milestone43_active_recon_run_read_model_smoke.ts`
 
+### Milestone 44 — Active Recon Application Use Cases Boundary (IMPLEMENTED, PENDING AUDIT)
+
+*   `v2/recon/active/ActiveReconApplicationUseCaseContracts.ts`
+*   `v2/recon/active/ActiveReconApplicationUseCaseService.ts`
+*   `v2/smoke/milestone44_active_recon_application_use_cases_smoke.ts`
+
+
+
 ### Milestone 4 — Intelligence Layer Foundation (DONE)
 **Goal:** Implement the first version of the Intelligence Layer.
 

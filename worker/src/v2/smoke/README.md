@@ -309,3 +309,23 @@ Proves read model list/detail functions and report snapshot builder using the M4
 * M43 does not create findings/evidence records.
 * Report snapshot contains explicit non-claims and is not a vulnerability report.
 * Smoke fixtures are test-only and not real target evidence.
+
+## M44 Active Recon Application Use Cases Boundary
+
+M44 adds an application use case boundary coordinating existing M42/M43 services. M44 exposes `startAuthorizedActiveReconRun`, `listActiveReconRunSummaries`, `getActiveReconRunDetail`, and `buildActiveReconRunSafeReport`.
+
+**DB-Free Smoke (Included in `smoke:v2:recon`)**
+```powershell
+npm run smoke:v2:recon:active:application-use-cases
+```
+Proves the boundary coordinates M42 execution/persistence and M43 read models without re-executing tools or leaking raw data.
+
+### M44 Safety Policies
+
+* M44 does not execute new tools.
+* M44 does not add API/UI.
+* M44 does not add Postgres schema.
+* M44 does not create findings or evidence records.
+* M44 does not confirm vulnerabilities.
+* M44 does not make risk/severity/impact claims.
+* All results explicitly contain safe classification flags.
