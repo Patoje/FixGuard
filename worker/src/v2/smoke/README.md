@@ -387,3 +387,38 @@ Tests proven:
 * M46 does not replace M30 egress policy.
 * Future active execution must pass both M46 authorized-scope/permission decision and M30/M33 egress policy decision.
 * All `ScopePolicyDecision` outputs are sanitized: IDs are validated before embedding; unsafe values use sentinels (`invalid_decision_id`, `invalid_grant_id`, etc.); forbidden terms never appear in decision output.
+
+## M47 Response Comparator Core DB-Free
+
+M47 defines a DB-free, pure-function boundary for comparing sanitized HTTP response snapshots and producing sanitized comparison results. It represents the "Intelligence decides" part of FixGuard's architecture but only as a deterministic difference engine, without confirming vulnerabilities or making severity claims.
+
+**DB-Free Smoke**
+```powershell
+npm run smoke:v2:response-comparator
+```
+
+Tests proven:
+- Valid no-difference comparison
+- Status/content/body/header/json/redirect differences
+- Auth difference -> `authorization_difference` hint
+- Time difference (mode-gated hint)
+- Error signals (closed enum)
+- Invalid snapshots / request validation
+- Safe sentinels / no raw metadata echo
+- No raw leaks in text fields
+- No execution invariant
+
+### M47 Safety Policies
+
+* M47 compares `SafeResponseSnapshot` (baseline vs. validation) and produces `ResponseComparisonResult`.
+* M47 does not execute network requests or tools. All inputs must be pre-captured snapshots.
+* M47 does not import M45 types or build `EvidenceRecord` / `FindingCandidateRecord`. M47 is independent of M45.
+* M47 does not persist any data. No repositories, no DB, no Postgres.
+* M47 does not create findings or confirm vulnerabilities.
+* M47 does not make severity, risk, or impact claims.
+* M47 does not echo raw responses, headers, bodies, or secrets.
+* M47 computes differences in status code, content length, response time, body hash, header names, JSON structure, redirect, and auth state.
+* M47 derives comparison signal strength (`none`, `weak`, `moderate`, `strong`) — **not severity, risk, or impact**.
+* M47 produces `EvidenceMappingHint` as a non-persisted pointer toward a future M45 `EvidenceRecord` type.
+* All outputs contain `explicitNonClaims` asserting no vulnerability, finding, evidence, or severity/risk/impact claims.
+* All outputs contain classification flags explicitly set to `false`.

@@ -266,8 +266,28 @@ Key properties:
 *   Path matching is explicit: `exact` (equality) and `prefix` (path + `/` separator); `/api` does NOT match `/apiary`. No glob or regex.
 *   Decision evaluation uses a fixed 15-step deterministic precedence order.
 
+### Milestone 47 — Response Comparator Core DB-free (IMPLEMENTED, PENDING AUDIT)
 
+M47 defines a DB-free, pure-function boundary for comparing sanitized HTTP response snapshots and producing sanitized comparison results.
 
+*   `v2/comparison/ResponseComparatorContracts.ts`
+*   `v2/comparison/ResponseComparatorService.ts`
+*   `v2/comparison/README.md`
+*   `v2/smoke/milestone47_response_comparator_smoke.ts`
+
+Key properties:
+
+*   M47 computes differences in status code, content length, response time, body hash, header names, JSON structure, redirect, and auth state.
+*   M47 derives comparison signal strength (`none`, `weak`, `moderate`, `strong`) — not severity, risk, or impact.
+*   M47 produces `EvidenceMappingHint` as a non-persisted pointer toward a future M45 `EvidenceRecord` type.
+*   M47 does not execute network requests or tools. All inputs must be pre-captured snapshots.
+*   M47 does not import M45 types or build `EvidenceRecord` / `FindingCandidateRecord`. M47 is independent of M45.
+*   M47 does not persist any data.
+*   M47 does not create findings or confirm vulnerabilities.
+*   M47 does not make severity, risk, or impact claims.
+*   All outputs contain explicit flags asserting no vulnerability, finding, evidence, or severity claims.
+*   All IDs and metadata timestamps are validated. Unsafe values are replaced with sentinels (e.g. `invalid_comparison_id`, `1970-01-01T00:00:00.000Z`) to prevent echoing raw user inputs or secrets in error outputs or valid outputs.
+*   Raw secrets, tokens, auth headers, cookies, or any raw request/response text are forbidden from appearing in the comparison result or text arrays.
 
 ### Milestone 4 — Intelligence Layer Foundation (DONE)
 **Goal:** Implement the first version of the Intelligence Layer.
