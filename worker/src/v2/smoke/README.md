@@ -349,3 +349,41 @@ npm run smoke:v2:evidence-boundary
 * M45 prevents raw data (tokens, passwords, request bodies) from leaking into reports.
 * M45 makes no severity, risk, or impact claims; it uses a `SeverityGate`.
 * M45 does not integrate UI, API, storage, or runtime.
+
+## M46 Authorized Scope + Permission Policy Boundary
+
+M46 defines a DB-free, pure-function boundary for representing and evaluating layered authorization and scope policy decisions. It represents the **"Humans authorize"** principle in FixGuard's `Tools execute. Intelligence decides. Humans authorize.` architecture.
+
+**DB-Free Smoke**
+```powershell
+npm run smoke:v2:scope-policy
+```
+
+Tests proven:
+- Valid grant + allowed actions (passiveRecon, technologyFingerprinting, endpointDiscovery)
+- `requiredPermission` bypass prevention: caller-supplied value is never trusted; derived from `actionKind`/`intensity` and mismatch causes `denied_invalid_request`
+- Denied missing permissions (activeCrawl, activeValidation, aggressiveValidation without grants)
+- Destructive operations always denied (`destructive_operation` actionKind, `destructive` intensity, `destructiveOperations: true` in grant rejected)
+- Auth/credentials gate: `usesCredentials: true` without `authenticatedTesting` denied
+- OOB gate: `usesOob: true` without `oobTesting` + `allowOobCallbacks` denied
+- State-changing restrictions: POST/PUT/PATCH/DELETE + `mayChangeServerState` without `allowStateChangingRequests`
+- Scope boundaries: target origin, exact/prefix path matching, denied path priority, `/api` prefix does NOT match `/apiary`
+- Grant expiration and scanId mismatch
+- Runtime hardening: wrong contractVersion, wrong kind, classification flags `true`, string booleans, unknown fields, string arrays, invalid timestamps, invalid IDs, forbidden content
+- **Decision metadata safety**: unsafe `decisionId` (e.g. `dec_secret_token`) and `evaluatedAt` (e.g. `not-a-date`) are replaced with sentinels and never echoed; unsafe `grantId`/`requestId`/`scanId` are replaced with sentinels in all denied decisions
+- No execution invariant: `executesNetwork === false`, `executesTools === false`, `persistsData === false`
+- Permission derivation: intensity can only upgrade, never downgrade, a required permission
+
+### M46 Safety Policies
+
+* M46 defines DB-free authorized scope and permission policy contracts.
+* M46 separates authorization declaration (what a human permitted) from per-action permission decisions.
+* M46 does not verify domain ownership.
+* M46 does not execute tools.
+* M46 does not touch the network.
+* M46 does not persist scope grants.
+* M46 does not create findings, evidence, severity, risk or impact claims.
+* M46 denies destructive operations.
+* M46 does not replace M30 egress policy.
+* Future active execution must pass both M46 authorized-scope/permission decision and M30/M33 egress policy decision.
+* All `ScopePolicyDecision` outputs are sanitized: IDs are validated before embedding; unsafe values use sentinels (`invalid_decision_id`, `invalid_grant_id`, etc.); forbidden terms never appear in decision output.

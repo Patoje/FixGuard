@@ -241,6 +241,31 @@ Pre-existing V1 errors are documented separately and are not a V2 concern.
 *   `v2/evidence/README.md`
 *   `v2/smoke/milestone45_evidence_boundary_smoke.ts`
 
+### Milestone 46 — Layered Authorized Scope + Permission Policy Boundary DB-free (IMPLEMENTED, PENDING AUDIT)
+
+M46 defines a DB-free, pure-function boundary for representing and evaluating layered authorization and scope policy decisions. M46 represents the "Humans authorize" part of the `Tools execute. Intelligence decides. Humans authorize.` architecture principle.
+
+*   `v2/scope/AuthorizedScopeContracts.ts`
+*   `v2/scope/AuthorizedScopePolicyService.ts`
+*   `v2/scope/README.md`
+*   `v2/smoke/milestone46_authorized_scope_policy_smoke.ts`
+
+Key properties:
+
+*   M46 defines DB-free authorized scope and permission policy contracts.
+*   M46 separates authorization declaration (what a human has permitted) from per-action permission decisions (whether a specific action is allowed).
+*   M46 does not verify domain ownership.
+*   M46 does not execute tools.
+*   M46 does not touch the network.
+*   M46 does not persist scope grants.
+*   M46 does not create findings, evidence, severity, risk or impact claims.
+*   M46 denies destructive operations at all times (`destructiveOperations` is always `false`; `destructive_operation` actionKind and `destructive` intensity are always denied).
+*   M46 does not replace M30 egress policy. Future active execution must pass both M46 authorized-scope/permission decision and M30/M33 egress policy decision.
+*   Caller-supplied `requiredPermission` is never trusted. The service always derives the required permission from `actionKind` and `intensity`, and rejects any mismatch.
+*   All `ScopePolicyDecision` outputs are sanitized: IDs are validated before embedding; unsafe values use sentinels (`invalid_decision_id`, `invalid_grant_id`, etc.); forbidden terms never appear in decision output.
+*   Path matching is explicit: `exact` (equality) and `prefix` (path + `/` separator); `/api` does NOT match `/apiary`. No glob or regex.
+*   Decision evaluation uses a fixed 15-step deterministic precedence order.
+
 
 
 
