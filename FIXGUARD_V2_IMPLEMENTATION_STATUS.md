@@ -234,6 +234,14 @@ Pre-existing V1 errors are documented separately and are not a V2 concern.
 *   `v2/recon/active/ActiveReconApplicationUseCaseService.ts`
 *   `v2/smoke/milestone44_active_recon_application_use_cases_smoke.ts`
 
+### Milestone 45 — Evidence Boundary + Finding Candidate Promotion Contracts DB-free (IMPLEMENTED, PENDING AUDIT)
+
+*   `v2/evidence/EvidenceBoundaryContracts.ts`
+*   `v2/evidence/EvidenceBoundaryService.ts`
+*   `v2/evidence/README.md`
+*   `v2/smoke/milestone45_evidence_boundary_smoke.ts`
+
+
 
 
 ### Milestone 4 — Intelligence Layer Foundation (DONE)

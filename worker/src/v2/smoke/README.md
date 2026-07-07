@@ -329,3 +329,23 @@ Proves the boundary coordinates M42 execution/persistence and M43 read models wi
 * M44 does not confirm vulnerabilities.
 * M44 does not make risk/severity/impact claims.
 * All results explicitly contain safe classification flags.
+
+## M45 Evidence Boundary DB-Free
+
+M45 establishes the formal DB-free boundary for the vulnerability intelligence funnel: `Observation -> Indicator -> Evidence -> FindingCandidate -> SafeReportItemSnapshot`.
+
+**DB-Free Smoke**
+```powershell
+npm run smoke:v2:evidence-boundary
+```
+
+### M45 Safety Policies
+
+* M45 defines DB-free boundary contracts and service logic.
+* M45 does not execute tools, adapters, or network requests.
+* M45 explicitly forbids creating a `FindingCandidate` directly from raw tool output.
+* M45 ensures `FindingCandidate` is flagged as not a real finding and requiring human review.
+* M45 ensures `SafeReportItemSnapshot` is not a final vulnerability report.
+* M45 prevents raw data (tokens, passwords, request bodies) from leaking into reports.
+* M45 makes no severity, risk, or impact claims; it uses a `SeverityGate`.
+* M45 does not integrate UI, API, storage, or runtime.
