@@ -359,9 +359,25 @@ export function mapComparisonToEvidence(request: any, mappedAt: any): EvidenceMa
         return buildBlockedDecision(req, mappedAt, 'blocked_source_metadata_unsafe');
       }
       const diffKeys = new Set([
-        "statusCodeChanged", "baselineStatusCode", "validationStatusCode", "contentLengthChanged", "contentLengthSignificant",
-        "responseTimeChanged", "responseTimeSignificant", "bodyHashChanged", "headerNamesAdded", "headerNamesRemoved",
-        "jsonKeysAdded", "jsonKeysRemoved", "redirectChanged", "authStateChanged", "errorSignalObserved", "signalSummary"
+        "statusCodeChanged",
+        "baselineStatusCode",
+        "validationStatusCode",
+        "contentLengthChanged",
+        "contentLengthDelta",
+        "contentLengthDeltaPercent",
+        "contentLengthSignificant",
+        "responseTimeChanged",
+        "responseTimeDeltaMs",
+        "responseTimeSignificant",
+        "bodyHashChanged",
+        "headerNamesAdded",
+        "headerNamesRemoved",
+        "jsonKeysAdded",
+        "jsonKeysRemoved",
+        "redirectChanged",
+        "authStateChanged",
+        "errorSignalObserved",
+        "signalSummary"
       ]);
       for (const k of Object.keys(source.difference)) {
         if (!diffKeys.has(k)) {
@@ -498,7 +514,7 @@ function buildNeedsMoreReviewDecision(req: ComparisonEvidenceMappingRequest, map
 }
 
 function buildDraftDecision(req: ComparisonEvidenceMappingRequest, mappedAt: string, code: MappingReasonCode, evType: any, evStrength: any): EvidenceMappingDecision {
-  const safeRationale = `Safe response comparison produced an ${evType} draft for human review.`;
+  const safeRationale = "Safe response comparison produced a non-persisted draft for human review.";
 
   return {
     contractVersion: COMPARISON_EVIDENCE_MAPPING_CONTRACT_VERSION,

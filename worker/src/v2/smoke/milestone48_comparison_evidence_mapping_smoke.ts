@@ -53,8 +53,11 @@ function makeSourceComparison(overrides: any = {}) {
       baselineStatusCode: 200,
       validationStatusCode: 403,
       contentLengthChanged: false,
+      contentLengthDelta: 0,
+      contentLengthDeltaPercent: 0,
       contentLengthSignificant: false,
       responseTimeChanged: false,
+      responseTimeDeltaMs: 0,
       responseTimeSignificant: false,
       bodyHashChanged: false,
       headerNamesAdded: [],
@@ -125,7 +128,7 @@ function makeRequest(overrides: any = {}) {
 // ---------------------------------------------------------------------------
 
 async function testHttpDifference() {
-  console.log('[*] Testing valid http difference draft...');
+  console.log('[*] Testing valid http difference draft (M47-shaped difference accepted)...');
   const req = makeRequest();
   const res = mapComparisonToEvidence(req, now.toISOString());
   if (res.status !== 'draft_ready') {
@@ -141,54 +144,135 @@ async function testHttpDifference() {
   console.log('[+] Valid http difference draft passes.');
 }
 
+async function testUnknownDifferenceKeyRejected() {
+  console.log('[*] Testing unknown difference key rejected...');
+  const baseReq = makeRequest();
+  (baseReq.sourceComparison.difference as any).extraUnsafeField = true;
+  const res = mapComparisonToEvidence(baseReq, now.toISOString());
+  assert.notStrictEqual(res.status, 'draft_ready');
+  assert.strictEqual(res.reasonCode, 'blocked_source_metadata_unsafe');
+  assert.strictEqual(res.evidenceDraft, undefined);
+  console.log('[+] Unknown difference key rejected.');
+}
+
+async function testSignalSummaryStrict() {
+  console.log('[*] Testing signalSummary remains strict...');
+  const baseReq = makeRequest();
+
+  // Test array string
+  (baseReq.sourceComparison.difference as any).signalSummary = "status_code_changed";
+  const res1 = mapComparisonToEvidence(baseReq, now.toISOString());
+  assert.notStrictEqual(res1.status, 'draft_ready');
+
+  // Test unknown enum
+  (baseReq.sourceComparison.difference as any).signalSummary = ["totally_unknown_signal"];
+  const res2 = mapComparisonToEvidence(baseReq, now.toISOString());
+  assert.notStrictEqual(res2.status, 'draft_ready');
+
+  // Test SQLi
+  (baseReq.sourceComparison.difference as any).signalSummary = ["SQLi"];
+  const res3 = mapComparisonToEvidence(baseReq, now.toISOString());
+  assert.notStrictEqual(res3.status, 'draft_ready');
+
+  console.log('[+] signalSummary remains strict.');
+}
+
+async function testUnknownEnumRejected() {
+  console.log('[*] Testing unknown enum rejected...');
+  const req = makeRequest({
+    sourceComparisonMode: "authorization_secret",
+    mappingMode: "authorization_secret_to_evidence",
+    sourceComparison: makeSourceComparison({
+      evidenceMappingHint: {
+        suggestedEvidenceType: "authorization_secret",
+        suggestedSignalStrength: "moderate",
+        requiresHumanReview: true,
+        notPersistedEvidence: true
+      }
+    })
+  });
+  const res = mapComparisonToEvidence(req, now.toISOString());
+  assert.notStrictEqual(res.status, 'draft_ready');
+  assert.strictEqual(res.evidenceDraft, undefined);
+  console.log('[+] Unknown enum rejected.');
+}
+
+async function testIDsContainingAuthorizationRejected() {
+  console.log('[*] Testing IDs containing authorization rejected...');
+  const req = makeRequest({
+    mappingId: "authorization_token_123",
+    scanId: "authorization_token_123",
+    sourceComparison: makeSourceComparison({
+      comparisonId: "authorization_token_123",
+      baselineSnapshotId: "authorization_token_123",
+      validationSnapshotId: "authorization_token_123"
+    })
+  });
+  const res = mapComparisonToEvidence(req, now.toISOString());
+  assert.notStrictEqual(res.status, 'draft_ready');
+  assert.strictEqual(res.evidenceDraft, undefined);
+  assert.ok(!JSON.stringify(res).includes('authorization_token_123'));
+  console.log('[+] IDs containing authorization rejected.');
+}
+
 async function testAuthDifference() {
-  console.log('[*] Testing authorization difference draft...');
+  console.log('[*] Testing authorization_difference enum accepted only as enum...');
   const req = makeRequest({
     sourceComparisonMode: "authorization_difference",
     mappingMode: "authorization_difference_to_evidence",
     sourceComparison: makeSourceComparison({
       evidenceMappingHint: {
         suggestedEvidenceType: "authorization_difference",
-        suggestedSignalStrength: "strong",
+        suggestedSignalStrength: "moderate",
         requiresHumanReview: true,
         notPersistedEvidence: true
       },
       significance: {
-        comparisonSignalStrength: "strong",
+        comparisonSignalStrength: "moderate",
         strongestSignal: "auth_state",
         hasAnyDifference: true,
-        hasSignificantDifference: true
+        hasSignificantDifference: true,
+        rationale: "Safe auth state diff"
+      },
+      difference: {
+        statusCodeChanged: false,
+        baselineStatusCode: 200,
+        validationStatusCode: 200,
+        contentLengthChanged: false,
+        contentLengthDelta: 0,
+        contentLengthDeltaPercent: 0,
+        contentLengthSignificant: false,
+        responseTimeChanged: false,
+        responseTimeDeltaMs: 0,
+        responseTimeSignificant: false,
+        bodyHashChanged: false,
+        headerNamesAdded: [],
+        headerNamesRemoved: [],
+        jsonKeysAdded: [],
+        jsonKeysRemoved: [],
+        redirectChanged: false,
+        authStateChanged: true,
+        errorSignalObserved: false,
+        signalSummary: ["auth_state_changed"]
       }
     })
   });
   const res = mapComparisonToEvidence(req, now.toISOString());
   assert.strictEqual(res.status, 'draft_ready');
-  assert.strictEqual(res.reasonCode, 'draft_ready_authorization_difference');
   assert.strictEqual(res.mappedEvidenceType, 'authorization_difference');
-  
-  const badReq = makeRequest({
-    sourceComparisonMode: "http_difference", // wrong mode
-    mappingMode: "authorization_difference_to_evidence",
-    sourceComparison: makeSourceComparison({
-      evidenceMappingHint: {
-        suggestedEvidenceType: "authorization_difference",
-        suggestedSignalStrength: "strong",
-        requiresHumanReview: true,
-        notPersistedEvidence: true
-      },
-      significance: {
-        comparisonSignalStrength: "strong",
-        strongestSignal: "auth_state",
-        hasAnyDifference: true,
-        hasSignificantDifference: true
-      }
-    })
-  });
-  const badRes = mapComparisonToEvidence(badReq, now.toISOString());
-  assert.strictEqual(badRes.status, 'blocked');
-  assert.strictEqual(badRes.reasonCode, 'blocked_mode_mismatch');
+  assert.ok(res.evidenceDraft !== undefined);
 
-  console.log('[+] Valid authorization difference draft passes and mismatch is blocked.');
+  // 5. safeRationale does not contain sensitive words
+  const rationale = res.evidenceDraft!.safeRationale.toLowerCase();
+  const forbidden = [
+    'authorization', 'bearer', 'cookie', 'token', 'secret', 'raw',
+    'sqli', 'idor', 'bola', 'auth bypass', 'vulnerable', 'exploit'
+  ];
+  for (const f of forbidden) {
+    assert.ok(!rationale.includes(f), `safeRationale contains forbidden word: ${f}`);
+  }
+
+  console.log('[+] authorization_difference accepted correctly and safeRationale is clean.');
 }
 
 async function testTimeBasedSignal() {
@@ -242,7 +326,7 @@ async function testFailedSource() {
   assert.strictEqual(res.status, 'blocked');
   assert.strictEqual(res.reasonCode, 'blocked_failed_source_comparison');
   assert.strictEqual(res.evidenceDraft, undefined);
-  
+
   const reqPending = makeRequest({
     sourceComparison: makeSourceComparison({ status: "pending" })
   });
@@ -290,7 +374,7 @@ async function testNonClaimsMissing() {
   const res = mapComparisonToEvidence(req, now.toISOString());
   assert.strictEqual(res.status, 'blocked');
   assert.strictEqual(res.reasonCode, 'blocked_source_nonclaims_missing');
-  
+
   const reqString = makeRequest({
     sourceComparison: makeSourceComparison({
       explicitNonClaims: { noConfirmedVulnerability: "true", noFindingCreated: true, noFindingCandidateCreated: true, noPersistedEvidenceCreated: true, noSeverityRiskOrImpactClaim: true, noExternalReportCreated: true, noRawSensitiveDataIncluded: true }
@@ -323,7 +407,7 @@ async function testNonClaimsMissing() {
 
 async function testWeakNoDifference() {
   console.log('[*] Testing weak/no difference...');
-  
+
   const reqNoDiff = makeRequest({
     sourceComparison: makeSourceComparison({
       significance: { hasAnyDifference: false, comparisonSignalStrength: "none", strongestSignal: "none", hasSignificantDifference: false, rationale: "No difference" }
@@ -363,12 +447,12 @@ async function testReviewerPolicyUnsafe() {
 
 async function testMetadataSentinels() {
   console.log('[*] Testing metadata sentinels / no raw echo...');
-  
+
   const badReq = makeRequest({ mappingId: "secret_token_123" });
   const badRes = mapComparisonToEvidence(badReq, now.toISOString());
   assert.strictEqual(badRes.status, 'failed');
   assert.strictEqual(badRes.mappingId, 'invalid_mapping_id');
-  
+
   const badCmp = makeRequest({ sourceComparison: makeSourceComparison({ comparisonId: "secret_cookie" }) });
   const badCmpRes = mapComparisonToEvidence(badCmp, now.toISOString());
   assert.strictEqual(badCmpRes.status, 'failed');
@@ -386,7 +470,7 @@ async function testRuntimeHardening() {
   assert.strictEqual(validateComparisonEvidenceMappingRequest(makeRequest({ contractVersion: "wrong" })).isValid, false);
   assert.strictEqual(validateComparisonEvidenceMappingRequest(makeRequest({ kind: "wrong" })).isValid, false);
   assert.strictEqual(validateComparisonEvidenceMappingRequest(makeRequest({ unknownField: true })).isValid, false);
-  
+
   const badSourceContract = makeRequest({ sourceComparison: makeSourceComparison({ contractVersion: "wrong" }) });
   const res1 = mapComparisonToEvidence(badSourceContract, now.toISOString());
   assert.strictEqual(res1.status, 'failed');
@@ -429,11 +513,11 @@ async function testRuntimeHardening() {
   const reqSourceClass1 = makeRequest({ sourceComparison: makeSourceComparison({ classification: { createsRealFindings: false, createsPersistedEvidence: false, confirmsVulnerabilities: false, makesRiskClaims: true, makesSeverityClaims: false, makesImpactClaims: false, executesNetwork: false, executesTools: false, persistsData: false } }) });
   const resSourceClass1 = mapComparisonToEvidence(reqSourceClass1, now.toISOString());
   assert.strictEqual(resSourceClass1.status, 'blocked');
-  
+
   const reqSourceClass2 = makeRequest({ sourceComparison: makeSourceComparison({ classification: { createsRealFindings: false, createsPersistedEvidence: false, confirmsVulnerabilities: false, makesRiskClaims: false, makesSeverityClaims: true, makesImpactClaims: false, executesNetwork: false, executesTools: false, persistsData: false } }) });
   const resSourceClass2 = mapComparisonToEvidence(reqSourceClass2, now.toISOString());
   assert.strictEqual(resSourceClass2.status, 'blocked');
-  
+
   const reqSourceClass3 = makeRequest({ sourceComparison: makeSourceComparison({ classification: { createsRealFindings: false, createsPersistedEvidence: false, confirmsVulnerabilities: false, makesRiskClaims: false, makesSeverityClaims: false, makesImpactClaims: true, executesNetwork: false, executesTools: false, persistsData: false } }) });
   const resSourceClass3 = mapComparisonToEvidence(reqSourceClass3, now.toISOString());
   assert.strictEqual(resSourceClass3.status, 'blocked');
@@ -443,7 +527,7 @@ async function testRuntimeHardening() {
 
 async function testRuntimeEnumClosure() {
   console.log('[*] Testing runtime enum closure...');
-  
+
   const reqHintEnum1 = makeRequest({ sourceComparison: makeSourceComparison({ evidenceMappingHint: { suggestedEvidenceType: "http_difference", suggestedSignalStrength: "critical severity", requiresHumanReview: true, notPersistedEvidence: true } }) });
   const resHintEnum1 = mapComparisonToEvidence(reqHintEnum1, now.toISOString());
   assert.strictEqual(resHintEnum1.status, 'blocked');
@@ -453,12 +537,12 @@ async function testRuntimeEnumClosure() {
   const resHintEnum2 = mapComparisonToEvidence(reqHintEnum2, now.toISOString());
   assert.strictEqual(resHintEnum2.status, 'blocked');
   assert.ok(!JSON.stringify(resHintEnum2).includes("SQLi"));
-  
+
   const reqSigEnum = makeRequest({ sourceComparison: makeSourceComparison({ significance: { strongestSignal: "idor", comparisonSignalStrength: "critical severity", hasAnyDifference: true, hasSignificantDifference: true } }) });
   const resSigEnum = mapComparisonToEvidence(reqSigEnum, now.toISOString());
   assert.strictEqual(resSigEnum.status, 'blocked');
   assert.ok(!JSON.stringify(resSigEnum).includes("idor"));
-  
+
   const reqDiffEnum1 = makeRequest({ sourceComparison: makeSourceComparison({ difference: { statusCodeChanged: true, signalSummary: ["totally_unknown_signal"] } }) });
   const resDiffEnum1 = mapComparisonToEvidence(reqDiffEnum1, now.toISOString());
   assert.strictEqual(resDiffEnum1.status, 'blocked');
@@ -467,7 +551,7 @@ async function testRuntimeEnumClosure() {
   const reqDiffEnum2 = makeRequest({ sourceComparison: makeSourceComparison({ difference: { statusCodeChanged: true, signalSummary: "status_code_changed" } }) });
   const resDiffEnum2 = mapComparisonToEvidence(reqDiffEnum2, now.toISOString());
   assert.strictEqual(resDiffEnum2.status, 'blocked');
-  
+
   const reqDiffEnum3 = makeRequest({ sourceComparison: makeSourceComparison({ difference: { statusCodeChanged: true, signalSummary: ["SQLi"] } }) });
   const resDiffEnum3 = mapComparisonToEvidence(reqDiffEnum3, now.toISOString());
   assert.strictEqual(resDiffEnum3.status, 'blocked');
@@ -498,10 +582,10 @@ async function testNoRawLeaks() {
       difference: { signalSummary: ["secret_token_123"] }
     })
   });
-  
+
   const res = mapComparisonToEvidence(req, now.toISOString());
   const serialized = JSON.stringify(res).toLowerCase();
-  
+
   for (const forbidden of FORBIDDEN_VALUES) {
     if (forbidden === 'secret_token_123') {
       assert.ok(!serialized.includes(forbidden), `Forbidden value ${forbidden} found in result!`);
@@ -534,6 +618,10 @@ async function testNoExecution() {
 async function runTests() {
   console.log('--- V2 M48 Comparison Evidence Mapping DB-Free Smoke Test ---');
   await testHttpDifference();
+  await testUnknownDifferenceKeyRejected();
+  await testSignalSummaryStrict();
+  await testUnknownEnumRejected();
+  await testIDsContainingAuthorizationRejected();
   await testAuthDifference();
   await testTimeBasedSignal();
   await testFailedSource();

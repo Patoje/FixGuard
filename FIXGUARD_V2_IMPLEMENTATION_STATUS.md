@@ -885,3 +885,6 @@ It may never transform understanding directly into execution.
 ---
 *Last Updated: After Milestone 40 - Active Recon Origin Run Persistence Boundary*
 *Next update due: After further V2 boundaries are established.*
+
+### Milestone 48.1 - Response Comparison / Evidence Mapping Compatibility Correction DB-free (IMPLEMENTED)
+- M48.1: aligned response difference validation with M47 and kept enum/free-text safety separation.

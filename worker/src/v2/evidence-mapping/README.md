@@ -23,3 +23,5 @@ This milestone defines a DB-free boundary for mapping safe response comparison r
 
 ## Integration
 M48 sits as an intermediary between M47 (Comparator) and the future construction of M45 evidence records. Its output is designed to be fed to an M45 Evidence Validator by a coordinator later in the pipeline, ensuring that tools cannot directly inject findings into the system.
+
+*(Note: M48.1 aligned M48 difference validation with the current M47 ResponseDifference contract. Closed enum values are accepted only through exact allow-lists, while free text remains forbidden-content scanned. M48.1 does not relax raw data protections.)*
