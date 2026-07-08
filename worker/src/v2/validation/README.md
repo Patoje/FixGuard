@@ -1,0 +1,22 @@
+# Milestone 49 — Authorized Comparison Validation Boundary
+
+- M49 is DB-free.
+- M49 orchestrates M46/M47/M48 pure services.
+- M49 consumes already-safe snapshots only.
+- M49 does not execute network/tools/adapters.
+- M49 does not persist data.
+- M49 does not create EvidenceRecord.
+- M49 does not create FindingCandidateRecord.
+- M49 does not confirm vulnerabilities.
+- M49 does not make severity/risk/impact claims.
+- M49 derives internal IDs from validationId.
+- M49 blocks non-validation actionKinds before comparison/mapping.
+- M49 short-circuits if M46 denies.
+- M49 short-circuits if M47 fails.
+- M49 maps M48 statuses exactly:
+  - draft_ready -> completed_with_evidence_draft
+  - needs_more_review -> needs_more_review_from_mapping
+  - blocked -> blocked_mapping_blocked
+  - failed -> failed_mapping_failed
+- M49 validates EvidenceDraftEnvelope before copying.
+- M49 exposes closed summaries instead of full upstream objects.

@@ -424,6 +424,13 @@ Tests proven:
 * All outputs contain `explicitNonClaims` asserting no vulnerability, finding, evidence, or severity/risk/impact claims.
 * All outputs contain classification flags explicitly set to `false`.
 
+### Scope, Comparison, Evidence & Validation (DB-Free)
+* `milestone45_evidence_boundary_smoke.ts` — Tests strict db-free boundary for Findings and Evidence.
+* `milestone46_authorized_scope_policy_smoke.ts` — Tests scope authorization boundary.
+* `milestone47_response_comparator_smoke.ts` — Tests HTTP response comparator core logic.
+* `milestone48_comparison_evidence_mapping_smoke.ts` — Tests Response Comparison to Evidence mapping boundary.
+* `milestone49_authorized_comparison_validation_smoke.ts` — Tests Authorized Comparison Validation use case boundary.
+
 ## M48 Comparison Evidence Mapping DB-Free
 
 M48 defines a DB-free, pure-function boundary for mapping safe M47 response comparison results to non-persisted M45 evidence drafts.
@@ -454,3 +461,50 @@ Tests proven:
 * M48 does not assign vulnerability severity, risk, or impact.
 * M48 does not import services from M45 or M47.
 * M48 evaluates mapping mode alignment tightly (e.g. `time_based_difference`).
+
+## M49 Authorized Comparison Validation DB-Free
+
+M49 defines a DB-free authorized comparison validation use case boundary. It safely orchestrates M46 (Scope Policy), M47 (Response Comparator), and M48 (Comparison Evidence Mapping).
+
+**DB-Free Smoke**
+```powershell
+npm run smoke:v2:authorized-comparison-validation
+```
+
+Tests proven:
+- Happy path HTTP difference
+- Authorization difference path
+- Time-based path
+- Scope denied short-circuit
+- Scope invalid actionKind rejection
+- Comparison failed handling
+- Mapping blocked handling
+- Mapping needs review handling
+- Metadata sentinels (no raw echo of IDs)
+- Runtime hardening
+- EvidenceDraft Validation
+- No Raw Leaks
+- No execution invariant
+
+### M49 Safety Policies
+
+* M49 is DB-free.
+* M49 orchestrates M46/M47/M48 pure services.
+* M49 consumes already-safe snapshots only.
+* M49 does not execute network/tools/adapters.
+* M49 does not persist data.
+* M49 does not create M45 EvidenceRecord.
+* M49 does not create FindingCandidateRecord.
+* M49 does not confirm vulnerabilities.
+* M49 does not make severity/risk/impact claims.
+* M49 derives internal IDs from validationId.
+* M49 blocks non-validation actionKinds before comparison/mapping.
+* M49 short-circuits if M46 denies.
+* M49 short-circuits if M47 fails.
+* M49 maps M48 statuses exactly:
+  - draft_ready -> completed_with_evidence_draft
+  - needs_more_review -> needs_more_review_from_mapping
+  - blocked -> blocked_mapping_blocked
+  - failed -> failed_mapping_failed
+* M49 validates EvidenceDraftEnvelope before copying.
+* M49 exposes closed summaries instead of full upstream objects.
