@@ -26,6 +26,7 @@ This runs:
 - `npm run smoke:v2:application`: M24 application service boundary.
 - `npm run smoke:v2:capabilities`: M27 capability contract boundary, M28 capability registry enforcement, and M29 passive http header inspect vertical flow.
 - `npm run smoke:v2:recon`: M30 authorized scope / egress policy boundary, M31 guarded real HTTP header inspect adapter, M33 egress policy audit boundary, M34 active recon adapter boundary, and M36 active recon safe document metadata boundary. These tests are included in `smoke:v2` and `check:v2`. All are DB-free and network-free (M31 uses a fake transport, M33 uses a pure in-memory mapper/recorder, M34 uses a fake adapter, M36 uses local sanitizers and fake adapter).
+- `npm run smoke:v2:comparison-evidence-mapping`: M48 comparison to evidence mapping boundary.
 
 ## DB Opt-In Validation
 
@@ -422,3 +423,34 @@ Tests proven:
 * M47 produces `EvidenceMappingHint` as a non-persisted pointer toward a future M45 `EvidenceRecord` type.
 * All outputs contain `explicitNonClaims` asserting no vulnerability, finding, evidence, or severity/risk/impact claims.
 * All outputs contain classification flags explicitly set to `false`.
+
+## M48 Comparison Evidence Mapping DB-Free
+
+M48 defines a DB-free, pure-function boundary for mapping safe M47 response comparison results to non-persisted M45 evidence drafts.
+
+**DB-Free Smoke**
+```powershell
+npm run smoke:v2:comparison-evidence-mapping
+```
+
+Tests proven:
+- Valid http difference draft
+- Authorization difference draft
+- Time-based signal draft logic and mismatch rejection
+- Failed source comparison handling
+- Non-claims missing validation
+- Weak/no difference handling
+- Reviewer policy safety
+- Metadata sentinels / no raw echo
+- Runtime hardening
+- No forbidden values in output fields
+- No execution invariant verified
+
+### M48 Safety Policies
+
+* M48 bridges M47 to M45 without executing network requests or tools.
+* M48 does not persist evidence or findings.
+* M48 produces a "draft" (`EvidenceDraftEnvelope`) requiring human review.
+* M48 does not assign vulnerability severity, risk, or impact.
+* M48 does not import services from M45 or M47.
+* M48 evaluates mapping mode alignment tightly (e.g. `time_based_difference`).

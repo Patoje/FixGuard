@@ -289,6 +289,27 @@ Key properties:
 *   All IDs and metadata timestamps are validated. Unsafe values are replaced with sentinels (e.g. `invalid_comparison_id`, `1970-01-01T00:00:00.000Z`) to prevent echoing raw user inputs or secrets in error outputs or valid outputs.
 *   Raw secrets, tokens, auth headers, cookies, or any raw request/response text are forbidden from appearing in the comparison result or text arrays.
 
+### Milestone 48 — Response Comparison to Evidence Mapping Boundary DB-free (IMPLEMENTED, PENDING AUDIT)
+
+M48 defines a DB-free boundary for mapping safe response comparison results (M47) to non-persisted evidence drafts (M45 format hints).
+
+*   `v2/evidence-mapping/ComparisonEvidenceMappingContracts.ts`
+*   `v2/evidence-mapping/ComparisonEvidenceMappingService.ts`
+*   `v2/evidence-mapping/README.md`
+*   `v2/smoke/milestone48_comparison_evidence_mapping_smoke.ts`
+
+Key properties:
+
+*   M48 consumes safe `ResponseComparisonResult` objects from M47.
+*   M48 produces `EvidenceMappingDecision` and `EvidenceDraftEnvelope`.
+*   M48 requires human review for all mappings (`requiresHumanReview: true`).
+*   M48 produces a "draft" (`EvidenceDraftEnvelope`), not a persisted record.
+*   M48 does not create findings or finding candidates.
+*   M48 makes no claims about vulnerability, severity, risk, or impact.
+*   M48 operates entirely independently and does NOT call or import services from M45 or M47. It only uses shared safe types.
+*   M48 evaluates mapping mode alignment tightly (e.g. `sourceComparisonMode === time_based_difference` is required for `time_based_signal_to_evidence`).
+*   All output fields are scanned for forbidden contents (e.g. `authorization`, `password`, `confirmed vulnerability`). Unsafe values cause the mapping to be rejected or replaced with sentinels.
+
 ### Milestone 4 — Intelligence Layer Foundation (DONE)
 **Goal:** Implement the first version of the Intelligence Layer.
 
