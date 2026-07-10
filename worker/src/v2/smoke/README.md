@@ -528,4 +528,16 @@ Tests proven:
 ### M51 — Reviewed Evidence Store DB-Free
 - `smoke:v2:reviewed-evidence-store`: M51 Reviewed evidence persistence DB-free verification
 - `smoke:v2:reviewed-evidence-selection`: M52 Reviewed evidence selection DB-free verification
+- `smoke:v2:finding-candidate-draft`: M53 Reviewed evidence finding candidate draft DB-free verification
 - `milestone51_reviewed_evidence_store_smoke.ts`: DB-free smoke tests for save, get, and list. Validates M50 promotion, EvidenceRecord validation, classification invariants, ID strictness, duplicate protection, and sorting determinism.
+
+### M53 — Reviewed Evidence Finding Candidate Draft Boundary DB-free
+* `npm run smoke:v2:finding-candidate-draft`
+
+**Characteristics:**
+* M53 is DB-free and non-persistent.
+* M53 consumes validated M52 selection sets.
+* M53 creates non-persisted finding candidate drafts only.
+* M53 does not create formal finding candidates, safe report items, or external reports.
+* M53 does not confirm vulnerabilities or make severity/risk/impact claims.
+* M53 uses selected refs and observed-only evidence summary counts.

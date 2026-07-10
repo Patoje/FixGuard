@@ -943,3 +943,18 @@ It may never transform understanding directly into execution.
 - Does not confirm vulnerabilities.
 - Does not make severity/risk/impact claims.
 - Does not use Postgres/DB/runtime/API/UI.
+
+### Milestone 53 — Reviewed Evidence Selection to Finding Candidate Draft Boundary DB-free
+- DB-free and non-persistent.
+- Consumes validated M52 reviewed evidence selection sets.
+- Creates non-persisted finding candidate drafts only.
+- Does not create formal finding candidates.
+- Does not create confirmed findings.
+- Does not create safe report items or external reports.
+- Does not confirm vulnerabilities.
+- Does not make exploitability, severity, risk, or impact claims.
+- Does not provide remediation advice.
+- Does not use Postgres, database storage, runtime composition, application services, APIs, or UI.
+- Uses selected refs and observed-only evidence summary counts.
+- Includes a summarize-provided-draft read model.
+- Future milestones may route drafts to human triage or explicit formal promotion.
