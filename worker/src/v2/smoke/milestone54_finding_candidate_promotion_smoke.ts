@@ -204,6 +204,10 @@ async function runSmokeTest() {
 
   console.log("[*] Testing Triage Decision (Negative Cases)...");
   
+  const reqNoTriage = { ...baseReq };
+  delete (reqNoTriage as any).triageDecision;
+  assertFail(await promoteReviewedEvidenceFindingCandidateDraft(reqNoTriage as any, evaluatedAt), "invalid_promotion_request");
+
   const tdNoDec = { ...baseReq, triageDecision: { ...validTriageDecision } };
   delete (tdNoDec.triageDecision as any).decision;
   assertFail(await promoteReviewedEvidenceFindingCandidateDraft(tdNoDec as any, evaluatedAt), "invalid_triage_decision");

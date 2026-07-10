@@ -557,3 +557,17 @@ Tests proven:
 * M54 does not make exploitability/severity/risk/impact claims.
 * M54 does not provide remediation advice.
 * M54 does not use Postgres/DB/runtime/API/UI.
+
+### M55 — Core Candidate Pipeline Reality Check DB-free
+* `npm run smoke:v2:core-candidate-pipeline-reality-check`
+
+**Characteristics:**
+* M55 simulates M51→M52→M53→M54→summary continuity.
+* M55 is a DB-free diagnostic-only reality check.
+* M55 has no persistence.
+* M55 has no reports.
+* M55 has no confirmed findings.
+* M55 has no M45 candidates.
+* M55 has no vulnerability/severity/risk/impact/remediation claims.
+* M55 has no network/tools.
+* M55 has no runtime/API/UI.

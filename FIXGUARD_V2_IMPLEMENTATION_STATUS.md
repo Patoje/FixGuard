@@ -972,3 +972,19 @@ It may never transform understanding directly into execution.
 - M54 does not provide remediation advice.
 - M54 does not use Postgres/DB/runtime/API/UI.
 - Future milestones may adapt M54 candidates to M45-compatible records or route them to explicit finding/report workflows.
+
+### Milestone 55 — Core Candidate Pipeline Reality Check DB-free (M55 implemented / pending final Codex PASS)
+- M55 is DB-free.
+- M55 is diagnostic only.
+- M55 does not add a finding/report/persistence feature.
+- M55 verifies M51→M52→M53→M54 continuity.
+- M55 proves reviewed evidence refs/counts/scanId/indicatorIds survive the flow.
+- M55 proves human approval is required.
+- M55 final state remains not confirmed, not reported, not persisted.
+- M55 does not create M45 finding candidates.
+- M55 does not create confirmed findings.
+- M55 does not create SafeReport/external report.
+- M55 does not confirm vulnerabilities.
+- M55 does not make exploitability/severity/risk/impact/remediation claims.
+- M55 does not use DB/runtime/API/UI/network/tools.
+- M55 helper is not runtime composition or app orchestration.
