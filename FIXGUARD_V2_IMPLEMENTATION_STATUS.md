@@ -919,3 +919,16 @@ It may never transform understanding directly into execution.
 - M50 does not confirm vulnerabilities.
 - M50 does not make severity/risk/impact claims.
 - M50 uses closed summaries and safe sentinels/no raw echo.
+
+### Milestone 51 - Reviewed Evidence Store + Read Model Boundary DB-free (IMPLEMENTED)
+- M51 is DB-free/in-memory only.
+- M51 stores reviewed M45 EvidenceRecord only after M50 promotion.
+- M51 does not promote evidence.
+- M51 does not create findings/candidates/report items.
+- M51 does not confirm vulnerabilities.
+- M51 does not make severity/risk/impact claims.
+- M51 does not use Postgres/DB/runtime/API/UI.
+- M51 validates M50 result, M45 EvidenceRecord, and store record before saving.
+- M51 returns closed summaries/read models.
+- M51 repository is clone-safe and mutation-safe.
+- Postgres persistence remains a later milestone.

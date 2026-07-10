@@ -524,3 +524,6 @@ Tests proven:
 * M50 does not confirm vulnerabilities.
 * M50 does not make severity/risk/impact claims.
 * M50 uses closed summaries and safe sentinels/no raw echo.
+
+### M51 — Reviewed Evidence Store DB-Free
+- `milestone51_reviewed_evidence_store_smoke.ts`: DB-free smoke tests for save, get, and list. Validates M50 promotion, EvidenceRecord validation, classification invariants, ID strictness, duplicate protection, and sorting determinism.
