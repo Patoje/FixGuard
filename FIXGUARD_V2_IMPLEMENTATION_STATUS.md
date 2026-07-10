@@ -906,3 +906,16 @@ It may never transform understanding directly into execution.
 - M49 maps M48 statuses exactly (draft_ready -> completed_with_evidence_draft, needs_more_review -> needs_more_review_from_mapping, blocked -> blocked_mapping_blocked, failed -> failed_mapping_failed).
 - M49 exposes closed summaries instead of full upstream objects.
 - M49 validates EvidenceDraftEnvelope before copying.
+
+### Milestone 50 - Human-Reviewed Evidence Promotion Boundary DB-free (IMPLEMENTED)
+- M50 is DB-free.
+- M50 is a human-review gate over M49/M48 into M45.
+- M50 creates only a non-persisted M45 EvidenceRecord.
+- M50 requires approve_evidence.
+- M50 requires sourceIndicatorRef and never synthesizes fake indicator IDs.
+- M50 validates M49 result, M49/M48 draft, sourceIndicatorRef, and constructed EvidenceRecord.
+- M50 does not persist.
+- M50 does not create findings/candidates/report items.
+- M50 does not confirm vulnerabilities.
+- M50 does not make severity/risk/impact claims.
+- M50 uses closed summaries and safe sentinels/no raw echo.

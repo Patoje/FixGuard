@@ -508,3 +508,19 @@ Tests proven:
   - failed -> failed_mapping_failed
 * M49 validates EvidenceDraftEnvelope before copying.
 * M49 exposes closed summaries instead of full upstream objects.
+
+### Milestone 50 - Human-Reviewed Evidence Promotion Boundary DB-free
+* `npm run smoke:v2:human-reviewed-evidence-promotion`
+
+**Characteristics:**
+* M50 is DB-free.
+* M50 is a human-review gate over M49/M48 into M45.
+* M50 creates only a non-persisted M45 EvidenceRecord.
+* M50 requires approve_evidence.
+* M50 requires sourceIndicatorRef and never synthesizes fake indicator IDs.
+* M50 validates M49 result, M49/M48 draft, sourceIndicatorRef, and constructed EvidenceRecord.
+* M50 does not persist.
+* M50 does not create findings/candidates/report items.
+* M50 does not confirm vulnerabilities.
+* M50 does not make severity/risk/impact claims.
+* M50 uses closed summaries and safe sentinels/no raw echo.
