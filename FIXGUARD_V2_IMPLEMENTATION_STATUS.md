@@ -932,3 +932,14 @@ It may never transform understanding directly into execution.
 - M51 returns closed summaries/read models.
 - M51 repository is clone-safe and mutation-safe.
 - Postgres persistence remains a later milestone.
+
+### Milestone 52 — Reviewed Evidence Query + Selection Boundary DB-free
+- DB-free and non-persistent.
+- Uses M51 read model as primary source boundary.
+- Selects reviewed evidence into non-persisted selection sets.
+- Always includes safe M51 summaries.
+- Can summarize provided selection sets.
+- Does not create findings/candidates/report items.
+- Does not confirm vulnerabilities.
+- Does not make severity/risk/impact claims.
+- Does not use Postgres/DB/runtime/API/UI.

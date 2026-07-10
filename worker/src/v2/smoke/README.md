@@ -526,4 +526,6 @@ Tests proven:
 * M50 uses closed summaries and safe sentinels/no raw echo.
 
 ### M51 — Reviewed Evidence Store DB-Free
+- `smoke:v2:reviewed-evidence-store`: M51 Reviewed evidence persistence DB-free verification
+- `smoke:v2:reviewed-evidence-selection`: M52 Reviewed evidence selection DB-free verification
 - `milestone51_reviewed_evidence_store_smoke.ts`: DB-free smoke tests for save, get, and list. Validates M50 promotion, EvidenceRecord validation, classification invariants, ID strictness, duplicate protection, and sorting determinism.
