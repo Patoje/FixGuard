@@ -541,3 +541,19 @@ Tests proven:
 * M53 does not create formal finding candidates, safe report items, or external reports.
 * M53 does not confirm vulnerabilities or make severity/risk/impact claims.
 * M53 uses selected refs and observed-only evidence summary counts.
+
+### M54 — Human-Triaged Finding Candidate Promotion Boundary DB-free
+* `npm run smoke:v2:finding-candidate-promotion`
+
+**Characteristics:**
+* M54 is DB-free and non-persistent.
+* M54 consumes validated M53 finding candidate drafts.
+* M54 requires explicit human triage approval to create a formal candidate.
+* M54 creates non-persisted M54 formal finding candidates only.
+* M54 does not create M45 finding candidates.
+* M54 does not create confirmed findings.
+* M54 does not create safe report items or external reports.
+* M54 does not confirm vulnerabilities.
+* M54 does not make exploitability/severity/risk/impact claims.
+* M54 does not provide remediation advice.
+* M54 does not use Postgres/DB/runtime/API/UI.
