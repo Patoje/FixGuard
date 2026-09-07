@@ -7,13 +7,18 @@ import type {
   AuthorizedComparisonValidationClassification,
   ScopeDecisionSummary,
   ComparisonSummary,
-  MappingSummary
+  MappingSummary,
+  AuthorizedComparisonValidationProvenance
 } from "./AuthorizedComparisonValidationContracts.js";
 import { evaluateScopePolicy } from "../scope/AuthorizedScopePolicyService.js";
 import { compareResponses } from "../comparison/ResponseComparatorService.js";
 import { mapComparisonToEvidence } from "../evidence-mapping/ComparisonEvidenceMappingService.js";
 import type { ResponseComparisonRequest } from "../comparison/ResponseComparatorContracts.js";
 import type { ComparisonEvidenceMappingRequest } from "../evidence-mapping/ComparisonEvidenceMappingContracts.js";
+import {
+  isRuntimeEstablishedVerifiedAuthorizationDecision,
+  deriveAuthorizationLineageRef
+} from "../authorization/VerifiedAuthorizationDecisionService.js";
 
 function getSafeClassification(): AuthorizedComparisonValidationClassification {
   return {
@@ -71,7 +76,8 @@ function buildBlockedResult(
   code: AuthorizedComparisonValidationReasonCode,
   scopeDecisionSummary?: ScopeDecisionSummary,
   comparisonSummary?: ComparisonSummary,
-  mappingSummary?: MappingSummary
+  mappingSummary?: MappingSummary,
+  provenance?: AuthorizedComparisonValidationProvenance
 ): AuthorizedComparisonValidationResult {
   return {
     contractVersion: AUTHORIZED_COMPARISON_VALIDATION_CONTRACT_VERSION,
@@ -84,6 +90,7 @@ function buildBlockedResult(
     scopeDecisionSummary,
     comparisonSummary,
     mappingSummary,
+    ...(provenance ? { provenance } : {}),
     explicitNonClaims: getSafeNonClaims(),
     classification: getSafeClassification()
   };
@@ -147,7 +154,8 @@ function validateValidationRequest(req: any): { isValid: boolean, errorCode: Aut
 
   const allowedTopKeys = new Set([
     "contractVersion", "kind", "validationId", "scanId", "requestedAt", "scopeGrant", "scopeActionRequest",
-    "baselineSnapshot", "validationSnapshot", "comparisonMode", "comparisonThresholds", "mappingMode", "reviewerPolicy", "classification"
+    "baselineSnapshot", "validationSnapshot", "comparisonMode", "comparisonThresholds", "mappingMode", "reviewerPolicy", "classification",
+    "verifiedAuthorizationDecision", "lineageRef"
   ]);
   for (const k of Object.keys(req)) {
     if (!allowedTopKeys.has(k)) {
@@ -296,9 +304,42 @@ export function runAuthorizedComparisonValidation(request: any, evaluatedAt: any
 
     const req = request as AuthorizedComparisonValidationRequest;
 
+    let provenance: AuthorizedComparisonValidationProvenance | undefined = undefined;
+
+    if (req.verifiedAuthorizationDecision !== undefined) {
+      if (!isRuntimeEstablishedVerifiedAuthorizationDecision(req.verifiedAuthorizationDecision) ||
+          req.verifiedAuthorizationDecision.decision !== 'authorized') {
+        return buildBlockedResult(safeValidationId, safeScanId, safeEval, 'blocked_authorization_invalid');
+      }
+
+      if (req.verifiedAuthorizationDecision.scanId !== safeScanId ||
+          req.verifiedAuthorizationDecision.scopeGrant?.grantId !== req.scopeGrant?.grantId) {
+        return buildBlockedResult(safeValidationId, safeScanId, safeEval, 'blocked_lineage_mismatch');
+      }
+
+      if (req.lineageRef !== undefined) {
+        if (req.lineageRef.scanId !== safeScanId ||
+            req.lineageRef.authorizationDecisionId !== req.verifiedAuthorizationDecision.authorizationDecisionId ||
+            req.lineageRef.authorizationGrantId !== req.verifiedAuthorizationDecision.authorizationGrantId) {
+          return buildBlockedResult(safeValidationId, safeScanId, safeEval, 'blocked_lineage_mismatch');
+        }
+      }
+
+      const authLineage = deriveAuthorizationLineageRef(req.verifiedAuthorizationDecision);
+      provenance = {
+        authorizationDecisionId: authLineage.authorizationDecisionId,
+        authorizationGrantId: authLineage.authorizationGrantId,
+        assessmentId: authLineage.assessmentId,
+        scanId: authLineage.scanId,
+        actorId: authLineage.actorId,
+      };
+    } else if (req.lineageRef !== undefined) {
+      return buildBlockedResult(safeValidationId, safeScanId, safeEval, 'blocked_lineage_mismatch');
+    }
+
     const allowedActionKinds = new Set(["light_validation", "active_validation", "authenticated_probe"]);
     if (!req.scopeActionRequest || !allowedActionKinds.has(req.scopeActionRequest.actionKind)) {
-      return buildBlockedResult(safeValidationId, safeScanId, safeEval, 'blocked_scope_invalid');
+      return buildBlockedResult(safeValidationId, safeScanId, safeEval, 'blocked_scope_invalid', undefined, undefined, undefined, provenance);
     }
 
     // Call M46
@@ -308,16 +349,16 @@ export function runAuthorizedComparisonValidation(request: any, evaluatedAt: any
       decisionId: derivedScopeDecisionId,
       evaluatedAt: safeEval
     });
-    
-    if (scopeRes.decision !== 'allowed') {
-      return buildBlockedResult(safeValidationId, safeScanId, safeEval, 'blocked_scope_denied');
-    }
 
     const scopeSummary: ScopeDecisionSummary = {
       decision: scopeRes.decision,
       reasonCode: hasForbiddenContent(scopeRes.reasonCode) ? 'invalid' : scopeRes.reasonCode,
       matchedPermission: scopeRes.matchedPermission && !hasForbiddenContent(scopeRes.matchedPermission) ? scopeRes.matchedPermission : undefined
     };
+    
+    if (scopeRes.decision !== 'allowed') {
+      return buildBlockedResult(safeValidationId, safeScanId, safeEval, 'blocked_scope_denied', scopeSummary, undefined, undefined, provenance);
+    }
 
     // Call M47
     const m47Req: ResponseComparisonRequest = {
@@ -335,7 +376,7 @@ export function runAuthorizedComparisonValidation(request: any, evaluatedAt: any
     const compRes = compareResponses(m47Req, safeEval);
 
     if (compRes.status === 'failed') {
-      return buildBlockedResult(safeValidationId, safeScanId, safeEval, 'blocked_comparison_failed', scopeSummary);
+      return buildBlockedResult(safeValidationId, safeScanId, safeEval, 'blocked_comparison_failed', scopeSummary, undefined, undefined, provenance);
     }
 
     const compSummary: ComparisonSummary = {
@@ -370,7 +411,7 @@ export function runAuthorizedComparisonValidation(request: any, evaluatedAt: any
     };
 
     if (mapRes.status === 'blocked') {
-      return buildBlockedResult(safeValidationId, safeScanId, safeEval, 'blocked_mapping_blocked', scopeSummary, compSummary, mapSummary);
+      return buildBlockedResult(safeValidationId, safeScanId, safeEval, 'blocked_mapping_blocked', scopeSummary, compSummary, mapSummary, provenance);
     }
     if (mapRes.status === 'failed') {
       return buildSafeFailure(safeValidationId, safeScanId, safeEval, 'failed_mapping_failed', 'Mapping failed');
@@ -387,6 +428,7 @@ export function runAuthorizedComparisonValidation(request: any, evaluatedAt: any
         scopeDecisionSummary: scopeSummary,
         comparisonSummary: compSummary,
         mappingSummary: mapSummary,
+        ...(provenance ? { provenance } : {}),
         explicitNonClaims: getSafeNonClaims(),
         classification: getSafeClassification()
       };
@@ -399,7 +441,7 @@ export function runAuthorizedComparisonValidation(request: any, evaluatedAt: any
       }
 
       if (!validateEvidenceDraftEnvelopeForValidationResult(draft)) {
-        return buildBlockedResult(safeValidationId, safeScanId, safeEval, 'blocked_mapping_blocked', scopeSummary, compSummary, mapSummary);
+        return buildBlockedResult(safeValidationId, safeScanId, safeEval, 'blocked_mapping_blocked', scopeSummary, compSummary, mapSummary, provenance);
       }
 
       return {
@@ -414,6 +456,7 @@ export function runAuthorizedComparisonValidation(request: any, evaluatedAt: any
         comparisonSummary: compSummary,
         mappingSummary: mapSummary,
         evidenceDraft: draft,
+        ...(provenance ? { provenance } : {}),
         explicitNonClaims: getSafeNonClaims(),
         classification: getSafeClassification()
       };

@@ -4,11 +4,51 @@ import { executeAndPersistActiveReconOriginRun } from '../recon/active/ActiveRec
 import { InMemoryActiveReconOriginRunRepository } from '../recon/active/InMemoryActiveReconOriginRunRepository.js';
 import type { ActiveReconDocumentProbeAdapters } from '../recon/active/ActiveReconDocumentProbeRunner.js';
 import type { ActiveReconOriginRunRequest } from '../recon/active/ActiveReconOriginRunContracts.js';
+import { establishVerifiedAuthorizationDecision } from '../authorization/VerifiedAuthorizationDecisionService.js';
 import {
   listActiveReconRunSummaryViews,
   getActiveReconRunDetailView
 } from '../recon/active/ActiveReconRunReadModelService.js';
 import { buildActiveReconRunSafeReportSnapshot } from '../recon/active/ActiveReconRunSafeReportService.js';
+
+const validDecision = (establishVerifiedAuthorizationDecision({
+  contractVersion: 'fixguard-verified-authorization-decision/v0',
+  kind: 'establish_verified_authorization_decision_request',
+  assessmentId: 'assess_1',
+  scanId: 'scan_1',
+  authorizationDecisionId: 'dec_1',
+  authorizedActor: { actorId: 'sys', actorType: 'human' },
+  decision: 'authorized',
+  decidedAt: '2026-07-01T12:00:00.000Z',
+  scopeGrant: {
+    contractVersion: 'fixguard-authorized-scope-policy/v0',
+    kind: 'authorized_scope_grant',
+    grantId: 'grant_1',
+    scanId: 'scan_1',
+    issuedAt: '2026-07-01T00:00:00.000Z',
+    expiresAt: '2026-07-10T23:59:59.999Z',
+    subject: { targetKind: 'origin', normalizedOrigin: 'https://example.com' },
+    authorizationBasis: { basisKind: 'internal_asset_record', recordedBy: 'human_user', authorizationText: 'Test' },
+    permissionSet: {
+      passiveRecon: true, technologyFingerprinting: true, endpointDiscovery: true, activeCrawling: false,
+      authenticatedTesting: false, lightValidation: true, activeValidation: false, aggressiveValidation: false,
+      oobTesting: false, destructiveOperations: false,
+    },
+    boundaries: {
+      allowedOrigins: ['https://example.com'], allowedMethods: ['GET'],
+      allowedPathPatterns: [{ match: 'prefix', pathTemplate: '/' }], deniedPathPatterns: [],
+    },
+    constraints: {
+      allowLoginRequiredAreas: false, allowStateChangingRequests: false, allowCredentialUse: false,
+      allowOobCallbacks: false, allowThirdPartyTargets: false,
+    },
+    classification: {
+      createsRealFindings: false, createsPersistedEvidence: false, confirmsVulnerabilities: false,
+      makesRiskClaims: false, makesSeverityClaims: false, makesImpactClaims: false,
+      executesNetwork: false, executesTools: false, persistsData: false,
+    },
+  },
+} as any, '2026-07-01T12:00:00.000Z') as any).decision;
 
 async function runTests() {
   console.log('--- V2 Active Recon Run Read Model + Safe Report Snapshot Smoke Test ---');
@@ -36,11 +76,11 @@ async function runTests() {
   };
 
   const createValidRequest = (id: string, probes: ('http.robots.inspect' | 'http.security_txt.inspect')[] = ['http.robots.inspect', 'http.security_txt.inspect']): ActiveReconOriginRunRequest => ({
-    contractVersion: 'active-recon-origin-run/v0',
+    contractVersion: 'active-recon-origin-run/v1',
     requestId: id,
     origin: 'https://example.com',
-    authorization: { confirmed: true, scopeLabel: 'auth_1' },
-    authorizedScope: { allowedOrigins: ['https://example.com'], allowSameHostPaths: true, allowSubdomains: false },
+    evaluatedAt: '2026-07-05T12:00:00.000Z',
+    verifiedAuthorizationDecision: validDecision,
     probes: probes.map(p => ({ family: 'document', probe: p })) as any
   });
 
@@ -101,6 +141,9 @@ async function runTests() {
   ];
 
   const stringToSearch = serialized
+    .replace(/authorizationProvenance/g, 'REDACTED_AUTH_LINEAGE')
+    .replace(/authorizationDecisionId/g, 'REDACTED_AUTH_LINEAGE')
+    .replace(/authorizationGrantId/g, 'REDACTED_AUTH_LINEAGE')
     .replace(/noEvidenceRecordsGenerated/g, 'REDACTED_NON_CLAIM')
     .replace(/noRawHttpDataIncluded/g, 'REDACTED_NON_CLAIM')
     .replace(/noRiskSeverityOrImpactClaims/g, 'REDACTED_NON_CLAIM');
@@ -186,11 +229,13 @@ async function runTests() {
   if (res1.persistedRecord) {
     const cloneA = structuredClone(res1.persistedRecord);
     cloneA.runId = 'same-time-a';
-    cloneA.createdAt = '2099-01-01T00:00:00Z';
+    cloneA.createdAt = '2099-01-01T00:00:00.000Z';
+    cloneA.updatedAt = '2099-01-01T00:00:00.000Z';
     
     const cloneB = structuredClone(res1.persistedRecord);
     cloneB.runId = 'same-time-b';
-    cloneB.createdAt = '2099-01-01T00:00:00Z';
+    cloneB.createdAt = '2099-01-01T00:00:00.000Z';
+    cloneB.updatedAt = '2099-01-01T00:00:00.000Z';
     
     await repo.saveRun(cloneB);
     await repo.saveRun(cloneA);

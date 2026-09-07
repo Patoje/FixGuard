@@ -1,5 +1,7 @@
 import type { AuthorizedScope } from '../policy/EgressPolicyContracts.js';
 import type { SafeActiveReconObservation } from './ActiveReconContracts.js';
+import type { VerifiedAuthorizationDecision } from '../../authorization/VerifiedAuthorizationDecisionContracts.js';
+import type { AuthorizedActiveReconRequestLineage } from '../../lineage/AuthorizedExecutionLineageContracts.js';
 
 // Supported probe kinds for the document probe runner — fixed set, no extension point
 export type ActiveReconDocumentProbeKind =
@@ -15,17 +17,22 @@ export type ActiveReconDocumentProbeEntry = {
   targetUrl: string;
 };
 
-// The run request. targetUrl is transient input only.
+/**
+ * The canonical run request type.
+ * v1 is required for new active executions (runtime enforcement).
+ */
 export type ActiveReconDocumentProbeRunRequest = {
+  contractVersion: 'active-recon-document-probe-run/v1';
   /** Optional caller-assigned run ID; a UUID is generated if absent */
   runId?: string;
-  authorizedScope: AuthorizedScope;
-  authorization: {
-    /** Must be set explicitly by caller — prevents accidental invocation */
-    confirmed: true;
-    /** Optional human-readable label for audit log / smoke proof only */
-    scopeLabel?: string;
-  };
+  evaluatedAt: string;
+
+  /**
+   * v1: A runtime-established VerifiedAuthorizationDecision.
+   * Plain object lookalikes are rejected.
+   */
+  verifiedAuthorizationDecision: VerifiedAuthorizationDecision;
+
   probes: ActiveReconDocumentProbeEntry[];
 };
 
@@ -37,7 +44,8 @@ export type ActiveReconDocumentProbeErrorCode =
   | 'policy_blocked'
   | 'policy_candidate'
   | 'adapter_missing'
-  | 'adapter_failed';
+  | 'adapter_failed'
+  | 'batch_preflight_aborted';
 
 // Per-probe result — rawTargetUrl, raw probeId, and unsupported kind are intentionally absent/sanitized
 export type ActiveReconDocumentProbeRunProbeResult = {
@@ -60,9 +68,16 @@ export type ActiveReconDocumentProbeRunProbeResult = {
   };
 };
 
+export type ActiveReconBatchDisposition =
+  | "authorization_denied"
+  | "preflight_denied"
+  | "execution_completed"
+  | "execution_failed";
+
 // The aggregated runner result
 export type ActiveReconDocumentProbeRunResult = {
   runId: string;
+  disposition: ActiveReconBatchDisposition;
   requestedProbeCount: number;
   completedProbeCount: number;
   blockedProbeCount: number;

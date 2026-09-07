@@ -1,4 +1,62 @@
 import assert from 'node:assert';
+
+import { establishVerifiedAuthorizationDecision } from '../authorization/VerifiedAuthorizationDecisionService.js';
+const validDecision = (establishVerifiedAuthorizationDecision({
+  contractVersion: 'fixguard-verified-authorization-decision/v0',
+  kind: 'establish_verified_authorization_decision_request',
+  assessmentId: 'assess_1',
+  scanId: 'scan_1',
+  authorizationDecisionId: 'dec_1',
+  authorizedActor: { actorId: 'sys', actorType: 'human' },
+  decision: 'authorized',
+  decidedAt: '2026-07-01T12:00:00.000Z',
+  scopeGrant: {
+    contractVersion: 'fixguard-authorized-scope-policy/v0',
+    kind: 'authorized_scope_grant',
+    grantId: 'grant_1',
+    scanId: 'scan_1',
+    issuedAt: '2026-07-01T00:00:00.000Z',
+    expiresAt: '2026-07-10T23:59:59.999Z',
+    subject: { targetKind: 'origin', normalizedOrigin: 'https://example.com' },
+    authorizationBasis: { basisKind: 'internal_asset_record', recordedBy: 'human_user', authorizationText: 'Test' },
+    permissionSet: {
+      passiveRecon: true,
+      technologyFingerprinting: true,
+      endpointDiscovery: true,
+      activeCrawling: false,
+      authenticatedTesting: false,
+      lightValidation: true,
+      activeValidation: false,
+      aggressiveValidation: false,
+      oobTesting: false,
+      destructiveOperations: false,
+    },
+    boundaries: {
+      allowedOrigins: ['https://example.com'],
+      allowedMethods: ['GET', 'HEAD', 'OPTIONS'],
+      allowedPathPatterns: [{ match: 'prefix', pathTemplate: '/' }],
+      deniedPathPatterns: [],
+    },
+    constraints: {
+      allowLoginRequiredAreas: false,
+      allowStateChangingRequests: false,
+      allowCredentialUse: false,
+      allowOobCallbacks: false,
+      allowThirdPartyTargets: false,
+    },
+    classification: {
+      createsRealFindings: false,
+      createsPersistedEvidence: false,
+      confirmsVulnerabilities: false,
+      makesRiskClaims: false,
+      makesSeverityClaims: false,
+      makesImpactClaims: false,
+      executesNetwork: false,
+      executesTools: false,
+      persistsData: false,
+    },
+  },
+} as any, '2026-07-01T12:00:00.000Z') as any).decision;
 import {
   runActiveReconDocumentProbes,
   type ActiveReconDocumentProbeAdapters,
@@ -70,8 +128,9 @@ async function runTests() {
     // Bypass TypeScript type by casting — Codex confirmed TS alone is insufficient
     const result = await runActiveReconDocumentProbes(
       {
-        authorizedScope: scope,
-        authorization: undefined as any,   // missing authorization
+        contractVersion: 'active-recon-document-probe-run/v1',
+        evaluatedAt: '2026-07-01T12:00:00.000Z',
+        verifiedAuthorizationDecision: undefined as any,   // missing authorization
         probes: [{ probeId: 'p1', kind: 'http.robots.inspect', targetUrl: 'https://example.com/robots.txt' }],
       },
       { robots: robotsSpy }
@@ -91,8 +150,9 @@ async function runTests() {
     const robotsSpy = makeFakeRobotsAdapter();
     const result = await runActiveReconDocumentProbes(
       {
-        authorizedScope: scope,
-        authorization: { confirmed: false } as any,  // false — must be rejected at runtime
+        contractVersion: 'active-recon-document-probe-run/v1',
+        evaluatedAt: '2026-07-01T12:00:00.000Z',
+        verifiedAuthorizationDecision: { confirmed: false } as any,  // false — must be rejected at runtime
         probes: [{ probeId: 'p1', kind: 'http.robots.inspect', targetUrl: 'https://example.com/robots.txt' }],
       },
       { robots: robotsSpy }
@@ -115,8 +175,9 @@ async function runTests() {
     const result = await runActiveReconDocumentProbes(
       {
         runId: 'SECRET_RUN_ID',    // hostile — must not appear in result
-        authorizedScope: scope,
-        authorization: baseAuth,
+        contractVersion: 'active-recon-document-probe-run/v1',
+        evaluatedAt: '2026-07-01T12:00:00.000Z',
+        verifiedAuthorizationDecision: validDecision,
         probes: [
           { probeId: 'SECRET_PROBE_ID', kind: 'http.robots.inspect', targetUrl: 'https://example.com/robots.txt' },
         ],
@@ -144,8 +205,9 @@ async function runTests() {
     // Codex hostile fixture: raw unsupported kind with embedded token
     const result = await runActiveReconDocumentProbes(
       {
-        authorizedScope: scope,
-        authorization: baseAuth,
+        contractVersion: 'active-recon-document-probe-run/v1',
+        evaluatedAt: '2026-07-01T12:00:00.000Z',
+        verifiedAuthorizationDecision: validDecision,
         probes: [
           { probeId: 'p1', kind: 'http.evil.inspect?token=SECRET' as any, targetUrl: 'https://example.com/whatever' },
         ],
@@ -180,8 +242,9 @@ async function runTests() {
   {
     const result = await runActiveReconDocumentProbes(
       {
-        authorizedScope: scope,
-        authorization: baseAuth,
+        contractVersion: 'active-recon-document-probe-run/v1',
+        evaluatedAt: '2026-07-01T12:00:00.000Z',
+        verifiedAuthorizationDecision: validDecision,
         probes: [
           { probeId: 'p1', kind: 'http.robots.inspect', targetUrl: 'https://example.com/robots.txt' },
           { probeId: 'p2', kind: 'http.unknown.probe' as any, targetUrl: 'https://example.com/whatever' }
@@ -207,8 +270,9 @@ async function runTests() {
     const adapters: ActiveReconDocumentProbeAdapters = { robots: robotsSpy };
     const result = await runActiveReconDocumentProbes(
       {
-        authorizedScope: scope,
-        authorization: baseAuth,
+        contractVersion: 'active-recon-document-probe-run/v1',
+        evaluatedAt: '2026-07-01T12:00:00.000Z',
+        verifiedAuthorizationDecision: validDecision,
         probes: [{ probeId: 'p1', kind: 'http.robots.inspect', targetUrl: 'https://blocked-site.com/robots.txt' }],
       },
       adapters
@@ -234,8 +298,9 @@ async function runTests() {
     };
     const result = await runActiveReconDocumentProbes(
       {
-        authorizedScope: scopeNoSubdomains,
-        authorization: baseAuth,
+        contractVersion: 'active-recon-document-probe-run/v1',
+        evaluatedAt: '2026-07-01T12:00:00.000Z',
+        verifiedAuthorizationDecision: validDecision,
         probes: [{ probeId: 'p1', kind: 'http.robots.inspect', targetUrl: 'https://sub.example.com/robots.txt' }],
       },
       adapters
@@ -255,8 +320,9 @@ async function runTests() {
 
     const result = await runActiveReconDocumentProbes(
       {
-        authorizedScope: scope,
-        authorization: baseAuth,
+        contractVersion: 'active-recon-document-probe-run/v1',
+        evaluatedAt: '2026-07-01T12:00:00.000Z',
+        verifiedAuthorizationDecision: validDecision,
         probes: [
           { probeId: 'p1', kind: 'http.robots.inspect', targetUrl: 'https://example.com/robots.txt' },
           { probeId: 'p2', kind: 'http.security_txt.inspect', targetUrl: 'https://example.com/.well-known/security.txt' },
@@ -281,8 +347,9 @@ async function runTests() {
   {
     const result = await runActiveReconDocumentProbes(
       {
-        authorizedScope: scope,
-        authorization: baseAuth,
+        contractVersion: 'active-recon-document-probe-run/v1',
+        evaluatedAt: '2026-07-01T12:00:00.000Z',
+        verifiedAuthorizationDecision: validDecision,
         probes: [{ probeId: 'p1', kind: 'http.robots.inspect', targetUrl: 'https://example.com/robots.txt' }],
       },
       {} // no adapters injected
@@ -306,8 +373,9 @@ async function runTests() {
 
     const result = await runActiveReconDocumentProbes(
       {
-        authorizedScope: scope,
-        authorization: baseAuth,
+        contractVersion: 'active-recon-document-probe-run/v1',
+        evaluatedAt: '2026-07-01T12:00:00.000Z',
+        verifiedAuthorizationDecision: validDecision,
         probes: [{ probeId: 'p1', kind: 'http.robots.inspect', targetUrl: 'https://example.com/robots.txt' }],
       },
       adapters
@@ -331,8 +399,9 @@ async function runTests() {
 
     const result = await runActiveReconDocumentProbes(
       {
-        authorizedScope: scope,
-        authorization: baseAuth,
+        contractVersion: 'active-recon-document-probe-run/v1',
+        evaluatedAt: '2026-07-01T12:00:00.000Z',
+        verifiedAuthorizationDecision: validDecision,
         probes: [{ probeId: 'p1', kind: 'http.robots.inspect', targetUrl: 'https://example.com/robots.txt' }],
       },
       adapters
@@ -360,8 +429,9 @@ async function runTests() {
 
     const result = await runActiveReconDocumentProbes(
       {
-        authorizedScope: scope,
-        authorization: baseAuth,
+        contractVersion: 'active-recon-document-probe-run/v1',
+        evaluatedAt: '2026-07-01T12:00:00.000Z',
+        verifiedAuthorizationDecision: validDecision,
         probes: [
           { probeId: 'p1', kind: 'http.robots.inspect', targetUrl: 'https://example.com/robots.txt?token=SECRET' },
           { probeId: 'p2', kind: 'http.security_txt.inspect', targetUrl: 'https://example.com/.well-known/security.txt?api_key=SECRET' },
@@ -387,8 +457,9 @@ async function runTests() {
   {
     const result = await runActiveReconDocumentProbes(
       {
-        authorizedScope: scope,
-        authorization: baseAuth,
+        contractVersion: 'active-recon-document-probe-run/v1',
+        evaluatedAt: '2026-07-01T12:00:00.000Z',
+        verifiedAuthorizationDecision: validDecision,
         probes: [{ probeId: 'p1', kind: 'http.robots.inspect', targetUrl: 'https://example.com/robots.txt' }],
       },
       { robots: makeFakeRobotsAdapter() }
@@ -407,8 +478,9 @@ async function runTests() {
 
     const result = await runActiveReconDocumentProbes(
       {
-        authorizedScope: scope,
-        authorization: baseAuth,
+        contractVersion: 'active-recon-document-probe-run/v1',
+        evaluatedAt: '2026-07-01T12:00:00.000Z',
+        verifiedAuthorizationDecision: validDecision,
         probes: [
           { probeId: 'p1', kind: 'http.robots.inspect', targetUrl: 'https://example.com/robots.txt' },
           { probeId: 'p2', kind: 'http.security_txt.inspect', targetUrl: 'https://example.com/.well-known/security.txt' },
@@ -433,8 +505,9 @@ async function runTests() {
   {
     const result = await runActiveReconDocumentProbes(
       {
-        authorizedScope: scope,
-        authorization: baseAuth,
+        contractVersion: 'active-recon-document-probe-run/v1',
+        evaluatedAt: '2026-07-01T12:00:00.000Z',
+        verifiedAuthorizationDecision: validDecision,
         probes: [{ probeId: 'p1', kind: 'http.robots.inspect', targetUrl: 'https://example.com/robots.txt' }],
       },
       { robots: makeFakeRobotsAdapter() }
@@ -454,8 +527,9 @@ async function runTests() {
     const result = await runActiveReconDocumentProbes(
       {
         runId: 'caller-supplied-id-ignored',  // ignored by runner
-        authorizedScope: scope,
-        authorization: baseAuth,
+        contractVersion: 'active-recon-document-probe-run/v1',
+        evaluatedAt: '2026-07-01T12:00:00.000Z',
+        verifiedAuthorizationDecision: validDecision,
         probes: [],
       },
       {}

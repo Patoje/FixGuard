@@ -1,12 +1,14 @@
 import { evaluateEgressPolicy, isInternalOrSsrfTarget } from '../policy/PassiveEgressPolicy.js';
 import { normalizeTargetUrl } from '../policy/TargetUrlNormalizer.js';
 import { runActiveReconDocumentProbes, type ActiveReconDocumentProbeAdapters } from './ActiveReconDocumentProbeRunner.js';
-import type { ActiveReconDocumentProbeEntry, ActiveReconDocumentProbeRunRequest } from './ActiveReconDocumentProbeRunContracts.js';
-import type {
-  ActiveReconOriginRunRequest,
-  ActiveReconOriginRunResult,
-  ActiveReconOriginRunProbeResult,
-  ActiveReconOriginProbeSelection,
+import { isRuntimeEstablishedVerifiedAuthorizationDecision, validateVerifiedAuthorizationDecision } from '../../authorization/VerifiedAuthorizationDecisionService.js';
+import type { ActiveReconDocumentProbeEntry } from './ActiveReconDocumentProbeRunContracts.js';
+import {
+  type ActiveReconOriginRunRequest,
+  type ActiveReconOriginRunResult,
+  type ActiveReconOriginProbeSelection,
+  type ActiveReconOriginRunProbeResult,
+  deriveActiveReconRunStatus
 } from './ActiveReconOriginRunContracts.js';
 
 const DOCUMENT_PROBE_DEFINITIONS = {
@@ -24,10 +26,6 @@ function makeRunId(): string {
   return `origin_run_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
 }
 
-function isAuthorizationConfirmed(request: ActiveReconOriginRunRequest): boolean {
-  return (request as any).authorization?.confirmed === true;
-}
-
 export async function runActiveReconOriginProbes(
   request: ActiveReconOriginRunRequest,
   adapters: ActiveReconDocumentProbeAdapters
@@ -36,9 +34,10 @@ export async function runActiveReconOriginProbes(
   const requestedProbeCount = probes.length;
 
   const baseResult: ActiveReconOriginRunResult = {
-    contractVersion: 'active-recon-origin-run/v0',
+    contractVersion: 'active-recon-origin-run-result/v0',
     runId: makeRunId(),
     status: 'failed',
+    disposition: 'execution_failed',
     requestedProbeCount,
     plannedProbeCount: 0,
     completedProbeCount: 0,
@@ -56,10 +55,27 @@ export async function runActiveReconOriginProbes(
     },
   };
 
-  // 1. Validate authorization
-  if (!isAuthorizationConfirmed(request)) {
+  // 1. Validate authorization (M56A)
+  const authError = (function(req: any) {
+    const d = req.verifiedAuthorizationDecision;
+    if (
+      !d ||
+      typeof d !== 'object' ||
+      !('contractVersion' in d) ||
+      d.contractVersion !== 'fixguard-verified-authorization-decision/v0' ||
+      d.decision !== 'authorized' ||
+      !('verification' in d) ||
+      !isRuntimeEstablishedVerifiedAuthorizationDecision(d)
+    ) {
+      return 'invalid';
+    }
+    return null;
+  })(request);
+
+  if (authError !== null) {
     return {
       ...baseResult,
+      disposition: 'authorization_denied',
       failedProbeCount: requestedProbeCount,
       runErrors: [{ code: 'authorization_not_confirmed', message: 'Run authorization was not confirmed.' }],
       probes: probes.map((_, i) => ({
@@ -81,6 +97,7 @@ export async function runActiveReconOriginProbes(
   } catch {
     return {
       ...baseResult,
+      disposition: 'preflight_denied',
       failedProbeCount: requestedProbeCount,
       runErrors: [{ code: 'invalid_origin', message: 'Origin is not a valid URL.' }],
       probes: probes.map((_, i) => ({
@@ -96,35 +113,42 @@ export async function runActiveReconOriginProbes(
   }
 
   if (parsedOrigin.protocol !== 'http:' && parsedOrigin.protocol !== 'https:') {
-    return { ...baseResult, failedProbeCount: requestedProbeCount, runErrors: [{ code: 'invalid_origin', message: 'Origin protocol must be http or https.' }], probes: probes.map((_, i) => ({
+    return { ...baseResult, disposition: 'preflight_denied', failedProbeCount: requestedProbeCount, runErrors: [{ code: 'invalid_origin', message: 'Origin protocol must be http or https.' }], probes: probes.map((_, i) => ({
       safeProbeIndex: `probe-${i + 1}`, family: 'document', safeKind: 'unknown', status: 'failed', target: {}, observations: [],
       error: { code: 'invalid_origin', message: 'Origin protocol must be http or https.' },
     }))};
   }
 
+  if (parsedOrigin.origin !== request.origin) {
+    return { ...baseResult, disposition: 'preflight_denied', failedProbeCount: requestedProbeCount, runErrors: [{ code: 'invalid_origin', message: 'Origin must be strictly canonical.' }], probes: probes.map((_, i) => ({
+      safeProbeIndex: `probe-${i + 1}`, family: 'document', safeKind: 'unknown', status: 'failed', target: {}, observations: [],
+      error: { code: 'invalid_origin', message: 'Origin must be strictly canonical.' },
+    }))};
+  }
+
   if (parsedOrigin.pathname !== '' && parsedOrigin.pathname !== '/') {
-    return { ...baseResult, failedProbeCount: requestedProbeCount, runErrors: [{ code: 'invalid_origin', message: 'Origin must not contain a path.' }], probes: probes.map((_, i) => ({
+    return { ...baseResult, disposition: 'preflight_denied', failedProbeCount: requestedProbeCount, runErrors: [{ code: 'invalid_origin', message: 'Origin must not contain a path.' }], probes: probes.map((_, i) => ({
       safeProbeIndex: `probe-${i + 1}`, family: 'document', safeKind: 'unknown', status: 'failed', target: {}, observations: [],
       error: { code: 'invalid_origin', message: 'Origin must not contain a path.' },
     }))};
   }
 
   if (parsedOrigin.search || parsedOrigin.hash) {
-    return { ...baseResult, failedProbeCount: requestedProbeCount, runErrors: [{ code: 'invalid_origin', message: 'Origin must not contain query or fragment.' }], probes: probes.map((_, i) => ({
+    return { ...baseResult, disposition: 'preflight_denied', failedProbeCount: requestedProbeCount, runErrors: [{ code: 'invalid_origin', message: 'Origin must not contain query or fragment.' }], probes: probes.map((_, i) => ({
       safeProbeIndex: `probe-${i + 1}`, family: 'document', safeKind: 'unknown', status: 'failed', target: {}, observations: [],
       error: { code: 'invalid_origin', message: 'Origin must not contain query or fragment.' },
     }))};
   }
 
   if (parsedOrigin.username || parsedOrigin.password) {
-    return { ...baseResult, failedProbeCount: requestedProbeCount, runErrors: [{ code: 'invalid_origin', message: 'Origin must not contain credentials.' }], probes: probes.map((_, i) => ({
+    return { ...baseResult, disposition: 'preflight_denied', failedProbeCount: requestedProbeCount, runErrors: [{ code: 'invalid_origin', message: 'Origin must not contain credentials.' }], probes: probes.map((_, i) => ({
       safeProbeIndex: `probe-${i + 1}`, family: 'document', safeKind: 'unknown', status: 'failed', target: {}, observations: [],
       error: { code: 'invalid_origin', message: 'Origin must not contain credentials.' },
     }))};
   }
 
   if (isInternalOrSsrfTarget(parsedOrigin.hostname)) {
-    return { ...baseResult, failedProbeCount: requestedProbeCount, runErrors: [{ code: 'invalid_origin', message: 'Origin resolves to an unsafe internal IP.' }], probes: probes.map((_, i) => ({
+    return { ...baseResult, disposition: 'preflight_denied', failedProbeCount: requestedProbeCount, runErrors: [{ code: 'invalid_origin', message: 'Origin resolves to an unsafe internal IP.' }], probes: probes.map((_, i) => ({
       safeProbeIndex: `probe-${i + 1}`, family: 'document', safeKind: 'unknown', status: 'failed', target: {}, observations: [],
       error: { code: 'invalid_origin', message: 'Origin resolves to an unsafe internal IP.' },
     }))};
@@ -143,39 +167,330 @@ export async function runActiveReconOriginProbes(
     };
   }
 
-  const plannedTargets: { safeProbeIndex: string; kind: 'http.robots.inspect' | 'http.security_txt.inspect'; targetUrl: string }[] = [];
+  // 3. M39/M56A atomic batch preflight: normalize and validate every probe selection before any execution.
+  //    If any selection is invalid, blocked, or missing an adapter, abort entire batch without side effects.
+  type SupportedDocumentProbeKind = 'http.robots.inspect' | 'http.security_txt.inspect';
+  const SUPPORTED_DOCUMENT_PROBES = new Set<SupportedDocumentProbeKind>(['http.robots.inspect', 'http.security_txt.inspect']);
+
+  type NormalizedOriginProbeSelection =
+    | Readonly<{
+        status: 'valid_document_probe';
+        originalIndex: number;
+        safeProbeIndex: string;
+        probe: SupportedDocumentProbeKind;
+      }>
+    | Readonly<{
+        status: 'invalid_selection';
+        originalIndex: number;
+        safeProbeIndex: string;
+        safeFamily: string;
+        safeProbe: string;
+        probeStatus: 'failed' | 'blocked' | 'candidate';
+        reasonCode: any;
+        message: string;
+      }>;
+
+  const scopeGrant = request.verifiedAuthorizationDecision?.scopeGrant as Record<string, any> | undefined;
+
+  const normalizedSelections: NormalizedOriginProbeSelection[] = probes.map((probeReq, i): NormalizedOriginProbeSelection => {
+    const safeProbeIndex = `probe-${i + 1}`;
+    const raw = probeReq as Record<string, unknown>;
+    const rawFamily = typeof raw?.family === 'string' ? raw.family : 'unknown';
+    const rawProbe = typeof raw?.probe === 'string' ? raw.probe : 'unknown';
+
+    // 1. Family check
+    if (!probeReq || rawFamily !== 'document') {
+      return {
+        status: 'invalid_selection',
+        originalIndex: i,
+        safeProbeIndex,
+        safeFamily: rawFamily.slice(0, 64),
+        safeProbe: rawProbe.slice(0, 64),
+        probeStatus: 'failed',
+        reasonCode: 'unsupported_probe',
+        message: 'Unsupported origin probe selection.',
+      };
+    }
+
+    // 2. Supported probe check
+    if (!SUPPORTED_DOCUMENT_PROBES.has(rawProbe as SupportedDocumentProbeKind)) {
+      return {
+        status: 'invalid_selection',
+        originalIndex: i,
+        safeProbeIndex,
+        safeFamily: 'document',
+        safeProbe: rawProbe.slice(0, 64),
+        probeStatus: 'failed',
+        reasonCode: 'unsupported_probe',
+        message: 'Unsupported origin probe selection.',
+      };
+    }
+
+    const probeKind = rawProbe as SupportedDocumentProbeKind;
+    const def = DOCUMENT_PROBE_DEFINITIONS[probeKind];
+    const targetUrl = `${normalizedOrigin}${def.path}`;
+
+    // 3. Scope grant checks
+    if (scopeGrant) {
+      // 3a. Permission check (endpointDiscovery)
+      if (scopeGrant.permissionSet?.endpointDiscovery === false) {
+        return {
+          status: 'invalid_selection',
+          originalIndex: i,
+          safeProbeIndex,
+          safeFamily: 'document',
+          safeProbe: probeKind,
+          probeStatus: 'blocked',
+          reasonCode: 'policy_blocked',
+          message: 'Endpoint discovery permission is not granted.',
+        };
+      }
+
+      // 3b. Origin / host matching
+      let originMatched = false;
+      const boundaries = scopeGrant.boundaries;
+      if (boundaries?.allowedOrigins && Array.isArray(boundaries.allowedOrigins) && boundaries.allowedOrigins.length > 0) {
+        if (boundaries.allowedOrigins.includes(normalizedOrigin)) {
+          originMatched = true;
+        }
+      } else if (scopeGrant.subject?.targetKind === 'origin' && scopeGrant.subject.normalizedOrigin === normalizedOrigin) {
+        originMatched = true;
+      } else if (scopeGrant.subject?.targetKind === 'host' && scopeGrant.subject.host === parsedOrigin.host) {
+        originMatched = true;
+      } else if (scopeGrant.subject?.targetKind === 'domain' && scopeGrant.subject.domain === parsedOrigin.hostname) {
+        originMatched = true;
+      }
+
+      if (!originMatched) {
+        return {
+          status: 'invalid_selection',
+          originalIndex: i,
+          safeProbeIndex,
+          safeFamily: 'document',
+          safeProbe: probeKind,
+          probeStatus: 'blocked',
+          reasonCode: 'policy_blocked',
+          message: 'Target origin is not within authorized scope.',
+        };
+      }
+
+      // 3c. Denied path patterns
+      if (boundaries?.deniedPathPatterns && Array.isArray(boundaries.deniedPathPatterns)) {
+        for (const pattern of boundaries.deniedPathPatterns) {
+          const p = pattern.pathTemplate;
+          const isExact = pattern.match === 'exact';
+          const matched = isExact
+            ? def.path === p
+            : (def.path === p || def.path.startsWith(p.endsWith('/') ? p : `${p}/`));
+          if (matched) {
+            return {
+              status: 'invalid_selection',
+              originalIndex: i,
+              safeProbeIndex,
+              safeFamily: 'document',
+              safeProbe: probeKind,
+              probeStatus: 'blocked',
+              reasonCode: 'policy_blocked',
+              message: 'Target path is explicitly denied by scope.',
+            };
+          }
+        }
+      }
+
+      // 3d. Allowed path patterns (if specified, must match)
+      if (boundaries?.allowedPathPatterns && Array.isArray(boundaries.allowedPathPatterns) && boundaries.allowedPathPatterns.length > 0) {
+        let pathAllowed = false;
+        for (const pattern of boundaries.allowedPathPatterns) {
+          const p = pattern.pathTemplate;
+          const isExact = pattern.match === 'exact';
+          const matched = isExact
+            ? def.path === p
+            : (def.path === p || def.path.startsWith(p.endsWith('/') ? p : `${p}/`));
+          if (matched) {
+            pathAllowed = true;
+            break;
+          }
+        }
+        if (!pathAllowed) {
+          return {
+            status: 'invalid_selection',
+            originalIndex: i,
+            safeProbeIndex,
+            safeFamily: 'document',
+            safeProbe: probeKind,
+            probeStatus: 'blocked',
+            reasonCode: 'policy_blocked',
+            message: 'Target path is not within allowed path patterns.',
+          };
+        }
+      }
+
+      // 3e. Denied methods
+      if (boundaries?.deniedMethods && Array.isArray(boundaries.deniedMethods) && boundaries.deniedMethods.includes('GET')) {
+        return {
+          status: 'invalid_selection',
+          originalIndex: i,
+          safeProbeIndex,
+          safeFamily: 'document',
+          safeProbe: probeKind,
+          probeStatus: 'blocked',
+          reasonCode: 'policy_blocked',
+          message: 'Method GET is explicitly denied by scope.',
+        };
+      }
+
+      // 3f. Allowed methods
+      if (boundaries?.allowedMethods && Array.isArray(boundaries.allowedMethods) && boundaries.allowedMethods.length > 0) {
+        if (!boundaries.allowedMethods.includes('GET')) {
+          return {
+            status: 'invalid_selection',
+            originalIndex: i,
+            safeProbeIndex,
+            safeFamily: 'document',
+            safeProbe: probeKind,
+            probeStatus: 'blocked',
+            reasonCode: 'policy_blocked',
+            message: 'Method GET is not within allowed methods.',
+          };
+        }
+      }
+    }
+
+    // 4. Egress policy check
+    const authorizedScope = {
+      allowedOrigins: scopeGrant?.boundaries?.allowedOrigins || [],
+      allowSameHostPaths: true,
+      allowSubdomains: scopeGrant?.subject?.targetKind === 'domain',
+    };
+    let egressDecision: ReturnType<typeof evaluateEgressPolicy>;
+    try {
+      egressDecision = evaluateEgressPolicy({
+        targetUrl,
+        capabilityId: probeKind,
+        authorizedScope,
+      });
+    } catch {
+      return {
+        status: 'invalid_selection',
+        originalIndex: i,
+        safeProbeIndex,
+        safeFamily: 'document',
+        safeProbe: probeKind,
+        probeStatus: 'failed',
+        reasonCode: 'policy_blocked',
+        message: 'Target URL could not be evaluated by the egress policy.',
+      };
+    }
+
+    if (egressDecision.decision === 'block') {
+      return {
+        status: 'invalid_selection',
+        originalIndex: i,
+        safeProbeIndex,
+        safeFamily: 'document',
+        safeProbe: probeKind,
+        probeStatus: 'blocked',
+        reasonCode: 'policy_blocked',
+        message: 'Target was blocked by egress policy before adapter invocation.',
+      };
+    }
+    if (egressDecision.decision === 'candidate') {
+      return {
+        status: 'invalid_selection',
+        originalIndex: i,
+        safeProbeIndex,
+        safeFamily: 'document',
+        safeProbe: probeKind,
+        probeStatus: 'candidate',
+        reasonCode: 'policy_candidate',
+        message: 'Target is a scope candidate; explicit authorization required before probing.',
+      };
+    }
+
+    // 5. Adapter availability check
+    const adapter = probeKind === 'http.robots.inspect' ? adapters?.robots : adapters?.securityTxt;
+    if (!adapter) {
+      return {
+        status: 'invalid_selection',
+        originalIndex: i,
+        safeProbeIndex,
+        safeFamily: 'document',
+        safeProbe: probeKind,
+        probeStatus: 'failed',
+        reasonCode: 'adapter_missing',
+        message: 'No adapter is registered for the requested document probe kind.',
+      };
+    }
+
+    return {
+      status: 'valid_document_probe',
+      originalIndex: i,
+      safeProbeIndex,
+      probe: probeKind,
+    };
+  });
+
+  const invalidSelections = normalizedSelections.filter(s => s.status === 'invalid_selection');
+  const validSelections = normalizedSelections.filter(s => s.status === 'valid_document_probe');
+
+  // If any selection is invalid, abort the entire batch atomically
+  if (invalidSelections.length > 0) {
+    const batchResult: ActiveReconOriginRunProbeResult[] = normalizedSelections.map(s => {
+      if (s.status === 'invalid_selection') {
+        const safeKind = s.safeProbe in DOCUMENT_PROBE_DEFINITIONS ? (s.safeProbe as SupportedDocumentProbeKind) : 'unknown';
+        return {
+          safeProbeIndex: s.safeProbeIndex,
+          family: 'document',
+          safeKind,
+          status: s.probeStatus,
+          target: { normalizedOrigin },
+          observations: [],
+          error: { code: s.reasonCode, message: s.message },
+        };
+      } else {
+        return {
+          safeProbeIndex: s.safeProbeIndex,
+          family: 'document',
+          safeKind: s.probe,
+          status: 'failed',
+          target: { normalizedOrigin },
+          observations: [],
+          error: { code: 'batch_preflight_aborted', message: 'Batch aborted due to invalid probe selection in batch.' },
+        };
+      }
+    });
+    return {
+      ...baseResult,
+      disposition: 'preflight_denied',
+      status: 'failed',
+      failedProbeCount: batchResult.filter(p => p.status === 'failed').length,
+      blockedProbeCount: batchResult.filter(p => p.status === 'blocked').length,
+      candidateProbeCount: batchResult.filter(p => p.status === 'candidate').length,
+      completedProbeCount: 0,
+      probes: batchResult,
+      runErrors: [{ code: invalidSelections[0].reasonCode, message: invalidSelections[0].message }],
+    };
+  }
+
+  const plannedTargets: { safeProbeIndex: string; kind: SupportedDocumentProbeKind; targetUrl: string }[] = [];
   const originProbesResult: ActiveReconOriginRunProbeResult[] = [];
   const seenKinds = new Set<string>();
 
-  for (let i = 0; i < probes.length; i++) {
-    const probeReq = probes[i];
-    const safeProbeIndex = `probe-${i + 1}`;
+  for (const sel of validSelections) {
+    if (sel.status !== 'valid_document_probe') continue; // type narrowing
+    const { safeProbeIndex, probe } = sel;
 
-    if (!probeReq || probeReq.family !== 'document' || !(probeReq.probe in DOCUMENT_PROBE_DEFINITIONS)) {
-      originProbesResult.push({
-        safeProbeIndex,
-        family: 'document',
-        safeKind: 'unknown',
-        status: 'failed',
-        target: { normalizedOrigin },
-        observations: [],
-        error: { code: 'unsupported_probe', message: 'Unsupported origin probe selection.' },
-      });
+    if (seenKinds.has(probe)) {
       continue;
     }
+    seenKinds.add(probe);
 
-    if (seenKinds.has(probeReq.probe)) {
-      // deduplicate safely
-      continue;
-    }
-    seenKinds.add(probeReq.probe);
-
-    const def = DOCUMENT_PROBE_DEFINITIONS[probeReq.probe as keyof typeof DOCUMENT_PROBE_DEFINITIONS];
+    const def = DOCUMENT_PROBE_DEFINITIONS[probe];
     const targetUrl = `${normalizedOrigin}${def.path}`;
 
     plannedTargets.push({
       safeProbeIndex,
-      kind: probeReq.probe as 'http.robots.inspect' | 'http.security_txt.inspect',
+      kind: probe,
       targetUrl,
     });
   }
@@ -191,9 +506,10 @@ export async function runActiveReconOriginProbes(
       targetUrl: pt.targetUrl,
     }));
 
-    const runnerRequest: ActiveReconDocumentProbeRunRequest = {
-      authorizedScope: request.authorizedScope,
-      authorization: request.authorization,
+    const runnerRequest: import('./ActiveReconDocumentProbeRunContracts.js').ActiveReconDocumentProbeRunRequest = {
+      contractVersion: 'active-recon-document-probe-run/v1',
+      evaluatedAt: request.evaluatedAt,
+      verifiedAuthorizationDecision: request.verifiedAuthorizationDecision,
       probes: m38Probes,
     };
 
@@ -220,6 +536,7 @@ export async function runActiveReconOriginProbes(
     }
 
     // 5. Map M38 Results to M39 Results
+    baseResult.disposition = runnerResult.disposition;
     for (const rProbe of runnerResult.probes) {
       // The M38 runner now returns `safeProbeIndex` instead of `probeId`.
       // We mapped our `pt.safeProbeIndex` into `probeId` in the request,
@@ -255,13 +572,10 @@ export async function runActiveReconOriginProbes(
   baseResult.plannedProbeCount = plannedTargets.length;
   baseResult.requestedProbeCount = request.probes.length;
 
-  if (baseResult.completedProbeCount === baseResult.plannedProbeCount && baseResult.plannedProbeCount > 0) {
-    baseResult.status = 'completed';
-  } else if (baseResult.completedProbeCount > 0) {
-    baseResult.status = 'partial';
-  } else {
-    baseResult.status = 'failed';
-  }
+  baseResult.status = deriveActiveReconRunStatus(
+    baseResult.plannedProbeCount,
+    baseResult.completedProbeCount
+  );
 
   return baseResult;
 }

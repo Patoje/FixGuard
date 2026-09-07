@@ -1,4 +1,7 @@
 import assert from 'node:assert';
+
+import { establishVerifiedAuthorizationDecision } from '../authorization/VerifiedAuthorizationDecisionService.js';
+const validDecision = (establishVerifiedAuthorizationDecision({ contractVersion: 'fixguard-verified-authorization-decision/v0', kind: 'establish_verified_authorization_decision_request', assessmentId: 'assess_1', scanId: 'scan_1', authorizationDecisionId: 'dec_1', authorizedActor: { actorId: 'sys', actorType: 'human' }, decision: 'authorized', decidedAt: '2026-07-01T12:00:00.000Z', scopeGrant: { contractVersion: 'fixguard-authorized-scope-policy/v0', kind: 'authorized_scope_policy', grantId: 'grant_1', scanId: 'scan_1', subject: { targetKind: 'origin', normalizedOrigin: 'https://example.com' }, permissionSet: { endpointDiscovery: true, activeValidation: false }, boundaries: { allowedOrigins: ['https://example.com'], allowedMethods: ['GET'], allowedPathPatterns: [{ pathTemplate: '/' }] }, constraints: { allowCredentialUse: false }, classification: { executesNetwork: false } } } as any, '2026-07-01T12:00:00.000Z') as any).decision;
 import {
   runActiveReconDocumentProbes,
   type ActiveReconDocumentProbeAdapters,
@@ -105,7 +108,7 @@ async function runRealM38Validation() {
   console.log(`[*] Requested probes: ${requestedProbes.join(', ')}`);
   console.log(`[*] Allowed origin: [configured]`);
 
-  const authorizedScope: AuthorizedScope = {
+  const verifiedAuthorizationDecision: AuthorizedScope = {
     allowedOrigins: [origin],
     allowSameHostPaths: true,
     allowSubdomains: false,
@@ -132,9 +135,9 @@ async function runRealM38Validation() {
 
   const result = await runActiveReconDocumentProbes(
     {
-      runId: undefined,  // runner generates safe ID; caller runId is never echoed
-      authorizedScope,
-      authorization: { confirmed: true, scopeLabel: 'M38 real opt-in run' },
+      contractVersion: 'active-recon-document-probe-run/v1',
+      evaluatedAt: '2026-07-01T12:00:00.000Z',
+      verifiedAuthorizationDecision: validDecision,
       probes,
     },
     adapters

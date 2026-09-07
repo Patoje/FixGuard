@@ -75,11 +75,26 @@ async function runTests() {
   const repository = new InMemoryActiveReconOriginRunRepository();
 
   const request: ActiveReconOriginRunRequest = {
-    contractVersion: 'active-recon-origin-run/v0',
+    contractVersion: 'active-recon-origin-run/v1',
     requestId: 'real_m42_smoke_req_1',
     origin: originStr,
-    authorization: { confirmed: true, scopeLabel: 'auth_real' },
-    authorizedScope: { allowedOrigins: [originStr], allowSameHostPaths: true, allowSubdomains: false },
+    evaluatedAt: '2026-07-05T12:00:00.000Z',
+    verifiedAuthorizationDecision: {
+      contractVersion: 'fixguard-verified-authorization-decision/v0',
+      kind: 'verified_authorization_decision',
+      assessmentId: 'assess_1',
+      scanId: 'scan_1',
+      authorizationGrantId: 'grant_1',
+      authorizationDecisionId: 'dec_1',
+      authorizedActor: { actorId: 'sys', actorType: 'human' },
+      decision: 'authorized',
+      decidedAt: '2026-07-01T12:00:00.000Z',
+      scopeGrant: { contractVersion: 'fixguard-authorized-scope-policy/v0' },
+      verification: {
+        verifiedAt: '2026-07-01T12:00:00.000Z',
+        method: 'trusted_application_boundary'
+      }
+    } as import("../authorization/VerifiedAuthorizationDecisionContracts.js").VerifiedAuthorizationDecision,
     probes: requestedProbes.map(p => ({ family: 'document', probe: p })) as any
   };
 

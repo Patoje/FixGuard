@@ -1,8 +1,48 @@
 import assert from 'node:assert';
 import { runActiveReconOriginProbes } from '../recon/active/ActiveReconOriginRunService.js';
+import { establishVerifiedAuthorizationDecision } from '../authorization/VerifiedAuthorizationDecisionService.js';
 import type { AuthorizedScope } from '../recon/policy/EgressPolicyContracts.js';
 import type { SafeActiveReconObservation } from '../recon/active/ActiveReconContracts.js';
 import type { ActiveReconOriginRunRequest } from '../recon/active/ActiveReconOriginRunContracts.js';
+
+const validDecision = (establishVerifiedAuthorizationDecision({
+  contractVersion: 'fixguard-verified-authorization-decision/v0',
+  kind: 'establish_verified_authorization_decision_request',
+  assessmentId: 'assess_1',
+  scanId: 'scan_1',
+  authorizationDecisionId: 'dec_1',
+  authorizedActor: { actorId: 'sys', actorType: 'human' },
+  decision: 'authorized',
+  decidedAt: '2026-07-01T12:00:00.000Z',
+  scopeGrant: {
+    contractVersion: 'fixguard-authorized-scope-policy/v0',
+    kind: 'authorized_scope_grant',
+    grantId: 'grant_1',
+    scanId: 'scan_1',
+    issuedAt: '2026-07-01T00:00:00.000Z',
+    expiresAt: '2026-07-10T23:59:59.999Z',
+    subject: { targetKind: 'origin', normalizedOrigin: 'https://example.com' },
+    authorizationBasis: { basisKind: 'internal_asset_record', recordedBy: 'human_user', authorizationText: 'Test' },
+    permissionSet: {
+      passiveRecon: true, technologyFingerprinting: true, endpointDiscovery: true, activeCrawling: false,
+      authenticatedTesting: false, lightValidation: true, activeValidation: false, aggressiveValidation: false,
+      oobTesting: false, destructiveOperations: false,
+    },
+    boundaries: {
+      allowedOrigins: ['https://example.com'], allowedMethods: ['GET'],
+      allowedPathPatterns: [{ match: 'prefix', pathTemplate: '/' }], deniedPathPatterns: [],
+    },
+    constraints: {
+      allowLoginRequiredAreas: false, allowStateChangingRequests: false, allowCredentialUse: false,
+      allowOobCallbacks: false, allowThirdPartyTargets: false,
+    },
+    classification: {
+      createsRealFindings: false, createsPersistedEvidence: false, confirmsVulnerabilities: false,
+      makesRiskClaims: false, makesSeverityClaims: false, makesImpactClaims: false,
+      executesNetwork: false, executesTools: false, persistsData: false,
+    },
+  },
+} as any, '2026-07-01T12:00:00.000Z') as any).decision;
 
 console.log('--- V2 Active Recon Origin Run DB-Free Smoke Test ---');
 
@@ -53,9 +93,9 @@ async function runTests() {
     const robotsSpy = makeFakeRobotsAdapter();
     const result = await runActiveReconOriginProbes(
       {
-        contractVersion: 'active-recon-origin-run/v0',
-        authorization: { confirmed: false } as any,
-        authorizedScope: scope,
+        contractVersion: 'active-recon-origin-run/v1',
+        evaluatedAt: '2026-07-05T12:00:00.000Z',
+        verifiedAuthorizationDecision: { contractVersion: 'fixguard-verified-authorization-decision/v0', kind: 'verified_authorization_decision', assessmentId: 'assess_1', scanId: 'scan_1', authorizationGrantId: 'grant_1', authorizationDecisionId: 'dec_1', authorizedActor: { actorId: 'sys', actorType: 'human' }, decision: 'authorized', decidedAt: '2026-07-01T12:00:00.000Z', scopeGrant: { contractVersion: 'fixguard-authorized-scope-policy/v0' }, verification: { verifiedAt: '2026-07-01T12:00:00.000Z', method: 'trusted_application_boundary' } } as import("../authorization/VerifiedAuthorizationDecisionContracts.js").VerifiedAuthorizationDecision,
         origin: 'https://example.com',
         probes: [{ family: 'document', probe: 'http.robots.inspect' }],
       },
@@ -71,9 +111,9 @@ async function runTests() {
   {
     const result = await runActiveReconOriginProbes(
       {
-        contractVersion: 'active-recon-origin-run/v0',
-        authorization: undefined as any,
-        authorizedScope: scope,
+        contractVersion: 'active-recon-origin-run/v1',
+        evaluatedAt: '2026-07-05T12:00:00.000Z',
+        verifiedAuthorizationDecision: undefined as any,
         origin: 'https://example.com',
         probes: [{ family: 'document', probe: 'http.robots.inspect' }],
       },
@@ -100,9 +140,9 @@ async function runTests() {
   for (const badOrigin of badOrigins) {
     const result = await runActiveReconOriginProbes(
       {
-        contractVersion: 'active-recon-origin-run/v0',
-        authorization: baseAuth,
-        authorizedScope: scope,
+        contractVersion: 'active-recon-origin-run/v1',
+        evaluatedAt: '2026-07-05T12:00:00.000Z',
+        verifiedAuthorizationDecision: validDecision,
         origin: badOrigin,
         probes: [{ family: 'document', probe: 'http.robots.inspect' }],
       },
@@ -117,9 +157,9 @@ async function runTests() {
   {
     const result = await runActiveReconOriginProbes(
       {
-        contractVersion: 'active-recon-origin-run/v0',
-        authorization: baseAuth,
-        authorizedScope: scope,
+        contractVersion: 'active-recon-origin-run/v1',
+        evaluatedAt: '2026-07-05T12:00:00.000Z',
+        verifiedAuthorizationDecision: validDecision,
         origin: 'https://example.com',
         probes: [{ family: 'document', probe: 'http.evil.inspect?token=SECRET' as any }],
       },
@@ -137,9 +177,9 @@ async function runTests() {
   {
     const result = await runActiveReconOriginProbes(
       {
-        contractVersion: 'active-recon-origin-run/v0',
-        authorization: baseAuth,
-        authorizedScope: scope,
+        contractVersion: 'active-recon-origin-run/v1',
+        evaluatedAt: '2026-07-05T12:00:00.000Z',
+        verifiedAuthorizationDecision: validDecision,
         origin: 'https://example.com',
         probes: [],
       },
@@ -155,9 +195,9 @@ async function runTests() {
     const robotsSpy = makeFakeRobotsAdapter();
     const result = await runActiveReconOriginProbes(
       {
-        contractVersion: 'active-recon-origin-run/v0',
-        authorization: baseAuth,
-        authorizedScope: scope,
+        contractVersion: 'active-recon-origin-run/v1',
+        evaluatedAt: '2026-07-05T12:00:00.000Z',
+        verifiedAuthorizationDecision: validDecision,
         origin: 'https://example.com',
         probes: [
           { family: 'document', probe: 'http.robots.inspect' },
@@ -177,9 +217,9 @@ async function runTests() {
     const securitySpy = makeFakeSecurityTxtAdapter();
     const result = await runActiveReconOriginProbes(
       {
-        contractVersion: 'active-recon-origin-run/v0',
-        authorization: baseAuth,
-        authorizedScope: scope,
+        contractVersion: 'active-recon-origin-run/v1',
+        evaluatedAt: '2026-07-05T12:00:00.000Z',
+        verifiedAuthorizationDecision: validDecision,
         origin: 'https://example.com',
         probes: [
           { family: 'document', probe: 'http.robots.inspect' },
@@ -208,9 +248,9 @@ async function runTests() {
     const robotsSpy = makeFakeRobotsAdapter();
     const result = await runActiveReconOriginProbes(
       {
-        contractVersion: 'active-recon-origin-run/v0',
-        authorization: baseAuth,
-        authorizedScope: scope,
+        contractVersion: 'active-recon-origin-run/v1',
+        evaluatedAt: '2026-07-05T12:00:00.000Z',
+        verifiedAuthorizationDecision: validDecision,
         origin: 'https://blocked-site.com',
         probes: [{ family: 'document', probe: 'http.robots.inspect' }],
       },
@@ -226,10 +266,10 @@ async function runTests() {
   {
     const result = await runActiveReconOriginProbes(
       {
-        contractVersion: 'active-recon-origin-run/v0',
+        contractVersion: 'active-recon-origin-run/v1',
         requestId: 'SECRET_REQUEST_ID',
-        authorization: baseAuth,
-        authorizedScope: scope,
+        evaluatedAt: '2026-07-05T12:00:00.000Z',
+        verifiedAuthorizationDecision: validDecision,
         origin: 'https://example.com',
         probes: [{ family: 'document', probe: 'http.robots.inspect' }],
       },
@@ -245,9 +285,9 @@ async function runTests() {
   {
     const result = await runActiveReconOriginProbes(
       {
-        contractVersion: 'active-recon-origin-run/v0',
-        authorization: baseAuth,
-        authorizedScope: scope,
+        contractVersion: 'active-recon-origin-run/v1',
+        evaluatedAt: '2026-07-05T12:00:00.000Z',
+        verifiedAuthorizationDecision: validDecision,
         origin: 'https://example.com',
         probes: [{ family: 'document', probe: 'http.robots.inspect' }],
       },
@@ -263,9 +303,9 @@ async function runTests() {
   {
     const result = await runActiveReconOriginProbes(
       {
-        contractVersion: 'active-recon-origin-run/v0',
-        authorization: baseAuth,
-        authorizedScope: scope,
+        contractVersion: 'active-recon-origin-run/v1',
+        evaluatedAt: '2026-07-05T12:00:00.000Z',
+        verifiedAuthorizationDecision: validDecision,
         origin: 'https://example.com',
         probes: [{ family: 'document', probe: 'http.robots.inspect' }],
       },

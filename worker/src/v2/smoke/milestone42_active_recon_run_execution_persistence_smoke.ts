@@ -2,10 +2,50 @@ import assert from 'node:assert';
 import process from 'node:process';
 import { executeAndPersistActiveReconOriginRun } from '../recon/active/ActiveReconRunExecutionPersistenceService.js';
 import { InMemoryActiveReconOriginRunRepository } from '../recon/active/InMemoryActiveReconOriginRunRepository.js';
+import { establishVerifiedAuthorizationDecision } from '../authorization/VerifiedAuthorizationDecisionService.js';
 import type { ActiveReconDocumentProbeAdapters } from '../recon/active/ActiveReconDocumentProbeRunner.js';
 import type { ActiveReconOriginRunRequest } from '../recon/active/ActiveReconOriginRunContracts.js';
 import type { ActiveReconRunRepository } from '../recon/active/ActiveReconOriginRunRepository.js';
 import type { PersistedActiveReconRunRecord } from '../recon/active/ActiveReconOriginRunPersistenceContracts.js';
+
+const validDecision = (establishVerifiedAuthorizationDecision({
+  contractVersion: 'fixguard-verified-authorization-decision/v0',
+  kind: 'establish_verified_authorization_decision_request',
+  assessmentId: 'assess_1',
+  scanId: 'scan_1',
+  authorizationDecisionId: 'dec_1',
+  authorizedActor: { actorId: 'sys', actorType: 'human' },
+  decision: 'authorized',
+  decidedAt: '2026-07-01T12:00:00.000Z',
+  scopeGrant: {
+    contractVersion: 'fixguard-authorized-scope-policy/v0',
+    kind: 'authorized_scope_grant',
+    grantId: 'grant_1',
+    scanId: 'scan_1',
+    issuedAt: '2026-07-01T00:00:00.000Z',
+    expiresAt: '2026-07-10T23:59:59.999Z',
+    subject: { targetKind: 'origin', normalizedOrigin: 'https://example.com' },
+    authorizationBasis: { basisKind: 'internal_asset_record', recordedBy: 'human_user', authorizationText: 'Test' },
+    permissionSet: {
+      passiveRecon: true, technologyFingerprinting: true, endpointDiscovery: true, activeCrawling: false,
+      authenticatedTesting: false, lightValidation: true, activeValidation: false, aggressiveValidation: false,
+      oobTesting: false, destructiveOperations: false,
+    },
+    boundaries: {
+      allowedOrigins: ['https://example.com'], allowedMethods: ['GET'],
+      allowedPathPatterns: [{ match: 'prefix', pathTemplate: '/' }], deniedPathPatterns: [],
+    },
+    constraints: {
+      allowLoginRequiredAreas: false, allowStateChangingRequests: false, allowCredentialUse: false,
+      allowOobCallbacks: false, allowThirdPartyTargets: false,
+    },
+    classification: {
+      createsRealFindings: false, createsPersistedEvidence: false, confirmsVulnerabilities: false,
+      makesRiskClaims: false, makesSeverityClaims: false, makesImpactClaims: false,
+      executesNetwork: false, executesTools: false, persistsData: false,
+    },
+  },
+} as any, '2026-07-01T12:00:00.000Z') as any).decision;
 
 async function runTests() {
   console.log('--- V2 Active Recon Execution Persistence DB-Free Smoke Test ---');
@@ -28,11 +68,11 @@ async function runTests() {
   };
 
   const createValidRequest = (id: string, probes: ('http.robots.inspect' | 'http.security_txt.inspect')[] = ['http.robots.inspect', 'http.security_txt.inspect']): ActiveReconOriginRunRequest => ({
-    contractVersion: 'active-recon-origin-run/v0',
+    contractVersion: 'active-recon-origin-run/v1',
     requestId: id,
     origin: 'https://example.com',
-    authorization: { confirmed: true, scopeLabel: 'auth_1' },
-    authorizedScope: { allowedOrigins: ['https://example.com'], allowSameHostPaths: true, allowSubdomains: false },
+    evaluatedAt: '2026-07-05T12:00:00.000Z',
+    verifiedAuthorizationDecision: validDecision,
     probes: probes.map(p => ({ family: 'document', probe: p })) as any
   });
 
@@ -99,13 +139,20 @@ async function runTests() {
   // 8. M40 rejection returns safe failure
   console.log('[*] Testing M40 rejection...');
   const res4 = await executeAndPersistActiveReconOriginRun({
-    request: { ...createValidRequest('req_4'), origin: 'http://not-safe' }, // Will fail M39 planning (origin_out_of_scope usually, or similar, actually this might just fail M39 and persist. Wait, we want to force M40 rejection).
-    adapters: createMockAdapters(),
-    repository: {
-      async saveRun() { throw new Error('Persistence validation failed: finding is not false'); },
-      async getRun() { return null; },
-      async listRuns() { return []; }
-    }
+    request: createValidRequest('req_4'),
+    adapters: {
+      robots: {
+        async probe() {
+          return [{ kind: 'robots_metadata', safeSummary: 'token=SECRET', confidence: 'high', metadata: { reachable: true } }];
+        }
+      },
+      securityTxt: {
+        async probe() {
+          return [];
+        }
+      }
+    },
+    repository: repo1
   });
   assert.strictEqual(res4.status, 'failed');
   assert.strictEqual(res4.persistedRecord, null);
@@ -140,7 +187,7 @@ async function runTests() {
     }
   });
   assert.strictEqual(res6.status, 'failed');
-  assert.strictEqual(res6.persistenceErrors[0].code, 'repository_reload_failed');
+  assert.strictEqual(res6.persistenceErrors[0].code, 'repository_reload_missing');
   console.log('[+] Reload null returns safe failure.');
 
   // 11. Reload invalid/corrupt returns safe failure
@@ -155,7 +202,7 @@ async function runTests() {
     }
   });
   assert.strictEqual(res7.status, 'failed');
-  assert.strictEqual(res7.persistenceErrors[0].code, 'repository_reloaded_invalid_record');
+  assert.strictEqual(res7.persistenceErrors[0].code, 'repository_reload_failed');
   console.log('[+] Reload invalid/corrupt returns safe failure.');
 
   // Asserts for leakages (checked structurally by TypeScript and fixed string assertions in code)

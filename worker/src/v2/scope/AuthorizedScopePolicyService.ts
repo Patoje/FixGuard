@@ -734,8 +734,20 @@ export function evaluateScopePolicy({
     return deny('denied_destructive_operation', 'Destructive operations are never permitted.');
   }
 
-  // 4. Expired grant
-  if (Date.now() > Date.parse(grant.expiresAt)) {
+  // 4. Temporal invariants (issuedAt <= evaluatedAt <= expiresAt)
+  const evalAtMs = Date.parse(safeEvaluatedAt);
+  const issuedAtMs = Date.parse(grant.issuedAt);
+  const expiresAtMs = Date.parse(grant.expiresAt);
+
+  if (isNaN(evalAtMs) || isNaN(issuedAtMs) || isNaN(expiresAtMs)) {
+    return deny('denied_invalid_grant', 'Temporal fields are malformed.');
+  }
+
+  if (evalAtMs < issuedAtMs) {
+    return deny('grant_not_yet_valid', 'Grant has not yet been issued.');
+  }
+
+  if (evalAtMs > expiresAtMs) {
     return deny('denied_expired_grant', 'Grant has expired.');
   }
 

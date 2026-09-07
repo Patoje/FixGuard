@@ -1,7 +1,7 @@
 import { eq, and } from 'drizzle-orm';
 import type { ActiveReconRunRepository } from './ActiveReconOriginRunRepository.js';
 import type { PersistedActiveReconRunRecord } from './ActiveReconOriginRunPersistenceContracts.js';
-import { validatePersistedActiveReconRunRecord } from './ActiveReconOriginRunPersistenceService.js';
+import { validatePersistedActiveReconRecord } from './ActiveReconOriginRunPersistenceService.js';
 import { v2_active_recon_run_records } from '../../storage/postgres/schema.js';
 
 function clone<T>(obj: T): T {
@@ -14,8 +14,11 @@ export class PostgresActiveReconRunRepository implements ActiveReconRunRepositor
   constructor(private readonly db: GenericDb) {}
 
   public async saveRun(record: PersistedActiveReconRunRecord): Promise<PersistedActiveReconRunRecord> {
-    const cloned = clone(record);
-    validatePersistedActiveReconRunRecord(cloned);
+    const validation = validatePersistedActiveReconRecord(record);
+    if (validation.status === 'invalid') {
+      throw new Error(`Invalid record: ${validation.message}`);
+    }
+    const cloned = clone(validation.record);
 
     // If duplicate runId, postgres should naturally reject on PK constraint
     try {
@@ -48,9 +51,7 @@ export class PostgresActiveReconRunRepository implements ActiveReconRunRepositor
 
     if (rows.length === 0) return null;
 
-    const record = clone(rows[0].record_json) as PersistedActiveReconRunRecord;
-    validatePersistedActiveReconRunRecord(record);
-    return record;
+    return clone(rows[0].record_json as PersistedActiveReconRunRecord);
   }
 
   public async listRuns(filter?: {
@@ -76,12 +77,6 @@ export class PostgresActiveReconRunRepository implements ActiveReconRunRepositor
     }
 
     const rows = await query;
-    const records = rows.map((r: any) => clone(r.record_json) as PersistedActiveReconRunRecord);
-    
-    for (const record of records) {
-      validatePersistedActiveReconRunRecord(record);
-    }
-    
-    return records;
+    return rows.map((r: any) => clone(r.record_json as PersistedActiveReconRunRecord));
   }
 }

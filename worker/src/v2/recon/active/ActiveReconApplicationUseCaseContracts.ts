@@ -3,12 +3,18 @@ import type { ActiveReconRunSafeReportSnapshot } from './ActiveReconRunSafeRepor
 
 export type ActiveReconApplicationUseCasesContractVersion = 'active-recon-application-use-cases/v0';
 
-export type StartAuthorizedActiveReconRunCommand = {
-  contractVersion: ActiveReconApplicationUseCasesContractVersion;
+import type { VerifiedAuthorizationDecision } from '../../authorization/VerifiedAuthorizationDecisionContracts.js';
+import type { ActiveReconOriginProbeSelection } from './ActiveReconOriginRunContracts.js';
+
+export type StartAuthorizedActiveReconRunCommandV1 = Readonly<{
+  contractVersion: 'start-authorized-active-recon-run/v1';
   kind: 'start_authorized_active_recon_run_command';
-  normalizedOrigin: string;
-  runId?: string; // Optional correlation id
-};
+  requestId: string;
+  evaluatedAt: string;
+  verifiedAuthorizationDecision: VerifiedAuthorizationDecision;
+  origin: string;
+  probes: readonly ActiveReconOriginProbeSelection[];
+}>;
 
 export type ListActiveReconRunSummariesQuery = {
   contractVersion: ActiveReconApplicationUseCasesContractVersion;

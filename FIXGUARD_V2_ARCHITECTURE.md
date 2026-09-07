@@ -1,4 +1,4 @@
-﻿# FixGuard V2 Architecture
+# FixGuard V2 Architecture
 
 > **Core Philosophy: "Tools execute. Intelligence decides. Humans authorize."**
 
@@ -548,3 +548,17 @@ The final frozen architecture uses ToolDefinition as the extension boundary.
 The Intelligence Layer may transform evidence into understanding.
 It may never transform understanding directly into execution.
 
+---
+
+## 13. Verified Authorization and Preflight Integrity (M56A)
+
+To uphold the core philosophy of "Humans authorize", FixGuard V2 incorporates strict, zero-trust preflight and authorization boundaries:
+
+1. **Recursive Immutability:** Any decision object representing human authorization is recursively frozen. Mutation attempts, object forgery (spread copies, deep copies, JSON round-trips), and structural lookalikes are explicitly rejected.
+2. **Derived Lineage Strictness:** The system derives and strictly verifies lineage against the original authorization truth. Any mismatch aborts execution.
+3. **Structural Atomicity:** Execution requests undergo atomic structural preflight. A single malformed parameter, an out-of-scope target, or a missing capability aborts the entire execution batch (`preflight_denied`).
+4. **Untrusted Persistence Output:** Repository read boundaries treat stored data as completely untrusted (`unknown`). Structural and semantic validation must be applied upon reload before trust is restored, preventing tampering at rest from impacting runtime safety.
+
+
+M49 relational authorization/lineage continuity remains unresolved and deferred to M56B.
+M56A does not implement M56B.

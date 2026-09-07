@@ -263,6 +263,7 @@ export const ALLOWED_REASON_CODES = [
   'allowed_by_scope_policy',
   'denied_invalid_grant',
   'denied_invalid_request',
+  'grant_not_yet_valid',
   'denied_expired_grant',
   'denied_scan_mismatch',
   'denied_target_out_of_scope',

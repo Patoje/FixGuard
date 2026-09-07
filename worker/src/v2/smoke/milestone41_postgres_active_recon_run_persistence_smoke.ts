@@ -128,6 +128,11 @@ async function runTests() {
     console.log('[+] record_json lacks unsafe keys/claims and true classification claims.');
 
     // 6. Failed run persists safely
+    
+    const buildUnsafeRecord = (overrides: Partial<import("../recon/active/ActiveReconOriginRunPersistenceContracts.js").PersistedActiveReconRunRecord> & Record<string, unknown>) => {
+      return { ...mockSafeRecord, ...overrides } as import("../recon/active/ActiveReconOriginRunPersistenceContracts.js").PersistedActiveReconRunRecord;
+    };
+
     const failedRecord = {
       ...mockSafeRecord,
       runId: 'm41_pg_smoke_failed_1',

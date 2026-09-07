@@ -10,6 +10,7 @@ import type {
   RobotsMetadataView,
   SecurityTxtMetadataView
 } from './ActiveReconRunReadModelContracts.js';
+import { validatePersistedActiveReconRecord } from './ActiveReconOriginRunPersistenceService.js';
 
 export function toActiveReconRunSummaryView(record: PersistedActiveReconRunRecord): ActiveReconRunSummaryView {
   let robotsPresent = false;
@@ -72,6 +73,13 @@ export function toActiveReconRunSummaryView(record: PersistedActiveReconRunRecor
       createdAt: record.createdAt,
       updatedAt: record.updatedAt
     },
+    authorizationProvenance: record.provenance.sourceContractVersion === 'active-recon-origin-run/v1' ? {
+      authorizationDecisionId: record.provenance.authorizationDecisionId,
+      authorizationGrantId: record.provenance.authorizationGrantId,
+      assessmentId: record.provenance.assessmentId,
+      scanId: record.provenance.scanId,
+      actorId: record.provenance.actorId,
+    } : undefined,
     counts: {
       probesPlanned: record.counts.planned,
       probesCompleted: record.counts.completed,
@@ -201,8 +209,16 @@ export async function listActiveReconRunSummaryViews({
     }
   }
 
+  const validatedRecords: PersistedActiveReconRunRecord[] = [];
+  for (const raw of records) {
+    const val = validatePersistedActiveReconRecord(raw);
+    if (val.status !== 'invalid') {
+      validatedRecords.push(val.record);
+    }
+  }
+
   // Deterministic in-memory sort: createdAt DESC, runId ASC
-  records.sort((a, b) => {
+  validatedRecords.sort((a, b) => {
     const tA = a.createdAt || '';
     const tB = b.createdAt || '';
     if (tA > tB) return -1;
@@ -212,7 +228,7 @@ export async function listActiveReconRunSummaryViews({
     return 0;
   });
 
-  const sliced = records.slice(0, safeLimit);
+  const sliced = validatedRecords.slice(0, safeLimit);
   return sliced.map(toActiveReconRunSummaryView);
 }
 
@@ -223,7 +239,9 @@ export async function getActiveReconRunDetailView({
   repository: ActiveReconRunRepository;
   runId: string;
 }): Promise<ActiveReconRunDetailView | null> {
-  const record = await repository.getRun(runId);
-  if (!record) return null;
-  return toActiveReconRunDetailView(record);
+  const rawRecord = await repository.getRun(runId);
+  if (!rawRecord) return null;
+  const val = validatePersistedActiveReconRecord(rawRecord);
+  if (val.status === 'invalid') return null;
+  return toActiveReconRunDetailView(val.record);
 }

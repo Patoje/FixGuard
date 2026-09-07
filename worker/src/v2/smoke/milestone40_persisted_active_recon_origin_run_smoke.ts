@@ -1,5 +1,5 @@
 import assert from 'node:assert';
-import { persistActiveReconOriginRunResult } from '../recon/active/ActiveReconOriginRunPersistenceService.js';
+import { constructActiveReconOriginRunRecord } from '../recon/active/ActiveReconOriginRunPersistenceService.js';
 import { InMemoryActiveReconOriginRunRepository } from '../recon/active/InMemoryActiveReconOriginRunRepository.js';
 import type { ActiveReconOriginRunResult } from '../recon/active/ActiveReconOriginRunContracts.js';
 
@@ -9,13 +9,14 @@ async function runTests() {
   const repository = new InMemoryActiveReconOriginRunRepository();
 
   const mockSafeResult: ActiveReconOriginRunResult = {
-    contractVersion: 'active-recon-origin-run/v0',
+    contractVersion: 'active-recon-origin-run-result/v0',
     runId: 'run-123',
+    disposition: 'execution_completed',
     status: 'completed',
     normalizedOrigin: 'https://example.com',
-    requestedProbeCount: 2,
-    plannedProbeCount: 2,
-    completedProbeCount: 2,
+    requestedProbeCount: 1,
+    plannedProbeCount: 1,
+    completedProbeCount: 1,
     blockedProbeCount: 0,
     candidateProbeCount: 0,
     failedProbeCount: 0,
@@ -43,7 +44,8 @@ async function runTests() {
   };
 
   // 1. Safe M39 result can be persisted.
-  const record1 = await persistActiveReconOriginRunResult(mockSafeResult, repository);
+  const record1 = constructActiveReconOriginRunRecord(mockSafeResult);
+  await repository.saveRun(record1);
   assert.strictEqual(record1.runId, 'run-123');
   console.log('[+] Safe M39 result can be persisted.');
 
@@ -73,7 +75,7 @@ async function runTests() {
   // 9. Duplicate save is rejected.
   const duplicateResult = { ...mockSafeResult, runId: 'run-123', status: 'completed' } as ActiveReconOriginRunResult;
   await assert.rejects(
-    persistActiveReconOriginRunResult(duplicateResult, repository),
+    repository.saveRun(constructActiveReconOriginRunRecord(duplicateResult)),
     /Duplicate runId/
   );
   console.log('[+] Duplicate save is rejected.');
@@ -103,9 +105,13 @@ async function runTests() {
     ...mockSafeResult,
     runId: 'run-failed-1',
     status: 'failed',
+    requestedProbeCount: 0,
+    plannedProbeCount: 0,
+    completedProbeCount: 0,
+    probes: [],
     runErrors: [{ code: 'invalid_origin', message: 'Failed' }]
   };
-  const recordFailed = await persistActiveReconOriginRunResult(failedResult, repository);
+  const recordFailed = await repository.saveRun(constructActiveReconOriginRunRecord(failedResult));
   assert.strictEqual(recordFailed.runErrors[0]?.code, 'invalid_origin');
   console.log('[+] Failed M39 result with runErrors persists safely.');
 
@@ -114,9 +120,13 @@ async function runTests() {
     ...mockSafeResult,
     runId: 'run-empty-1',
     status: 'failed',
+    requestedProbeCount: 0,
+    plannedProbeCount: 0,
+    completedProbeCount: 0,
+    probes: [],
     runErrors: [{ code: 'empty_probe_set', message: 'Empty' }]
   };
-  const recordEmpty = await persistActiveReconOriginRunResult(emptyProbeResult, repository);
+  const recordEmpty = await repository.saveRun(constructActiveReconOriginRunRecord(emptyProbeResult));
   assert.strictEqual(recordEmpty.runErrors[0]?.code, 'empty_probe_set');
   console.log('[+] Empty probe set error persists safely.');
 
@@ -125,7 +135,7 @@ async function runTests() {
 
   async function assertRepositoryUnchanged(fn: () => Promise<any>, errorMatcher: RegExp) {
     const beforeCount = (await repository.listRuns({ normalizedOrigin: 'https://example.com' })).length;
-    await assert.rejects(fn, errorMatcher);
+    await assert.rejects(async () => fn(), errorMatcher);
     const afterCount = (await repository.listRuns({ normalizedOrigin: 'https://example.com' })).length;
     assert.strictEqual(afterCount, beforeCount, 'Repository mutated after rejected save.');
   }
@@ -136,7 +146,7 @@ async function runTests() {
     runId: 'run-root-true',
     classification: { finding: true, evidence: false, vulnerability: false, riskClaim: false }
   } as any;
-  await assertRepositoryUnchanged(() => persistActiveReconOriginRunResult(rootTrue, repository), /Unsafe active recon classification claim/);
+  await assertRepositoryUnchanged(() => repository.saveRun(constructActiveReconOriginRunRecord(rootTrue)), /Unsafe active recon classification claim/);
   console.log('[+] Root true classification claim rejects.');
 
   // 1.5. Malformed classification
@@ -145,7 +155,7 @@ async function runTests() {
     runId: 'run-root-malformed',
     classification: { finding: "false" as any, evidence: false, vulnerability: false, riskClaim: false }
   } as any;
-  await assertRepositoryUnchanged(() => persistActiveReconOriginRunResult(rootMalformed, repository), /Unsafe active recon classification claim/);
+  await assertRepositoryUnchanged(() => repository.saveRun(constructActiveReconOriginRunRecord(rootMalformed)), /Unsafe active recon classification claim/);
   console.log('[+] Malformed classification rejects.');
 
   // 2. Secret-bearing runErrors[].message rejects
@@ -154,7 +164,7 @@ async function runTests() {
     runId: 'run-secret-error',
     runErrors: [{ code: 'empty_probe_set', message: 'token=SECRET' }]
   } as any;
-  await assertRepositoryUnchanged(() => persistActiveReconOriginRunResult(secretError, repository), /Unsafe string value rejected before persistence/);
+  await assertRepositoryUnchanged(() => repository.saveRun(constructActiveReconOriginRunRecord(secretError)), /Unsafe string value rejected before persistence/);
   console.log('[+] Secret-bearing runErrors[].message rejects.');
 
   // 3. Secret-bearing observation field rejects
@@ -163,7 +173,7 @@ async function runTests() {
     runId: 'run-secret-obs',
     observations: [{ metadataType: 'robots_metadata', safeSummary: 'SUPER_SECRET token=abc' }]
   } as any;
-  await assertRepositoryUnchanged(() => persistActiveReconOriginRunResult(secretObs, repository), /Unsafe string value rejected before persistence/);
+  await assertRepositoryUnchanged(() => repository.saveRun(constructActiveReconOriginRunRecord(secretObs)), /Unsafe string value rejected before persistence/);
   console.log('[+] Secret-bearing observation field rejects.');
 
   // 4. Invalid runErrors[].code rejects
@@ -172,7 +182,7 @@ async function runTests() {
     runId: 'run-invalid-error-code',
     runErrors: [{ code: 'evil_code' as any, message: 'Safe message.' }]
   } as any;
-  await assertRepositoryUnchanged(() => persistActiveReconOriginRunResult(invalidErrorCode, repository), /Invalid error code/);
+  await assertRepositoryUnchanged(() => repository.saveRun(constructActiveReconOriginRunRecord(invalidErrorCode)), /Invalid error code/);
   console.log('[+] Invalid runErrors[].code rejects.');
 
   // 5. Invalid item error.code rejects
@@ -186,7 +196,7 @@ async function runTests() {
       }
     ]
   } as any;
-  await assertRepositoryUnchanged(() => persistActiveReconOriginRunResult(invalidItemError, repository), /Invalid error code/);
+  await assertRepositoryUnchanged(() => repository.saveRun(constructActiveReconOriginRunRecord(invalidItemError)), /Invalid error code/);
   console.log('[+] Invalid item error.code rejects.');
 
   // 22. Persistence validation rejects injected unsafe fields.
@@ -195,7 +205,7 @@ async function runTests() {
     runId: 'run-hostile-1',
     observations: [{ targetUrl: 'https://example.com' }]
   } as any;
-  await assertRepositoryUnchanged(() => persistActiveReconOriginRunResult(hostileResult1, repository), /contains unsafe key targetUrl/);
+  await assertRepositoryUnchanged(() => repository.saveRun(constructActiveReconOriginRunRecord(hostileResult1)), /contains unsafe key targetUrl/);
   console.log('[+] Persistence validation rejects injected unsafe fields.');
 
   // 24. Persisted item union remains closed to document items only.
@@ -209,7 +219,7 @@ async function runTests() {
       }
     ]
   } as any;
-  await assertRepositoryUnchanged(() => persistActiveReconOriginRunResult(hostileResult3, repository), /unsupported item family/);
+  await assertRepositoryUnchanged(() => repository.saveRun(constructActiveReconOriginRunRecord(hostileResult3)), /unsupported item family/);
   console.log('[+] Persisted item union remains closed to document items only.');
 
   console.log('--- DB-free persistence smoke completed successfully ---');

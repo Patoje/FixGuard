@@ -988,3 +988,15 @@ It may never transform understanding directly into execution.
 - M55 does not make exploitability/severity/risk/impact/remediation claims.
 - M55 does not use DB/runtime/API/UI/network/tools.
 - M55 helper is not runtime composition or app orchestration.
+
+### Milestone 56A — IMPLEMENTED, PENDING CODEX PASS
+**Goal:** Enforce strict DB-free exact-key runtime validation and process-local, non-cryptographic, runtime-established authorization provenance on Active Recon execution and persistence.
+- Introduced `validatePersistedActiveReconRecord` discriminator for V0 legacy and V1 provenance models.
+- Implemented strict deep exact-key structural shape validation rejecting any `UNSAFE_KEYS` or unknown fields unconditionally.
+- Refactored `executeAndPersistActiveReconOriginRun` to enforce deterministic execution, defensive persistence, and adversarial reload verification loop (`repository_reload_mismatch`, `repository_reload_invalid`).
+- Maintained zero DB migrations, scanner additions, or legacy dependency breaking.
+- Removed generic `forceCast` escape hatch in favor of strict type guards (`isUnknownRecord`) and object assignment.
+- Defined `ADR-001: Verified Authorization Decisions` enforcing strict `VerifiedAuthorizationDecision` extraction.
+- Smoke suite updated to strictly test the complete exact-key, mismatch, and corruption matrices.
+- M49 relational authorization/lineage continuity remains unresolved and deferred to M56B.
+- M56A does not implement M56B.

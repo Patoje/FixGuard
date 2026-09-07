@@ -4,6 +4,8 @@ import type { AuthorizedScopeGrant, ScopeActionRequest, ReasonCode as ScopeReaso
 import type { SafeResponseSnapshot, ComparisonMode, ComparisonThresholds } from "../comparison/ResponseComparatorContracts.js";
 import type { ReviewerPolicy, MappingMode, EvidenceDraftEnvelope, SourceComparisonMode } from "../evidence-mapping/ComparisonEvidenceMappingContracts.js";
 import type { EvidenceType } from "../evidence/EvidenceBoundaryContracts.js";
+import type { VerifiedAuthorizationDecision } from "../authorization/VerifiedAuthorizationDecisionContracts.js";
+import type { AuthorizedActiveReconRequestLineage } from "../lineage/AuthorizedExecutionLineageContracts.js";
 
 export type AuthorizedComparisonValidationReasonCode = 
   | "completed_with_evidence_draft"
@@ -12,6 +14,8 @@ export type AuthorizedComparisonValidationReasonCode =
   | "blocked_scope_invalid"
   | "blocked_comparison_failed"
   | "blocked_mapping_blocked"
+  | "blocked_authorization_invalid"
+  | "blocked_lineage_mismatch"
   | "failed_mapping_failed"
   | "blocked_policy_not_review_safe"
   | "invalid_validation_request"
@@ -62,6 +66,9 @@ export interface AuthorizedComparisonValidationRequest {
   mappingMode: MappingMode;
   reviewerPolicy: ReviewerPolicy;
 
+  verifiedAuthorizationDecision?: VerifiedAuthorizationDecision;
+  lineageRef?: AuthorizedActiveReconRequestLineage;
+
   classification: AuthorizedComparisonValidationClassification;
 }
 
@@ -104,6 +111,14 @@ export interface MappingSummary {
   mappedSignalStrength?: "weak" | "moderate" | "strong";
 }
 
+export interface AuthorizedComparisonValidationProvenance {
+  authorizationDecisionId: string;
+  authorizationGrantId: string;
+  assessmentId: string;
+  scanId: string;
+  actorId: string;
+}
+
 export interface AuthorizedComparisonValidationResult {
   contractVersion: "fixguard-authorized-comparison-validation/v0";
   kind: "authorized_comparison_validation_result";
@@ -118,6 +133,7 @@ export interface AuthorizedComparisonValidationResult {
   comparisonSummary?: ComparisonSummary;
   mappingSummary?: MappingSummary;
   evidenceDraft?: EvidenceDraftEnvelope;
+  provenance?: AuthorizedComparisonValidationProvenance;
 
   explicitNonClaims: ExplicitNonClaims;
   classification: AuthorizedComparisonValidationClassification;

@@ -63,3 +63,15 @@ This boundary models the contracts and adapter interfaces for active target inte
 - **M43 Active Recon Run Read Model + Safe Report Snapshot:** M43 adds read models and safe report snapshots from persisted active recon records. M43 is repository-generic. M43 consumes persisted safe records only. M43 does not execute probes. M43 does not add UI/API. M43 does not add Postgres schema/migrations. M43 does not create findings/evidence records. M43 does not add scanners/crawlers. Report snapshot is not a vulnerability report. Report snapshot contains explicit non-claims. Smoke fixtures/fake adapter outputs are test-only and not real target evidence. No production-readiness claim.
 
 - **M44 Active Recon Application Use Cases Boundary:** M44 adds an application use case boundary coordinating existing M42/M43 services. M44 exposes `startAuthorizedActiveReconRun`, `listActiveReconRunSummaries`, `getActiveReconRunDetail`, and `buildActiveReconRunSafeReport`. M44 does not add API/UI, queues/workers, Postgres schema, new tools, findings, evidence records, or vulnerability confirmations. All outputs have safe classification flags explicitly set to false. M44 does not make risk/severity/impact claims.
+
+- **M56A Verified Authorization and DB-Free Active Recon**:
+  - Process-local, non-cryptographic runtime authorization is established via `VerifiedAuthorizationDecision`.
+  - Caller booleans are not authorization. M46 `AuthorizedScopeGrant` is the strict authorization truth.
+  - The M30 policy egress boundary remains the final egress and SSRF gate for real sockets.
+  - M38 serves as the authorization and adapter preflight boundary per target URL.
+  - M39 serves as the structural complete-batch preflight boundary for the entire request payload.
+  - Zero execution and zero persistence occur on denied batches (preflight denied).
+  - The requested probe count may exceed the planned probe count because M39 strictly deduplicates requested probes based on target and family.
+  - The planned probe count perfectly corresponds to the number of uniquely persisted item records.
+  - Strict local, save-return, and reload record validation ensures exact object shapes across boundaries.
+  - The `reloadVerified` property is strictly asserted by requiring complete semantic equality between the saved record and the immediately reloaded record, protecting against silent DB mutations.

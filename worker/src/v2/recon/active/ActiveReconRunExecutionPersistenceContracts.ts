@@ -14,15 +14,32 @@ export type ActiveReconRunExecutionPersistenceStatus =
 export type ActiveReconRunExecutionPersistenceErrorCode =
   | 'origin_run_failed'
   | 'persistence_failed'
+  | 'persistence_record_invalid'
   | 'repository_save_failed'
+  | 'repository_save_result_invalid'
+  | 'repository_save_result_mismatch'
+  | 'repository_reload_missing'
+  | 'repository_reload_invalid'
+  | 'repository_reload_mismatch'
   | 'repository_reload_failed'
-  | 'repository_reloaded_invalid_record'
-  | 'unexpected_execution_persistence_failure';
+  | 'unexpected_execution_persistence_failure'
+  | 'preflight_denied_no_persistence';
 
 export type ActiveReconRunExecutionPersistenceError = {
   code: ActiveReconRunExecutionPersistenceErrorCode;
   message: string;
 };
+
+export type ActiveReconReloadMismatchReasonCode = 'repository_reload_mismatch' | 'repository_save_result_mismatch';
+
+export type ActiveReconReloadVerificationResult =
+  | Readonly<{
+      status: 'verified';
+    }>
+  | Readonly<{
+      status: 'mismatch';
+      reasonCode: ActiveReconReloadMismatchReasonCode;
+    }>;
 
 export type ActiveReconRunExecutionPersistenceResult = {
   contractVersion: ActiveReconRunExecutionPersistenceContractVersion;

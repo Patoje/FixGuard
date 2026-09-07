@@ -48,7 +48,7 @@ export type ActiveReconRunSummaryView = {
   contractVersion: 'active-recon-run-summary-view/v0';
 
   runId: string;
-  recordVersion: 'active-recon-origin-run-record/v0';
+  recordVersion: 'active-recon-origin-run-record/v0' | 'active-recon-origin-run-record/v1';
   recordKind: 'active-recon.origin-run';
 
   subject: {
@@ -61,6 +61,14 @@ export type ActiveReconRunSummaryView = {
   timestamps: {
     createdAt?: string;
     updatedAt?: string;
+  };
+
+  authorizationProvenance?: {
+    authorizationDecisionId: string;
+    authorizationGrantId: string;
+    assessmentId: string;
+    scanId: string;
+    actorId: string;
   };
 
   counts: {

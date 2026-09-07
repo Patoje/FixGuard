@@ -1,5 +1,5 @@
 import type { 
-  StartAuthorizedActiveReconRunCommand,
+  StartAuthorizedActiveReconRunCommandV1,
   ListActiveReconRunSummariesQuery,
   GetActiveReconRunDetailQuery,
   BuildActiveReconRunSafeReportQuery,
@@ -13,6 +13,7 @@ import type {
 import { executeAndPersistActiveReconOriginRun } from './ActiveReconRunExecutionPersistenceService.js';
 import { listActiveReconRunSummaryViews, getActiveReconRunDetailView } from './ActiveReconRunReadModelService.js';
 import { buildActiveReconRunSafeReportSnapshot } from './ActiveReconRunSafeReportService.js';
+import { isRuntimeEstablishedVerifiedAuthorizationDecision, validateVerifiedAuthorizationDecision } from '../../authorization/VerifiedAuthorizationDecisionService.js';
 
 import type { ActiveReconDocumentProbeAdapters } from './ActiveReconDocumentProbeRunner.js';
 import type { ActiveReconRunRepository } from './ActiveReconOriginRunRepository.js';
@@ -23,7 +24,7 @@ export async function startAuthorizedActiveReconRun({
   adapters,
   repository
 }: {
-  command: StartAuthorizedActiveReconRunCommand;
+  command: import('./ActiveReconApplicationUseCaseContracts.js').StartAuthorizedActiveReconRunCommandV1;
   adapters: ActiveReconDocumentProbeAdapters;
   repository: ActiveReconRunRepository;
 }): Promise<StartAuthorizedActiveReconRunResult> {
@@ -38,28 +39,34 @@ export async function startAuthorizedActiveReconRun({
     makesImpactClaims: false as const,
   };
 
-  if (!command || command.contractVersion !== version || command.kind !== 'start_authorized_active_recon_run_command') {
+  if (!command || command.contractVersion !== 'start-authorized-active-recon-run/v1' || command.kind !== 'start_authorized_active_recon_run_command') {
+    return { ...baseResult, status: 'failed', errorCode: 'invalid_command' };
+  }
+
+  const verifiedDecision = command.verifiedAuthorizationDecision;
+  if (!verifiedDecision) {
+    return { ...baseResult, status: 'failed', errorCode: 'invalid_command' };
+  }
+  const evalAt = command.evaluatedAt;
+  if (!evalAt) {
+    return { ...baseResult, status: 'failed', errorCode: 'invalid_command' };
+  }
+  if (!isRuntimeEstablishedVerifiedAuthorizationDecision(verifiedDecision)) {
+    return { ...baseResult, status: 'failed', errorCode: 'invalid_command' };
+  }
+  const validResult = validateVerifiedAuthorizationDecision(verifiedDecision, evalAt);
+  if (validResult.status === 'invalid') {
     return { ...baseResult, status: 'failed', errorCode: 'invalid_command' };
   }
 
   try {
-    const request: ActiveReconOriginRunRequest = {
-      contractVersion: 'active-recon-origin-run/v0',
-      requestId: command.runId, // correlation id
-      authorization: {
-        confirmed: true,
-        scopeLabel: 'ApplicationUseCase'
-      },
-      authorizedScope: {
-        allowedOrigins: [command.normalizedOrigin],
-        allowSameHostPaths: true,
-        allowSubdomains: false
-      },
-      origin: command.normalizedOrigin,
-      probes: [
-        { family: 'document', probe: 'http.robots.inspect' },
-        { family: 'document', probe: 'http.security_txt.inspect' }
-      ]
+    const request: import('./ActiveReconOriginRunContracts.js').ActiveReconOriginRunRequest = {
+      contractVersion: 'active-recon-origin-run/v1',
+      requestId: command.requestId,
+      evaluatedAt: evalAt,
+      verifiedAuthorizationDecision: verifiedDecision,
+      origin: command.origin,
+      probes: [...command.probes]
     };
 
     const res = await executeAndPersistActiveReconOriginRun({ request, adapters, repository });
@@ -76,7 +83,6 @@ export async function startAuthorizedActiveReconRun({
     return { ...baseResult, status: 'failed', errorCode: 'unexpected_application_use_case_failure' };
   }
 }
-
 export async function listActiveReconRunSummaries({
   query,
   repository

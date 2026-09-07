@@ -1,4 +1,7 @@
 import assert from 'node:assert';
+
+import { establishVerifiedAuthorizationDecision } from '../authorization/VerifiedAuthorizationDecisionService.js';
+const validDecision = (establishVerifiedAuthorizationDecision({ contractVersion: 'fixguard-verified-authorization-decision/v0', kind: 'establish_verified_authorization_decision_request', assessmentId: 'assess_1', scanId: 'scan_1', authorizationDecisionId: 'dec_1', authorizedActor: { actorId: 'sys', actorType: 'human' }, decision: 'authorized', decidedAt: '2026-07-01T12:00:00.000Z', scopeGrant: { contractVersion: 'fixguard-authorized-scope-policy/v0', kind: 'authorized_scope_policy', grantId: 'grant_1', scanId: 'scan_1', subject: { targetKind: 'origin', normalizedOrigin: 'https://example.com' }, permissionSet: { endpointDiscovery: true, activeValidation: false }, boundaries: { allowedOrigins: ['https://example.com'], allowedMethods: ['GET'], allowedPathPatterns: [{ pathTemplate: '/' }] }, constraints: { allowCredentialUse: false }, classification: { executesNetwork: false } } } as any, '2026-07-01T12:00:00.000Z') as any).decision;
 import { runActiveReconOriginProbes } from '../recon/active/ActiveReconOriginRunService.js';
 import { isInternalOrSsrfTarget } from '../recon/policy/PassiveEgressPolicy.js';
 import { RealActiveReconHttpProbeAdapter } from '../recon/active/RealActiveReconHttpProbeAdapter.js';
@@ -82,9 +85,9 @@ async function runRealOriginSmoke() {
 
   const result = await runActiveReconOriginProbes(
     {
-      contractVersion: 'active-recon-origin-run/v0',
-      authorization: { confirmed: true, scopeLabel: 'M39 real opt-in run' },
-      authorizedScope,
+      contractVersion: 'active-recon-origin-run/v1',
+      evaluatedAt: '2026-07-01T12:00:00.000Z',
+      verifiedAuthorizationDecision: validDecision,
       origin: ENV_ORIGIN!,
       probes,
     },

@@ -1,3 +1,4 @@
+import { isRuntimeEstablishedVerifiedAuthorizationDecision, validateVerifiedAuthorizationDecision } from '../../authorization/VerifiedAuthorizationDecisionService.js';
 import { evaluateEgressPolicy } from '../policy/PassiveEgressPolicy.js';
 import type { ActiveReconAdapter } from './ActiveReconAdapter.js';
 import type { ActiveReconProbeRequest } from './ActiveReconContracts.js';
@@ -67,7 +68,13 @@ function safeTargetFromDecision(decision: ReturnType<typeof evaluateEgressPolicy
  * Only `request.authorization?.confirmed === true` (strict equality) may proceed.
  */
 function isAuthorizationConfirmed(request: ActiveReconDocumentProbeRunRequest): boolean {
-  return (request as any).authorization?.confirmed === true;
+  if ('authorization' in request) return false;
+  const decision = request.verifiedAuthorizationDecision;
+  if (!decision) return false;
+  if (!isRuntimeEstablishedVerifiedAuthorizationDecision(decision)) return false;
+  const validationResult = validateVerifiedAuthorizationDecision(decision, request.evaluatedAt);
+  if (validationResult.status === 'invalid') return false;
+  return true;
 }
 
 /**
@@ -110,7 +117,8 @@ export async function runActiveReconDocumentProbes(
     }));
 
     return {
-      runId: makeRunId(),           // runner-generated; does not echo caller input
+      runId: makeRunId(),
+      disposition: 'authorization_denied',
       requestedProbeCount: probes.length,
       completedProbeCount: 0,
       blockedProbeCount: 0,
@@ -129,7 +137,12 @@ export async function runActiveReconDocumentProbes(
 
   // FINDING 2 FIX — Runner-generated run ID. Caller-supplied runId is NEVER echoed.
   const runId = makeRunId();
-  const { authorizedScope } = request;
+  const scopeGrant = request.verifiedAuthorizationDecision!.scopeGrant;
+  const authorizedScope = {
+    allowedOrigins: scopeGrant.boundaries.allowedOrigins || [],
+    allowSameHostPaths: true,
+    allowSubdomains: scopeGrant.subject.targetKind === 'domain',
+  };
 
   const probeResults: ActiveReconDocumentProbeRunProbeResult[] = [];
 
@@ -293,6 +306,7 @@ export async function runActiveReconDocumentProbes(
 
   return {
     runId,
+    disposition: 'execution_completed',
     requestedProbeCount: probes.length,
     completedProbeCount,
     blockedProbeCount,
