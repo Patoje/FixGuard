@@ -62,18 +62,10 @@
     "typescript": "^6.0.3"
   },
   "dependencies": {
-    "@ai-sdk/google": "^3.0.80",
     "@neondatabase/serverless": "^1.1.0",
-    "@upstash/redis": "^1.38.0",
-    "ai": "^6.0.199",
-    "axios": "^1.17.0",
-    "cheerio": "^1.2.0",
     "cors": "^2.8.6",
     "dotenv": "^17.4.2",
     "drizzle-orm": "^0.45.2",
-    "express": "^5.2.1",
-    "playwright": "^1.60.0",
-    "wappalyzer": "^7.0.3",
-    "wappalyzer-core": "^7.0.3"
+    "express": "^5.2.1"
   }
 }

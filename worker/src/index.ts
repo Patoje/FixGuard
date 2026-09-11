@@ -1,577 +1,63 @@
-import express from 'express';
+import express, { type Request, type Response } from 'express';
 import cors from 'cors';
-import { EventEmitter } from 'events';
+import { V2CompositionRoot } from './v2/api/V2CompositionRoot.js';
+import { createV2Router } from './v2/api/routes/v2Routes.js';
+import { v2ErrorHandler } from './v2/api/V2ErrorHandler.js';
 
-// --- Logger global para SSE ---
-export const logEmitter = new EventEmitter();
-
-const originalLog = console.log;
-console.log = function (...args) {
-  originalLog.apply(console, args);
-  const msg = args.map(a => typeof a === 'string' ? a : JSON.stringify(a)).join(' ');
-  const match = msg.match(/\[Scan (\d+)\]/);
-  
-  // Detectar severidad basica por emojis
-  let type = 'info';
-  if (msg.includes('🚨') || msg.includes('ERROR') || msg.includes('❌') || msg.includes('Falló')) type = 'error';
-  else if (msg.includes('⚠️')) type = 'warning';
-  else if (msg.includes('✅') || msg.includes('🎉') || msg.includes('completado')) type = 'success';
-
-  if (match) {
-    logEmitter.emit(`log-${match[1]}`, { message: msg, type, timestamp: new Date().toLocaleTimeString() });
-  } else {
-    logEmitter.emit('log-global', { message: msg, type, timestamp: new Date().toLocaleTimeString() });
-  }
-};
-
-const originalError = console.error;
-console.error = function (...args) {
-  originalError.apply(console, args);
-  const msg = args.map(a => typeof a === 'string' ? a : JSON.stringify(a)).join(' ');
-  const match = msg.match(/\[Scan (\d+)\]/);
-  if (match) {
-    logEmitter.emit(`log-${match[1]}`, { message: msg, type: 'error', timestamp: new Date().toLocaleTimeString() });
-  } else {
-    logEmitter.emit('log-global', { message: msg, type: 'error', timestamp: new Date().toLocaleTimeString() });
-  }
-};
-// ------------------------------
-
-import { runHeaderScan } from './scanner/headers';
-import { runTlsScan } from './scanner/tls';
-import { runDnsScan } from './scanner/dns';
-import { runPortScan } from './scanner/ports';
-import { runDirectoryScan } from './scanner/directories';
-import { runWafScan } from './scanner/waf';
-import { runFingerprintScan } from './scanner/fingerprint';
-import { runSecurityTxtScan } from './scanner/securityTxt';
-import { runRateLimitScan } from './scanner/ratelimit';
-import { runApiDiscoveryScan } from './scanner/api-discovery';
-import { runSecretsScan } from './scanner/secrets';
-import { runJwtScan } from './scanner/jwt';
-import { runTraversalScan } from './scanner/traversal';
-import { runPollutionScan } from './scanner/pollution';
-
-// Recon Motores
-import { runTechStackProfiler } from './recon/TechStackProfiler';
-import { runAttackSurfaceMapper } from './recon/AttackSurfaceMapper';
-import { runFrameworkIntelligence } from './recon/FrameworkIntelligence';
-import { buildArchitectureTree } from './recon/ArchitectureBuilder';
-import { JsKnowledgeExtractor } from './recon/parsers/JsKnowledgeExtractor';
-import { ExposureIntelligenceEngine } from './recon/ExposureIntelligenceEngine';
-import { AuthIntelligenceEngine } from './recon/parsers/AuthIntelligenceEngine';
-import { CloudIntelligenceEngine } from './recon/CloudIntelligenceEngine';
-import { ServerActionsEngine } from './recon/ServerActionsEngine';
-import { CommunicationIntelligenceEngine } from './recon/CommunicationIntelligenceEngine';
-import { SubdomainIntelligenceEngine } from './recon/SubdomainIntelligenceEngine';
-import { ArtifactIntelligenceEngine } from './recon/ArtifactIntelligenceEngine';
-import { ParameterIntelligenceEngine } from './recon/ParameterIntelligenceEngine';
-import { AIFingerprintEngine } from './recon/AIFingerprintEngine';
-import { CorrelationEngine } from './recon/CorrelationEngine';
-import { EntityRelationshipEngine } from './scanner/entityEngine';
-import { WorkflowReconstructionEngine } from './recon/WorkflowReconstructionEngine';
-import { TruffleHogScanner } from './recon/TruffleHogScanner';
-import { SourceMapAnalyzer } from './recon/SourceMapAnalyzer';
-import { BreachAnalyzer } from './recon/BreachAnalyzer';
-import { BolaExploiter } from './scanner/logic/BolaExploiter';
-import { MassAssignmentExploiter } from './scanner/logic/MassAssignmentExploiter';
-import { WorkflowBypassExploiter } from './scanner/logic/WorkflowBypassExploiter';
-import { AttackExecutor } from './scanner/AttackExecutor';
-import { React2ShellVector } from './scanner/vectors/React2ShellVector';
-import axios from 'axios';
-// Nuevos Motores Pasivos
-import { runSubfinderScan } from './scanner/subfinder';
-import { runHttpxScan } from './scanner/httpx';
-import { runGauScan } from './scanner/gau';
-import type { NormalizedReconProfile } from './db/schema';
-
-// Nuevos Motores Fase 6
-import { runCrawler } from './scanner/crawler';
-import { runJsReconScan } from './scanner/jsrecon';
-import { runNextJsScan } from './scanner/nextjs';
-import { runCloudExposureScan } from './scanner/cloud';
-import { runUploadsScan } from './scanner/uploads';
-import { runBolaScan } from './scanner/bola';
-import { runSsrfScan } from './scanner/ssrf';
-import { runRedirectScan } from './scanner/redirect';
-import { runServerActionsScan } from './scanner/serveractions';
-
-import { db } from './db/db';
-import { scans, reconProfiles } from './db/schema';
-import { eq } from 'drizzle-orm';
-import 'dotenv/config';
-import fs from 'fs';
-import { PipelineSelector } from './scanner/logic/PipelineSelector';
-
-import { exec } from 'child_process';
-
+/**
+ * FixGuard Server Bootstrap (Milestone 63)
+ *
+ * Dedicated host for FixGuard V2 API Gateway (/api/v2).
+ * Legacy V1 monolith endpoints are formally decommissioned and return HTTP 410 Gone.
+ */
 const app = express();
+
+// Standard middleware
 app.use(cors());
 app.use(express.json());
 
-// Auto-actualizar wordlists al inicio
-console.log("Iniciando actualización de diccionarios...");
-exec('bash ./setup_wordlists.sh', (err, stdout, stderr) => {
-  if (err) console.error("Error al actualizar wordlists:", err);
-  else console.log(stdout);
-});
-
-app.post('/api/scan', async (req, res) => {
-  const { targetUrl, scanId, mode } = req.body;
-
-  if (!targetUrl || !scanId) {
-    return res.status(400).json({ error: 'Falta targetUrl o scanId' });
-  }
-
-  res.json({ message: 'Escaneo iniciado', scanId });
-
-  try {
-    await db.update(scans).set({ status: 'in_progress' }).where(eq(scans.id, scanId));
-
-    console.log(`\n[Scan ${scanId}] Iniciando motores de escaneo (${mode || 'passive'}) para ${targetUrl}...`);
-    
-    if (mode === 'targeted') {
-      const scan = await db.select().from(scans).where(eq(scans.id, scanId)).limit(1).then(res => res[0]);
-      if (scan && scan.targetedVectorId) {
-        console.log(`[Scan ${scanId}] 🎯 Ejecutando Ataque Dirigido: ${scan.targetedVectorId} contra ${targetUrl}`);
-        const { runTargetedAttack } = await import('./targetedOrchestrator');
-        await runTargetedAttack(scanId, scan.userId, targetUrl, scan.targetedVectorId, scan.parentScanId || undefined);
-        
-        await db.update(scans).set({ 
-          status: 'completed', 
-          completedAt: new Date() 
-        }).where(eq(scans.id, scanId));
-        return; // Salimos de la función principal
-      }
-    }
-    
-    // Iniciar Heartbeat para mantener la sesión viva durante el escaneo pesado
-    const { SessionHeartbeat } = await import('./scanner/SessionHeartbeat');
-    await SessionHeartbeat.start(scanId, targetUrl);
-
-    // --- FASE 1: RECONOCIMIENTO INTELIGENTE ---
-    console.log(`[Scan ${scanId}] Ejecutando Inteligencia de Superficie de Ataque...`);
-    
-    // 1. Perfil del Tech Stack
-    const techStack = await runTechStackProfiler(targetUrl);
-    
-    // 2. Framework Intelligence basado en el Stack
-    const frameworkIntelligence = runFrameworkIntelligence(techStack);
-    
-    const domain = new URL(targetUrl).hostname;
-
-    // --- INTEGRACIÓN CASCADA PASIVA ---
-    // 1. Subfinder
-    const subdomains = await runSubfinderScan(domain);
-    // Asegurar que el target actual también esté en la lista para no perderlo
-    if (!subdomains.includes(domain)) subdomains.push(domain);
-    
-    // 2. HTTPX
-    const httpxResults = await runHttpxScan(scanId, subdomains);
-    const liveHosts = httpxResults.map(r => r.url);
-    
-    // 3. GAU
-    const gauUrls = await runGauScan(scanId, liveHosts.length > 0 ? liveHosts : [domain], targetUrl);
-    const normalizedEndpoints: NormalizedReconProfile['endpoints'] = gauUrls.map(url => ({
-      url,
-      source: 'gau',
-      lastSeen: new Date().toISOString()
-    }));
-
-    // Ejecutar OSINT y JS Recon en paralelo
-    const passiveTasks = [
-      runHeaderScan(scanId, targetUrl),
-      runTlsScan(scanId, targetUrl),
-      runDnsScan(scanId, targetUrl),
-      runPortScan(scanId, targetUrl),
-      runDirectoryScan(scanId, targetUrl),
-      runWafScan(scanId, targetUrl),
-      runFingerprintScan(scanId, targetUrl),
-      runSecurityTxtScan(scanId, targetUrl),
-      runNextJsScan(scanId, targetUrl),
-      runCloudExposureScan(scanId, targetUrl),
-      runUploadsScan(scanId, targetUrl)
-    ];
-
-    // JS Recon ahora retorna los endpoints encontrados
-    const [jsEndpoints, truffleHogSecrets] = await Promise.all([
-      runJsReconScan(scanId, targetUrl),
-      TruffleHogScanner.runTruffleHogGithubScan(domain, targetUrl, normalizedEndpoints),
-      ...passiveTasks
-    ]);
-
-    // SourceMapAnalyzer (depende de los endpoints históricos encontrados por GAU y JS Recon)
-    const historicalSourceMaps = await SourceMapAnalyzer.runSourceMapAnalysis([...normalizedEndpoints, ...jsEndpoints.map(u => ({url: u, source: 'jsrecon'} as any))]);
-    // Agregamos las rutas ocultas descubiertas por SourceMapAnalyzer a los endpoints a procesar
-    const sourceMapEndpoints = historicalSourceMaps.hiddenRoutes.map(route => ({
-       url: route.replace('(SourceMap Histórico) ', `https://${domain}/`),
-       source: 'sourcemapper'
-    }));
-
-    let urlsToAttack = [targetUrl];
-    let jsFilesFromCrawler: string[] = [];
-    let runtimeIntelligence = undefined;
-    if (mode === 'aggressive') {
-      const crawlerData = await runCrawler(scanId, targetUrl, techStack.join(', '));
-      urlsToAttack = Array.from(new Set([...urlsToAttack, ...crawlerData.endpoints]));
-      jsFilesFromCrawler = crawlerData.jsFiles;
-      runtimeIntelligence = crawlerData.runtimeIntelligence;
-    }
-
-    // Unir endpoints JS, Crawler, GAU y SourceMapAnalyzer
-    const allDiscoveredPaths = Array.from(new Set([...jsEndpoints, ...gauUrls, ...sourceMapEndpoints.map(e => e.url), ...urlsToAttack.map(u => {
-      try { return new URL(u).pathname; } catch { return u; }
-    })]));
-
-    // 4. Mapeo de Superficie y Ranking de Riesgo
-    let attackSurface = runAttackSurfaceMapper(allDiscoveredPaths);
-
-    // Extraer Conocimiento de JS (Módulo 3)
-    const businessDictionary = await JsKnowledgeExtractor.extractFromJsFiles(jsFilesFromCrawler);
-
-    // Módulo 10: Enriquecer con IA (solo endpoints críticos/altos)
-    attackSurface = await ExposureIntelligenceEngine.enrichAttackSurface(attackSurface, businessDictionary, techStack);
-
-    // Módulo 4: Auth Intelligence
-    // Obtener headers de una peticion base
-    let baseHeaders: Record<string, string | string[]> = {};
-    let baseHtml = '';
-    try {
-      const resp = await axios.get(targetUrl, { timeout: 3000 });
-      baseHeaders = resp.headers as unknown as Record<string, string | string[]>;
-      baseHtml = typeof resp.data === 'string' ? resp.data : '';
-    } catch(e) {}
-    
-    // Traer codigo fuente de JS
-    const jsCodes: string[] = [];
-    const jsChunksWithMeta: {code: string, url: string, source: string}[] = [];
-    for (const u of jsFilesFromCrawler) {
-       try {
-         const {data} = await axios.get(u, {timeout: 3000});
-         if (typeof data === 'string') {
-             jsCodes.push(data);
-             jsChunksWithMeta.push({ code: data, url: u, source: 'crawler' });
-         }
-       } catch(e) {}
-    }
-
-    const authIntelligence = AuthIntelligenceEngine.analyze(jsCodes, baseHeaders);
-
-    // Módulo 6: Cloud Intelligence
-    const cloudIntelligence = await CloudIntelligenceEngine.analyze(targetUrl, baseHtml, jsCodes);
-
-    // Módulos 8 y 9: GraphQL & WebSocket Intelligence
-    const communicationIntelligence = await CommunicationIntelligenceEngine.analyze(targetUrl, baseHtml, jsCodes);
-
-    // NUEVO: Motores Avanzados de Reconocimiento Funcional
-    const subdomainIntelligence = await SubdomainIntelligenceEngine.discover(domain);
-    // --- FASE 3: Análisis de Artefactos (NUEVO: Pasamos los chunks con meta para validación secundaria) ---
-    const artifactIntelligence = await ArtifactIntelligenceEngine.analyze(targetUrl, jsChunksWithMeta, jsFilesFromCrawler);
-    
-    // --- FASE 3.5: Extracción de Acciones Remotas (Next.js, Remix, SvelteKit, etc.) ---
-    const isNextJs = techStack.some(t => t.name.toLowerCase().includes('next.js'));
-    // Ahora el engine soporta múltiples frameworks, lo corremos siempre para ver qué pilla
-    const serverActionsIntelligence = ServerActionsEngine.analyze(jsCodes);
-
-    const parameterIntelligence = ParameterIntelligenceEngine.analyze(attackSurface);
-    const aiIntelligence = AIFingerprintEngine.analyze(jsCodes, baseHeaders);
-
-    // 3. Reconstrucción de Arquitectura Avanzada (Módulo 1)
-    const architectureTree = buildArchitectureTree(domain, techStack, attackSurface, businessDictionary);
-    
-    // NUEVO: Entity Relationship Engine (ERE)
-    const entityGraph = await EntityRelationshipEngine.analyze(allDiscoveredPaths, jsCodes, businessDictionary);
-
-    // NUEVO: Workflow Reconstruction
-    const workflowIntelligence = WorkflowReconstructionEngine.analyze(allDiscoveredPaths);
-
-    // NUEVO: Correlation Engine (Auditoría Inteligente)
-    const auditReport = CorrelationEngine.analyze(
-      authIntelligence,
-      cloudIntelligence,
-      parameterIntelligence,
-      artifactIntelligence,
-      communicationIntelligence,
-      businessDictionary,
-      attackSurface,
-      aiIntelligence
-    );
-
-    // 4.5 Generar Vectores Inteligentes de Ataque Recomendados (Smart Vectors)
-    const smartVectors = [
-      ...BolaExploiter.generateVectors(targetUrl, attackSurface, entityGraph),
-      ...MassAssignmentExploiter.generateVectors(targetUrl, attackSurface, businessDictionary),
-      ...WorkflowBypassExploiter.generateVectors(targetUrl, workflowIntelligence)
-    ];
-
-    // Extraer emails para el Breach Analyzer
-    const emailsToCheck = new Set<string>();
-    // Simular que algunos pasivos pudieron haber extraído emails y puesto en el recon profile
-    // Además buscamos en el texto duro si hay algo con pinta de email (osint básico)
-    const emailRegex = /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g;
-    const bodyText = baseHtml;
-    let match;
-    while ((match = emailRegex.exec(bodyText)) !== null) {
-      emailsToCheck.add(match[0]);
-    }
-
-    // Correr BreachAnalyzer al final con todos los emails consolidados
-    const breachResults = await BreachAnalyzer.runBreachAnalysis(Array.from(emailsToCheck));
-
-    // Combinar los secretos de TruffleHog con los de HIBP
-    const finalCredentials: NormalizedReconProfile['credentials'] = [
-       ...breachResults,
-       ...truffleHogSecrets.map(s => ({
-         email: `repo:${s.repo}`,
-         type: s.secretType,
-         breach_count: 1,
-         has_plaintext: true,
-         high_risk: true,
-         breach_names: [s.detectorName]
-       }))
-    ];
-
-    // 5. Normalizar Datos
-    const normalizedData: NormalizedReconProfile = {
-      scanId,
-      target: targetUrl,
-      stack: {
-        frontend: techStack.find(t => t.category === 'Frontend Framework')?.name || null,
-        runtime: techStack.find(t => t.category === 'Backend Framework')?.name || null,
-        waf: httpxResults.find(r => r.url.includes(domain))?.technologies.find(t => t.toLowerCase().includes('cloudflare') || t.toLowerCase().includes('modsecurity')) || null,
-        cdn: httpxResults.find(r => r.url.includes(domain))?.cdn || null,
-        confidence: 0.9,
-        database_hints: techStack.filter(t => t.category === 'Database').map(t => t.name)
-      },
-      endpoints: normalizedEndpoints,
-      subdomains: subdomains.map(s => ({ domain: s, source: 'subfinder', takeover_candidate: false })),
-      credentials: finalCredentials,
-      vulnerabilities_hints: []
-    };
-
-    // Evaluate pipeline type statically based on the gathered recon data
-    normalizedData.stack.pipeline = PipelineSelector.detectPipelineType(normalizedData);
-
-    // 6. Guardar Perfil de Reconocimiento
-    await db.insert(reconProfiles).values({
-      scanId,
-      techStack,
-      attackSurface,
-      frameworkIntelligence,
-      architectureTree,
-      businessDictionary,
-      authIntelligence,
-      cloudIntelligence,
-      communicationIntelligence,
-      subdomainIntelligence,
-      artifactIntelligence,
-      parameterIntelligence,
-      serverActionsIntelligence,
-      aiIntelligence,
-      runtimeIntelligence,
-      entityGraph,
-      workflowIntelligence,
-      auditReport,
-      smartVectors,
-      normalizedData
-    }).returning({ id: reconProfiles.id });
-
-    console.log(`[Scan ${scanId}] Análisis Pasivo y Reconocimiento completado. Guardado Perfil Tech Stack.`);
-
-    // --- FASE 2: ATAQUE DIRIGIDO (Eliminada fase activa masiva obsoleta) ---
-    // FixGuard ahora depende del orquestador dirigido en /api/attack/targeted
-    // Este index solo procesa la fase de reconocimiento e inteligencia.
-
-    await db.update(scans).set({ 
-      status: 'completed', 
-      completedAt: new Date() 
-    }).where(eq(scans.id, scanId));
-    console.log(`[Scan ${scanId}] 🎉 Todos los motores finalizaron exitosamente.`);
-
-    // --- EXECUTE AUTO-EXPLOITS DE ALTA SEVERIDAD SI EL STACK ES VULNERABLE ---
-    if (isNextJs) {
-      console.log(`[Scan ${scanId}] ⚠️ Framework Next.js detectado. Lanzando ataque automático de verificación React2Shell (CVE-2025-55182)...`);
-      const react2shell = React2ShellVector.generateVector(targetUrl, targetUrl); // Usamos targetUrl como raíz
-      const success = await AttackExecutor.executeAndCompare(scanId, targetUrl, react2shell);
-      if (success) {
-        console.log(`[Scan ${scanId}] 🚨 CRÍTICO: Vulnerabilidad React2Shell (RCE) confirmada en el servidor de Next.js.`);
-      }
-    }
-
-    // --- EJECUTAR VECTORES DE BUSINESS LOGIC ---
-    if (smartVectors && smartVectors.length > 0) {
-      console.log(`[Scan ${scanId}] ⚔️ Iniciando Attack Executor para ${smartVectors.length} vectores de lógica de negocio...`);
-      for (const vector of smartVectors) {
-        // En MVP no bloqueamos si uno falla, seguimos con el resto
-        await AttackExecutor.executeAndCompare(scanId, targetUrl, vector);
-      }
-    }
-
-  } catch (error: any) {
-    console.error(`[Scan ${scanId}] Error global de orchestration:`, error);
-    await db.update(scans).set({ 
-      status: 'failed', 
-      completedAt: new Date() 
-    }).where(eq(scans.id, scanId));
-  } finally {
-    // Cleanup temporary files created for this scan
-    try {
-      const tempFiles = [
-        `/tmp/fixguard_wordlist_${scanId}.txt`,
-        `/tmp/fixguard_hosts_${scanId}.txt`
-      ];
-      for (const file of tempFiles) {
-        if (fs.existsSync(file)) {
-          fs.unlinkSync(file);
-        }
-      }
-      // Cleanup trufflehog dir if it was created
-      const truffleDir = `/tmp/trufflehog_scan_${scanId}`;
-      if (fs.existsSync(truffleDir)) {
-        fs.rmSync(truffleDir, { recursive: true, force: true });
-      }
-      
-      const { SessionHeartbeat } = await import('./scanner/SessionHeartbeat');
-      SessionHeartbeat.stop(scanId);
-    } catch(e) {}
-  }
-});
-
-import { vulnerabilities } from './db/schema';
-import { SemgrepEngine } from './scanner/sast/SemgrepEngine';
-
-// El endpoint /api/scan/resume se ha eliminado porque la fase de escaneo 
-// "agresivo" y masivo a ciegas ha sido reemplazada por el modelo de 
-// Vectores Inteligentes dirigidos a través de la Consola Táctica.
-
-app.post('/api/sast', async (req, res) => {
-  const { targetDir, scanId } = req.body;
-
-  if (!targetDir || !scanId) {
-    return res.status(400).json({ error: 'Falta targetDir o scanId' });
-  }
-
-  res.json({ message: 'Escaneo SAST iniciado', scanId });
-
-  try {
-    await db.update(scans).set({ status: 'in_progress' }).where(eq(scans.id, scanId));
-    console.log(`\n[Scan ${scanId}] Iniciando motor SAST (Semgrep) en directorio local: ${targetDir}...`);
-    
-    const findings = await SemgrepEngine.scanDirectory(targetDir);
-    
-    for (const finding of findings) {
-       await db.insert(vulnerabilities).values({
-         scanId,
-         type: finding.type,
-         severity: finding.severity,
-         description: `${finding.description}\n\nArchivo: ${finding.file}`,
-         autoFixCode: null,
-       });
-    }
-
-    await db.update(scans).set({ 
-      status: 'completed', 
-      completedAt: new Date() 
-    }).where(eq(scans.id, scanId));
-    console.log(`[Scan ${scanId}] 🎉 Escaneo SAST completado. Se encontraron ${findings.length} problemas.`);
-
-  } catch (error: any) {
-    console.error(`[Scan ${scanId}] Error global SAST:`, error);
-    await db.update(scans).set({ 
-      status: 'failed', 
-      completedAt: new Date() 
-    }).where(eq(scans.id, scanId));
-  }
-});
-
-import { runTargetedAttack, previewTargetedAttack } from './targetedOrchestrator';
-
-app.post('/api/attack/preview', async (req, res) => {
-  const { targetUrl, scanId, vectorId } = req.body;
-  if (!targetUrl || !scanId || !vectorId) {
-    return res.status(400).json({ error: 'Falta targetUrl, scanId o vectorId' });
-  }
-  try {
-    const previewCommand = await previewTargetedAttack(scanId, targetUrl, vectorId);
-    return res.json({ command: previewCommand });
-  } catch (error: any) {
-    console.error('Error in preview:', error);
-    return res.status(500).json({ error: error.message });
-  }
-});
-
-app.post('/api/attack/targeted', async (req, res) => {
-  const { targetUrl, scanId, vectorId, parentId } = req.body;
-
-  if (!targetUrl || !scanId || !vectorId) {
-    return res.status(400).json({ error: 'Falta targetUrl, scanId o vectorId' });
-  }
-
-  try {
-    await db.update(scans).set({ status: 'in_progress', mode: 'targeted' }).where(eq(scans.id, scanId));
-    
-    // Obtenemos el userId asociado al scan
-    const currentScan = await db.select().from(scans).where(eq(scans.id, scanId)).limit(1).then(res => res[0]);
-    if (!currentScan) {
-      throw new Error(`Scan ${scanId} no encontrado en base de datos`);
-    }
-    
-    // Execute attack and get output to return to the frontend Tactical Console
-    const attackOutput = await runTargetedAttack(scanId, currentScan.userId, targetUrl, vectorId, parentId);
-
-    await db.update(scans).set({ 
-      status: 'completed', 
-      completedAt: new Date() 
-    }).where(eq(scans.id, scanId));
-
-    return res.json({ 
-      message: 'Ataque completado', 
-      scanId, 
-      vectorId,
-      output: attackOutput
-    });
-  } catch (error: any) {
-    console.error(`[Scan ${scanId}] Error en ataque dirigido:`, error);
-    await db.update(scans).set({ 
-      status: 'failed', 
-      completedAt: new Date() 
-    }).where(eq(scans.id, scanId));
-    return res.status(500).json({ error: error.message });
-  }
-});
-
-
-import { DependencyChecker } from './utils/DependencyChecker';
-
-// --- SSE Endpoint for Real-time Logs ---
-app.get('/api/scan/:id/logs/stream', (req, res) => {
-  const { id } = req.params;
-  
-  res.setHeader('Content-Type', 'text/event-stream');
-  res.setHeader('Cache-Control', 'no-cache');
-  res.setHeader('Connection', 'keep-alive');
-  res.flushHeaders();
-
-  const onLog = (logData: any) => {
-    res.write(`data: ${JSON.stringify(logData)}\n\n`);
-  };
-
-  logEmitter.on(`log-${id}`, onLog);
-
-  // Optional: Listen to global logs too
-  const onGlobalLog = (logData: any) => {
-    res.write(`data: ${JSON.stringify(logData)}\n\n`);
-  };
-  logEmitter.on('log-global', onGlobalLog);
-
-  req.on('close', () => {
-    logEmitter.off(`log-${id}`, onLog);
-    logEmitter.off('log-global', onGlobalLog);
+// Health & Info endpoints
+app.get('/health', (_req: Request, res: Response) => {
+  res.status(200).json({
+    status: 'ok',
+    apiVersion: 'v2',
+    v1Status: 'decommissioned'
   });
 });
 
-const PORT = 4000;
-app.listen(PORT, () => {
-  console.log(`🚀 FixGuard OSINT Worker ejecutándose en http://localhost:${PORT}`);
-  DependencyChecker.checkAll();
+app.get('/', (_req: Request, res: Response) => {
+  res.status(200).json({
+    name: 'FixGuard API Gateway',
+    version: 'v2',
+    v1Status: 'decommissioned',
+    docs: '/api/v2'
+  });
 });
+
+// Containment: Intercept and deprecate all legacy V1 routes with HTTP 410 Gone
+const decommissionedHandler = (_req: Request, res: Response) => {
+  res.status(410).json({
+    error: 'Gone',
+    message: 'Legacy FixGuard V1 endpoint has been decommissioned. Please use FixGuard V2 at /api/v2.'
+  });
+};
+
+app.use(['/api/scan', '/api/scans', '/api/attack'], decommissionedHandler);
+
+// Mount Canonical FixGuard V2 Routing Tree
+const compositionRoot = V2CompositionRoot.createDefault();
+app.use('/api/v2', createV2Router(compositionRoot));
+
+// Centralized V2 Error Shield (information disclosure protection)
+app.use(v2ErrorHandler);
+
+const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 4000;
+
+if (process.env.NODE_ENV !== 'test') {
+  app.listen(PORT, () => {
+    console.log(`[+] FixGuard V2 API Gateway listening on http://localhost:${PORT}/api/v2`);
+    console.log(`[!] Legacy V1 Monolith endpoints decommissioned (HTTP 410 Gone)`);
+  });
+}
+
+export { app };

@@ -1,6 +1,8 @@
 *.exe
 worker/tools/*.exe
 node_modules/
+dist/
+.next/
 .env
 
 # Herramientas de terceros ignoradas
