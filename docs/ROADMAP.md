@@ -69,11 +69,16 @@ All completed milestones are verified via active TypeScript contracts and the re
 
 ---
 
+- **M63 (V1 Monolith Decommissioning & Workspace Cleanup)**: Decoupled and decommissioned legacy V1 monolith endpoints in `worker/src/index.ts` returning HTTP 410 Gone with descriptive redirect payloads. Hardened standalone V2 gateway (`createV2App.ts`) with dedicated CORS and Express JSON body-parsing. Safely uninstalled 51 unused packages from `worker/package.json` (`@ai-sdk/google`, `ai`, `@upstash/redis`, `axios`, `cheerio`, `playwright`, `wappalyzer`, `wappalyzer-core`). Purged tracked `worker/node_modules/` from Git tracking and enforced `.gitignore` (`node_modules/`, `dist/`, `.next/`).
+- **M64 (Subdomain Discovery Tool Adapter — Subfinder)**: Implemented typed port `SubdomainDiscoveryTool` and adapter `SubfinderAdapter` under `worker/src/v2/recon/adapters/` using Ports & Adapters pattern. Command invocation strictly executes via `ProcessRunner.execute()` with `shell: false` and isolated argument array (`['-d', targetDomain, '-silent', '-json']`). Enforces two-pass atomic preflight (M39) validating runtime-branded authorization decisions and scope grant boundaries before spawning processes. Enforces SSRF egress gate (M30) filtering out RFC-1918 private subnets, loopback (`127.0.0.0/8`), and cloud metadata (`169.254.169.254`). Implements fail-closed streaming parsing resilient to corrupted lines. Strictly produces factual observation DTOs with explicit non-claims (`severity: 'info'`, zero speculative vulnerability claims or CVSS ratings). Consolidated smoke test (`milestone64_subfinder_adapter_smoke.ts`) verifying all 8 assertions with 100% pass rate.
+
+---
+
 ## 3. Current / Next Milestone (`NEXT UP`)
 
-### Milestone 63: V1 Monolith Decommissioning & Workspace Cleanup
-- Systematically deprecate and decommission legacy V1 monolith endpoints (`worker/src/index.ts`, legacy scanner/recon direct binary invocations).
-- Consolidate configurations and prune unused dependencies.
+### Milestone 65: Active Recon Port & Service Enumeration Tool Adapter (`nmap` / `naabu`)
+- Implement port scanning tool adapter following the Ports & Adapters pattern, strictly isolated through `ProcessRunner`.
+- Enforce atomic preflight and egress policy filtering against internal infrastructure.
 
 ---
 
