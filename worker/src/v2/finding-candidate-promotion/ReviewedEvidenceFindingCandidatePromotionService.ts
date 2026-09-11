@@ -11,6 +11,7 @@ import {
   ALLOWED_EVIDENCE_TYPES,
   ALLOWED_EVIDENCE_STRENGTHS
 } from "../evidence/EvidenceBoundaryContracts.js";
+import { validateExecutionLineage } from "../evidence/EvidenceBoundaryService.js";
 
 const UNSAFE_TERMS = [
   "authorization", "bearer", "cookie", "set-cookie", "password", "secret",
@@ -47,12 +48,19 @@ export function validateReviewedEvidenceFormalFindingCandidate(candidate: any): 
   const allowedKeys = new Set([
     "contractVersion", "kind", "candidateId", "scanId", "createdAt",
     "sourceDraft", "humanTriage", "evidenceRefs", "observedEvidenceSummary",
-    "candidateState", "storage", "explicitNonClaims", "classification"
+    "candidateState", "storage", "explicitNonClaims", "classification", "lineage"
   ]);
 
-  if (keys.length !== 13) return false;
+  if (keys.length !== 13 && keys.length !== 14) return false;
+  if (keys.length === 14 && !keys.includes("lineage")) return false;
   for (const k of keys) {
     if (!allowedKeys.has(k)) return false;
+  }
+
+  if (candidate.lineage !== undefined) {
+    const linVal = validateExecutionLineage(candidate.lineage);
+    if (!linVal.isValid) return false;
+    if (candidate.lineage.scanId !== candidate.scanId) return false;
   }
 
   if (candidate.contractVersion !== "fixguard-reviewed-evidence-formal-finding-candidate/v0") return false;
@@ -266,8 +274,9 @@ export async function promoteReviewedEvidenceFindingCandidateDraft(
   if (!request || typeof request !== "object" || Array.isArray(request)) return failedReturn("invalid_promotion_request");
   
   const keys = Object.keys(request);
-  const allowedKeys = new Set(["contractVersion", "kind", "candidateId", "scanId", "requestedAt", "draft", "triageDecision", "classification"]);
-  if (keys.length !== 8) return failedReturn("invalid_promotion_request");
+  const allowedKeys = new Set(["contractVersion", "kind", "candidateId", "scanId", "requestedAt", "draft", "triageDecision", "classification", "lineage"]);
+  if (keys.length !== 8 && keys.length !== 9) return failedReturn("invalid_promotion_request");
+  if (keys.length === 9 && !keys.includes("lineage")) return failedReturn("invalid_promotion_request");
   for (const k of keys) {
     if (!allowedKeys.has(k)) return failedReturn("invalid_promotion_request");
   }
@@ -277,6 +286,12 @@ export async function promoteReviewedEvidenceFindingCandidateDraft(
 
   if (!isStrictSafeId(request.candidateId) || !isStrictSafeId(request.scanId)) return failedReturn("invalid_promotion_metadata");
   if (!isStrictIsoTimestamp(request.requestedAt) || !isStrictIsoTimestamp(evaluatedAt)) return failedReturn("invalid_promotion_metadata");
+
+  if (request.lineage !== undefined) {
+    const linVal = validateExecutionLineage(request.lineage);
+    if (!linVal.isValid) return failedReturn("invalid_promotion_metadata");
+    if (request.lineage.scanId !== request.scanId) return blockedReturn("blocked_lineage_mismatch");
+  }
 
   const cl = request.classification;
   if (!cl || typeof cl !== "object" || Object.keys(cl).length !== 14) return failedReturn("invalid_promotion_metadata");
@@ -424,6 +439,10 @@ export async function promoteReviewedEvidenceFindingCandidateDraft(
       executesTools: false
     }
   };
+
+  if (request.lineage) {
+    candidate.lineage = request.lineage;
+  }
 
   if (!validateReviewedEvidenceFormalFindingCandidate(candidate)) {
     return failedReturn("candidate_validation_failed");

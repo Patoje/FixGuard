@@ -1,6 +1,6 @@
 export type ScanMode = 'passive' | 'active' | 'aggressive' | 'sast' | 'targeted';
 
-export type ScanStatus = 'pending' | 'in_progress' | 'completed' | 'failed' | 'paused_for_approval';
+export type ScanStatus = 'pending' | 'in_progress' | 'completed' | 'failed' | 'paused_for_approval' | 'error';
 
 export type Severity = 'low' | 'medium' | 'high' | 'critical';
 
@@ -55,6 +55,7 @@ export interface AttackSurfaceItem {
   relationships?: string[];
   aiExplanation?: string;
   businessImpactScore?: number;
+  source?: string;
 }
 
 export interface VectorItem {
@@ -147,6 +148,11 @@ export interface ReconProfile {
       falsePositiveReason?: string;
     }>;
   };
+  credentials?: Array<{
+    type: string;
+    value?: string;
+    [key: string]: any;
+  }>;
   parameterIntelligence?: {
     totalParameters: number;
     topParameters: Array<{ name: string; frequency: number }>;

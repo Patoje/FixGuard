@@ -147,6 +147,18 @@ export type EvidenceOobCallback = {
 export const ALLOWED_EVIDENCE_STRENGTHS = ["weak", "moderate", "strong"] as const;
 export type EvidenceStrength = typeof ALLOWED_EVIDENCE_STRENGTHS[number];
 
+/**
+ * M58: Mandatory authorization lineage attached to substantive evidence records.
+ */
+export type ExecutionLineage = {
+  assessmentId: string;
+  scanId: string;
+  authorizationGrantId: string;
+  authorizationDecisionId: string;
+  actorId: string;
+  validationId: string;
+};
+
 export type EvidenceRecord = {
   contractVersion: EvidenceBoundaryContractVersion;
   kind: "evidence_record";
@@ -160,6 +172,7 @@ export type EvidenceRecord = {
   attackOrValidation?: EvidenceSnapshot;
   difference?: EvidenceDifference;
   oobCallback?: EvidenceOobCallback;
+  lineage?: ExecutionLineage;
   redaction: {
     isRedacted: true;
     redactionMethod: string;
@@ -167,6 +180,58 @@ export type EvidenceRecord = {
   strength: EvidenceStrength;
   classification: EvidenceBoundaryClassificationFlags;
 };
+
+// ---------------------------------------------------------------------------
+// M58: Discriminated Unions for Substantive Evidence Payloads
+// ---------------------------------------------------------------------------
+
+export type HttpDifferenceSubstancePayload = {
+  evidenceType: "http_difference" | "authorization_difference";
+  baseline: EvidenceSnapshot;
+  attackOrValidation: EvidenceSnapshot;
+  difference: EvidenceDifference;
+};
+
+export type TimeBasedDifferenceSubstancePayload = {
+  evidenceType: "time_based_difference";
+  baseline: EvidenceSnapshot;
+  attackOrValidation: EvidenceSnapshot;
+  difference: EvidenceDifference & { responseTimeDeltaMs: number };
+};
+
+export type OobCallbackSubstancePayload = {
+  evidenceType: "oob_callback";
+  oobCallback: EvidenceOobCallback;
+};
+
+export type ConfigurationExposureSubstancePayload = {
+  evidenceType: "configuration_exposure" | "secret_indicator_validated";
+  attackOrValidation: EvidenceSnapshot;
+};
+
+export type ManualReviewNoteSubstancePayload = {
+  evidenceType: "manual_review_note";
+  attackOrValidation: EvidenceSnapshot & {
+    safeExcerpt: SafeExcerpt & { source: "manual_note" };
+  };
+};
+
+export type EvidenceSubstancePayload =
+  | HttpDifferenceSubstancePayload
+  | TimeBasedDifferenceSubstancePayload
+  | OobCallbackSubstancePayload
+  | ConfigurationExposureSubstancePayload
+  | ManualReviewNoteSubstancePayload;
+
+export type SubstantiveEvidenceRecord = EvidenceRecord & {
+  lineage: ExecutionLineage;
+} & (
+  | ({ evidenceType: "http_difference" | "authorization_difference" } & HttpDifferenceSubstancePayload)
+  | ({ evidenceType: "time_based_difference" } & TimeBasedDifferenceSubstancePayload)
+  | ({ evidenceType: "oob_callback" } & OobCallbackSubstancePayload)
+  | ({ evidenceType: "configuration_exposure" | "secret_indicator_validated" } & ConfigurationExposureSubstancePayload)
+  | ({ evidenceType: "manual_review_note" } & ManualReviewNoteSubstancePayload)
+);
 
 export const ALLOWED_CANDIDATE_TYPES = [
   "sqli_candidate", "xss_candidate", "ssrf_candidate", "xxe_candidate", 
@@ -185,6 +250,11 @@ export type SeverityGate = {
   reason: string;
 };
 
+/**
+ * @deprecated Use ReviewedEvidenceFormalFindingCandidate from finding-candidate-promotion instead.
+ * FindingCandidateRecord is an early M45 experimental boundary model.
+ * In FixGuard V2 (M54+), ReviewedEvidenceFormalFindingCandidate is the canonical candidate.
+ */
 export type FindingCandidateRecord = {
   contractVersion: EvidenceBoundaryContractVersion;
   kind: "finding_candidate_record";
@@ -239,6 +309,8 @@ export type EvidenceBoundaryErrorCode =
   | "invalid_report_item"
   | "promotion_not_eligible"
   | "insufficient_evidence"
+  | "insufficient_evidence_substance"
+  | "invalid_lineage"
   | "cross_scan_evidence_rejected"
   | "unsafe_content_rejected"
   | "manual_review_required"

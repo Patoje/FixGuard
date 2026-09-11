@@ -340,7 +340,9 @@ export default function ReconDashboard({ profile, targetUrl, onLaunchAttack }: P
                                       }`}>
                                         {ep.source}
                                         {(ep.source.toUpperCase() === 'GAU' || ep.source.toUpperCase() === 'WAYBACK') && (
-                                          <Clock className="w-2.5 h-2.5 opacity-70" title="Histórico - Podría no estar activo" />
+                                          <span title="Histórico - Podría no estar activo">
+                                            <Clock className="w-2.5 h-2.5 opacity-70" />
+                                          </span>
                                         )}
                                       </span>
                                     )}

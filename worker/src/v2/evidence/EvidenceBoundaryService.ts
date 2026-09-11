@@ -254,12 +254,51 @@ export function validateIndicatorRecord(record: any): ValidationResult {
   return { isValid: true };
 }
 
+export function validateExecutionLineage(lineage: any): ValidationResult {
+  if (!lineage || typeof lineage !== 'object' || Array.isArray(lineage)) {
+    return { isValid: false, errorCode: 'unsafe_content_rejected', message: 'Execution lineage must be an object' };
+  }
+  const keysVal = validateAllowedKeys(lineage, [
+    'assessmentId', 'scanId', 'authorizationGrantId', 'authorizationDecisionId', 'actorId', 'validationId'
+  ]);
+  if (!keysVal.isValid) return keysVal;
+
+  const keys = Object.keys(lineage);
+  if (keys.length !== 6) {
+    return { isValid: false, errorCode: 'unsafe_content_rejected', message: 'Execution lineage must contain exactly 6 keys' };
+  }
+
+  const checks = [
+    validateSafeId(lineage.assessmentId),
+    validateSafeId(lineage.scanId),
+    validateSafeId(lineage.authorizationGrantId),
+    validateSafeId(lineage.authorizationDecisionId),
+    validateSafeId(lineage.actorId),
+    validateSafeId(lineage.validationId)
+  ];
+
+  const firstFail = checks.find(c => !c.isValid);
+  if (firstFail) {
+    return { isValid: false, errorCode: 'unsafe_content_rejected', message: `Invalid lineage field: ${firstFail.message}` };
+  }
+
+  return { isValid: true };
+}
+
 export function validateEvidenceRecord(record: any): ValidationResult {
   if (!record || record.kind !== 'evidence_record') return { isValid: false, errorCode: 'invalid_evidence', message: 'Invalid kind' };
   if (record.contractVersion !== "fixguard-evidence-boundary/v0") return { isValid: false, errorCode: 'unsafe_content_rejected', message: 'Invalid contractVersion' };
 
-  const keysVal = validateAllowedKeys(record, ['contractVersion', 'kind', 'evidenceId', 'scanId', 'indicatorId', 'collectedAt', 'collectedBy', 'evidenceType', 'baseline', 'attackOrValidation', 'difference', 'oobCallback', 'redaction', 'strength', 'classification']);
+  const keysVal = validateAllowedKeys(record, ['contractVersion', 'kind', 'evidenceId', 'scanId', 'indicatorId', 'collectedAt', 'collectedBy', 'evidenceType', 'baseline', 'attackOrValidation', 'difference', 'oobCallback', 'lineage', 'redaction', 'strength', 'classification']);
   if (!keysVal.isValid) return keysVal;
+
+  if (record.lineage !== undefined) {
+    const linVal = validateExecutionLineage(record.lineage);
+    if (!linVal.isValid) return { isValid: false, errorCode: 'invalid_lineage', message: linVal.message };
+    if (record.lineage.scanId !== record.scanId) {
+      return { isValid: false, errorCode: 'invalid_lineage', message: 'Lineage scanId must match record scanId' };
+    }
+  }
 
   const classVal = validateClassificationFlags(record.classification);
   if (!classVal.isValid) return { isValid: false, errorCode: 'invalid_evidence', message: classVal.message };
@@ -364,6 +403,162 @@ export function validateEvidenceRecord(record: any): ValidationResult {
     ];
     const failOob = checksOob.find(c => !c.isValid);
     if (failOob) return { isValid: false, errorCode: 'invalid_evidence', message: failOob.message };
+  }
+
+  return { isValid: true };
+}
+
+export function validateEvidenceSubstance(record: any): ValidationResult {
+  const baseVal = validateEvidenceRecord(record);
+  if (!baseVal.isValid) {
+    return baseVal;
+  }
+
+  if (!record.lineage) {
+    return {
+      isValid: false,
+      errorCode: 'insufficient_evidence_substance',
+      message: 'Substantive evidence requires execution lineage'
+    };
+  }
+
+  const lineageVal = validateExecutionLineage(record.lineage);
+  if (!lineageVal.isValid) {
+    return {
+      isValid: false,
+      errorCode: 'insufficient_evidence_substance',
+      message: `Invalid execution lineage: ${lineageVal.message}`
+    };
+  }
+
+  if (record.lineage.scanId !== record.scanId) {
+    return {
+      isValid: false,
+      errorCode: 'insufficient_evidence_substance',
+      message: 'Lineage scanId must match evidence scanId'
+    };
+  }
+
+  switch (record.evidenceType) {
+    case 'http_difference':
+    case 'authorization_difference': {
+      if (!record.baseline || typeof record.baseline !== 'object' || Array.isArray(record.baseline)) {
+        return {
+          isValid: false,
+          errorCode: 'insufficient_evidence_substance',
+          message: 'HTTP difference evidence must contain baseline snapshot'
+        };
+      }
+      if (!record.attackOrValidation || typeof record.attackOrValidation !== 'object' || Array.isArray(record.attackOrValidation)) {
+        return {
+          isValid: false,
+          errorCode: 'insufficient_evidence_substance',
+          message: 'HTTP difference evidence must contain attack/validation snapshot'
+        };
+      }
+      if (!record.difference || typeof record.difference !== 'object' || Array.isArray(record.difference)) {
+        return {
+          isValid: false,
+          errorCode: 'insufficient_evidence_substance',
+          message: 'HTTP difference evidence must contain difference object'
+        };
+      }
+      const hasSignal =
+        record.difference.statusCodeChanged === true ||
+        (typeof record.difference.contentLengthDeltaPercent === 'number' && record.difference.contentLengthDeltaPercent !== 0) ||
+        (Array.isArray(record.difference.newJsonKeys) && record.difference.newJsonKeys.length > 0) ||
+        (Array.isArray(record.difference.missingJsonKeys) && record.difference.missingJsonKeys.length > 0) ||
+        record.difference.authStateChanged === true ||
+        record.difference.errorSignalObserved === true ||
+        record.difference.redirectChanged === true;
+
+      if (!hasSignal) {
+        return {
+          isValid: false,
+          errorCode: 'insufficient_evidence_substance',
+          message: 'HTTP difference evidence must contain at least one active differential signal'
+        };
+      }
+      break;
+    }
+    case 'time_based_difference': {
+      if (!record.baseline || typeof record.baseline !== 'object' || Array.isArray(record.baseline)) {
+        return {
+          isValid: false,
+          errorCode: 'insufficient_evidence_substance',
+          message: 'Time-based difference evidence must contain baseline snapshot'
+        };
+      }
+      if (!record.attackOrValidation || typeof record.attackOrValidation !== 'object' || Array.isArray(record.attackOrValidation)) {
+        return {
+          isValid: false,
+          errorCode: 'insufficient_evidence_substance',
+          message: 'Time-based difference evidence must contain attack/validation snapshot'
+        };
+      }
+      if (
+        !record.difference ||
+        typeof record.difference.responseTimeDeltaMs !== 'number' ||
+        !Number.isFinite(record.difference.responseTimeDeltaMs) ||
+        record.difference.responseTimeDeltaMs <= 0
+      ) {
+        return {
+          isValid: false,
+          errorCode: 'insufficient_evidence_substance',
+          message: 'Time-based difference evidence requires positive responseTimeDeltaMs in difference'
+        };
+      }
+      break;
+    }
+    case 'oob_callback': {
+      if (!record.oobCallback || typeof record.oobCallback !== 'object' || Array.isArray(record.oobCallback)) {
+        return {
+          isValid: false,
+          errorCode: 'insufficient_evidence_substance',
+          message: 'OOB callback evidence requires valid oobCallback payload'
+        };
+      }
+      break;
+    }
+    case 'configuration_exposure':
+    case 'secret_indicator_validated': {
+      if (!record.attackOrValidation || typeof record.attackOrValidation !== 'object' || Array.isArray(record.attackOrValidation)) {
+        return {
+          isValid: false,
+          errorCode: 'insufficient_evidence_substance',
+          message: 'Configuration exposure evidence requires attackOrValidation snapshot'
+        };
+      }
+      const hasSubstance = !!(record.attackOrValidation.safeExcerpt || record.attackOrValidation.bodyHash);
+      if (!hasSubstance) {
+        return {
+          isValid: false,
+          errorCode: 'insufficient_evidence_substance',
+          message: 'Configuration exposure evidence requires safeExcerpt or bodyHash in attackOrValidation'
+        };
+      }
+      break;
+    }
+    case 'manual_review_note': {
+      if (
+        !record.attackOrValidation ||
+        !record.attackOrValidation.safeExcerpt ||
+        record.attackOrValidation.safeExcerpt.source !== 'manual_note'
+      ) {
+        return {
+          isValid: false,
+          errorCode: 'insufficient_evidence_substance',
+          message: 'Manual review note evidence requires attackOrValidation with safeExcerpt from manual_note'
+        };
+      }
+      break;
+    }
+    default:
+      return {
+        isValid: false,
+        errorCode: 'insufficient_evidence_substance',
+        message: `Unsupported evidence type for substance validation: ${record.evidenceType}`
+      };
   }
 
   return { isValid: true };

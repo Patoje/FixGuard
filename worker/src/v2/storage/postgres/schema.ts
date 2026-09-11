@@ -17,6 +17,8 @@ import type {
 import type { EvidenceCollection } from '../../core/Evidence';
 import type { AuditEntry } from '../../approval/ApprovalContracts';
 import type { PersistedActiveReconRunRecord } from '../../recon/active/ActiveReconOriginRunPersistenceContracts';
+import type { ReviewedEvidenceStoreRecord } from '../../evidence-store/ReviewedEvidenceStoreContracts';
+import type { ReviewedEvidenceFormalFindingCandidate } from '../../finding-candidate-promotion/ReviewedEvidenceFindingCandidatePromotionContracts';
 
 export const v2_active_recon_run_records = pgTable('v2_active_recon_run_records', {
   run_id: text('run_id').primaryKey(),
@@ -139,3 +141,57 @@ export const v2_execution_failure_records = pgTable('v2_execution_failure_record
 
 export type V2ExecutionFailureRecordRow = typeof v2_execution_failure_records.$inferSelect;
 export type NewV2ExecutionFailureRecordRow = typeof v2_execution_failure_records.$inferInsert;
+
+export const v2_reviewed_evidence_records = pgTable('v2_reviewed_evidence_records', {
+  store_record_id: text('store_record_id').primaryKey(),
+  session_id: text('session_id')
+    .notNull()
+    .references(() => v2_assessment_sessions.session_id, { onDelete: 'restrict' }),
+  scan_id: text('scan_id').notNull(),
+  evidence_id: text('evidence_id').notNull().unique(),
+  indicator_id: text('indicator_id').notNull(),
+  evidence_type: text('evidence_type').notNull(),
+  strength: text('strength').notNull(),
+  actor_id: text('actor_id').notNull(),
+  validation_id: text('validation_id').notNull(),
+  saved_at: timestamp('saved_at', { withTimezone: true }).notNull(),
+  record_json: jsonb('record_json').$type<ReviewedEvidenceStoreRecord>().notNull(),
+  created_at: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+}, (table) => ({
+  sessionIdIdx: index('idx_v2_rer_session_id').on(table.session_id),
+  scanIdIdx: index('idx_v2_rer_scan_id').on(table.scan_id),
+  evidenceIdIdx: index('idx_v2_rer_evidence_id').on(table.evidence_id),
+  indicatorIdIdx: index('idx_v2_rer_indicator_id').on(table.indicator_id),
+  actorIdIdx: index('idx_v2_rer_actor_id').on(table.actor_id),
+  savedAtIdx: index('idx_v2_rer_saved_at').on(table.saved_at),
+  scanIdEvidenceTypeIdx: index('idx_v2_rer_scan_evidence_type').on(table.scan_id, table.evidence_type),
+}));
+
+export type V2ReviewedEvidenceRecordRow = typeof v2_reviewed_evidence_records.$inferSelect;
+export type NewV2ReviewedEvidenceRecordRow = typeof v2_reviewed_evidence_records.$inferInsert;
+
+export const v2_formal_finding_candidates = pgTable('v2_formal_finding_candidates', {
+  candidate_id: text('candidate_id').primaryKey(),
+  session_id: text('session_id')
+    .notNull()
+    .references(() => v2_assessment_sessions.session_id, { onDelete: 'restrict' }),
+  scan_id: text('scan_id').notNull(),
+  draft_id: text('draft_id').notNull().unique(),
+  source_selection_id: text('source_selection_id').notNull(),
+  reviewer_id: text('reviewer_id').notNull(),
+  triage_decision_id: text('triage_decision_id').notNull(),
+  selected_evidence_count: integer('selected_evidence_count').notNull(),
+  created_at: timestamp('created_at', { withTimezone: true }).notNull(),
+  candidate_json: jsonb('candidate_json').$type<ReviewedEvidenceFormalFindingCandidate>().notNull(),
+}, (table) => ({
+  sessionIdIdx: index('idx_v2_ffc_session_id').on(table.session_id),
+  scanIdIdx: index('idx_v2_ffc_scan_id').on(table.scan_id),
+  draftIdIdx: index('idx_v2_ffc_draft_id').on(table.draft_id),
+  reviewerIdIdx: index('idx_v2_ffc_reviewer_id').on(table.reviewer_id),
+  createdAtIdx: index('idx_v2_ffc_created_at').on(table.created_at),
+  scanIdCreatedAtIdx: index('idx_v2_ffc_scan_created_at').on(table.scan_id, table.created_at),
+}));
+
+export type V2FormalFindingCandidateRow = typeof v2_formal_finding_candidates.$inferSelect;
+export type NewV2FormalFindingCandidateRow = typeof v2_formal_finding_candidates.$inferInsert;
+

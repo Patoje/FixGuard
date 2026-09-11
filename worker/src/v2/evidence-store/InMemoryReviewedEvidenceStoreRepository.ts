@@ -1,4 +1,5 @@
 import type { ReviewedEvidenceStoreRecord, ReviewedEvidenceStoreRepository, ReviewedEvidenceListOptions } from "./ReviewedEvidenceStoreContracts.js";
+import { PersistenceConflictError } from "../storage/StorageErrors.js";
 
 export class InMemoryReviewedEvidenceStoreRepository implements ReviewedEvidenceStoreRepository {
   private records: Map<string, ReviewedEvidenceStoreRecord> = new Map();
@@ -10,10 +11,10 @@ export class InMemoryReviewedEvidenceStoreRepository implements ReviewedEvidence
 
   async save(record: ReviewedEvidenceStoreRecord): Promise<ReviewedEvidenceStoreRecord> {
     if (this.records.has(record.storeRecordId)) {
-      throw new Error(`Duplicate storeRecordId: ${record.storeRecordId}`);
+      throw new PersistenceConflictError(`Duplicate storeRecordId: ${record.storeRecordId}`, record.storeRecordId);
     }
     if (this.evidenceIdIndex.has(record.evidenceRecord.evidenceId)) {
-      throw new Error(`Duplicate evidenceId: ${record.evidenceRecord.evidenceId}`);
+      throw new PersistenceConflictError(`Duplicate evidenceId: ${record.evidenceRecord.evidenceId}`, record.evidenceRecord.evidenceId);
     }
 
     const cloned = this.clone(record);

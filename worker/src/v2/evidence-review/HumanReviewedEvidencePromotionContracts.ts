@@ -9,6 +9,8 @@ export type HumanReviewedEvidencePromotionReasonCode =
   | "source_indicator_ref_missing"
   | "source_scan_mismatch"
   | "evidence_record_validation_failed"
+  | "insufficient_evidence_substance"
+  | "blocked_lineage_mismatch"
   | "human_review_required"
   | "invalid_promotion_request"
   | "invalid_promotion_metadata"
@@ -31,7 +33,7 @@ export type HumanReviewedEvidencePromotionRequestClassification = {
 };
 
 import type { AuthorizedComparisonValidationResult } from "../validation/AuthorizedComparisonValidationContracts.js";
-import type { EvidenceRecord } from "../evidence/EvidenceBoundaryContracts.js";
+import type { EvidenceRecord, EvidenceSubstancePayload } from "../evidence/EvidenceBoundaryContracts.js";
 
 export type HumanReviewedEvidencePromotionRequest = {
   contractVersion: "fixguard-human-reviewed-evidence-promotion/v0";
@@ -54,6 +56,8 @@ export type HumanReviewedEvidencePromotionRequest = {
     reviewerId: string;
     reviewedAt: string;
   };
+
+  substancePayload?: EvidenceSubstancePayload;
 
   classification: HumanReviewedEvidencePromotionRequestClassification;
 };

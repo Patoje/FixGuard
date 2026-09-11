@@ -4,7 +4,7 @@ import type {
   HumanReviewedEvidencePromotionReasonCode,
   HumanReviewedEvidencePromotionRequestClassification
 } from "./HumanReviewedEvidencePromotionContracts.js";
-import { validateEvidenceRecord } from "../evidence/EvidenceBoundaryService.js";
+import { validateEvidenceRecord, validateEvidenceSubstance } from "../evidence/EvidenceBoundaryService.js";
 import type { EvidenceRecord } from "../evidence/EvidenceBoundaryContracts.js";
 import { validateEvidenceDraftEnvelopeForValidationResult } from "../validation/AuthorizedComparisonValidationService.js";
 
@@ -50,7 +50,8 @@ const ALLOWED_M49_REASONS = new Set([
 
 const ALLOWED_REQUEST_KEYS = new Set([
   "contractVersion", "kind", "promotionId", "scanId", "requestedAt",
-  "validationResult", "sourceIndicatorRef", "reviewDecision", "classification"
+  "validationResult", "sourceIndicatorRef", "reviewDecision", "classification",
+  "substancePayload"
 ]);
 
 export function evaluateHumanReviewedEvidencePromotion(
@@ -284,6 +285,32 @@ export function evaluateHumanReviewedEvidencePromotion(
       makesImpactClaims: false
     }
   };
+
+  if (valResult.provenance) {
+    if (valResult.provenance.scanId !== request.scanId) {
+      return { ...baseResult, status: "blocked", reasonCode: "blocked_lineage_mismatch" };
+    }
+    evidenceRecord.lineage = {
+      assessmentId: valResult.provenance.assessmentId,
+      scanId: valResult.provenance.scanId,
+      authorizationGrantId: valResult.provenance.authorizationGrantId,
+      authorizationDecisionId: valResult.provenance.authorizationDecisionId,
+      actorId: valResult.provenance.actorId,
+      validationId: valResult.validationId
+    };
+  }
+
+  if (request.substancePayload) {
+    if (request.substancePayload.baseline) evidenceRecord.baseline = request.substancePayload.baseline;
+    if (request.substancePayload.attackOrValidation) evidenceRecord.attackOrValidation = request.substancePayload.attackOrValidation;
+    if (request.substancePayload.difference) evidenceRecord.difference = request.substancePayload.difference;
+    if (request.substancePayload.oobCallback) evidenceRecord.oobCallback = request.substancePayload.oobCallback;
+
+    const substanceVal = validateEvidenceSubstance(evidenceRecord);
+    if (!substanceVal.isValid) {
+      return { ...baseResult, status: "blocked", reasonCode: "insufficient_evidence_substance" };
+    }
+  }
 
   const validationCode = validateEvidenceRecord(evidenceRecord);
   if (!validationCode.isValid) {

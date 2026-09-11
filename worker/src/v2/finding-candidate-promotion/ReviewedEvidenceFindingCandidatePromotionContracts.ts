@@ -50,6 +50,8 @@ export type ReviewedEvidenceFormalFindingCandidateClassification = {
   executesTools: false;
 };
 
+import type { ExecutionLineage } from "../evidence/EvidenceBoundaryContracts.js";
+
 export type ReviewedEvidenceFormalFindingCandidate = {
   contractVersion: "fixguard-reviewed-evidence-formal-finding-candidate/v0";
   kind: "reviewed_evidence_formal_finding_candidate";
@@ -57,6 +59,8 @@ export type ReviewedEvidenceFormalFindingCandidate = {
   candidateId: string;
   scanId: string;
   createdAt: string;
+
+  lineage?: ExecutionLineage;
 
   sourceDraft: {
     draftId: string;
@@ -161,6 +165,8 @@ export type PromoteReviewedEvidenceFindingCandidateDraftRequest = {
   draft: ReviewedEvidenceFindingCandidateDraft;
   triageDecision: ReviewedEvidenceFindingCandidateTriageDecision;
 
+  lineage?: ExecutionLineage;
+
   classification: ReviewedEvidenceFindingCandidatePromotionRequestClassification;
 };
 
@@ -172,6 +178,7 @@ export type ReviewedEvidenceFindingCandidatePromotionReasonCode =
   | "triage_authorization_missing"
   | "draft_invalid"
   | "source_scan_mismatch"
+  | "blocked_lineage_mismatch"
   | "invalid_promotion_request"
   | "invalid_promotion_metadata"
   | "invalid_triage_decision"
@@ -332,3 +339,17 @@ export type SummarizeReviewedEvidenceFormalFindingCandidateResult = {
     safeMessage: string;
   };
 };
+
+/**
+ * M58: Canonical Candidate Definition
+ * In FixGuard V2, ReviewedEvidenceFormalFindingCandidate is the single canonical candidate model.
+ * Historical FindingCandidateRecord (M45) is deprecated.
+ */
+export type CanonicalFindingCandidate = ReviewedEvidenceFormalFindingCandidate;
+
+export function projectCanonicalCandidate(
+  candidate: ReviewedEvidenceFormalFindingCandidate
+): CanonicalFindingCandidate {
+  return candidate;
+}
+

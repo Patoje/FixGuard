@@ -8,20 +8,26 @@
 ## 1. Status Overview
 
 ```text
-[M0 ─── M55] COMPLETED ───> [M56A / M56B] COMPLETED ───> [M57] COMPLETED
+[M0 ─── M55] COMPLETED ───> [M56A / M56B] COMPLETED ───> [M57 / M58] COMPLETED
                                                                 │
                                                                 ▼
-                                                        [M58] IN PROGRESS
+                                                        [M59 / M60] COMPLETED
                                                                 │
                                                                 ▼
-                                                        [M59 / M60] PLANNED
+                                                       [M61 / M61.1] COMPLETED
+                                                                │
+                                                                ▼
+                                                            [M62] COMPLETED (Web MVP)
+                                                                │
+                                                                ▼
+                                                            [M63] NEXT UP (V1 Decommission)
 ```
 
 ---
 
 ## 2. Completed Milestones (`CONFIRMED`)
 
-All completed milestones are verified via active TypeScript contracts and the regression test suite (`npm run check:v2` with 19 passing smoke suites).
+All completed milestones are verified via active TypeScript contracts and the regression test suite (`npm run check:v2` with 24 passing smoke suites).
 
 ### Foundation Era (M0 – M29)
 - **M0 – M6.5 (Core Loop Foundation)**: `TargetContext`, `CapabilityRequest`, `ExecutionRequest`, `RawExecutionOutput`, `ProcessRunner` (safe spawn without shell interpolation), `SubfinderAdapter`, `SubfinderParser`.
@@ -50,40 +56,24 @@ All completed milestones are verified via active TypeScript contracts and the re
 - **M54 (Human-Triaged Finding Candidate Promotion)**: Explicit human triage gate producing `ReviewedEvidenceFormalFindingCandidate`.
 - **M55 (Core Candidate Pipeline Reality Check)**: Comprehensive end-to-end diagnostic proving ID and metadata continuity across M51 $\rightarrow$ M54.
 
-### Continuity & Vertical Composition Era (M56A – M57)
+### Continuity & Vertical Composition Era (M56A – M58)
 - **M56A (Verified Authorization Boundary)**: Runtime-established `VerifiedAuthorizationDecision` using module-private `WeakSet<object>` brand. Forgery resistance against spread, structuredClone, and JSON round-trips. Strict exact-key persistence validation. ADR-001 sealed.
 - **M56B (Lineage & Comparison Continuity)**: Integrated verified authorization and lineage references (`assessmentId`, `scanId`, `authorizationGrantId`, `authorizationDecisionId`, `actorId`) into M49 comparison validation.
 - **M57 (Real Recon-to-Reviewed-Evidence Vertical Slice)**: Implemented `ReconToReviewedEvidenceApplicationService` unifying the 7-step flow from authorized URL to reviewed evidence store.
+- **M58 (Evidence Substance & Canonical Candidate Semantics)**: Defined discriminated unions for substantive evidence payloads (`EvidenceSubstancePayload`), mandatory unbroken `ExecutionLineage`, canonical status for `ReviewedEvidenceFormalFindingCandidate` (M54), deprecated legacy M45 candidate model, exact-key closed-world rejection of injected severities/remediations, and single consolidated smoke test with 100% pass rate.
+- **M59 (Persistence Readiness for Candidates & Evidence Store)**: Designed and implemented hybrid PostgreSQL tables (`v2_reviewed_evidence_records`, `v2_formal_finding_candidates`) using isolated `drizzle.v2.config.ts`, composite indexes `(scan_id, evidence_type)`, DB-agnostic error translation (PG 23505 $\rightarrow$ `PersistenceConflictError`, PG 23503 $\rightarrow$ `SessionNotFoundError`), defensive deserialization against domain exact-key validation, relational cross-column consistency checks, and fail-closed adversarial audit tests (detecting SQL injection of `severity: "CRITICAL"` or desync tampering).
+- **M60 (Defensive Report Readiness Gate)**: Created Layer 9 (`reporting-boundary`) with `DefensiveAssessmentReport` DTO. Enforced mandatory human-in-the-loop signature (`operatorAttestation.operatorSignatureId`), immutable audit limitations (`auditLimitations`), explicit non-claims, unmutated candidate preservation, and strict gatekeeper rejection (`ReportGenerationError`) against missing signatures, hollow candidates (`selectedCount: 0`), or corrupted candidates carrying speculative claims (`severity`, `risk_score`, `cvss`, `remediation_advice`).
+- **M61 (V2 Application Gateway & Unified Presentation Layer)**: Implemented dedicated Express 5 REST API Gateway under `worker/src/v2/api/` completely isolated from V1 monolith (`worker/src/index.ts`). Orchestrated static dependency injection via `V2CompositionRoot` (DB-free in-memory defaults, supporting Postgres adapters). Thin controllers (`AssessmentController`, `ReportController`, `AuthorizationController`) translating HTTP requests to pure domain commands with zero business logic. Centralized `v2ErrorHandler` mapping domain errors (`PersistenceConflictError` $\rightarrow$ 409, `SessionNotFoundError`/`RecordNotFoundError` $\rightarrow$ 404, `ReportGenerationError`/`RecordCorruptedError` $\rightarrow$ 400/403, unhandled errors $\rightarrow$ sanitized 500 with zero leaks of stack traces or database topologies). Runtime-branded authorization (ADR-001) instantiated at request perimeter via `POST /api/v2/auth/decisions`. Single consolidated smoke test (`milestone61_v2_api_gateway_smoke.ts`) with 10 assertions passing 100%.
+- **M61.1 (Triage & Candidate Promotion Gateway Endpoints — Patch 61.1-P1)**: Patched `worker/src/v2/api/` and `worker/src/v2/finding-candidate-draft/` to expose Human-in-the-Loop endpoints (`GET /api/v2/scans/:scanId/evidence-drafts`, `POST /candidates/promote`, `POST /assessments/:sessionId/recommendations/approve`) needed for Milestone 62 frontend integration. Strictly enforced Anti-Fabrication Boundary: `POST /candidates/promote` rejects client-supplied `draft` payloads fail-closed with HTTP 400 Bad Request, strictly retrieving authentic drafts from backend storage. Preserved Clean Domain Layering by placing `EvidenceDraftRepository` and `InMemoryEvidenceDraftRepository` in Layer 8 domain (`finding-candidate-draft`), aligned draft querying with `scanId` independence (`sessionId !== scanId`), keeping `TriageController` completely thin and linear. Consolidated smoke test (`milestone61_1_triage_api_smoke.ts`) with all assertions passing 100%.
+- **M62 (Visual Minimum Viable Product — Web Frontend MVP)**: Built the Next.js 16 user interface under `web/src/app/v2/` and `web/src/lib/v2/` consuming the V2 Express 5 Gateway. Developed typed API client (`FixGuardV2ApiClient`) mapping all 6 gateway endpoints, preserving the Anti-Fabrication Boundary (submitting strictly safe IDs and human authorization, zero draft object fabrication). Implemented 4-stage interactive lifecycle dashboard: Stage 1 (Target Launch & Scope), Stage 2 (Session Metrics & Active Recon Execution), Stage 3 (Evidence Triage Board with `scanId` resolution and HITL candidate promotion), and Stage 4 (Defensive Report Gatekeeper with mandatory operator signature, &ge;10 char attestation, 11-key report viewer, and JSON export). Resolved baseline build blockers in `web/` without modifying `worker/**` or legacy V1 frontend views (`npm run build` exits with code 0).
 
 ---
 
-## 3. In Progress (`CURRENT TASK`)
+## 3. Current / Next Milestone (`NEXT UP`)
 
-### Milestone 58: Evidence Substance & Canonical Candidate Semantics
-- **Objective**:
-  1. Define explicit **Evidence Substance Criteria**: move beyond "a record exists" to requiring concrete, verifiable payload data per `EvidenceType` (HTTP differential snapshots, timing deltas, OOB callback hashes).
-  2. Preserve complete provenance across M50 promotion.
-  3. Formally establish `ReviewedEvidenceFormalFindingCandidate` (M54) as the canonical candidate of FixGuard V2 and resolve semantic overlap with legacy M45 candidate records.
-  4. Enforce strict claim discipline: zero automatic severities, zero exploitability claims, zero automated remediation recipes.
-
----
-
-## 4. Planned Milestones (`PLANNED`)
-
-### Milestone 59: Persistence Readiness for Candidates & Evidence Store
-- Design and implement durable PostgreSQL storage for:
-  - `v2_reviewed_evidence_records` (migrating M51 in-memory store to Postgres).
-  - `v2_formal_finding_candidates` (persisting M54 formal candidates).
-- Enforce relational foreign keys to `v2_assessment_sessions`.
-- Provide defensive deserialization and reload verification conformance tests.
-
-### Milestone 60: Defensive Report Readiness Gate
-- Implement the reporting boundary for defensive security assessments.
-- Requirements:
-  - Human verification and operator signature present.
-  - Evidence substance verified.
-  - Explicit non-claims and audit limitations prominently included.
-  - Zero speculative severity inflation.
+### Milestone 63: V1 Monolith Decommissioning & Workspace Cleanup
+- Systematically deprecate and decommission legacy V1 monolith endpoints (`worker/src/index.ts`, legacy scanner/recon direct binary invocations).
+- Consolidate configurations and prune unused dependencies.
 
 ---
 
@@ -92,9 +82,8 @@ All completed milestones are verified via active TypeScript contracts and the re
 > [!NOTE]
 > The following items are technical proposals identified during the architectural audit. They represent recommendations for future consideration and **HAVE NOT BEEN DECIDED OR APPROVED YET**.
 
-### Proposal A: V2 Unified API Gateway / HTTP Controller Layer
-- **Problem**: The Next.js web dashboard (`web/`) currently connects only to the legacy V1 Express API (`worker/src/index.ts`). There is no HTTP layer exposing FixGuard V2 application services.
-- **Proposal**: Build a clean V2 Application Controller (or Next.js API route integration) exposing `AssessmentApplicationService` and `ReconToReviewedEvidenceApplicationService` via OpenAPI/REST or JSON-RPC.
+### Proposal A: V2 Unified API Gateway / HTTP Controller Layer (COMPLETED in M61)
+- **Status**: Completed in M61 (`worker/src/v2/api/`). Standalone Express 5 gateway exposing V2 application services.
 
 ### Proposal B: Deprecation and Decommissioning Plan for V1 Monolith
 - **Problem**: The codebase carries legacy V1 code (`worker/src/scanner/`, `worker/src/recon/`, `worker/src/index.ts`) with unredacted SQL persistence and direct binary execution.
@@ -141,5 +130,3 @@ The following questions should be submitted to the senior architect for strategi
    *Is FixGuard intended to remain an in-process single-instance application (where in-memory `WeakSet` authorization is sufficient), or will workers be distributed across multiple containers/machines (requiring cryptographic authorization tokens)?*
 3. **Legacy V1 Retirement Timeline**:
    *Should V1 be removed immediately once V2 has its own API/UI, or should it be archived in a separate git branch?*
-4. **Candidate Database Architecture (M59)**:
-   *In M59, should `ReviewedEvidenceFormalFindingCandidate` be persisted as relational rows with normalized evidence join tables, or as a versioned state snapshot with relational summary indexes matching the M15 hybrid model?*

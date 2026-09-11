@@ -7,6 +7,7 @@ import type {
 } from "./ReviewedEvidenceStoreContracts.js";
 import { validateEvidenceRecord } from "../evidence/EvidenceBoundaryService.js";
 import type { EvidenceRecord } from "../evidence/EvidenceBoundaryContracts.js";
+import { PersistenceConflictError } from "../storage/StorageErrors.js";
 
 const UNSAFE_TERMS = [
   "authorization", "bearer", "cookie", "set-cookie", "password", "secret",
@@ -362,7 +363,7 @@ export async function saveReviewedEvidence(
       }
     };
   } catch (e: any) {
-    if (e.message && e.message.includes("Duplicate")) {
+    if (e instanceof PersistenceConflictError || (e.message && e.message.includes("Duplicate"))) {
       return { ...baseResult, status: "duplicate", reasonCode: "duplicate_reviewed_evidence_record" };
     }
     return { ...baseResult, status: "failed", reasonCode: "repository_save_failed" };
