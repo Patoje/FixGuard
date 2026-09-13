@@ -2,7 +2,7 @@ import { evaluateEgressPolicy, isInternalOrSsrfTarget } from '../policy/PassiveE
 import { normalizeTargetUrl } from '../policy/TargetUrlNormalizer.js';
 import { runActiveReconDocumentProbes, type ActiveReconDocumentProbeAdapters } from './ActiveReconDocumentProbeRunner.js';
 import { isRuntimeEstablishedVerifiedAuthorizationDecision, validateVerifiedAuthorizationDecision } from '../../authorization/VerifiedAuthorizationDecisionService.js';
-import type { ActiveReconDocumentProbeEntry } from './ActiveReconDocumentProbeRunContracts.js';
+import type { ActiveReconDocumentProbeEntry, ActiveReconDocumentProbeErrorCode } from './ActiveReconDocumentProbeRunContracts.js';
 import {
   type ActiveReconOriginRunRequest,
   type ActiveReconOriginRunResult,
@@ -24,6 +24,13 @@ const DOCUMENT_PROBE_DEFINITIONS = {
 
 function makeRunId(): string {
   return `origin_run_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
+}
+
+type OriginProbeErrorCode = NonNullable<ActiveReconOriginRunProbeResult['error']>['code'];
+
+function mapDocumentProbeErrorCode(code: ActiveReconDocumentProbeErrorCode): OriginProbeErrorCode {
+  if (code === 'invalid_target') return 'invalid_origin';
+  return code;
 }
 
 export async function runActiveReconOriginProbes(
@@ -555,7 +562,7 @@ export async function runActiveReconOriginProbes(
         status: rProbe.status,
         target: rProbe.target,
         observations: rProbe.observations,
-        error: rProbe.error ? { code: rProbe.error.code as any, message: rProbe.error.message } : undefined,
+        error: rProbe.error ? { code: mapDocumentProbeErrorCode(rProbe.error.code), message: rProbe.error.message } : undefined,
       });
 
       if (rProbe.status === 'completed') baseResult.completedProbeCount++;

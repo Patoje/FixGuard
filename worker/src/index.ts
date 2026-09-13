@@ -3,17 +3,21 @@ import cors from 'cors';
 import { V2CompositionRoot } from './v2/api/V2CompositionRoot.js';
 import { createV2Router } from './v2/api/routes/v2Routes.js';
 import { v2ErrorHandler } from './v2/api/V2ErrorHandler.js';
+import { buildCorsOptions, DEFAULT_V2_HOST } from './v2/api/createV2App.js';
+import { createV2AuthMiddleware } from './v2/api/middleware/v2AuthMiddleware.js';
 
 /**
- * FixGuard Server Bootstrap (Milestone 63)
+ * FixGuard Server Bootstrap (Milestone 63 / Milestone F0)
  *
  * Dedicated host for FixGuard V2 API Gateway (/api/v2).
+ * Server binds strictly to 127.0.0.1 (never 0.0.0.0) to prevent unauthorized network exposure.
+ * Enforces strict local CORS origin whitelisting and Bearer token authentication.
  * Legacy V1 monolith endpoints are formally decommissioned and return HTTP 410 Gone.
  */
 const app = express();
 
-// Standard middleware
-app.use(cors());
+// Standard middleware with strict security boundaries
+app.use(cors(buildCorsOptions()));
 app.use(express.json());
 
 // Health & Info endpoints
@@ -44,20 +48,22 @@ const decommissionedHandler = (_req: Request, res: Response) => {
 
 app.use(['/api/scan', '/api/scans', '/api/attack'], decommissionedHandler);
 
-// Mount Canonical FixGuard V2 Routing Tree
+// Mount Canonical FixGuard V2 Routing Tree protected by Bearer authentication
 const compositionRoot = V2CompositionRoot.createDefault();
-app.use('/api/v2', createV2Router(compositionRoot));
+app.use('/api/v2', createV2AuthMiddleware(), createV2Router(compositionRoot));
 
 // Centralized V2 Error Shield (information disclosure protection)
 app.use(v2ErrorHandler);
 
 const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 4000;
+const HOST = DEFAULT_V2_HOST; // Explicit host binding: strictly 127.0.0.1, never 0.0.0.0
 
 if (process.env.NODE_ENV !== 'test') {
-  app.listen(PORT, () => {
-    console.log(`[+] FixGuard V2 API Gateway listening on http://localhost:${PORT}/api/v2`);
+  app.listen(PORT, HOST, () => {
+    console.log(`[+] FixGuard V2 API Gateway listening on http://${HOST}:${PORT}/api/v2`);
     console.log(`[!] Legacy V1 Monolith endpoints decommissioned (HTTP 410 Gone)`);
   });
 }
 
 export { app };
+

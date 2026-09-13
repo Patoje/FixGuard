@@ -1,6 +1,9 @@
 import type { ProcessRunner } from '../../core/ProcessRunner.js';
-import { isRuntimeEstablishedVerifiedAuthorizationDecision } from '../../authorization/VerifiedAuthorizationDecisionService.js';
 import { isInternalOrSsrfTarget } from '../policy/PassiveEgressPolicy.js';
+import {
+  runAdapterPreflight,
+  type PreSpawnDnsResolver,
+} from './AdapterPreflightPipeline.js';
 import {
   WEB_INSPECTION_CONTRACT_VERSION,
   WEB_INSPECTION_NON_CLAIMS,
@@ -20,178 +23,52 @@ function extractHost(urlStr: string): string | null {
 }
 
 export class HttpxInspectionAdapter implements WebInspectionTool {
-  constructor(private readonly processRunner: ProcessRunner) {}
+  constructor(
+    private readonly processRunner: ProcessRunner,
+    private readonly dnsResolver?: PreSpawnDnsResolver
+  ) {}
 
   async inspectWeb(request: WebInspectionRequest): Promise<WebInspectionResult> {
     const rawTarget = typeof request.targetUrl === 'string' ? request.targetUrl.trim() : '';
 
-    // 1. Atomic Preflight: Target URL format and protocol validation
-    let targetParsedUrl: URL;
-    try {
-      targetParsedUrl = new URL(rawTarget);
-    } catch {
+    const preflight = await runAdapterPreflight({
+      target: rawTarget,
+      targetKind: 'url',
+      unsupportedProtocolReasonCode: 'unsupported_url_protocol',
+      verifiedAuthorizationDecision: request.verifiedAuthorizationDecision,
+      authorizedScopeGrant: request.authorizedScopeGrant,
+      lineage: request.lineage,
+      permissionCheck: (ps) => {
+        let hasPermission = Boolean(
+          ps.technologyFingerprinting ||
+          ps.endpointDiscovery ||
+          ps.activeValidation ||
+          ps.lightValidation
+        );
+        if (!hasPermission && 'activeRecon' in ps) {
+          const ext = ps as typeof ps & { activeRecon?: boolean };
+          if (ext.activeRecon) hasPermission = true;
+        }
+        return hasPermission;
+      },
+      missingPermissionReason: 'Scope grant does not permit technology fingerprinting or active reconnaissance',
+      targetOutOfScopeReason: 'Target URL host is outside authorized scope boundaries',
+      dnsResolver: this.dnsResolver,
+    });
+
+    if (!preflight.ok) {
       return {
         status: 'preflight_denied',
         contractVersion: WEB_INSPECTION_CONTRACT_VERSION,
         targetUrl: rawTarget,
-        reasonCode: 'invalid_target_url',
-        reason: 'Target URL is not a valid URL',
+        reasonCode: preflight.reasonCode,
+        reason: preflight.reason,
         explicitNonClaims: WEB_INSPECTION_NON_CLAIMS,
         lineage: request.lineage,
       };
     }
 
-    if (targetParsedUrl.protocol !== 'http:' && targetParsedUrl.protocol !== 'https:') {
-      return {
-        status: 'preflight_denied',
-        contractVersion: WEB_INSPECTION_CONTRACT_VERSION,
-        targetUrl: rawTarget,
-        reasonCode: 'unsupported_url_protocol',
-        reason: 'Target URL protocol must be http: or https:',
-        explicitNonClaims: WEB_INSPECTION_NON_CLAIMS,
-        lineage: request.lineage,
-      };
-    }
-
-    const targetHost = targetParsedUrl.hostname.toLowerCase().replace(/\.$/, '');
-    if (!targetHost) {
-      return {
-        status: 'preflight_denied',
-        contractVersion: WEB_INSPECTION_CONTRACT_VERSION,
-        targetUrl: rawTarget,
-        reasonCode: 'invalid_target_host',
-        reason: 'Target URL does not contain a valid host',
-        explicitNonClaims: WEB_INSPECTION_NON_CLAIMS,
-        lineage: request.lineage,
-      };
-    }
-
-    // 2. Atomic Preflight: Runtime-branded authorization verification
-    if (
-      !request.verifiedAuthorizationDecision ||
-      !isRuntimeEstablishedVerifiedAuthorizationDecision(request.verifiedAuthorizationDecision)
-    ) {
-      return {
-        status: 'preflight_denied',
-        contractVersion: WEB_INSPECTION_CONTRACT_VERSION,
-        targetUrl: rawTarget,
-        reasonCode: 'authorization_unconfirmed',
-        reason: 'Authorization decision is not runtime-established or lacks valid verification brand',
-        explicitNonClaims: WEB_INSPECTION_NON_CLAIMS,
-        lineage: request.lineage,
-      };
-    }
-
-    if (request.verifiedAuthorizationDecision.decision !== 'authorized') {
-      return {
-        status: 'preflight_denied',
-        contractVersion: WEB_INSPECTION_CONTRACT_VERSION,
-        targetUrl: rawTarget,
-        reasonCode: 'authorization_denied',
-        reason: 'Authorization decision is not in authorized state',
-        explicitNonClaims: WEB_INSPECTION_NON_CLAIMS,
-        lineage: request.lineage,
-      };
-    }
-
-    // 3. Atomic Preflight: Continuous Lineage tuple integrity verification
-    const dec = request.verifiedAuthorizationDecision;
-    const grant = request.authorizedScopeGrant;
-    const lin = request.lineage;
-
-    if (
-      lin.scanId !== dec.scanId ||
-      lin.assessmentId !== dec.assessmentId ||
-      lin.authorizationGrantId !== grant.grantId ||
-      lin.authorizationDecisionId !== dec.authorizationDecisionId
-    ) {
-      return {
-        status: 'preflight_denied',
-        contractVersion: WEB_INSPECTION_CONTRACT_VERSION,
-        targetUrl: rawTarget,
-        reasonCode: 'lineage_mismatch',
-        reason: 'Execution lineage does not match authorization decision and scope grant',
-        explicitNonClaims: WEB_INSPECTION_NON_CLAIMS,
-        lineage: request.lineage,
-      };
-    }
-
-    // 4. Atomic Preflight: Scope permissions check (endpointDiscovery, activeValidation, technologyFingerprinting, activeRecon)
-    const ps = grant.permissionSet;
-    let hasPermission = Boolean(
-      ps.technologyFingerprinting ||
-      ps.endpointDiscovery ||
-      ps.activeValidation ||
-      ps.lightValidation
-    );
-    if (!hasPermission && 'activeRecon' in ps) {
-      const ext = ps as typeof ps & { activeRecon?: boolean };
-      if (ext.activeRecon) {
-        hasPermission = true;
-      }
-    }
-
-    if (!hasPermission) {
-      return {
-        status: 'preflight_denied',
-        contractVersion: WEB_INSPECTION_CONTRACT_VERSION,
-        targetUrl: rawTarget,
-        reasonCode: 'missing_permission',
-        reason: 'Scope grant does not permit technology fingerprinting or active reconnaissance',
-        explicitNonClaims: WEB_INSPECTION_NON_CLAIMS,
-        lineage: request.lineage,
-      };
-    }
-
-    // 5. Atomic Preflight: Scope boundary check
-    const allowedDomains = (grant.boundaries.allowedDomains ?? []).map((d) =>
-      d.trim().toLowerCase().replace(/\.$/, '')
-    );
-    const allowedHosts = (grant.boundaries.allowedHosts ?? []).map((h) =>
-      h.trim().toLowerCase().replace(/\.$/, '')
-    );
-    const subjectDomain = grant.subject.domain?.trim().toLowerCase().replace(/\.$/, '');
-    const subjectHost = grant.subject.host?.trim().toLowerCase().replace(/\.$/, '');
-
-    const originHosts: string[] = [];
-    for (const origin of grant.boundaries.allowedOrigins ?? []) {
-      const h = extractHost(origin);
-      if (h) originHosts.push(h);
-    }
-
-    const isHostInScope =
-      allowedDomains.includes(targetHost) ||
-      allowedDomains.some((d) => targetHost.endsWith('.' + d)) ||
-      allowedHosts.includes(targetHost) ||
-      subjectDomain === targetHost ||
-      subjectHost === targetHost ||
-      originHosts.includes(targetHost) ||
-      originHosts.some((h) => targetHost.endsWith('.' + h));
-
-    if (!isHostInScope) {
-      return {
-        status: 'preflight_denied',
-        contractVersion: WEB_INSPECTION_CONTRACT_VERSION,
-        targetUrl: rawTarget,
-        reasonCode: 'target_out_of_scope',
-        reason: 'Target URL host is outside authorized scope boundaries',
-        explicitNonClaims: WEB_INSPECTION_NON_CLAIMS,
-        lineage: request.lineage,
-      };
-    }
-
-    // 6. Atomic Preflight: SSRF containment on target hostname
-    if (isInternalOrSsrfTarget(targetHost)) {
-      return {
-        status: 'preflight_denied',
-        contractVersion: WEB_INSPECTION_CONTRACT_VERSION,
-        targetUrl: rawTarget,
-        reasonCode: 'ssrf_target_blocked',
-        reason: 'Target URL host points to prohibited internal, loopback, or metadata address',
-        explicitNonClaims: WEB_INSPECTION_NON_CLAIMS,
-        lineage: request.lineage,
-      };
-    }
+    const targetHost = preflight.targetHost;
 
     // 7. Command Execution: Strictly via ProcessRunner with shell: false and isolated argument array
     const args = [

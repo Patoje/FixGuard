@@ -1,6 +1,9 @@
 import type { ProcessRunner } from '../../core/ProcessRunner.js';
-import { isRuntimeEstablishedVerifiedAuthorizationDecision } from '../../authorization/VerifiedAuthorizationDecisionService.js';
 import { isInternalOrSsrfTarget } from '../policy/PassiveEgressPolicy.js';
+import {
+  runAdapterPreflight,
+  type PreSpawnDnsResolver,
+} from './AdapterPreflightPipeline.js';
 import {
   PORT_DISCOVERY_CONTRACT_VERSION,
   PORT_DISCOVERY_NON_CLAIMS,
@@ -10,8 +13,6 @@ import {
   type PortDiscoveryTool,
 } from './PortDiscoveryContracts.js';
 
-const FQDN_REGEX = /^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z0-9][a-z0-9-]{0,61}[a-z0-9]$/;
-
 function isValidIpv4(value: string): boolean {
   if (!/^(\d{1,3}\.){3}\d{1,3}$/.test(value)) return false;
   const parts = value.split('.').map((p) => parseInt(p, 10));
@@ -19,176 +20,52 @@ function isValidIpv4(value: string): boolean {
 }
 
 export class NaabuPortDiscoveryAdapter implements PortDiscoveryTool {
-  constructor(private readonly processRunner: ProcessRunner) {}
+  constructor(
+    private readonly processRunner: ProcessRunner,
+    private readonly dnsResolver?: PreSpawnDnsResolver
+  ) {}
 
   async discoverPorts(request: PortDiscoveryRequest): Promise<PortDiscoveryResult> {
-    const rawTarget = typeof request.targetHostOrIp === 'string' ? request.targetHostOrIp.trim().toLowerCase() : '';
-    const target = rawTarget.replace(/\.$/, '');
+    const preflight = await runAdapterPreflight({
+      target: request.targetHostOrIp,
+      targetKind: 'ipv4_or_fqdn',
+      verifiedAuthorizationDecision: request.verifiedAuthorizationDecision,
+      authorizedScopeGrant: request.authorizedScopeGrant,
+      lineage: request.lineage,
+      permissionCheck: (ps) => {
+        let hasPermission = Boolean(
+          ps.endpointDiscovery ||
+          ps.activeValidation ||
+          ps.lightValidation
+        );
+        if (!hasPermission && 'portScanning' in ps) {
+          const extendedPs = ps as typeof ps & { portScanning?: boolean };
+          if (extendedPs.portScanning) hasPermission = true;
+        }
+        if (!hasPermission && 'activeRecon' in ps) {
+          const extendedPs = ps as typeof ps & { activeRecon?: boolean };
+          if (extendedPs.activeRecon) hasPermission = true;
+        }
+        return hasPermission;
+      },
+      missingPermissionReason: 'Scope grant does not permit port scanning or active reconnaissance',
+      targetOutOfScopeReason: 'Target is outside authorized scope boundaries',
+      dnsResolver: this.dnsResolver,
+    });
 
-    // 1. Atomic Preflight: Target format validation (FQDN or valid IPv4)
-    const isTargetIpv4 = isValidIpv4(target);
-    const isTargetFqdn = FQDN_REGEX.test(target);
-
-    if (!target || (!isTargetIpv4 && !isTargetFqdn)) {
+    if (!preflight.ok) {
       return {
         status: 'preflight_denied',
         contractVersion: PORT_DISCOVERY_CONTRACT_VERSION,
         targetHostOrIp: request.targetHostOrIp,
-        reasonCode: 'invalid_target_format',
-        reason: 'Target is not a valid fully-qualified domain name or IPv4 address',
+        reasonCode: preflight.reasonCode,
+        reason: preflight.reason,
         explicitNonClaims: PORT_DISCOVERY_NON_CLAIMS,
         lineage: request.lineage,
       };
     }
 
-    // 2. Atomic Preflight: Runtime-branded authorization verification
-    if (
-      !request.verifiedAuthorizationDecision ||
-      !isRuntimeEstablishedVerifiedAuthorizationDecision(request.verifiedAuthorizationDecision)
-    ) {
-      return {
-        status: 'preflight_denied',
-        contractVersion: PORT_DISCOVERY_CONTRACT_VERSION,
-        targetHostOrIp: target,
-        reasonCode: 'authorization_unconfirmed',
-        reason: 'Authorization decision is not runtime-established or lacks valid verification brand',
-        explicitNonClaims: PORT_DISCOVERY_NON_CLAIMS,
-        lineage: request.lineage,
-      };
-    }
-
-    if (request.verifiedAuthorizationDecision.decision !== 'authorized') {
-      return {
-        status: 'preflight_denied',
-        contractVersion: PORT_DISCOVERY_CONTRACT_VERSION,
-        targetHostOrIp: target,
-        reasonCode: 'authorization_denied',
-        reason: 'Authorization decision is not in authorized state',
-        explicitNonClaims: PORT_DISCOVERY_NON_CLAIMS,
-        lineage: request.lineage,
-      };
-    }
-
-    // 3. Atomic Preflight: Continuous Lineage tuple integrity verification
-    const dec = request.verifiedAuthorizationDecision;
-    const grant = request.authorizedScopeGrant;
-    const lin = request.lineage;
-
-    if (
-      lin.scanId !== dec.scanId ||
-      lin.assessmentId !== dec.assessmentId ||
-      lin.authorizationGrantId !== grant.grantId ||
-      lin.authorizationDecisionId !== dec.authorizationDecisionId
-    ) {
-      return {
-        status: 'preflight_denied',
-        contractVersion: PORT_DISCOVERY_CONTRACT_VERSION,
-        targetHostOrIp: target,
-        reasonCode: 'lineage_mismatch',
-        reason: 'Execution lineage does not match authorization decision and scope grant',
-        explicitNonClaims: PORT_DISCOVERY_NON_CLAIMS,
-        lineage: request.lineage,
-      };
-    }
-
-    // 4. Atomic Preflight: Scope permissions check (portScanning, activeRecon, endpointDiscovery, activeValidation)
-    const ps = grant.permissionSet;
-    let hasPermission = Boolean(
-      ps.endpointDiscovery ||
-      ps.activeValidation ||
-      ps.lightValidation
-    );
-    if (!hasPermission && 'portScanning' in ps) {
-      const extendedPs = ps as typeof ps & { portScanning?: boolean };
-      if (extendedPs.portScanning) {
-        hasPermission = true;
-      }
-    }
-    if (!hasPermission && 'activeRecon' in ps) {
-      const extendedPs = ps as typeof ps & { activeRecon?: boolean };
-      if (extendedPs.activeRecon) {
-        hasPermission = true;
-      }
-    }
-
-    if (!hasPermission) {
-      return {
-        status: 'preflight_denied',
-        contractVersion: PORT_DISCOVERY_CONTRACT_VERSION,
-        targetHostOrIp: target,
-        reasonCode: 'missing_permission',
-        reason: 'Scope grant does not permit port scanning or active reconnaissance',
-        explicitNonClaims: PORT_DISCOVERY_NON_CLAIMS,
-        lineage: request.lineage,
-      };
-    }
-
-    // 5. Atomic Preflight: Scope boundary check
-    const allowedDomains = (grant.boundaries.allowedDomains ?? []).map((d) =>
-      d.trim().toLowerCase().replace(/\.$/, '')
-    );
-    const allowedHosts = (grant.boundaries.allowedHosts ?? []).map((h) =>
-      h.trim().toLowerCase().replace(/\.$/, '')
-    );
-    const subjectDomain = grant.subject.domain?.trim().toLowerCase().replace(/\.$/, '');
-    const subjectHost = grant.subject.host?.trim().toLowerCase().replace(/\.$/, '');
-
-    const originHosts: string[] = [];
-    for (const origin of grant.boundaries.allowedOrigins ?? []) {
-      try {
-        const u = new URL(origin);
-        originHosts.push(u.hostname.trim().toLowerCase().replace(/\.$/, ''));
-      } catch {
-        // ignore malformed origin strings in grant
-      }
-    }
-
-    const allowedIps: string[] = [];
-    if ('allowedIps' in grant.boundaries) {
-      const extBoundaries = grant.boundaries as typeof grant.boundaries & { allowedIps?: unknown };
-      if (Array.isArray(extBoundaries.allowedIps)) {
-        for (const item of extBoundaries.allowedIps) {
-          if (typeof item === 'string' && item.trim()) {
-            allowedIps.push(item.trim());
-          }
-        }
-      }
-    }
-
-    const isTargetInScope =
-      allowedDomains.includes(target) ||
-      allowedDomains.some((d) => target.endsWith('.' + d)) ||
-      allowedHosts.includes(target) ||
-      allowedIps.includes(target) ||
-      subjectDomain === target ||
-      subjectHost === target ||
-      originHosts.includes(target) ||
-      originHosts.some((h) => target.endsWith('.' + h));
-
-    if (!isTargetInScope) {
-      return {
-        status: 'preflight_denied',
-        contractVersion: PORT_DISCOVERY_CONTRACT_VERSION,
-        targetHostOrIp: target,
-        reasonCode: 'target_out_of_scope',
-        reason: 'Target is outside authorized scope boundaries',
-        explicitNonClaims: PORT_DISCOVERY_NON_CLAIMS,
-        lineage: request.lineage,
-      };
-    }
-
-    // 6. Atomic Preflight: SSRF containment pre-check on target itself
-    if (isInternalOrSsrfTarget(target)) {
-      return {
-        status: 'preflight_denied',
-        contractVersion: PORT_DISCOVERY_CONTRACT_VERSION,
-        targetHostOrIp: target,
-        reasonCode: 'ssrf_target_blocked',
-        reason: 'Target host or IP resolves to prohibited loopback, RFC-1918, or metadata range',
-        explicitNonClaims: PORT_DISCOVERY_NON_CLAIMS,
-        lineage: request.lineage,
-      };
-    }
+    const target = preflight.targetHost;
 
     // Build argument array strictly without shell interpolation
     const rate = typeof request.rate === 'number' && request.rate > 0 ? request.rate : 1000;

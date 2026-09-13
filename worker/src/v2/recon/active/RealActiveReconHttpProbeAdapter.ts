@@ -66,7 +66,7 @@ export class RealActiveReconHttpProbeAdapter implements ActiveReconAdapter {
         port: parsed.port || (isHttps ? 443 : 80),
         path: '/robots.txt',
         timeout: 3000,
-        lookup: customLookup as any,
+        lookup: customLookup,
         headers: {
           'User-Agent': 'FixGuard-Recon/2.0 (Security Audit Platform)'
         }

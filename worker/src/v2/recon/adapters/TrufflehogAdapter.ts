@@ -1,7 +1,8 @@
-import path from 'node:path';
 import type { ProcessRunner } from '../../core/ProcessRunner.js';
-import { isRuntimeEstablishedVerifiedAuthorizationDecision } from '../../authorization/VerifiedAuthorizationDecisionService.js';
-import { isInternalOrSsrfTarget } from '../policy/PassiveEgressPolicy.js';
+import {
+  runAdapterPreflight,
+  type PreSpawnDnsResolver,
+} from './AdapterPreflightPipeline.js';
 import {
   SECRET_DISCOVERY_CONTRACT_VERSION,
   SECRET_DISCOVERY_NON_CLAIMS,
@@ -41,32 +42,44 @@ function determineLocationUrl(rawTarget: string, relativeFilePath?: string): str
   return `${cleanTarget}/${cleanFile}`;
 }
 
-const FORBIDDEN_PATH_PREFIXES = [
-  '/etc',
-  '/root',
-  '/var/run',
-  '/proc',
-  '/sys',
-  '/dev',
-  '/boot',
-  '/sbin',
-  '/bin',
-];
-
 export class TrufflehogAdapter implements SecretScannerTool {
-  constructor(private readonly processRunner: ProcessRunner) {}
+  constructor(
+    private readonly processRunner: ProcessRunner,
+    private readonly dnsResolver?: PreSpawnDnsResolver
+  ) {}
 
   async scanSecrets(request: SecretDiscoveryRequest): Promise<SecretDiscoveryResult> {
     const rawTarget = typeof request.targetUrlOrPath === 'string' ? request.targetUrlOrPath.trim() : '';
 
-    // 1. Atomic Preflight: Target validation (URL or Safe Filesystem Path)
-    if (!rawTarget) {
+    // Unified Atomic Preflight Gate
+    const preflight = await runAdapterPreflight({
+      target: rawTarget,
+      targetKind: 'git_url_or_filesystem',
+      scanType: request.scanType,
+      verifiedAuthorizationDecision: request.verifiedAuthorizationDecision,
+      authorizedScopeGrant: request.authorizedScopeGrant,
+      lineage: request.lineage,
+      permissionCheck: (ps) =>
+        Boolean(
+          ps.endpointDiscovery ||
+          ps.passiveRecon ||
+          ps.activeValidation ||
+          ps.lightValidation ||
+          ps.technologyFingerprinting ||
+          ('activeRecon' in ps && (ps as { activeRecon?: boolean }).activeRecon)
+        ),
+      missingPermissionReason: 'Scope grant does not permit secret scanning or reconnaissance',
+      targetOutOfScopeReason: 'Target URL host is outside authorized scope boundaries',
+      dnsResolver: this.dnsResolver,
+    });
+
+    if (!preflight.ok) {
       return {
         status: 'preflight_denied',
         contractVersion: SECRET_DISCOVERY_CONTRACT_VERSION,
-        targetUrlOrPath: request.targetUrlOrPath,
-        reasonCode: 'invalid_target_format',
-        reason: 'Target URL or filesystem path cannot be empty',
+        targetUrlOrPath: rawTarget,
+        reasonCode: preflight.reasonCode,
+        reason: preflight.reason,
         explicitNonClaims: SECRET_DISCOVERY_NON_CLAIMS,
         lineage: request.lineage,
       };
@@ -74,222 +87,6 @@ export class TrufflehogAdapter implements SecretScannerTool {
 
     const looksLikeUrl = rawTarget.startsWith('http://') || rawTarget.startsWith('https://');
     const isGit = looksLikeUrl || request.scanType === 'git';
-
-    let targetHost = '';
-    if (isGit) {
-      try {
-        const u = new URL(rawTarget);
-        if (u.protocol !== 'http:' && u.protocol !== 'https:') {
-          return {
-            status: 'preflight_denied',
-            contractVersion: SECRET_DISCOVERY_CONTRACT_VERSION,
-            targetUrlOrPath: rawTarget,
-            reasonCode: 'invalid_target_format',
-            reason: 'Git target URL protocol must be HTTP or HTTPS',
-            explicitNonClaims: SECRET_DISCOVERY_NON_CLAIMS,
-            lineage: request.lineage,
-          };
-        }
-        targetHost = u.hostname.trim().toLowerCase().replace(/\.$/, '');
-      } catch {
-        return {
-          status: 'preflight_denied',
-          contractVersion: SECRET_DISCOVERY_CONTRACT_VERSION,
-          targetUrlOrPath: rawTarget,
-          reasonCode: 'invalid_target_format',
-          reason: 'Git target URL is malformed',
-          explicitNonClaims: SECRET_DISCOVERY_NON_CLAIMS,
-          lineage: request.lineage,
-        };
-      }
-
-      if (!targetHost) {
-        return {
-          status: 'preflight_denied',
-          contractVersion: SECRET_DISCOVERY_CONTRACT_VERSION,
-          targetUrlOrPath: rawTarget,
-          reasonCode: 'invalid_target_host',
-          reason: 'Git target URL does not contain a valid host',
-          explicitNonClaims: SECRET_DISCOVERY_NON_CLAIMS,
-          lineage: request.lineage,
-        };
-      }
-    } else {
-      // Filesystem target path safety check
-      if (rawTarget.includes('..')) {
-        return {
-          status: 'preflight_denied',
-          contractVersion: SECRET_DISCOVERY_CONTRACT_VERSION,
-          targetUrlOrPath: rawTarget,
-          reasonCode: 'unsafe_target_path',
-          reason: 'Path traversal (..) is strictly prohibited in filesystem targets',
-          explicitNonClaims: SECRET_DISCOVERY_NON_CLAIMS,
-          lineage: request.lineage,
-        };
-      }
-
-      const normalized = path.normalize(rawTarget);
-      if (normalized.includes('..')) {
-        return {
-          status: 'preflight_denied',
-          contractVersion: SECRET_DISCOVERY_CONTRACT_VERSION,
-          targetUrlOrPath: rawTarget,
-          reasonCode: 'unsafe_target_path',
-          reason: 'Path traversal (..) is strictly prohibited in filesystem targets',
-          explicitNonClaims: SECRET_DISCOVERY_NON_CLAIMS,
-          lineage: request.lineage,
-        };
-      }
-
-      for (const prefix of FORBIDDEN_PATH_PREFIXES) {
-        if (normalized === prefix || normalized.startsWith(prefix + '/')) {
-          return {
-            status: 'preflight_denied',
-            contractVersion: SECRET_DISCOVERY_CONTRACT_VERSION,
-            targetUrlOrPath: rawTarget,
-            reasonCode: 'unsafe_target_path',
-            reason: `Filesystem target path accesses forbidden system directory: ${prefix}`,
-            explicitNonClaims: SECRET_DISCOVERY_NON_CLAIMS,
-            lineage: request.lineage,
-          };
-        }
-      }
-    }
-
-    // 2. Atomic Preflight: Runtime-branded authorization verification
-    if (
-      !request.verifiedAuthorizationDecision ||
-      !isRuntimeEstablishedVerifiedAuthorizationDecision(request.verifiedAuthorizationDecision)
-    ) {
-      return {
-        status: 'preflight_denied',
-        contractVersion: SECRET_DISCOVERY_CONTRACT_VERSION,
-        targetUrlOrPath: rawTarget,
-        reasonCode: 'authorization_unconfirmed',
-        reason: 'Authorization decision is not runtime-established or lacks valid verification brand',
-        explicitNonClaims: SECRET_DISCOVERY_NON_CLAIMS,
-        lineage: request.lineage,
-      };
-    }
-
-    if (request.verifiedAuthorizationDecision.decision !== 'authorized') {
-      return {
-        status: 'preflight_denied',
-        contractVersion: SECRET_DISCOVERY_CONTRACT_VERSION,
-        targetUrlOrPath: rawTarget,
-        reasonCode: 'authorization_denied',
-        reason: 'Authorization decision is not in authorized state',
-        explicitNonClaims: SECRET_DISCOVERY_NON_CLAIMS,
-        lineage: request.lineage,
-      };
-    }
-
-    // 3. Atomic Preflight: Continuous Lineage tuple integrity verification
-    const dec = request.verifiedAuthorizationDecision;
-    const grant = request.authorizedScopeGrant;
-    const lin = request.lineage;
-
-    if (
-      lin.scanId !== dec.scanId ||
-      lin.assessmentId !== dec.assessmentId ||
-      lin.authorizationGrantId !== grant.grantId ||
-      lin.authorizationDecisionId !== dec.authorizationDecisionId
-    ) {
-      return {
-        status: 'preflight_denied',
-        contractVersion: SECRET_DISCOVERY_CONTRACT_VERSION,
-        targetUrlOrPath: rawTarget,
-        reasonCode: 'lineage_mismatch',
-        reason: 'Execution lineage does not match authorization decision and scope grant',
-        explicitNonClaims: SECRET_DISCOVERY_NON_CLAIMS,
-        lineage: request.lineage,
-      };
-    }
-
-    // 4. Atomic Preflight: Scope permissions check
-    const ps = grant.permissionSet;
-    let hasPermission = Boolean(
-      ps.endpointDiscovery ||
-      ps.passiveRecon ||
-      ps.activeValidation ||
-      ps.lightValidation ||
-      ps.technologyFingerprinting
-    );
-    if (!hasPermission && 'activeRecon' in ps) {
-      const ext = ps as typeof ps & { activeRecon?: boolean };
-      if (ext.activeRecon) {
-        hasPermission = true;
-      }
-    }
-
-    if (!hasPermission) {
-      return {
-        status: 'preflight_denied',
-        contractVersion: SECRET_DISCOVERY_CONTRACT_VERSION,
-        targetUrlOrPath: rawTarget,
-        reasonCode: 'missing_permission',
-        reason: 'Scope grant does not permit secret scanning or reconnaissance',
-        explicitNonClaims: SECRET_DISCOVERY_NON_CLAIMS,
-        lineage: request.lineage,
-      };
-    }
-
-    // 5. Atomic Preflight: Scope boundaries & SSRF check (for Git/URL targets)
-    if (isGit && targetHost) {
-      // 5a. SSRF containment on target hostname
-      if (isInternalOrSsrfTarget(targetHost)) {
-        return {
-          status: 'preflight_denied',
-          contractVersion: SECRET_DISCOVERY_CONTRACT_VERSION,
-          targetUrlOrPath: rawTarget,
-          reasonCode: 'ssrf_target_blocked',
-          reason: 'Target URL host points to prohibited internal, loopback, or metadata address',
-          explicitNonClaims: SECRET_DISCOVERY_NON_CLAIMS,
-          lineage: request.lineage,
-        };
-      }
-
-      // 5b. Scope boundaries check
-      const allowedDomains = (grant.boundaries.allowedDomains ?? []).map((d) =>
-        d.trim().toLowerCase().replace(/\.$/, '')
-      );
-      const allowedHosts = (grant.boundaries.allowedHosts ?? []).map((h) =>
-        h.trim().toLowerCase().replace(/\.$/, '')
-      );
-      const subjectDomain = grant.subject.domain?.trim().toLowerCase().replace(/\.$/, '');
-      const subjectHost = grant.subject.host?.trim().toLowerCase().replace(/\.$/, '');
-
-      const originHosts: string[] = [];
-      for (const origin of grant.boundaries.allowedOrigins ?? []) {
-        try {
-          const u = new URL(origin);
-          originHosts.push(u.hostname.trim().toLowerCase().replace(/\.$/, ''));
-        } catch {
-          // ignore
-        }
-      }
-
-      const isHostInScope =
-        allowedDomains.includes(targetHost) ||
-        allowedDomains.some((d) => targetHost.endsWith('.' + d)) ||
-        allowedHosts.includes(targetHost) ||
-        subjectDomain === targetHost ||
-        subjectHost === targetHost ||
-        originHosts.includes(targetHost) ||
-        originHosts.some((h) => targetHost.endsWith('.' + h));
-
-      if (!isHostInScope) {
-        return {
-          status: 'preflight_denied',
-          contractVersion: SECRET_DISCOVERY_CONTRACT_VERSION,
-          targetUrlOrPath: rawTarget,
-          reasonCode: 'target_out_of_scope',
-          reason: 'Target URL host is outside authorized scope boundaries',
-          explicitNonClaims: SECRET_DISCOVERY_NON_CLAIMS,
-          lineage: request.lineage,
-        };
-      }
-    }
 
     // Execution Phase: Spawn trufflehog via ProcessRunner with isolated argument array
     const args = isGit

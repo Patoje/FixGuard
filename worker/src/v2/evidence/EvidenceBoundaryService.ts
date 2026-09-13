@@ -122,7 +122,7 @@ export function validateSafeSubject(subject: SafeSubject | undefined): Validatio
   const keysVal = validateAllowedKeys(subject, ['normalizedOrigin', 'method', 'pathTemplate', 'routeId', 'assetUrlHash']);
   if (!keysVal.isValid) return keysVal;
 
-  if (subject.method !== undefined && !ALLOWED_HTTP_METHODS.includes(subject.method as any)) return { isValid: false, errorCode: 'unsafe_content_rejected', message: 'Invalid HTTP method' };
+  if (subject.method !== undefined && !(ALLOWED_HTTP_METHODS as readonly string[]).includes(subject.method)) return { isValid: false, errorCode: 'unsafe_content_rejected', message: 'Invalid HTTP method' };
   if (subject.pathTemplate !== undefined) {
     if (typeof subject.pathTemplate !== 'string') return { isValid: false, errorCode: 'unsafe_content_rejected', message: 'pathTemplate must be string' };
     if (!subject.pathTemplate.startsWith('/')) return { isValid: false, errorCode: 'unsafe_content_rejected', message: 'Path template must start with /' };

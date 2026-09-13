@@ -125,11 +125,12 @@ function validateSafeText(text: any, maxLength: number): ValidationResult {
   return { isValid: true };
 }
 
-function validateClassification(cls: any): ValidationResult {
+function validateClassification(cls: unknown): ValidationResult {
   const keysVal = validateAllowedKeys(cls, CLASSIFICATION_KEYS);
   if (!keysVal.isValid) return keysVal;
+  const record = cls as Record<string, unknown>;
   for (const key of CLASSIFICATION_KEYS) {
-    if ((cls as any)[key] !== false) return { isValid: false, errorCode: 'unsafe_content_rejected', message: `Classification flag ${key} must be false` };
+    if (record[key] !== false) return { isValid: false, errorCode: 'unsafe_content_rejected', message: `Classification flag ${key} must be false` };
   }
   return { isValid: true };
 }
@@ -826,7 +827,7 @@ export function evaluateScopePolicy({
   }
 
   // Check derived permission against grant
-  if (!(grant.permissionSet as any)[derivedPermission]) {
+  if (!grant.permissionSet[derivedPermission]) {
     return deny('denied_missing_permission', 'Derived required permission is not granted.');
   }
 

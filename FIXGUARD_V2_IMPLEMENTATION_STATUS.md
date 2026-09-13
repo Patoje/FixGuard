@@ -1,10 +1,13 @@
-# FixGuard V2 — Implementation Status
+# FixGuard V2 — Implementation Status (HISTORICAL ARCHIVE)
 
-> This document tracks the current state of the V2 migration.
-> It is updated as milestones are completed.
-> For architectural decisions and frozen contracts, see: FIXGUARD_V2_ARCHITECTURE.md
+> [!WARNING]
+> **SUPERSEDED AS SINGLE SOURCE OF TRUTH**:
+> Per Architectural Directive Milestone F0, this document is retained for historical archive purposes only.
+> **The active, canonical single source of truth for FixGuard V2 roadmap, completed milestones, and architecture status is:**
+> [`docs/ROADMAP.md`](file:///Users/patohe/Desktop/FixGuard/docs/ROADMAP.md)
 
 ---
+
 
 ## Quick Reference
 

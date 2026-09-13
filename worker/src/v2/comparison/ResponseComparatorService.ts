@@ -219,17 +219,18 @@ function validatePathTemplate(pt: any): ValidationResult {
   return { isValid: true };
 }
 
-function validateClassification(cls: any): ValidationResult {
+function validateClassification(cls: unknown): ValidationResult {
   const keysVal = validateAllowedKeys(cls, CLASSIFICATION_KEYS);
   if (!keysVal.isValid) return keysVal;
+  const record = cls as Record<string, unknown>;
   for (const key of CLASSIFICATION_KEYS) {
-    if ((cls as any)[key] !== false)
+    if (record[key] !== false)
       return { isValid: false, errorCode: 'unsafe_content_rejected', message: `Classification flag ${key} must be false` };
   }
   return { isValid: true };
 }
 
-function safeIdOrSentinel(raw: any, sentinel: string): string {
+function safeIdOrSentinel(raw: unknown, sentinel: string): string {
   if (!raw || typeof raw !== 'string') return sentinel;
   return validateSafeId(raw).isValid ? raw : sentinel;
 }
@@ -825,9 +826,11 @@ export function compareResponses(
   // Validate full request
   const reqVal = validateResponseComparisonRequest(request);
   if (!reqVal.isValid) {
-    const errorCode = (ALLOWED_COMPARATOR_ERROR_CODES.includes(reqVal.errorCode as any)
-      ? reqVal.errorCode
-      : 'invalid_comparison_request') as ComparatorErrorCode;
+    const errorCode: ComparatorErrorCode =
+      typeof reqVal.errorCode === 'string' &&
+      (ALLOWED_COMPARATOR_ERROR_CODES as readonly string[]).includes(reqVal.errorCode)
+        ? (reqVal.errorCode as ComparatorErrorCode)
+        : 'invalid_comparison_request';
     return buildFailedResult(
       safeComparisonId, safeScanId, safeComparedAt,
       safeBaselineSnapshotId, safeValidationSnapshotId,

@@ -1,7 +1,9 @@
-import path from 'node:path';
 import type { ProcessRunner } from '../../core/ProcessRunner.js';
-import { isRuntimeEstablishedVerifiedAuthorizationDecision } from '../../authorization/VerifiedAuthorizationDecisionService.js';
 import { isInternalOrSsrfTarget } from '../policy/PassiveEgressPolicy.js';
+import {
+  runAdapterPreflight,
+  type PreSpawnDnsResolver,
+} from './AdapterPreflightPipeline.js';
 import {
   CONTENT_DISCOVERY_CONTRACT_VERSION,
   CONTENT_DISCOVERY_NON_CLAIMS,
@@ -11,255 +13,48 @@ import {
   type DiscoveredContentObservation,
 } from './ContentDiscoveryContracts.js';
 
-const FORBIDDEN_WORDLIST_PREFIXES = [
-  '/etc',
-  '/var',
-  '/root',
-  '/proc',
-  '/sys',
-  '/dev',
-  '/boot',
-  '/sbin',
-  '/bin',
-  '/usr/sbin',
-  '/usr/bin',
-];
-
-function validateWordlistPath(wordlistPath: string): { valid: boolean; reason?: string } {
-  if (!wordlistPath || typeof wordlistPath !== 'string' || !wordlistPath.trim()) {
-    return { valid: false, reason: 'Wordlist path cannot be empty' };
-  }
-
-  const raw = wordlistPath.trim();
-  if (raw.includes('..')) {
-    return { valid: false, reason: 'Path traversal (..) is strictly prohibited in wordlist paths' };
-  }
-
-  const normalized = path.normalize(raw);
-  if (normalized.includes('..')) {
-    return { valid: false, reason: 'Path traversal (..) is strictly prohibited in wordlist paths' };
-  }
-
-  for (const prefix of FORBIDDEN_WORDLIST_PREFIXES) {
-    if (normalized === prefix || normalized.startsWith(prefix + '/')) {
-      return { valid: false, reason: `Wordlist path accesses forbidden system directory: ${prefix}` };
-    }
-  }
-
-  return { valid: true };
-}
-
 export class FfufAdapter implements ContentDiscoveryTool {
-  constructor(private readonly processRunner: ProcessRunner) {}
+  constructor(
+    private readonly processRunner: ProcessRunner,
+    private readonly dnsResolver?: PreSpawnDnsResolver
+  ) {}
 
   async discoverContent(request: ContentDiscoveryRequest): Promise<ContentDiscoveryResult> {
     const rawTarget = typeof request.targetUrl === 'string' ? request.targetUrl.trim() : '';
     const rawWordlist = typeof request.wordlistPath === 'string' ? request.wordlistPath.trim() : '';
 
-    // 1. Atomic Preflight: Target URL format validation
-    if (!rawTarget) {
-      return {
-        status: 'preflight_denied',
-        contractVersion: CONTENT_DISCOVERY_CONTRACT_VERSION,
-        targetUrl: request.targetUrl,
-        wordlistPath: request.wordlistPath,
-        reasonCode: 'invalid_target_format',
-        reason: 'Target URL cannot be empty',
-        explicitNonClaims: CONTENT_DISCOVERY_NON_CLAIMS,
-        lineage: request.lineage,
-      };
-    }
+    // Unified Atomic Preflight Gate
+    const preflight = await runAdapterPreflight({
+      target: rawTarget,
+      targetKind: 'url',
+      wordlistOrPath: rawWordlist,
+      wordlistOrPathType: 'wordlist',
+      verifiedAuthorizationDecision: request.verifiedAuthorizationDecision,
+      authorizedScopeGrant: request.authorizedScopeGrant,
+      lineage: request.lineage,
+      permissionCheck: (ps) =>
+        Boolean(
+          ps.endpointDiscovery ||
+          ps.activeCrawling ||
+          ps.activeValidation ||
+          ps.lightValidation ||
+          ps.passiveRecon ||
+          ps.technologyFingerprinting ||
+          ('activeRecon' in ps && (ps as { activeRecon?: boolean }).activeRecon)
+        ),
+      missingPermissionReason: 'Scope grant does not permit content discovery or active reconnaissance',
+      targetOutOfScopeReason: 'Target URL host is outside authorized scope boundaries',
+      dnsResolver: this.dnsResolver,
+    });
 
-    let targetHost = '';
-    try {
-      const u = new URL(rawTarget);
-      if (u.protocol !== 'http:' && u.protocol !== 'https:') {
-        return {
-          status: 'preflight_denied',
-          contractVersion: CONTENT_DISCOVERY_CONTRACT_VERSION,
-          targetUrl: rawTarget,
-          wordlistPath: rawWordlist,
-          reasonCode: 'invalid_target_format',
-          reason: 'Target URL protocol must be HTTP or HTTPS',
-          explicitNonClaims: CONTENT_DISCOVERY_NON_CLAIMS,
-          lineage: request.lineage,
-        };
-      }
-      targetHost = u.hostname.trim().toLowerCase().replace(/\.$/, '');
-    } catch {
+    if (!preflight.ok) {
       return {
         status: 'preflight_denied',
         contractVersion: CONTENT_DISCOVERY_CONTRACT_VERSION,
         targetUrl: rawTarget,
         wordlistPath: rawWordlist,
-        reasonCode: 'invalid_target_format',
-        reason: 'Target URL is malformed',
-        explicitNonClaims: CONTENT_DISCOVERY_NON_CLAIMS,
-        lineage: request.lineage,
-      };
-    }
-
-    if (!targetHost) {
-      return {
-        status: 'preflight_denied',
-        contractVersion: CONTENT_DISCOVERY_CONTRACT_VERSION,
-        targetUrl: rawTarget,
-        wordlistPath: rawWordlist,
-        reasonCode: 'invalid_target_host',
-        reason: 'Target URL does not contain a valid host',
-        explicitNonClaims: CONTENT_DISCOVERY_NON_CLAIMS,
-        lineage: request.lineage,
-      };
-    }
-
-    // 2. Atomic Preflight: Wordlist Path Safety Check
-    const wordlistValidation = validateWordlistPath(rawWordlist);
-    if (!wordlistValidation.valid) {
-      return {
-        status: 'preflight_denied',
-        contractVersion: CONTENT_DISCOVERY_CONTRACT_VERSION,
-        targetUrl: rawTarget,
-        wordlistPath: rawWordlist,
-        reasonCode: 'unsafe_wordlist_path',
-        reason: wordlistValidation.reason ?? 'Wordlist path is unsafe',
-        explicitNonClaims: CONTENT_DISCOVERY_NON_CLAIMS,
-        lineage: request.lineage,
-      };
-    }
-
-    // 3. Atomic Preflight: Runtime-branded authorization verification
-    if (
-      !request.verifiedAuthorizationDecision ||
-      !isRuntimeEstablishedVerifiedAuthorizationDecision(request.verifiedAuthorizationDecision)
-    ) {
-      return {
-        status: 'preflight_denied',
-        contractVersion: CONTENT_DISCOVERY_CONTRACT_VERSION,
-        targetUrl: rawTarget,
-        wordlistPath: rawWordlist,
-        reasonCode: 'authorization_unconfirmed',
-        reason: 'Authorization decision is not runtime-established or lacks valid verification brand',
-        explicitNonClaims: CONTENT_DISCOVERY_NON_CLAIMS,
-        lineage: request.lineage,
-      };
-    }
-
-    if (request.verifiedAuthorizationDecision.decision !== 'authorized') {
-      return {
-        status: 'preflight_denied',
-        contractVersion: CONTENT_DISCOVERY_CONTRACT_VERSION,
-        targetUrl: rawTarget,
-        wordlistPath: rawWordlist,
-        reasonCode: 'authorization_denied',
-        reason: 'Authorization decision is not in authorized state',
-        explicitNonClaims: CONTENT_DISCOVERY_NON_CLAIMS,
-        lineage: request.lineage,
-      };
-    }
-
-    // 4. Atomic Preflight: Continuous Lineage tuple integrity verification
-    const dec = request.verifiedAuthorizationDecision;
-    const grant = request.authorizedScopeGrant;
-    const lin = request.lineage;
-
-    if (
-      lin.scanId !== dec.scanId ||
-      lin.assessmentId !== dec.assessmentId ||
-      lin.authorizationGrantId !== grant.grantId ||
-      lin.authorizationDecisionId !== dec.authorizationDecisionId
-    ) {
-      return {
-        status: 'preflight_denied',
-        contractVersion: CONTENT_DISCOVERY_CONTRACT_VERSION,
-        targetUrl: rawTarget,
-        wordlistPath: rawWordlist,
-        reasonCode: 'lineage_mismatch',
-        reason: 'Execution lineage does not match authorization decision and scope grant',
-        explicitNonClaims: CONTENT_DISCOVERY_NON_CLAIMS,
-        lineage: request.lineage,
-      };
-    }
-
-    // 5. Atomic Preflight: Scope permissions check
-    const ps = grant.permissionSet;
-    let hasPermission = Boolean(
-      ps.endpointDiscovery ||
-      ps.activeCrawling ||
-      ps.activeValidation ||
-      ps.lightValidation ||
-      ps.passiveRecon ||
-      ps.technologyFingerprinting
-    );
-    if (!hasPermission && 'activeRecon' in ps) {
-      const ext = ps as typeof ps & { activeRecon?: boolean };
-      if (ext.activeRecon) {
-        hasPermission = true;
-      }
-    }
-
-    if (!hasPermission) {
-      return {
-        status: 'preflight_denied',
-        contractVersion: CONTENT_DISCOVERY_CONTRACT_VERSION,
-        targetUrl: rawTarget,
-        wordlistPath: rawWordlist,
-        reasonCode: 'missing_permission',
-        reason: 'Scope grant does not permit content discovery or active reconnaissance',
-        explicitNonClaims: CONTENT_DISCOVERY_NON_CLAIMS,
-        lineage: request.lineage,
-      };
-    }
-
-    // 6. Atomic Preflight: Scope boundaries & SSRF check on target host
-    if (isInternalOrSsrfTarget(targetHost)) {
-      return {
-        status: 'preflight_denied',
-        contractVersion: CONTENT_DISCOVERY_CONTRACT_VERSION,
-        targetUrl: rawTarget,
-        wordlistPath: rawWordlist,
-        reasonCode: 'ssrf_target_blocked',
-        reason: 'Target URL host points to prohibited internal, loopback, or metadata address',
-        explicitNonClaims: CONTENT_DISCOVERY_NON_CLAIMS,
-        lineage: request.lineage,
-      };
-    }
-
-    const allowedDomains = (grant.boundaries.allowedDomains ?? []).map((d) =>
-      d.trim().toLowerCase().replace(/\.$/, '')
-    );
-    const allowedHosts = (grant.boundaries.allowedHosts ?? []).map((h) =>
-      h.trim().toLowerCase().replace(/\.$/, '')
-    );
-    const subjectDomain = grant.subject.domain?.trim().toLowerCase().replace(/\.$/, '');
-    const subjectHost = grant.subject.host?.trim().toLowerCase().replace(/\.$/, '');
-
-    const originHosts: string[] = [];
-    for (const origin of grant.boundaries.allowedOrigins ?? []) {
-      try {
-        const u = new URL(origin);
-        originHosts.push(u.hostname.trim().toLowerCase().replace(/\.$/, ''));
-      } catch {
-        // ignore malformed origin strings
-      }
-    }
-
-    const isHostInScope = (host: string): boolean =>
-      allowedDomains.includes(host) ||
-      allowedDomains.some((d) => host.endsWith('.' + d)) ||
-      allowedHosts.includes(host) ||
-      subjectDomain === host ||
-      subjectHost === host ||
-      originHosts.includes(host) ||
-      originHosts.some((h) => host.endsWith('.' + h));
-
-    if (!isHostInScope(targetHost)) {
-      return {
-        status: 'preflight_denied',
-        contractVersion: CONTENT_DISCOVERY_CONTRACT_VERSION,
-        targetUrl: rawTarget,
-        wordlistPath: rawWordlist,
-        reasonCode: 'target_out_of_scope',
-        reason: 'Target URL host is outside authorized scope boundaries',
+        reasonCode: preflight.reasonCode,
+        reason: preflight.reason,
         explicitNonClaims: CONTENT_DISCOVERY_NON_CLAIMS,
         lineage: request.lineage,
       };
@@ -374,6 +169,35 @@ export class FfufAdapter implements ContentDiscoveryTool {
         }
       }
     }
+
+    const grant = request.authorizedScopeGrant;
+    const allowedDomains = (grant.boundaries.allowedDomains ?? []).map((d) =>
+      d.trim().toLowerCase().replace(/\.$/, '')
+    );
+    const allowedHosts = (grant.boundaries.allowedHosts ?? []).map((h) =>
+      h.trim().toLowerCase().replace(/\.$/, '')
+    );
+    const subjectDomain = grant.subject.domain?.trim().toLowerCase().replace(/\.$/, '');
+    const subjectHost = grant.subject.host?.trim().toLowerCase().replace(/\.$/, '');
+
+    const originHosts: string[] = [];
+    for (const origin of grant.boundaries.allowedOrigins ?? []) {
+      try {
+        const u = new URL(origin);
+        originHosts.push(u.hostname.trim().toLowerCase().replace(/\.$/, ''));
+      } catch {
+        // ignore malformed origin strings
+      }
+    }
+
+    const isHostInScope = (host: string): boolean =>
+      allowedDomains.includes(host) ||
+      allowedDomains.some((d) => host.endsWith('.' + d)) ||
+      allowedHosts.includes(host) ||
+      subjectDomain === host ||
+      subjectHost === host ||
+      originHosts.includes(host) ||
+      originHosts.some((h) => host.endsWith('.' + h));
 
     const observations: DiscoveredContentObservation[] = [];
     const seen = new Set<string>();

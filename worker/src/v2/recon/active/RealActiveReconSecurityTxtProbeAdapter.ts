@@ -77,7 +77,7 @@ export class RealActiveReconSecurityTxtProbeAdapter implements ActiveReconAdapte
         // Fixed path — never derived from parsed.pathname + parsed.search
         path: SECURITY_TXT_PATH,
         timeout: 3000,
-        lookup: customLookup as any,
+        lookup: customLookup,
         headers: {
           'User-Agent': 'FixGuard-Recon/2.0 (Security Audit Platform)'
         }

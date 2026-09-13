@@ -1,7 +1,10 @@
+import type { TargetSessionState } from './SessionLifecycleContracts.js';
+
 export interface TargetContext {
   uri: string;
   headers?: Record<string, string>;
   env?: string;
+  sessionState?: TargetSessionState;
 }
 
 export interface CapabilityRequest {

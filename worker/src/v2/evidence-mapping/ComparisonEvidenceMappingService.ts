@@ -14,7 +14,8 @@ import type {
   SourceSummary
 } from "./ComparisonEvidenceMappingContracts.js";
 
-import type { ResponseComparisonResult } from "../comparison/ResponseComparatorContracts.js";
+import type { ResponseComparisonResult, SignalSummaryItem } from "../comparison/ResponseComparatorContracts.js";
+import type { EvidenceType, EvidenceStrength } from "../evidence/EvidenceBoundaryContracts.js";
 
 type ValidationResult = { isValid: true } | { isValid: false, errorCode: MappingReasonCode, message: string };
 
@@ -448,33 +449,42 @@ export function mapComparisonToEvidence(request: any, mappedAt: any): EvidenceMa
 
 function buildSourceSummary(source: ResponseComparisonResult, reqMode: SourceComparisonMode): SourceSummary {
   // sanitize signalSummary
-  let signals: any[] = [];
+  let signals: SignalSummaryItem[] = [];
   if (Array.isArray(source.difference?.signalSummary)) {
-    const validSummaryItems = new Set([
+    const validSummaryItems = new Set<string>([
       "status_code_changed", "content_length_changed", "response_time_changed", "body_hash_changed", "headers_changed",
       "json_shape_changed", "redirect_changed", "auth_state_changed", "error_signal_observed"
     ]);
     for (const s of source.difference!.signalSummary) {
-      if (typeof s === 'string' && validSummaryItems.has(s as any) && !forbiddenContentScan(s)) {
-        signals.push(s);
+      if (typeof s === 'string' && validSummaryItems.has(s) && !forbiddenContentScan(s)) {
+        signals.push(s as SignalSummaryItem);
       }
     }
     signals = signals.slice(0, 20);
   }
 
-  const validStrongestSignals = new Set([
+  const validStrongestSignals = new Set<string>([
     "none", "status_code", "content_length", "response_time", "body_hash", "headers", "json_shape", "redirect", "auth_state", "error_signal"
   ]);
-  const validSignalStrengths = new Set(["none", "weak", "moderate", "strong"]);
+  const validSignalStrengths = new Set<string>(["none", "weak", "moderate", "strong"]);
 
-  const strongestSignal = validStrongestSignals.has(source.significance?.strongestSignal as any) ? source.significance?.strongestSignal : "none";
-  const comparisonSignalStrength = validSignalStrengths.has(source.significance?.comparisonSignalStrength as any) ? source.significance?.comparisonSignalStrength : "none";
+  const rawSignal = source.significance?.strongestSignal;
+  const strongestSignal: SourceSummary["strongestSignal"] =
+    typeof rawSignal === "string" && validStrongestSignals.has(rawSignal)
+      ? (rawSignal as SourceSummary["strongestSignal"])
+      : "none";
+
+  const rawStrength = source.significance?.comparisonSignalStrength;
+  const comparisonSignalStrength: SourceSummary["comparisonSignalStrength"] =
+    typeof rawStrength === "string" && validSignalStrengths.has(rawStrength)
+      ? (rawStrength as SourceSummary["comparisonSignalStrength"])
+      : "none";
 
   return {
     comparisonStatus: source.status === 'completed' ? 'completed' : 'failed',
     sourceComparisonMode: reqMode,
-    strongestSignal: strongestSignal as any,
-    comparisonSignalStrength: comparisonSignalStrength as any,
+    strongestSignal,
+    comparisonSignalStrength,
     signalSummary: signals
   };
 }

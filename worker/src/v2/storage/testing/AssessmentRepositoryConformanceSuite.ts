@@ -175,9 +175,9 @@ export async function runAssessmentRepositoryConformanceSuite(
     assert.strictEqual(list2[0].metadata.mutated, undefined);
 
     const au1 = await repo.listAuditEntries(sessionId);
-    (au1[0] as any).action = 'mutated';
+    Object.assign(au1[0], { action: 'mutated' });
     const au2 = await repo.listAuditEntries(sessionId);
-    assert.strictEqual((au2[0] as any).action, undefined); // 'action' doesn't exist on AuditEntry in V2
+    assert.strictEqual(Reflect.get(au2[0], 'action'), undefined); // 'action' doesn't exist on AuditEntry in V2
 
     const ar1 = await repo.listApprovedRequests(sessionId);
     ar1[0].capability = 'mutated';
@@ -390,12 +390,12 @@ export async function runAssessmentRepositoryConformanceSuite(
     assert.strictEqual(arList[1].id, 'app2');
 
     // Explicit durability check on the persisted record
-    const persistedApp = arList[0] as any;
-    assert(!('binary' in persistedApp));
-    assert(!('args' in persistedApp));
-    assert(!('env' in persistedApp));
-    assert(!('command' in persistedApp));
-    assert(!('shell' in persistedApp));
+    const persistedApp = arList[0];
+    assert(!Reflect.has(persistedApp, 'binary'));
+    assert(!Reflect.has(persistedApp, 'args'));
+    assert(!Reflect.has(persistedApp, 'env'));
+    assert(!Reflect.has(persistedApp, 'command'));
+    assert(!Reflect.has(persistedApp, 'shell'));
     
     const arB = await repo.listApprovedRequests(sb);
     assert.strictEqual(arB.length, 0);

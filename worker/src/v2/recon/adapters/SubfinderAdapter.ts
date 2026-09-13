@@ -1,6 +1,10 @@
 import type { ProcessRunner } from '../../core/ProcessRunner.js';
-import { isRuntimeEstablishedVerifiedAuthorizationDecision } from '../../authorization/VerifiedAuthorizationDecisionService.js';
 import { isInternalOrSsrfTarget } from '../policy/PassiveEgressPolicy.js';
+import {
+  runAdapterPreflight,
+  FQDN_REGEX,
+  type PreSpawnDnsResolver,
+} from './AdapterPreflightPipeline.js';
 import {
   SUBDOMAIN_DISCOVERY_CONTRACT_VERSION,
   SUBDOMAIN_DISCOVERY_NON_CLAIMS,
@@ -10,147 +14,38 @@ import {
   type SubdomainDiscoveryTool,
 } from './SubdomainDiscoveryContracts.js';
 
-const FQDN_REGEX = /^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z0-9][a-z0-9-]{0,61}[a-z0-9]$/;
-
 export class SubfinderAdapter implements SubdomainDiscoveryTool {
-  constructor(private readonly processRunner: ProcessRunner) {}
+  constructor(
+    private readonly processRunner: ProcessRunner,
+    private readonly dnsResolver?: PreSpawnDnsResolver
+  ) {}
 
   async discoverSubdomains(request: SubdomainDiscoveryRequest): Promise<SubdomainDiscoveryResult> {
-    const rawTarget = typeof request.targetDomain === 'string' ? request.targetDomain.trim().toLowerCase() : '';
-    const targetDomain = rawTarget.replace(/\.$/, '');
+    // Consolidated 7-pass preflight validation via canonical pipeline
+    const preflight = await runAdapterPreflight({
+      target: request.targetDomain,
+      targetKind: 'fqdn',
+      verifiedAuthorizationDecision: request.verifiedAuthorizationDecision,
+      authorizedScopeGrant: request.authorizedScopeGrant,
+      lineage: request.lineage,
+      permissionCheck: (ps) => Boolean(ps.endpointDiscovery || ps.passiveRecon),
+      missingPermissionReason: 'Scope grant does not permit endpointDiscovery or passiveRecon',
+      dnsResolver: this.dnsResolver,
+    });
 
-    // 1. Atomic Preflight: Validate target domain format
-    if (!targetDomain || !FQDN_REGEX.test(targetDomain)) {
+    if (!preflight.ok) {
       return {
         status: 'preflight_denied',
         contractVersion: SUBDOMAIN_DISCOVERY_CONTRACT_VERSION,
         targetDomain: request.targetDomain,
-        reasonCode: 'invalid_target_domain',
-        reason: 'Target domain is not a valid fully-qualified domain name',
+        reasonCode: preflight.reasonCode,
+        reason: preflight.reason,
         explicitNonClaims: SUBDOMAIN_DISCOVERY_NON_CLAIMS,
         lineage: request.lineage,
       };
     }
 
-    // 2. Atomic Preflight: Validate authorization decision runtime brand
-    if (
-      !request.verifiedAuthorizationDecision ||
-      !isRuntimeEstablishedVerifiedAuthorizationDecision(request.verifiedAuthorizationDecision)
-    ) {
-      return {
-        status: 'preflight_denied',
-        contractVersion: SUBDOMAIN_DISCOVERY_CONTRACT_VERSION,
-        targetDomain,
-        reasonCode: 'authorization_unconfirmed',
-        reason: 'Authorization decision is not runtime-established or lacks valid verification brand',
-        explicitNonClaims: SUBDOMAIN_DISCOVERY_NON_CLAIMS,
-        lineage: request.lineage,
-      };
-    }
-
-    if (request.verifiedAuthorizationDecision.decision !== 'authorized') {
-      return {
-        status: 'preflight_denied',
-        contractVersion: SUBDOMAIN_DISCOVERY_CONTRACT_VERSION,
-        targetDomain,
-        reasonCode: 'authorization_denied',
-        reason: 'Authorization decision is not in authorized state',
-        explicitNonClaims: SUBDOMAIN_DISCOVERY_NON_CLAIMS,
-        lineage: request.lineage,
-      };
-    }
-
-    // 3. Atomic Preflight: Lineage tuple consistency check
-    const dec = request.verifiedAuthorizationDecision;
-    const grant = request.authorizedScopeGrant;
-    const lin = request.lineage;
-
-    if (
-      lin.scanId !== dec.scanId ||
-      lin.assessmentId !== dec.assessmentId ||
-      lin.authorizationGrantId !== grant.grantId ||
-      lin.authorizationDecisionId !== dec.authorizationDecisionId
-    ) {
-      return {
-        status: 'preflight_denied',
-        contractVersion: SUBDOMAIN_DISCOVERY_CONTRACT_VERSION,
-        targetDomain,
-        reasonCode: 'lineage_mismatch',
-        reason: 'Execution lineage does not match authorization decision and scope grant',
-        explicitNonClaims: SUBDOMAIN_DISCOVERY_NON_CLAIMS,
-        lineage: request.lineage,
-      };
-    }
-
-    // 4. Atomic Preflight: Scope permissions check
-    const hasPermission = Boolean(
-      grant.permissionSet.endpointDiscovery || grant.permissionSet.passiveRecon
-    );
-    if (!hasPermission) {
-      return {
-        status: 'preflight_denied',
-        contractVersion: SUBDOMAIN_DISCOVERY_CONTRACT_VERSION,
-        targetDomain,
-        reasonCode: 'missing_permission',
-        reason: 'Scope grant does not permit endpointDiscovery or passiveRecon',
-        explicitNonClaims: SUBDOMAIN_DISCOVERY_NON_CLAIMS,
-        lineage: request.lineage,
-      };
-    }
-
-    // 5. Atomic Preflight: Scope boundaries check
-    const allowedDomains = (grant.boundaries.allowedDomains ?? []).map((d) =>
-      d.trim().toLowerCase().replace(/\.$/, '')
-    );
-    const allowedHosts = (grant.boundaries.allowedHosts ?? []).map((h) =>
-      h.trim().toLowerCase().replace(/\.$/, '')
-    );
-    const subjectDomain = grant.subject.domain?.trim().toLowerCase().replace(/\.$/, '');
-    const subjectHost = grant.subject.host?.trim().toLowerCase().replace(/\.$/, '');
-
-    const originHosts: string[] = [];
-    for (const origin of grant.boundaries.allowedOrigins ?? []) {
-      try {
-        const u = new URL(origin);
-        originHosts.push(u.hostname.trim().toLowerCase().replace(/\.$/, ''));
-      } catch {
-        // ignore malformed origin strings in grant
-      }
-    }
-
-    const isDomainInScope =
-      allowedDomains.includes(targetDomain) ||
-      allowedDomains.some((d) => targetDomain.endsWith('.' + d)) ||
-      allowedHosts.includes(targetDomain) ||
-      subjectDomain === targetDomain ||
-      subjectHost === targetDomain ||
-      originHosts.includes(targetDomain) ||
-      originHosts.some((h) => targetDomain.endsWith('.' + h));
-
-    if (!isDomainInScope) {
-      return {
-        status: 'preflight_denied',
-        contractVersion: SUBDOMAIN_DISCOVERY_CONTRACT_VERSION,
-        targetDomain,
-        reasonCode: 'target_out_of_scope',
-        reason: 'Target domain is outside authorized scope boundaries',
-        explicitNonClaims: SUBDOMAIN_DISCOVERY_NON_CLAIMS,
-        lineage: request.lineage,
-      };
-    }
-
-    // 6. Atomic Preflight: SSRF target check on the targetDomain itself
-    if (isInternalOrSsrfTarget(targetDomain)) {
-      return {
-        status: 'preflight_denied',
-        contractVersion: SUBDOMAIN_DISCOVERY_CONTRACT_VERSION,
-        targetDomain,
-        reasonCode: 'ssrf_target_blocked',
-        reason: 'Target domain resolves or points to a blocked internal/loopback target',
-        explicitNonClaims: SUBDOMAIN_DISCOVERY_NON_CLAIMS,
-        lineage: request.lineage,
-      };
-    }
+    const targetDomain = preflight.targetHost;
 
     // 7. Command Invocation: Strictly via ProcessRunner with shell: false and isolated argument array
     const timeoutMs = request.timeoutMs ?? 60_000;

@@ -71,14 +71,14 @@ function isValidCriteria(criteria: any): boolean {
   if (criteria.evidenceTypes !== undefined) {
     if (!Array.isArray(criteria.evidenceTypes) || criteria.evidenceTypes.length === 0 || criteria.evidenceTypes.length > 50) return false;
     for (const t of criteria.evidenceTypes) {
-      if (!ALLOWED_EVIDENCE_TYPES.includes(t as any)) return false;
+      if (!(ALLOWED_EVIDENCE_TYPES as readonly string[]).includes(t)) return false;
     }
   }
 
   if (criteria.strengths !== undefined) {
     if (!Array.isArray(criteria.strengths) || criteria.strengths.length === 0 || criteria.strengths.length > 50) return false;
     for (const s of criteria.strengths) {
-      if (!ALLOWED_EVIDENCE_STRENGTHS.includes(s as any)) return false;
+      if (!(ALLOWED_EVIDENCE_STRENGTHS as readonly string[]).includes(s)) return false;
     }
   }
 
@@ -109,8 +109,8 @@ function isSafeSummary(s: any): boolean {
   if (!isStrictSafeId(s.indicatorId)) return false;
   if (!isStrictIsoTimestamp(s.collectedAt)) return false;
   if (!isStrictIsoTimestamp(s.savedAt)) return false;
-  if (!ALLOWED_EVIDENCE_TYPES.includes(s.evidenceType as any)) return false;
-  if (!ALLOWED_EVIDENCE_STRENGTHS.includes(s.strength as any)) return false;
+  if (!(ALLOWED_EVIDENCE_TYPES as readonly string[]).includes(s.evidenceType)) return false;
+  if (!(ALLOWED_EVIDENCE_STRENGTHS as readonly string[]).includes(s.strength)) return false;
   if (s.sourceBoundary !== "M50") return false;
   return true;
 }

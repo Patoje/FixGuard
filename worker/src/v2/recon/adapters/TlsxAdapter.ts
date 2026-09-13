@@ -1,6 +1,9 @@
 import type { ProcessRunner } from '../../core/ProcessRunner.js';
-import { isRuntimeEstablishedVerifiedAuthorizationDecision } from '../../authorization/VerifiedAuthorizationDecisionService.js';
 import { isInternalOrSsrfTarget } from '../policy/PassiveEgressPolicy.js';
+import {
+  runAdapterPreflight,
+  type PreSpawnDnsResolver,
+} from './AdapterPreflightPipeline.js';
 import {
   TLS_INSPECTION_CONTRACT_VERSION,
   TLS_INSPECTION_NON_CLAIMS,
@@ -10,205 +13,50 @@ import {
   type TlsInspectionTool,
 } from './TlsInspectionContracts.js';
 
-const FQDN_REGEX = /^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z0-9][a-z0-9-]{0,61}[a-z0-9]$/;
-
 export class TlsxAdapter implements TlsInspectionTool {
-  constructor(private readonly processRunner: ProcessRunner) {}
+  constructor(
+    private readonly processRunner: ProcessRunner,
+    private readonly dnsResolver?: PreSpawnDnsResolver
+  ) {}
 
   async inspectTls(request: TlsInspectionRequest): Promise<TlsInspectionResult> {
     const rawInput = typeof request.targetHostOrUrl === 'string' ? request.targetHostOrUrl.trim() : '';
 
-    // 1. Atomic Preflight: Target host format extraction & validation
-    if (!rawInput) {
-      return {
-        status: 'preflight_denied',
-        contractVersion: TLS_INSPECTION_CONTRACT_VERSION,
-        targetHost: request.targetHostOrUrl,
-        reasonCode: 'invalid_target_format',
-        reason: 'Target host or URL cannot be empty',
-        explicitNonClaims: TLS_INSPECTION_NON_CLAIMS,
-        lineage: request.lineage,
-      };
-    }
+    // Unified Atomic Preflight Gate
+    const preflight = await runAdapterPreflight({
+      target: rawInput,
+      targetKind: 'host_or_url',
+      verifiedAuthorizationDecision: request.verifiedAuthorizationDecision,
+      authorizedScopeGrant: request.authorizedScopeGrant,
+      lineage: request.lineage,
+      permissionCheck: (ps) =>
+        Boolean(
+          ps.technologyFingerprinting ||
+          ps.endpointDiscovery ||
+          ps.activeValidation ||
+          ps.lightValidation ||
+          ps.passiveRecon ||
+          ('activeRecon' in ps && (ps as { activeRecon?: boolean }).activeRecon)
+        ),
+      missingPermissionReason: 'Scope grant does not permit TLS inspection or technology fingerprinting',
+      targetOutOfScopeReason: 'Target host is outside authorized scope boundaries',
+      dnsResolver: this.dnsResolver,
+    });
 
-    let targetHost = '';
-    let extractedPort: number | undefined;
-
-    if (rawInput.startsWith('http://') || rawInput.startsWith('https://')) {
-      try {
-        const u = new URL(rawInput);
-        targetHost = u.hostname.toLowerCase().replace(/\.$/, '');
-        if (u.port) {
-          const parsedPort = parseInt(u.port, 10);
-          if (parsedPort > 0 && parsedPort <= 65535) {
-            extractedPort = parsedPort;
-          }
-        }
-      } catch {
-        return {
-          status: 'preflight_denied',
-          contractVersion: TLS_INSPECTION_CONTRACT_VERSION,
-          targetHost: rawInput,
-          reasonCode: 'invalid_target_format',
-          reason: 'Target URL is malformed',
-          explicitNonClaims: TLS_INSPECTION_NON_CLAIMS,
-          lineage: request.lineage,
-        };
-      }
-    } else {
-      const parts = rawInput.split(':');
-      targetHost = parts[0].toLowerCase().replace(/\.$/, '');
-      if (parts.length === 2 && parts[1]) {
-        const parsedPort = parseInt(parts[1], 10);
-        if (parsedPort > 0 && parsedPort <= 65535) {
-          extractedPort = parsedPort;
-        }
-      }
-    }
-
-    if (!targetHost || !FQDN_REGEX.test(targetHost)) {
+    if (!preflight.ok) {
       return {
         status: 'preflight_denied',
         contractVersion: TLS_INSPECTION_CONTRACT_VERSION,
         targetHost: rawInput,
-        reasonCode: 'invalid_target_host',
-        reason: 'Target is not a valid fully-qualified domain name',
+        reasonCode: preflight.reasonCode,
+        reason: preflight.reason,
         explicitNonClaims: TLS_INSPECTION_NON_CLAIMS,
         lineage: request.lineage,
       };
     }
 
-    // 2. Atomic Preflight: Target host SSRF pre-check
-    if (isInternalOrSsrfTarget(targetHost)) {
-      return {
-        status: 'preflight_denied',
-        contractVersion: TLS_INSPECTION_CONTRACT_VERSION,
-        targetHost,
-        reasonCode: 'ssrf_target_blocked',
-        reason: 'Target host points to prohibited internal, loopback, or metadata address',
-        explicitNonClaims: TLS_INSPECTION_NON_CLAIMS,
-        lineage: request.lineage,
-      };
-    }
-
-    // 3. Atomic Preflight: Runtime-branded authorization verification
-    if (
-      !request.verifiedAuthorizationDecision ||
-      !isRuntimeEstablishedVerifiedAuthorizationDecision(request.verifiedAuthorizationDecision)
-    ) {
-      return {
-        status: 'preflight_denied',
-        contractVersion: TLS_INSPECTION_CONTRACT_VERSION,
-        targetHost,
-        reasonCode: 'authorization_unconfirmed',
-        reason: 'Authorization decision is not runtime-established or lacks valid verification brand',
-        explicitNonClaims: TLS_INSPECTION_NON_CLAIMS,
-        lineage: request.lineage,
-      };
-    }
-
-    if (request.verifiedAuthorizationDecision.decision !== 'authorized') {
-      return {
-        status: 'preflight_denied',
-        contractVersion: TLS_INSPECTION_CONTRACT_VERSION,
-        targetHost,
-        reasonCode: 'authorization_denied',
-        reason: 'Authorization decision is not in authorized state',
-        explicitNonClaims: TLS_INSPECTION_NON_CLAIMS,
-        lineage: request.lineage,
-      };
-    }
-
-    // 4. Atomic Preflight: Continuous Lineage tuple integrity verification
-    const dec = request.verifiedAuthorizationDecision;
-    const grant = request.authorizedScopeGrant;
-    const lin = request.lineage;
-
-    if (
-      lin.scanId !== dec.scanId ||
-      lin.assessmentId !== dec.assessmentId ||
-      lin.authorizationGrantId !== grant.grantId ||
-      lin.authorizationDecisionId !== dec.authorizationDecisionId
-    ) {
-      return {
-        status: 'preflight_denied',
-        contractVersion: TLS_INSPECTION_CONTRACT_VERSION,
-        targetHost,
-        reasonCode: 'lineage_mismatch',
-        reason: 'Execution lineage does not match authorization decision and scope grant',
-        explicitNonClaims: TLS_INSPECTION_NON_CLAIMS,
-        lineage: request.lineage,
-      };
-    }
-
-    // 5. Atomic Preflight: Scope permissions check
-    const ps = grant.permissionSet;
-    let hasPermission = Boolean(
-      ps.technologyFingerprinting ||
-      ps.endpointDiscovery ||
-      ps.activeValidation ||
-      ps.lightValidation ||
-      ps.passiveRecon
-    );
-    if (!hasPermission && 'activeRecon' in ps) {
-      const ext = ps as typeof ps & { activeRecon?: boolean };
-      if (ext.activeRecon) {
-        hasPermission = true;
-      }
-    }
-
-    if (!hasPermission) {
-      return {
-        status: 'preflight_denied',
-        contractVersion: TLS_INSPECTION_CONTRACT_VERSION,
-        targetHost,
-        reasonCode: 'missing_permission',
-        reason: 'Scope grant does not permit TLS inspection or technology fingerprinting',
-        explicitNonClaims: TLS_INSPECTION_NON_CLAIMS,
-        lineage: request.lineage,
-      };
-    }
-
-    // 6. Atomic Preflight: Scope boundaries check
-    const allowedDomains = (grant.boundaries.allowedDomains ?? []).map((d) =>
-      d.trim().toLowerCase().replace(/\.$/, '')
-    );
-    const allowedHosts = (grant.boundaries.allowedHosts ?? []).map((h) =>
-      h.trim().toLowerCase().replace(/\.$/, '')
-    );
-    const subjectDomain = grant.subject.domain?.trim().toLowerCase().replace(/\.$/, '');
-    const subjectHost = grant.subject.host?.trim().toLowerCase().replace(/\.$/, '');
-
-    const originHosts: string[] = [];
-    for (const origin of grant.boundaries.allowedOrigins ?? []) {
-      try {
-        const u = new URL(origin);
-        originHosts.push(u.hostname.trim().toLowerCase().replace(/\.$/, ''));
-      } catch {
-        // ignore malformed origin strings
-      }
-    }
-
-    const isHostInScope =
-      allowedDomains.includes(targetHost) ||
-      allowedDomains.some((d) => targetHost.endsWith('.' + d)) ||
-      allowedHosts.includes(targetHost) ||
-      subjectDomain === targetHost ||
-      subjectHost === targetHost ||
-      originHosts.includes(targetHost) ||
-      originHosts.some((h) => targetHost.endsWith('.' + h));
-
-    if (!isHostInScope) {
-      return {
-        status: 'preflight_denied',
-        contractVersion: TLS_INSPECTION_CONTRACT_VERSION,
-        targetHost,
-        reasonCode: 'target_out_of_scope',
-        reason: 'Target host is outside authorized scope boundaries',
-        explicitNonClaims: TLS_INSPECTION_NON_CLAIMS,
-        lineage: request.lineage,
-      };
-    }
+    const targetHost = preflight.targetHost!;
+    const extractedPort = preflight.extractedPort;
 
     // Execution Phase: Assemble isolated tlsx CLI arguments
     const args = [

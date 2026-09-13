@@ -145,7 +145,8 @@ export function evaluateHumanReviewedEvidencePromotion(
     return { ...baseResult, status: "failed", reasonCode: "human_review_required" };
   }
 
-  if (!["approve_evidence", "reject", "needs_more_review"].includes(reviewDecision.decision)) {
+  const decisionVal = reviewDecision.decision;
+  if (decisionVal !== "approve_evidence" && decisionVal !== "reject" && decisionVal !== "needs_more_review") {
     return { ...baseResult, status: "failed", reasonCode: "invalid_promotion_request" };
   }
 
@@ -158,7 +159,7 @@ export function evaluateHumanReviewedEvidencePromotion(
   }
 
   baseResult.reviewSummary = {
-    decision: reviewDecision.decision as any,
+    decision: decisionVal,
     reviewerId: reviewDecision.reviewerId,
     reviewedAt: reviewDecision.reviewedAt
   };

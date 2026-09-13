@@ -99,7 +99,7 @@ export function validateReviewedEvidenceFindingCandidateDraft(draft: any): boole
   if (!etc || typeof etc !== "object") return false;
   let typeSum = 0;
   for (const [k, v] of Object.entries(etc)) {
-    if (!ALLOWED_EVIDENCE_TYPES.includes(k as any)) return false;
+    if (!(ALLOWED_EVIDENCE_TYPES as readonly string[]).includes(k)) return false;
     if (typeof v !== "number" || !Number.isInteger(v) || v <= 0) return false;
     typeSum += v;
   }
@@ -109,7 +109,7 @@ export function validateReviewedEvidenceFindingCandidateDraft(draft: any): boole
   if (!sc || typeof sc !== "object") return false;
   let strengthSum = 0;
   for (const [k, v] of Object.entries(sc)) {
-    if (!ALLOWED_EVIDENCE_STRENGTHS.includes(k as any)) return false;
+    if (!(ALLOWED_EVIDENCE_STRENGTHS as readonly string[]).includes(k)) return false;
     if (typeof v !== "number" || !Number.isInteger(v) || v <= 0) return false;
     strengthSum += v;
   }

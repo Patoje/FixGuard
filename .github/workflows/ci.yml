@@ -1,0 +1,39 @@
+name: FixGuard V2 CI
+
+on:
+  push:
+    branches:
+      - v2
+      - main
+  pull_request:
+    branches:
+      - v2
+      - main
+
+jobs:
+  validate:
+    name: Typecheck and Smoke Tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+          cache-dependency-path: worker/package-lock.json
+
+      - name: Install Worker Dependencies
+        working-directory: worker
+        run: npm ci || npm install
+
+      - name: Typecheck V2 (tsc -p tsconfig.v2.json)
+        working-directory: worker
+        run: npm run typecheck:v2
+
+      - name: Run Non-Network V2 Smoke Suite (npm run check:v2)
+        working-directory: worker
+        run: npm run check:v2

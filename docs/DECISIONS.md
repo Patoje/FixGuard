@@ -226,3 +226,25 @@
 - **What NOT to do:**
   - Never require a live database connection to run standard unit or regression smoke tests.
   - Never embed database queries or Drizzle constructs inside domain services.
+
+---
+
+## ADR-012: Scope Boundaries and Strategic Non-Goals (ADR-002 Scope Series)
+
+- **ID:** ADR-012 / ADR-002 (Scope Series)
+- **Status:** `ACCEPTED` (`CONFIRMED` in `docs/decisions/ADR-002-scope-boundaries.md`)
+- **Context:**
+  FixGuard V2 is an authorized, defensive web security assessment platform (DAST / ASM). Clear boundaries are required to prevent feature sprawl, domain dilution, and wasteful reimplementation of solved problems.
+- **Decision:**
+  1. **Rejection of Interactive Proxy Parity**: FixGuard explicitly rejects building real-time interactive HTTP interception proxy parity with Burp Suite / OWASP ZAP. FixGuard operates strictly via deferred, authorized batch evaluation with atomic preflight validation.
+  2. **Rejection of Native SAST Built From Scratch**: Building a proprietary static analysis / AST engine from scratch is rejected. Code-level analysis will strictly wrap mature tools (e.g., Semgrep) via typed adapters.
+  3. **Rejection of Mature Tool Reimplementation**: Reimplementing network discovery or reconnaissance tools (subfinder, naabu, httpx, ffuf, dnsx, tlsx, arjun) in native TypeScript is rejected. FixGuard wraps audited binaries via `ProcessRunner` (`shell: false`) and provides authorization branding, SSRF egress containment, and evidence custody.
+- **Motive:**
+  Focus engineering effort where FixGuard provides unique value: trust, verified authorization, atomic preflight gates, SSRF containment, and human-in-the-loop review custody.
+- **Consequences:**
+  All reconnaissance and analysis operations run through isolated adapters with continuous lineage and explicit non-claims.
+- **What NOT to do:**
+  - Never author native AST or rule-compilation engines from scratch.
+  - Never attempt to build an interactive in-line HTTP proxy daemon.
+  - Never reimplement mature CLI network tools in TypeScript.
+

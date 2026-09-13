@@ -48,7 +48,7 @@ export class RealHttpHeaderInspectTransport implements HttpHeaderInspectTranspor
         port: parsed.port || (isHttps ? 443 : 80),
         path: parsed.pathname + parsed.search,
         timeout: timeoutMs,
-        lookup: customLookup as any, // custom lookup
+        lookup: customLookup,
         headers: {
           'User-Agent': 'FixGuard-Recon/2.0 (Security Audit Platform)'
         }

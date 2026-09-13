@@ -2,8 +2,11 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import type { ProcessRunner } from '../../core/ProcessRunner.js';
-import { isRuntimeEstablishedVerifiedAuthorizationDecision } from '../../authorization/VerifiedAuthorizationDecisionService.js';
 import { isInternalOrSsrfTarget } from '../policy/PassiveEgressPolicy.js';
+import {
+  runAdapterPreflight,
+  type PreSpawnDnsResolver,
+} from './AdapterPreflightPipeline.js';
 import {
   PARAMETER_DISCOVERY_CONTRACT_VERSION,
   PARAMETER_DISCOVERY_NON_CLAIMS,
@@ -15,191 +18,43 @@ import {
 } from './ParameterDiscoveryContracts.js';
 
 export class ArjunAdapter implements ParameterDiscoveryTool {
-  constructor(private readonly processRunner: ProcessRunner) {}
+  constructor(
+    private readonly processRunner: ProcessRunner,
+    private readonly dnsResolver?: PreSpawnDnsResolver
+  ) {}
 
   async discoverParameters(request: ParameterDiscoveryRequest): Promise<ParameterDiscoveryResult> {
     const rawTarget = typeof request.targetUrl === 'string' ? request.targetUrl.trim() : '';
 
-    // 1. Atomic Preflight: Target URL format validation
-    if (!rawTarget) {
-      return {
-        status: 'preflight_denied',
-        contractVersion: PARAMETER_DISCOVERY_CONTRACT_VERSION,
-        targetUrl: request.targetUrl,
-        reasonCode: 'invalid_target_format',
-        reason: 'Target URL cannot be empty',
-        explicitNonClaims: PARAMETER_DISCOVERY_NON_CLAIMS,
-        lineage: request.lineage,
-      };
-    }
+    // Unified Atomic Preflight Gate
+    const preflight = await runAdapterPreflight({
+      target: rawTarget,
+      targetKind: 'url',
+      verifiedAuthorizationDecision: request.verifiedAuthorizationDecision,
+      authorizedScopeGrant: request.authorizedScopeGrant,
+      lineage: request.lineage,
+      permissionCheck: (ps) =>
+        Boolean(
+          ps.endpointDiscovery ||
+          ps.activeValidation ||
+          ps.lightValidation ||
+          ps.activeCrawling ||
+          ps.passiveRecon ||
+          ps.technologyFingerprinting ||
+          ('activeRecon' in ps && (ps as { activeRecon?: boolean }).activeRecon)
+        ),
+      missingPermissionReason: 'Scope grant does not permit parameter discovery or active reconnaissance',
+      targetOutOfScopeReason: 'Target URL host is outside authorized scope boundaries',
+      dnsResolver: this.dnsResolver,
+    });
 
-    let targetHost = '';
-    try {
-      const u = new URL(rawTarget);
-      if (u.protocol !== 'http:' && u.protocol !== 'https:') {
-        return {
-          status: 'preflight_denied',
-          contractVersion: PARAMETER_DISCOVERY_CONTRACT_VERSION,
-          targetUrl: rawTarget,
-          reasonCode: 'invalid_target_format',
-          reason: 'Target URL protocol must be HTTP or HTTPS',
-          explicitNonClaims: PARAMETER_DISCOVERY_NON_CLAIMS,
-          lineage: request.lineage,
-        };
-      }
-      targetHost = u.hostname.trim().toLowerCase().replace(/\.$/, '');
-    } catch {
+    if (!preflight.ok) {
       return {
         status: 'preflight_denied',
         contractVersion: PARAMETER_DISCOVERY_CONTRACT_VERSION,
         targetUrl: rawTarget,
-        reasonCode: 'invalid_target_format',
-        reason: 'Target URL is malformed',
-        explicitNonClaims: PARAMETER_DISCOVERY_NON_CLAIMS,
-        lineage: request.lineage,
-      };
-    }
-
-    if (!targetHost) {
-      return {
-        status: 'preflight_denied',
-        contractVersion: PARAMETER_DISCOVERY_CONTRACT_VERSION,
-        targetUrl: rawTarget,
-        reasonCode: 'invalid_target_host',
-        reason: 'Target URL does not contain a valid host',
-        explicitNonClaims: PARAMETER_DISCOVERY_NON_CLAIMS,
-        lineage: request.lineage,
-      };
-    }
-
-    // 2. Atomic Preflight: Target host SSRF pre-check
-    if (isInternalOrSsrfTarget(targetHost)) {
-      return {
-        status: 'preflight_denied',
-        contractVersion: PARAMETER_DISCOVERY_CONTRACT_VERSION,
-        targetUrl: rawTarget,
-        reasonCode: 'ssrf_target_blocked',
-        reason: 'Target URL host points to prohibited internal, loopback, or metadata address',
-        explicitNonClaims: PARAMETER_DISCOVERY_NON_CLAIMS,
-        lineage: request.lineage,
-      };
-    }
-
-    // 3. Atomic Preflight: Runtime-branded authorization verification
-    if (
-      !request.verifiedAuthorizationDecision ||
-      !isRuntimeEstablishedVerifiedAuthorizationDecision(request.verifiedAuthorizationDecision)
-    ) {
-      return {
-        status: 'preflight_denied',
-        contractVersion: PARAMETER_DISCOVERY_CONTRACT_VERSION,
-        targetUrl: rawTarget,
-        reasonCode: 'authorization_unconfirmed',
-        reason: 'Authorization decision is not runtime-established or lacks valid verification brand',
-        explicitNonClaims: PARAMETER_DISCOVERY_NON_CLAIMS,
-        lineage: request.lineage,
-      };
-    }
-
-    if (request.verifiedAuthorizationDecision.decision !== 'authorized') {
-      return {
-        status: 'preflight_denied',
-        contractVersion: PARAMETER_DISCOVERY_CONTRACT_VERSION,
-        targetUrl: rawTarget,
-        reasonCode: 'authorization_denied',
-        reason: 'Authorization decision is not in authorized state',
-        explicitNonClaims: PARAMETER_DISCOVERY_NON_CLAIMS,
-        lineage: request.lineage,
-      };
-    }
-
-    // 4. Atomic Preflight: Continuous Lineage tuple integrity verification
-    const dec = request.verifiedAuthorizationDecision;
-    const grant = request.authorizedScopeGrant;
-    const lin = request.lineage;
-
-    if (
-      lin.scanId !== dec.scanId ||
-      lin.assessmentId !== dec.assessmentId ||
-      lin.authorizationGrantId !== grant.grantId ||
-      lin.authorizationDecisionId !== dec.authorizationDecisionId
-    ) {
-      return {
-        status: 'preflight_denied',
-        contractVersion: PARAMETER_DISCOVERY_CONTRACT_VERSION,
-        targetUrl: rawTarget,
-        reasonCode: 'lineage_mismatch',
-        reason: 'Execution lineage does not match authorization decision and scope grant',
-        explicitNonClaims: PARAMETER_DISCOVERY_NON_CLAIMS,
-        lineage: request.lineage,
-      };
-    }
-
-    // 5. Atomic Preflight: Scope permissions check
-    const ps = grant.permissionSet;
-    let hasPermission = Boolean(
-      ps.endpointDiscovery ||
-      ps.activeValidation ||
-      ps.lightValidation ||
-      ps.activeCrawling ||
-      ps.passiveRecon ||
-      ps.technologyFingerprinting
-    );
-    if (!hasPermission && 'activeRecon' in ps) {
-      const ext = ps as typeof ps & { activeRecon?: boolean };
-      if (ext.activeRecon) {
-        hasPermission = true;
-      }
-    }
-
-    if (!hasPermission) {
-      return {
-        status: 'preflight_denied',
-        contractVersion: PARAMETER_DISCOVERY_CONTRACT_VERSION,
-        targetUrl: rawTarget,
-        reasonCode: 'missing_permission',
-        reason: 'Scope grant does not permit parameter discovery or active reconnaissance',
-        explicitNonClaims: PARAMETER_DISCOVERY_NON_CLAIMS,
-        lineage: request.lineage,
-      };
-    }
-
-    // 6. Atomic Preflight: Scope boundaries check
-    const allowedDomains = (grant.boundaries.allowedDomains ?? []).map((d) =>
-      d.trim().toLowerCase().replace(/\.$/, '')
-    );
-    const allowedHosts = (grant.boundaries.allowedHosts ?? []).map((h) =>
-      h.trim().toLowerCase().replace(/\.$/, '')
-    );
-    const subjectDomain = grant.subject.domain?.trim().toLowerCase().replace(/\.$/, '');
-    const subjectHost = grant.subject.host?.trim().toLowerCase().replace(/\.$/, '');
-
-    const originHosts: string[] = [];
-    for (const origin of grant.boundaries.allowedOrigins ?? []) {
-      try {
-        const u = new URL(origin);
-        originHosts.push(u.hostname.trim().toLowerCase().replace(/\.$/, ''));
-      } catch {
-        // ignore malformed origin strings
-      }
-    }
-
-    const isHostInScope = (host: string): boolean =>
-      allowedDomains.includes(host) ||
-      allowedDomains.some((d) => host.endsWith('.' + d)) ||
-      allowedHosts.includes(host) ||
-      subjectDomain === host ||
-      subjectHost === host ||
-      originHosts.includes(host) ||
-      originHosts.some((h) => host.endsWith('.' + h));
-
-    if (!isHostInScope(targetHost)) {
-      return {
-        status: 'preflight_denied',
-        contractVersion: PARAMETER_DISCOVERY_CONTRACT_VERSION,
-        targetUrl: rawTarget,
-        reasonCode: 'target_out_of_scope',
-        reason: 'Target URL host is outside authorized scope boundaries',
+        reasonCode: preflight.reasonCode,
+        reason: preflight.reason,
         explicitNonClaims: PARAMETER_DISCOVERY_NON_CLAIMS,
         lineage: request.lineage,
       };
@@ -326,6 +181,35 @@ export class ArjunAdapter implements ParameterDiscoveryTool {
           }
         }
       }
+
+      const grant = request.authorizedScopeGrant;
+      const allowedDomains = (grant.boundaries.allowedDomains ?? []).map((d) =>
+        d.trim().toLowerCase().replace(/\.$/, '')
+      );
+      const allowedHosts = (grant.boundaries.allowedHosts ?? []).map((h) =>
+        h.trim().toLowerCase().replace(/\.$/, '')
+      );
+      const subjectDomain = grant.subject.domain?.trim().toLowerCase().replace(/\.$/, '');
+      const subjectHost = grant.subject.host?.trim().toLowerCase().replace(/\.$/, '');
+
+      const originHosts: string[] = [];
+      for (const origin of grant.boundaries.allowedOrigins ?? []) {
+        try {
+          const u = new URL(origin);
+          originHosts.push(u.hostname.trim().toLowerCase().replace(/\.$/, ''));
+        } catch {
+          // ignore malformed origin strings
+        }
+      }
+
+      const isHostInScope = (host: string): boolean =>
+        allowedDomains.includes(host) ||
+        allowedDomains.some((d) => host.endsWith('.' + d)) ||
+        allowedHosts.includes(host) ||
+        subjectDomain === host ||
+        subjectHost === host ||
+        originHosts.includes(host) ||
+        originHosts.some((h) => host.endsWith('.' + h));
 
       const processEntry = (entryUrl: string, params: unknown) => {
         if (!entryUrl || typeof entryUrl !== 'string' || !Array.isArray(params)) return;

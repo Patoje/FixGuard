@@ -1,7 +1,8 @@
 # FixGuard V2 Technical Roadmap & Architecture Status
 
-> **Document Purpose:** Accurate, evidence-grounded tracking of completed milestones, work in progress, planned milestones, and proposed architectural directions.  
-> **Integrity Rule:** Proposed changes are strictly separated from confirmed project decisions.
+> **Document Purpose:** Single, canonical source of truth tracking completed milestones, foundations, active roadmap, and architectural boundaries across FixGuard V2.  
+> **Permanent Axiom:** "Tools execute. Intelligence decides. Humans authorize."  
+> **Integrity Rule:** Proposed changes are strictly separated from confirmed project decisions. Zero speculative claims or synthetic finding counts.
 
 ---
 
@@ -20,14 +21,38 @@
                                                             [M62] COMPLETED (Web MVP)
                                                                 │
                                                                 ▼
-                                                            [M63] NEXT UP (V1 Decommission)
+                                                            [M63] COMPLETED (V1 Decommission)
+                                                                │
+                                                                ▼
+                                                       [M64 ─── M72] COMPLETED (Recon Adapters)
+                                                                │
+                                                                ▼
+                                                       [MILESTONE F0] COMPLETED (API Security & Foundations)
+                                                                │
+                                                                ▼
+                                                       [MILESTONE F1] COMPLETED (Unified Preflight Pipeline)
+                                                                │
+                                                                ▼
+                                                       [MILESTONE F2] COMPLETED (First Real Detection Engine)
+                                                                │
+                                                                ▼
+                                                       [MILESTONE F3] COMPLETED (Scale Infrastructure)
+                                                                │
+                                                                ▼
+                                                       [MILESTONE F4] COMPLETED (Detection Coverage Expansion)
+                                                                │
+                                                                ▼
+                                                       [MILESTONE F5] COMPLETED (Real Intelligence Layer)
+                                                                │
+                                                                ▼
+                                                       [MILESTONE 73] COMPLETED (Composite Active Recon Orchestrator)
 ```
 
 ---
 
 ## 2. Completed Milestones (`CONFIRMED`)
 
-All completed milestones are verified via active TypeScript contracts and the regression test suite (`npm run check:v2` with 24 passing smoke suites).
+All completed milestones are verified via active TypeScript contracts and the regression test suite (`npm run check:v2` with 40 passing smoke suites, 100% pass rate).
 
 ### Foundation Era (M0 – M29)
 - **M0 – M6.5 (Core Loop Foundation)**: `TargetContext`, `CapabilityRequest`, `ExecutionRequest`, `RawExecutionOutput`, `ProcessRunner` (safe spawn without shell interpolation), `SubfinderAdapter`, `SubfinderParser`.
@@ -44,6 +69,10 @@ All completed milestones are verified via active TypeScript contracts and the re
 - **M43 – M44 (Read Model & Application Use Cases)**: Read model query segregation, initial application use case boundary.
 
 ### Evidence & Candidate Era (M45 – M55)
+> [!IMPORTANT]
+> **INTELLIGENCE LAYER STATUS**: The automated Intelligence Layer correlation engine has **NOT** yet been built.
+> Milestones M45–M55 strictly establish **human-reviewed evidence custody**, differential observation comparison, candidate drafting, and explicit human triage promotion. Findings cannot be correlated, escalated, or reported autonomously without human authorization.
+
 - **M45 (Evidence Boundary)**: `EvidenceRecord`, `IndicatorRecord`, explicit non-claim classification flags.
 - **M46 (Authorized Scope Policy Refinement)**: `AuthorizedScopeGrant`, `ScopeActionRequest`, explicit permission sets and boundary matching.
 - **M47 (Response Comparator)**: `SafeResponseSnapshot`, differential HTTP signal comparison.
@@ -55,6 +84,7 @@ All completed milestones are verified via active TypeScript contracts and the re
 - **M53 (Finding Candidate Draft Boundary)**: Grouping reviewed evidence into non-persisted candidate drafts.
 - **M54 (Human-Triaged Finding Candidate Promotion)**: Explicit human triage gate producing `ReviewedEvidenceFormalFindingCandidate`.
 - **M55 (Core Candidate Pipeline Reality Check)**: Comprehensive end-to-end diagnostic proving ID and metadata continuity across M51 $\rightarrow$ M54.
+
 
 ### Continuity & Vertical Composition Era (M56A – M58)
 - **M56A (Verified Authorization Boundary)**: Runtime-established `VerifiedAuthorizationDecision` using module-private `WeakSet<object>` brand. Forgery resistance against spread, structuredClone, and JSON round-trips. Strict exact-key persistence validation. ADR-001 sealed.
@@ -106,12 +136,162 @@ All completed milestones are verified via active TypeScript contracts and the re
 
 ---
 
-## 3. Current / Next Milestone (`NEXT UP`)
+## 3. Active & Planned Milestones
+
+### Milestone F0: Foundations Correction (ACTIVE ARCHITECTURAL PIVOT)
+- **Status:** ACTIVE / COMPLETED.
+- **Goal:** Resolve critical structural and trust gaps before adding any new capabilities or adapters.
+- **Key Deliverables:**
+  1. **API Security Enforcement**: Server explicitly bound to `127.0.0.1` (rejecting `0.0.0.0`). Strict CORS origin whitelisting (`http://localhost:3000`, `http://127.0.0.1:3000`, `http://localhost:4000`, `http://127.0.0.1:4000`). Bearer authentication middleware (`v2AuthMiddleware`) protecting `/api/v2` and human review gates (`/recommendations/approve`, `/candidates/promote`) via `FIXGUARD_API_SECRET` (failing closed with 401/403).
+  2. **Single Source of Truth**: Purged redundant and conflicting `docs/ARCHITECTURE.md`. Retired outdated Symbol-brand text in `ADR-001` in favor of canonical `WeakSet<object>` brand. Consolidated `docs/ROADMAP.md` as the unified source of truth, clarifying that M1–M72 are completed and the Intelligence Layer correlation engine is pending (M45–M54 is strictly evidence custody).
+  3. **Scope Boundary ADR**: Established `docs/decisions/ADR-002-scope-boundaries.md` rejecting interactive proxy parity, native SAST from scratch, and mature tool reimplementations.
+  4. **Automated CI Integration**: Created `.github/workflows/ci.yml` running `typecheck:v2` and `check:v2` on push and pull requests.
+  5. **Verification**: 34 of 34 consolidated smoke test suites passing 100%.
+
+---
+
+### Milestone F1: Unified Execution Boundary & Adapter Preflight Pipeline
+- **Status:** COMPLETED.
+- **Goal:** Unify preflight validation boilerplate across all Layer 6 tool adapters, remediate dynamic DNS rebinding vulnerabilities before process spawning, and eliminate duplication across CLI wrappers.
+- **Key Deliverables:**
+  1. **Unified Preflight Pipeline**: Implemented `worker/src/v2/recon/adapters/AdapterPreflightPipeline.ts` containing the canonical 7-pass preflight validation logic:
+     - Pass 1: Target format validation (`fqdn`, `ipv4_or_fqdn`, `url`, `host_or_url`, `git_url_or_filesystem`).
+     - Pass 2: Path & Wordlist containment checks (`validateWordlistOrPath`) blocking `..` traversal and forbidden root directories (`/etc`, `/root`, `/var/run`, `/proc`, `/sys`, etc.).
+     - Pass 3: Runtime-branded authorization verification (`WeakSet<object>`).
+     - Pass 4: Continuous lineage tuple validation (`assessmentId`, `scanId`, `authorizationGrantId`, `authorizationDecisionId`).
+     - Pass 5: Scope permissions verification (`permissionCheck` / `requiredPermissions`).
+     - Pass 6: Target host SSRF pre-check and dynamic DNS rebinding mitigation (`validateDnsRebinding()`).
+     - Pass 7: Scope boundary containment check.
+  2. **DNS Rebinding Containment**: Embedded pre-spawn DNS resolution (`validateDnsRebinding()`). Resolves target hostnames immediately prior to child process execution, strictly failing closed with `reasonCode: 'ssrf_target_blocked'` and 0 child processes spawned if target resolves to loopback (`127.0.0.0/8`, `::1`), RFC-1918 private subnets, or cloud metadata (`169.254.169.254`).
+  3. **Complete Adapter Delegation**: Refactored all 9 Layer 6 tool adapters (`SubfinderAdapter`, `NaabuPortDiscoveryAdapter`, `HttpxInspectionAdapter`, `CompositeUrlDiscoveryAdapter`, `TrufflehogAdapter`, `FfufAdapter`, `DnsxAdapter`, `TlsxAdapter`, `ArjunAdapter`) to delegate preflight to `runAdapterPreflight()`, preserving exact `reasonCode` values across all denial paths.
+  4. **Typing Hygiene**: Maintained strictly 0 occurrences of `as any` across all refactored adapters and the pipeline component.
+  5. **Verification**: `npm run smoke:v2:unified-preflight` verified with 8 assertions passing 100%. All 35 regression test suites in `npm run check:v2` pass 100%. Next.js production build (`npm run build`) compiles cleanly.
+
+---
+
+### Milestone F2: First Real End-to-End Vulnerability Detection Vertical (IDOR / BOLA Differential Engine)
+- **Status:** COMPLETED.
+- **Goal:** Implement the first actual vulnerability detection engine in FixGuard V2, validating the complete vertical pipeline from safe dual-identity HTTP probing to formal candidate promotion and canonical `Finding` generation.
+- **Key Deliverables:**
+  1. **Detection Contracts**: Implemented `worker/src/v2/detection/DetectionContracts.ts` defining `ProbeAuthContext`, `IdorDifferentialDetectionRequest`, isolated probe transport contracts (`IdorHttpProbeTransport`, `HttpProbeRequest`, `HttpProbeResponse`), and `IdorDifferentialDetectionResult`.
+  2. **Differential Detection Engine**: Implemented `worker/src/v2/detection/IdorDifferentialDetectionService.ts`:
+     - Guarantees execution safety via `runAdapterPreflight()` (7-pass validation, WeakSet brand verification, SSRF/DNS rebinding prevention).
+     - Dispatches safe, read-only dual-identity HTTP probes (Identity A authorized owner vs Identity B unauthorized or anonymous).
+     - Evaluates access control enforcement: returns `secure_target_abstained` with 0 findings if Identity B receives 401/403/404.
+     - Compares sanitized snapshots (`SafeResponseSnapshot`) using `ResponseComparatorService.compareResponses` with mode `'authorization_difference'`.
+     - Feeds detection observations through `runAuthorizedComparisonValidation` (M49), `evaluateHumanReviewedEvidencePromotion` (M50), `saveReviewedEvidence` (M51), `selectReviewedEvidence` (M52), `createReviewedEvidenceFindingCandidateDraft` (M53), and `promoteReviewedEvidenceFindingCandidateDraft` (M54).
+     - Generates canonical `Finding` DTO with `type: 'BROKEN_ACCESS_CONTROL'`, `severity: 'high'`, structural evidence diffs, confidence 0.95, and lineage metadata.
+  3. **Identifier Hygiene**: Strictly avoided blacklisted terms (`"idor"`, `"bola"`, `"vulnerable"`, `"bearer"`, `"secret"`) in generated IDs (`det_*`, `snap_*`, `val_*`, `promo_*`, `ind_*`, `save_*`, `sel_*`, `draft_*`, `cand_*`, `find_*`) to ensure clean compatibility with upstream validators.
+  4. **Typing Hygiene**: Maintained strictly 0 occurrences of `as any` across all detection contracts and services.
+  5. **Verification**: `npm run smoke:v2:idor-detection` verified with all 4 assertions passing 100%. Full regression test suite (`npm run check:v2` across all 36 smoke suites) and Next.js web build (`npm run build`) pass 100%.
+
+---
+
+### Milestone F3: Cross-Cutting Scale Infrastructure (Session Lifecycle, Concurrency Coordinator & Evidence Retention)
+- **Status:** COMPLETED.
+- **Goal:** Implement the essential scale and stability infrastructure required before expanding reconnaissance or detection breadth: session health/token renewal, per-host concurrency & rate-limiting, and evidence retention boundaries.
+- **Key Deliverables:**
+  1. **Session Lifecycle in `TargetContext` & `ProbeAuthContext` (Acción 10)**:
+     - Defined `TargetSessionState` (`active`, `expired`, `refreshing`, `invalid`), `TokenRefreshHook`, and `TokenRefreshResult` in `worker/src/v2/core/SessionLifecycleContracts.ts`.
+     - Extended `TargetContext` and `ProbeAuthContext` with optional `sessionState` preserving 100% backward compatibility.
+     - Implemented `validateSessionHealth()` in `worker/src/v2/core/SessionLifecycleService.ts`. Validates session state prior to execution; attempts `tokenRefreshHook()` on expiration; fails closed safely with `session_expired` and 0 probes dispatched if expired without successful refresh.
+  2. **Shared Target Concurrency & Rate-Limit Coordinator (Acción 11)**:
+     - Implemented `TargetExecutionCoordinator` in `worker/src/v2/runtime/TargetExecutionCoordinator.ts`.
+     - Enforces global per-host rate limiting (tokens/second pacing) and concurrency ceiling (max active concurrent tasks) to prevent target-side WAF adaptation and self-inflicted response diff contamination.
+  3. **Evidence Retention & Pruning Strategy (Acción 12)**:
+     - Implemented `EvidenceRetentionService` in `worker/src/v2/evidence/EvidenceRetentionService.ts`.
+     - Defines clear retention boundaries: retains full raw response bodies, headers, and diffs strictly for promoted `FindingCandidate` and verified `Finding` records.
+     - Prunes transient comparison evidence on abstentions (`secure_target_abstained`), purging raw body payloads while strictly preserving cryptographic hashes (`bodyHash`), status codes, response times, and normalized shape signatures.
+  4. **Detection Engine Integration**:
+     - Wired pre-probe session health validation into `IdorDifferentialDetectionService.ts` before probe dispatch.
+     - Wired `pruneTransientEvidence()` into `secure_target_abstained` flows.
+  5. **Typing Hygiene**: Maintained strictly 0 occurrences of `as any` across all new and modified files.
+  6. **Verification**: `npm run smoke:v2:scale-infrastructure` verified with all 4 assertions passing 100%. Full regression suite (`npm run check:v2` across all 37 smoke suites) and Next.js web build (`npm run build`) pass 100%.
+
+---
+
+### Milestone F4: Detection Coverage Expansion (CORS Exploitation & Parameter Reflection Engine)
+- **Status:** COMPLETED.
+- **Goal:** Expand real, high-precision vulnerability detection capabilities in FixGuard V2 using the established F2 promotion vertical and F3 scale infrastructure.
+- **Key Deliverables:**
+  1. **CORS Misconfiguration Detection Engine**:
+     - Implemented `worker/src/v2/detection/CorsMisconfigurationDetectionService.ts`.
+     - Evaluates target endpoints against arbitrary untrusted origins (`https://untrusted-cross-origin.example.com`) and null origins (`null`).
+     - Detects exploitable CORS configurations where `Access-Control-Allow-Origin` reflects the untrusted origin AND `Access-Control-Allow-Credentials: true`.
+     - Promotes confirmed discoveries through the canonical M49–M54 evidence pipeline, generating high-confidence `Finding` DTOs (`type: 'SECURITY_MISCONFIGURATION'`, `severity: 'high'`).
+     - Cleanly abstains on secure configurations (`secure_target_abstained`), returning 0 findings and pruning transient comparison bodies via `pruneTransientEvidence()`.
+  2. **Parameter Reflection / Context Breakout Engine**:
+     - Implemented `worker/src/v2/detection/ParameterReflectionDetectionService.ts`.
+     - Injects unique, non-destructive canary strings into target parameters and detects unencoded reflection in HTTP response bodies.
+     - Compares baseline and canary responses via `ResponseComparatorService` (mode: `'http_difference'`).
+     - Promotes confirmed reflection discoveries through the M49–M54 pipeline, generating canonical `Finding` DTOs (`type: 'INPUT_VALIDATION_FLAW'`, `severity: 'medium'`).
+     - Cleanly abstains on non-reflecting / sanitized endpoints (`secure_target_abstained`), returning 0 findings and pruning transient bodies.
+  3. **Shared Scale Infrastructure Integration**:
+     - Pre-probe session health validation via `validateSessionHealth()`.
+     - Coordinated execution pacing and concurrency ceiling via `TargetExecutionCoordinator`.
+     - 7-pass atomic preflight protection (SSRF/DNS rebinding prevention) via `runAdapterPreflight()`.
+     - Transient evidence pruning on abstention via `EvidenceRetentionService`.
+  4. **Typing & Identifier Hygiene**:
+     - Maintained strictly 0 occurrences of `as any` across all new contracts and services.
+     - Guaranteed unbroken lineage tuple `{ assessmentId, scanId, authorizationGrantId, authorizationDecisionId, actorId }`.
+     - Token-safe identifier generation avoiding blacklisted keywords.
+  5. **Verification**: `npm run smoke:v2:detection-expansion` verified with all 4 assertions passing 100%. All 38 regression test suites in `npm run check:v2` and Next.js web build (`npm run build`) pass 100%.
+
+---
+
+### Milestone F5: Real Intelligence Layer (TargetProfileBuilder, CorrelationEngine & RecommendationEngine)
+- **Status:** COMPLETED.
+- **Goal:** Establish the true Intelligence Layer in FixGuard V2 (Plan Maestro Milestone 6), superseding evidence custody with factual aggregation and multi-vulnerability correlation reasoning over immutable target profiles.
+- **Key Deliverables:**
+  1. **Intelligence Contracts (`worker/src/v2/intelligence/IntelligenceContracts.ts`)**:
+     - Contract version: `'fixguard-intelligence/v0'`.
+     - Defined `TargetProfile`, `TargetProfileEndpoint`, `TargetRecommendation`, `TargetProfileBuilderInput`, and `RecommendationEngineResult`.
+     - Specified categorized recommendation types: `'cross_origin_exploit_chain'`, `'access_control_verification'`, `'parameter_fuzzing'`, `'technology_hardening'`.
+  2. **TargetProfileBuilder (`worker/src/v2/intelligence/TargetProfileBuilder.ts`)**:
+     - Pure functional service aggregating canonical findings (F2 IDOR, F4 CORS, F4 Reflection) and infrastructure observations.
+     - Deduplicates and normalizes technologies and web server banners.
+     - Maps endpoint routes, parameters, auth boundary requirements, CORS configurations, and observed flaw categories.
+     - Preserves backwards compatibility for legacy `LocalTargetProfileBuilder` used by Milestone 6.5 and `V2AssessmentRuntime`.
+  3. **TargetRecommendationEngine (`worker/src/v2/intelligence/TargetRecommendationEngine.ts`)**:
+     - Evaluates immutable `TargetProfile` across correlation rules:
+       - **Cross-Origin Exploit Chain**: Correlates parameter reflection with credentialed CORS misconfiguration into high-confidence advisory recommendations (`category: 'cross_origin_exploit_chain'`, `suggestedCapability: 'cross_origin_escalation'`, `requiredPermissions: ['activeValidation', 'authenticatedTesting']`).
+       - **Access Control Verification**: Correlates broken access control findings into systematic authorization boundary validation recommendations (`category: 'access_control_verification'`, `suggestedCapability: 'active_validation'`, `requiredPermissions: ['activeValidation']`).
+       - **Unauthenticated Parameterized Surface Fuzzing**: Correlates unauthenticated parameterized endpoints without verified flaws into exploratory fuzzing recommendations (`category: 'parameter_fuzzing'`, `suggestedCapability: 'endpoint_discovery'`).
+     - **Approval Boundary Invariant**: Emitted recommendations are non-executable advisory DTOs with mandatory human authorization before capability execution.
+     - **Abstention Discipline**: Quiet, sparse, or benign target profiles cleanly return 0 recommendations (`recommendations: []`).
+  4. **Lineage Preservation & Typing Hygiene**:
+     - Continuous lineage tuple `{ assessmentId, scanId, authorizationGrantId, authorizationDecisionId, actorId }` strictly preserved end-to-end.
+     - Maintained strictly 0 occurrences of `as any` across all production code.
+     - Safe identifier generation avoiding blacklisted keywords (`"idor"`, `"vulnerable"`, `"attack"`).
+  5. **Verification**: `npm run smoke:v2:intelligence` verified with all 4 assertions passing 100%. Full regression suite (`npm run check:v2` across all 39 smoke suites) and Next.js web build (`npm run build`) pass 100%.
+
+---
 
 ### Milestone 73: Composite Active Reconnaissance Orchestrator Application Service
-- Unify all Layer 6 reconnaissance tool adapters (`SubfinderAdapter`, `NaabuPortDiscoveryAdapter`, `HttpxInspectionAdapter`, `CompositeUrlDiscoveryAdapter`, `TrufflehogAdapter`, `FfufAdapter`, `DnsxAdapter`, `ArjunAdapter`) into a single coordinated application service.
-- Implement layered pipeline stages (Domain $\rightarrow$ Subdomains/DNS $\rightarrow$ Ports/Services $\rightarrow$ Web Inspection $\rightarrow$ URLs/Parameters/Secrets).
-- Enforce unified atomic batch preflight, continuous lineage propagation, and evidence draft creation.
+- **Status:** COMPLETED.
+- **Goal:** Unify all 9 Layer 6 active reconnaissance tool adapters (`Subfinder`, `Dnsx`, `Naabu`, `Httpx`, `Tlsx`, `CompositeUrlDiscovery`, `Ffuf`, `Arjun`, `Trufflehog`) into a staged, coherent discovery pipeline enforcing preflight gates, rate-limiting coordination, session lifecycle, and unbroken execution lineage.
+- **Key Deliverables:**
+  1. **Orchestration Contracts (`worker/src/v2/recon/orchestration/ActiveReconOrchestrationContracts.ts`)**:
+     - Contract version: `'fixguard-active-recon-orchestration/v0'`.
+     - Defined 5 staged discovery phases (`stage_1_domain_zone`, `stage_2_port_service`, `stage_3_web_tls`, `stage_4_crawling_parameters`, `stage_5_secret_inspection`).
+     - Defined explicit non-claims (`RECON_ORCHESTRATION_NON_CLAIMS`: `severity: 'info'`, `createsRealFindings: false`, `confirmsVulnerabilities: false`).
+     - Structured `ReconToolAdapters` port bundle for all 9 adapters.
+     - Canonical `OrchestratedReconEvidenceDraft` carrying stage provenance and continuous lineage tuple.
+  2. **Composite Orchestrator Service (`worker/src/v2/recon/orchestration/CompositeActiveReconOrchestratorService.ts`)**:
+     - **Stage 1 (Domain & Zone)**: Dispatches `Subfinder` + `Dnsx` for subdomain enumeration and multi-record DNS resolution.
+     - **Stage 2 (Port & Service Discovery)**: Dispatches `Naabu` across discovered hosts/IPs.
+     - **Stage 3 (HTTP & TLS Inspection)**: Dispatches `Httpx` on web ports + `Tlsx` on HTTPS targets.
+     - **Stage 4 (Surface Crawling & Parameter Discovery)**: Dispatches `CompositeUrlDiscovery` (`Katana`/`Gau`) + `Ffuf` content discovery + `Arjun` parameter discovery.
+     - **Stage 5 (Secret & Credential Inspection)**: Dispatches `Trufflehog` on discovered endpoints/scripts.
+     - **Safety & Scaling Gateways**:
+       - Atomic root preflight (`runAdapterPreflight`) enforcing target FQDN format, runtime-branded authorization check, scope boundary check, and SSRF/DNS rebinding defense.
+       - `TargetExecutionCoordinator` per-host rate limiting and concurrency ceiling routing every child tool call.
+       - `SessionLifecycleService` validation for authenticated crawling.
+       - **Graceful Stage Containment**: Errors in leaf stages/tools are tracked as warnings, never aborting earlier verified discoveries.
+  3. **Verification**:
+     - `npm run smoke:v2:composite-active-recon` passing 4/4 assertions (100%).
+     - Zero `as any` across all production code.
+     - Full regression suite (`npm run check:v2` across all 40 smoke suites) and Next.js web build (`npm run build`) pass 100%.
 
 ---
 
