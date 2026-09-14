@@ -15,6 +15,10 @@
 import { runAdapterPreflight } from '../adapters/AdapterPreflightPipeline.js';
 import { validateSessionHealth } from '../../core/SessionLifecycleService.js';
 import { TargetExecutionCoordinator } from '../../runtime/TargetExecutionCoordinator.js';
+import {
+  CIRCUIT_OPEN_REASON_CODE,
+  TargetInstabilityError,
+} from '../../runtime/CircuitBreakerContracts.js';
 
 import type {
   ActiveReconOrchestrationRequest,
@@ -175,9 +179,37 @@ export class CompositeActiveReconOrchestratorService {
       });
     }
 
+    const buildCircuitBrokenResult = (host: string): ActiveReconOrchestrationResult => ({
+      status: 'circuit_broken',
+      contractVersion: ACTIVE_RECON_ORCHESTRATION_CONTRACT_VERSION,
+      targetDomain: request.targetDomain,
+      reasonCode: CIRCUIT_OPEN_REASON_CODE,
+      reason: `Target circuit breaker tripped to OPEN on '${host}' to protect target availability. Orchestration safely paused.`,
+      stages: stageResults,
+      drafts,
+      aggregatedObservations: {
+        subdomains,
+        dnsRecords,
+        ports,
+        webObservations,
+        tlsCertificates,
+        urls,
+        content,
+        parameters,
+        secrets,
+      },
+      explicitNonClaims: RECON_ORCHESTRATION_NON_CLAIMS,
+      lineage: { ...request.lineage },
+      durationMs: Date.now() - startTime,
+    });
+
     // =========================================================================
     // Stage 1: Domain & Zone Enumeration (Subfinder + Dnsx)
     // =========================================================================
+    if (coordinator.isCircuitOpen(request.targetDomain)) {
+      return buildCircuitBrokenResult(request.targetDomain);
+    }
+
     const stage1Start = Date.now();
     if (skipStages.has('stage_1_domain_zone')) {
       stageResults.push({
@@ -210,6 +242,16 @@ export class CompositeActiveReconOrchestratorService {
           stage1Warnings.push(`Subdomain discovery denied: ${subResult.reasonCode}`);
         }
       } catch (err) {
+        if (err instanceof TargetInstabilityError || coordinator.isCircuitOpen(request.targetDomain)) {
+          stageResults.push({
+            stage: 'stage_1_domain_zone',
+            status: 'partial_failure',
+            durationMs: Date.now() - stage1Start,
+            observationsCount: subdomains.length,
+            warnings: [`Circuit breaker tripped on ${request.targetDomain}`],
+          });
+          return buildCircuitBrokenResult(request.targetDomain);
+        }
         stage1Warnings.push(`Subdomain tool error: ${err instanceof Error ? err.message : String(err)}`);
       }
 
@@ -240,6 +282,18 @@ export class CompositeActiveReconOrchestratorService {
             }
           }
         } catch (err) {
+          if (err instanceof TargetInstabilityError || coordinator.isCircuitOpen(host)) {
+            createDraft('stage_1_domain_zone', request.targetDomain, 'subdomains', subdomains.length);
+            createDraft('stage_1_domain_zone', request.targetDomain, 'dns_records', dnsRecords.length);
+            stageResults.push({
+              stage: 'stage_1_domain_zone',
+              status: 'partial_failure',
+              durationMs: Date.now() - stage1Start,
+              observationsCount: subdomains.length + dnsRecords.length,
+              warnings: [`Circuit breaker tripped on ${host}`],
+            });
+            return buildCircuitBrokenResult(host);
+          }
           stage1Warnings.push(`DNS resolution error on ${host}: ${err instanceof Error ? err.message : String(err)}`);
         }
       }
@@ -256,9 +310,14 @@ export class CompositeActiveReconOrchestratorService {
       });
     }
 
+
     // =========================================================================
     // Stage 2: Port & Service Discovery (Naabu)
     // =========================================================================
+    if (coordinator.isCircuitOpen(request.targetDomain)) {
+      return buildCircuitBrokenResult(request.targetDomain);
+    }
+
     const stage2Start = Date.now();
     if (skipStages.has('stage_2_port_service')) {
       stageResults.push({
@@ -298,6 +357,17 @@ export class CompositeActiveReconOrchestratorService {
             }
           }
         } catch (err) {
+          if (err instanceof TargetInstabilityError || coordinator.isCircuitOpen(host)) {
+            createDraft('stage_2_port_service', request.targetDomain, 'open_ports', ports.length);
+            stageResults.push({
+              stage: 'stage_2_port_service',
+              status: 'partial_failure',
+              durationMs: Date.now() - stage2Start,
+              observationsCount: ports.length,
+              warnings: [`Circuit breaker tripped on ${host}`],
+            });
+            return buildCircuitBrokenResult(host);
+          }
           stage2Warnings.push(`Port tool error on ${host}: ${err instanceof Error ? err.message : String(err)}`);
         }
       }
@@ -316,6 +386,10 @@ export class CompositeActiveReconOrchestratorService {
     // =========================================================================
     // Stage 3: HTTP & TLS Inspection (Httpx + Tlsx)
     // =========================================================================
+    if (coordinator.isCircuitOpen(request.targetDomain)) {
+      return buildCircuitBrokenResult(request.targetDomain);
+    }
+
     const stage3Start = Date.now();
     if (skipStages.has('stage_3_web_tls')) {
       stageResults.push({
@@ -346,8 +420,10 @@ export class CompositeActiveReconOrchestratorService {
       }
 
       for (const targetUrl of urlsToInspect) {
+        let currentHost = request.targetDomain;
         try {
           const parsed = new URL(targetUrl);
+          currentHost = parsed.hostname;
           const webResult: WebInspectionResult = await coordinator.execute(
             parsed.hostname,
             () =>
@@ -388,6 +464,18 @@ export class CompositeActiveReconOrchestratorService {
             }
           }
         } catch (err) {
+          if (err instanceof TargetInstabilityError || coordinator.isCircuitOpen(currentHost)) {
+            createDraft('stage_3_web_tls', request.targetDomain, 'web_technologies', webObservations.length);
+            createDraft('stage_3_web_tls', request.targetDomain, 'tls_certificates', tlsCertificates.length);
+            stageResults.push({
+              stage: 'stage_3_web_tls',
+              status: 'partial_failure',
+              durationMs: Date.now() - stage3Start,
+              observationsCount: webObservations.length + tlsCertificates.length,
+              warnings: [`Circuit breaker tripped on ${currentHost}`],
+            });
+            return buildCircuitBrokenResult(currentHost);
+          }
           stage3Warnings.push(`Web/TLS inspection error on ${targetUrl}: ${err instanceof Error ? err.message : String(err)}`);
         }
       }
@@ -407,6 +495,10 @@ export class CompositeActiveReconOrchestratorService {
     // =========================================================================
     // Stage 4: Surface Crawling & Parameter Discovery (Composite URL + Ffuf + Arjun)
     // =========================================================================
+    if (coordinator.isCircuitOpen(request.targetDomain)) {
+      return buildCircuitBrokenResult(request.targetDomain);
+    }
+
     const stage4Start = Date.now();
     if (skipStages.has('stage_4_crawling_parameters')) {
       stageResults.push({
@@ -429,8 +521,10 @@ export class CompositeActiveReconOrchestratorService {
       }
 
       for (const rootUrl of rootUrls) {
+        let currentHost = request.targetDomain;
         try {
           const parsed = new URL(rootUrl);
+          currentHost = parsed.hostname;
 
           // 1. Composite URL crawling (Katana + Gau)
           const urlResult: UrlDiscoveryResult = await coordinator.execute(
@@ -492,6 +586,19 @@ export class CompositeActiveReconOrchestratorService {
             }
           }
         } catch (err) {
+          if (err instanceof TargetInstabilityError || coordinator.isCircuitOpen(currentHost)) {
+            createDraft('stage_4_crawling_parameters', request.targetDomain, 'discovered_urls', urls.length);
+            createDraft('stage_4_crawling_parameters', request.targetDomain, 'discovered_content', content.length);
+            createDraft('stage_4_crawling_parameters', request.targetDomain, 'discovered_parameters', parameters.length);
+            stageResults.push({
+              stage: 'stage_4_crawling_parameters',
+              status: 'partial_failure',
+              durationMs: Date.now() - stage4Start,
+              observationsCount: urls.length + content.length + parameters.length,
+              warnings: [`Circuit breaker tripped on ${currentHost}`],
+            });
+            return buildCircuitBrokenResult(currentHost);
+          }
           stage4Warnings.push(`Crawling/parameter error on ${rootUrl}: ${err instanceof Error ? err.message : String(err)}`);
         }
       }
@@ -512,6 +619,10 @@ export class CompositeActiveReconOrchestratorService {
     // =========================================================================
     // Stage 5: Secret & Credential Inspection (Trufflehog)
     // =========================================================================
+    if (coordinator.isCircuitOpen(request.targetDomain)) {
+      return buildCircuitBrokenResult(request.targetDomain);
+    }
+
     const stage5Start = Date.now();
     if (skipStages.has('stage_5_secret_inspection')) {
       stageResults.push({
@@ -534,8 +645,10 @@ export class CompositeActiveReconOrchestratorService {
       }
 
       for (const targetUrl of targetsToInspect) {
+        let currentHost = request.targetDomain;
         try {
           const parsed = new URL(targetUrl);
+          currentHost = parsed.hostname;
           const secretResult: SecretDiscoveryResult = await coordinator.execute(
             parsed.hostname,
             () =>
@@ -554,6 +667,17 @@ export class CompositeActiveReconOrchestratorService {
             }
           }
         } catch (err) {
+          if (err instanceof TargetInstabilityError || coordinator.isCircuitOpen(currentHost)) {
+            createDraft('stage_5_secret_inspection', request.targetDomain, 'discovered_secrets', secrets.length);
+            stageResults.push({
+              stage: 'stage_5_secret_inspection',
+              status: 'partial_failure',
+              durationMs: Date.now() - stage5Start,
+              observationsCount: secrets.length,
+              warnings: [`Circuit breaker tripped on ${currentHost}`],
+            });
+            return buildCircuitBrokenResult(currentHost);
+          }
           stage5Warnings.push(`Secret scan error on ${targetUrl}: ${err instanceof Error ? err.message : String(err)}`);
         }
       }
@@ -568,6 +692,7 @@ export class CompositeActiveReconOrchestratorService {
         warnings: stage5Warnings.length > 0 ? stage5Warnings : undefined,
       });
     }
+
 
     const aggregated: AggregatedReconObservations = {
       subdomains,

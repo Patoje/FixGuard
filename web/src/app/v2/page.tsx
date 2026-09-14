@@ -1,12 +1,14 @@
 "use client";
 
 import React, { useState, useCallback } from "react";
+import Link from "next/link";
 import {
   Shield,
   Layers,
   Activity,
   Terminal,
-  AlertCircle
+  AlertCircle,
+  Zap
 } from "lucide-react";
 import { v2ApiClient, V2ApiError } from "@/lib/v2/apiClient";
 import type {
@@ -102,11 +104,18 @@ export default function V2DashboardPage() {
           </div>
 
           <div className="flex items-center gap-3 text-xs font-mono">
-            <div className="flex items-center gap-1.5 rounded-full border border-zinc-800 bg-zinc-900/60 px-3 py-1 text-zinc-400">
+            <Link
+              href="/v2/assessments"
+              className="flex items-center gap-1.5 rounded-lg border border-emerald-500/40 bg-emerald-500/10 hover:bg-emerald-500/20 px-3 py-1.5 text-emerald-400 font-semibold transition cursor-pointer"
+            >
+              <Zap className="h-3.5 w-3.5" />
+              <span>Orchestrated Engine (M73/F6) &rarr;</span>
+            </Link>
+            <div className="hidden md:flex items-center gap-1.5 rounded-full border border-zinc-800 bg-zinc-900/60 px-3 py-1 text-zinc-400">
               <span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />
               <span>Anti-Fabrication: ACTIVE</span>
             </div>
-            <div className="hidden sm:flex items-center gap-1.5 rounded-full border border-zinc-800 bg-zinc-900/60 px-3 py-1 text-zinc-400">
+            <div className="hidden lg:flex items-center gap-1.5 rounded-full border border-zinc-800 bg-zinc-900/60 px-3 py-1 text-zinc-400">
               <Terminal className="h-3 w-3 text-zinc-500" />
               <span>HITL Authorization Gate</span>
             </div>

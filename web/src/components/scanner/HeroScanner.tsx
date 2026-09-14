@@ -197,7 +197,7 @@ export default function HeroScanner({ onScanStart }: HeroScannerProps) {
                 }
               `}
             >
-              {mode === 'aggressive' ? 'INICIAR BOMBARDEO' : mode === 'sast' as any ? 'Escanear Código' : mode === 'active' ? 'Iniciar Ataque Autorizado' : 'Iniciar Escaneo Pasivo'}
+              {mode === 'aggressive' ? 'INICIAR BOMBARDEO' : mode === 'sast' ? 'Escanear Código' : mode === 'active' ? 'Iniciar Ataque Autorizado' : 'Iniciar Escaneo Pasivo'}
             </button>
           </div>
         </motion.div>

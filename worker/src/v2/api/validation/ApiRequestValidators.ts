@@ -164,3 +164,46 @@ export function parseApproveRecommendationBody(body: unknown): ApproveRecommenda
     operatorId: record.operatorId as string
   };
 }
+
+export function parseStartOrchestratedAssessmentBody(
+  body: unknown
+): { targetDomain: string; actorId?: string; config?: Record<string, unknown> } {
+  if (!body || typeof body !== 'object' || Array.isArray(body)) {
+    throw new ApiValidationError('Request body must be a non-empty object');
+  }
+
+  const record = body as Record<string, unknown>;
+  const allowedKeys = ['targetDomain', 'actorId', 'config'] as const;
+  for (const k of Object.keys(record)) {
+    if (!allowedKeys.includes(k as typeof allowedKeys[number])) {
+      throw new ApiValidationError(
+        `Closed-world validation failed: unexpected field '${k}' in StartOrchestratedAssessmentRequest`
+      );
+    }
+  }
+
+  if (!('targetDomain' in record)) {
+    throw new ApiValidationError(
+      "Closed-world validation failed: missing required field 'targetDomain' in StartOrchestratedAssessmentRequest"
+    );
+  }
+
+  const { targetDomain, actorId, config } = record;
+  if (typeof targetDomain !== 'string' || targetDomain.trim().length === 0) {
+    throw new ApiValidationError('Field targetDomain must be a non-empty string');
+  }
+
+  if (actorId !== undefined && (typeof actorId !== 'string' || !isStrictSafeId(actorId))) {
+    throw new ApiValidationError('Field actorId must satisfy strict identifier format');
+  }
+
+  if (config !== undefined && (typeof config !== 'object' || config === null || Array.isArray(config))) {
+    throw new ApiValidationError('Field config must be an object if provided');
+  }
+
+  return {
+    targetDomain: targetDomain.trim(),
+    ...(actorId ? { actorId } : {}),
+    ...(config ? { config: config as Record<string, unknown> } : {}),
+  };
+}

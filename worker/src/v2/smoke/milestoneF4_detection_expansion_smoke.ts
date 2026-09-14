@@ -23,8 +23,8 @@ function createScopeGrant(overrides?: Partial<AuthorizedScopeGrant>): Authorized
     kind: 'authorized_scope_grant',
     grantId: 'grant_f4_001',
     scanId: 'scan_f4_001',
-    issuedAt: '2026-09-13T12:00:00.000Z',
-    expiresAt: '2026-09-14T12:00:00.000Z',
+    issuedAt: new Date(Date.now() - 3600_000).toISOString(),
+    expiresAt: new Date(Date.now() + 86400_000).toISOString(),
     subject: {
       targetKind: 'domain',
       domain: 'api.example.com',
@@ -75,6 +75,7 @@ function createScopeGrant(overrides?: Partial<AuthorizedScopeGrant>): Authorized
 }
 
 function setupAuthorizedContext(scopeGrant = createScopeGrant()) {
+  const nowIso = new Date().toISOString();
   const establishResult = establishVerifiedAuthorizationDecision(
     {
       contractVersion: 'fixguard-verified-authorization-decision/v0',
@@ -84,11 +85,12 @@ function setupAuthorizedContext(scopeGrant = createScopeGrant()) {
       authorizationDecisionId: 'decision_f4_001',
       authorizedActor: { actorId: 'sec_lead_1', actorType: 'human' },
       decision: 'authorized',
-      decidedAt: '2026-09-13T12:00:00.000Z',
+      decidedAt: nowIso,
       scopeGrant,
     },
-    '2026-09-13T12:00:00.000Z'
+    nowIso
   );
+
 
   if (establishResult.status !== 'established') {
     throw new Error(`Failed to establish verified decision: ${establishResult.safeMessage}`);

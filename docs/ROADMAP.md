@@ -46,13 +46,21 @@
                                                                 │
                                                                 ▼
                                                        [MILESTONE 73] COMPLETED (Composite Active Recon Orchestrator)
+                                                                │
+                                                        [MILESTONE F6] COMPLETED (V2 API Orchestrator Controller & Assessment Gateway)
+                                                                │
+                                                                ▼
+                                                        [MILESTONE F7] COMPLETED (V2 Orchestrated Assessment UI Integration)
+                                                                │
+                                                                ▼
+                                                        [MILESTONE F8] COMPLETED (Blast Radius Hardening & Target Circuit Breaker)
 ```
 
 ---
 
 ## 2. Completed Milestones (`CONFIRMED`)
 
-All completed milestones are verified via active TypeScript contracts and the regression test suite (`npm run check:v2` with 40 passing smoke suites, 100% pass rate).
+All completed milestones are verified via active TypeScript contracts and the regression test suite (`npm run check:v2` with 42 passing smoke suites, 100% pass rate).
 
 ### Foundation Era (M0 – M29)
 - **M0 – M6.5 (Core Loop Foundation)**: `TargetContext`, `CapabilityRequest`, `ExecutionRequest`, `RawExecutionOutput`, `ProcessRunner` (safe spawn without shell interpolation), `SubfinderAdapter`, `SubfinderParser`.
@@ -294,6 +302,101 @@ All completed milestones are verified via active TypeScript contracts and the re
      - Full regression suite (`npm run check:v2` across all 40 smoke suites) and Next.js web build (`npm run build`) pass 100%.
 
 ---
+
+### Milestone F6: V2 API Orchestrator Controller & Assessment Execution Gateway
+- **Status:** COMPLETED.
+- **Goal:** Bridge the core orchestration engine (M73 Composite Active Recon, F4 Detection Engines, F5 Intelligence Layer) into the authenticated HTTP API Gateway, providing REST endpoints to initiate, track, and summarize end-to-end assessments with continuous execution lineage and runtime-branded authorization.
+- **Key Deliverables:**
+  1. **Orchestrated Assessment Contracts & In-Memory Store (`worker/src/v2/application/OrchestratedAssessmentContracts.ts`, `worker/src/v2/storage/InMemoryOrchestratedAssessmentRepository.ts`)**:
+     - Defined `OrchestratedAssessmentRecord`, `StartOrchestratedAssessmentCommand`, `OrchestratedAssessmentStatusDto`, and `OrchestratedAssessmentSummaryDto`.
+     - In-memory store with deep clone protection preventing in-place mutations.
+  2. **Application Service (`worker/src/v2/application/OrchestratedAssessmentApplicationService.ts`)**:
+     - Enforces fail-closed SSRF egress preflight validating target domain against private/loopback IP spaces with 0 network calls dispatched.
+     - Seals runtime ADR-001 `WeakSet` brand on authorization decisions.
+     - Guarantees unbroken lineage `{ assessmentId, scanId, authorizationGrantId, authorizationDecisionId, actorId }`.
+     - Coordinates asynchronous execution across M73 (5-stage recon), F4 (CORS & parameter reflection detection), and F5 (TargetProfileBuilder & RecommendationEngine).
+  3. **Controller & Routing Gateway (`worker/src/v2/api/controllers/OrchestratedAssessmentController.ts`, `worker/src/v2/api/routes/v2Routes.ts`)**:
+     - Mounted under `/api/v2/orchestrated/`:
+       - `POST /assessments/start` -> returns HTTP 202 Accepted with assessment ID, scan ID, and continuous lineage.
+       - `GET /assessments/:assessmentId/summary` -> returns synthesized TargetProfile, confirmed findings, and advisory recommendations.
+       - `GET /assessments/:assessmentId/status` -> returns execution stage progress, timing metrics, and error/warning counts.
+     - Protected by `v2AuthMiddleware` (`Authorization: Bearer <token>`).
+  4. **Typed Web Frontend Client (`web/src/lib/v2Api.ts`)**:
+     - Strict typed client helper for Next.js with zero `as any` occurrences.
+  5. **Verification**:
+     - `npm run smoke:v2:orchestrated-api` passing all 5 assertions (100%).
+     - Zero `as any` in production code.
+     - Full regression suite (`npm run check:v2` across all 41 smoke suites) and Next.js web build (`npm run build`) pass 100%.
+
+---
+
+### Milestone F7: V2 Orchestrated Assessment UI Integration
+- **Status:** COMPLETED.
+- **Goal:** Connect the Next.js 16 frontend application to the authenticated V2 orchestration endpoints (`/api/v2/orchestrated/`), delivering a functional real-time assessment dashboard enabling operators to launch target assessments, monitor stage progression, inspect synthesized findings, and review advisory recommendations.
+- **Key Deliverables:**
+  1. **Assessment Launcher Component (`web/src/app/v2/assessments/components/AssessmentLauncherCard.tsx`)**:
+     - Client-side target format validation (domain syntax, scheme stripping).
+     - Fail-closed SSRF preflight protection blocking loopback (`127.0.0.0/8`, `localhost`) and private RFC1918 subnets.
+     - Preset authorized targets (`charmarket.vercel.app`, `example.com`).
+     - Dispatches `startOrchestratedAssessment` with operator identity.
+  2. **Real-Time Pipeline Tracker (`web/src/app/v2/assessments/components/PipelineStageTracker.tsx`)**:
+     - Visual stepper monitoring all 5 M73 stages (`stage_1_domain_zone`, `stage_2_port_service`, `stage_3_web_tls`, `stage_4_crawling_parameters`, `stage_5_secret_inspection`).
+     - Real-time observation counts, duration tracking, and error/warning counters.
+     - Resilient interval polling with automatic cleanup upon completion, failure, or unmount.
+     - Displays verified ADR-001 continuous lineage tuple (`assessmentId`, `scanId`, `grantId`, `decisionId`, `actorId`).
+  3. **Executive Results Panel (`web/src/app/v2/assessments/components/ExecutiveResultsPanel.tsx`)**:
+     - Renders synthesized `TargetProfile` (technologies, edge infrastructure, indexed endpoints table with methods, parameters, and auth requirements).
+     - Confirmed findings panel (CORS misconfigurations, parameter reflections, IDOR) with hash verification.
+     - Advisory recommendations panel with category, reasoning, suggested capability, required permissions, and confidence scores under defensive HITL governance.
+  4. **Abstention & Error State Presentation (`web/src/app/v2/assessments/components/AbstentionAlert.tsx`)**:
+     - Clean, non-alarmist presentation for `secure_target_abstained` (CORS policy enforced, parameters sanitized).
+     - Fail-closed preflight denial alerts for SSRF attempts confirming 0 network probes dispatched.
+  5. **Typing Hygiene & Routing Integration**:
+     - Dedicated page at `/v2/assessments` (`web/src/app/v2/assessments/page.tsx`) with seamless navigation to/from `/v2`.
+     - Zero occurrences of `as any` across the entire web application.
+  6. **Verification**:
+     - Next.js production build (`npm run build` in `web/`) compiles cleanly (14/14 static pages generated).
+     - Zero `as any` across `web/src` and `worker/src/v2`.
+     - Full regression suite (`npm run check:v2` across all 41 smoke suites) passes 100%.
+
+---
+
+### Milestone F8: Blast Radius Hardening & Target Circuit Breaker (Plan Maestro Acción 13)
+- **Status:** COMPLETED.
+- **Goal:** Harden the active assessment engine against causing target denial-of-service, severe latency degradation, or server distress by integrating an adaptive per-target Circuit Breaker state machine and blast radius containment across all execution layers.
+- **Key Deliverables:**
+  1. **Runtime State Machine & Contracts (`worker/src/v2/runtime/CircuitBreakerContracts.ts`)**:
+     - States: `CLOSED` (healthy target interaction), `OPEN` (tripped due to consecutive server errors or timeouts), `HALF_OPEN` (controlled recovery probe validation).
+     - Standard reasonCode: `target_instability_circuit_open`.
+     - Configuration: configurable `consecutive5xxThreshold` (default 3), `consecutiveErrorThreshold` (default 3), `halfOpenSuccessThreshold` (default 2), and `openCooldownMs` (default 30,000ms).
+     - Telemetry: tracks consecutive failures, successes, 5xx errors, timeouts, tripped counts, and state change timestamps.
+     - `TargetInstabilityError`: structured error thrown immediately on execution attempts against an unstable target.
+  2. **Integration with `TargetExecutionCoordinator` (`worker/src/v2/runtime/TargetExecutionCoordinator.ts`)**:
+     - Per-host circuit breaker instances tracked and managed alongside rate limiter tokens and concurrency ceilings.
+     - `recordTargetResponse()`: inspects status codes, treating 2xx, 3xx, 4xx (e.g. 404/403) as target responsiveness, while 5xx (500, 502, 503, 504) or network errors advance failure streak.
+     - When transitioning to `OPEN`, pending queued tasks are drained and rejected immediately with `TargetInstabilityError` and reasonCode `'target_instability_circuit_open'`.
+     - `isCircuitOpen(host)` and `getCircuitState(host)` provide non-invasive state checks before dispatching work.
+  3. **Composite Reconnaissance Graceful Containment (`worker/src/v2/recon/orchestration/CompositeActiveReconOrchestratorService.ts`)**:
+     - Pre-stage safety checks verify circuit state before entering each of the 5 discovery stages.
+     - In-stage error containment traps `TargetInstabilityError` and halts subsequent discovery stages immediately.
+     - Returns `status: 'circuit_broken'` preserving all verified discoveries, drafts, lineage tuples, and factual non-claims gathered up to the point of target distress.
+  4. **Application Gateway Custody (`worker/src/v2/application/OrchestratedAssessmentApplicationService.ts`)**:
+     - Transitions assessment record to `status: 'circuit_broken'` upon target distress without failing or corrupting prior observations.
+     - Synthesizes partial `TargetProfile` and recommendations from verified observations gathered before tripping.
+     - Halts active vulnerability probing (CORS / Parameter reflection) safely when target is in distress.
+  5. **Frontend Integration & Clear Indicators (`web/src/lib/v2Api.ts`, `PipelineStageTracker.tsx`, `AbstentionAlert.tsx`, `page.tsx`)**:
+     - Added `'circuit_broken'` to status types.
+     - `AbstentionAlert.tsx`: renders clear, non-alarmist adaptive protection banner informing operators that execution paused safely to protect target availability.
+     - `PipelineStageTracker.tsx`: visually marks status as paused/circuit broken and preserves completed stage progress.
+     - `page.tsx`: stops polling and automatically retrieves partial summary and synthesized profile.
+  6. **Verification**:
+     - `npm run smoke:v2:circuit-breaker` passing all 4 assertions (100%).
+     - Zero `as any` in `worker/src/v2` and `web/src`.
+     - Next.js production build (`npm run build`) compiles cleanly.
+     - Full regression suite (`npm run check:v2` across all 42 smoke suites) passes 100%.
+
+---
+
 
 ## 5. Architectural Proposals (`PROPOSED` — NOT YET DECIDED)
 

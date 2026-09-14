@@ -8,6 +8,9 @@ import { DefensiveReportReadinessService } from '../reporting-boundary/Defensive
 import type { MinimalOrchestrator } from '../core/MinimalOrchestrator.js';
 import type { EvidenceDraftRepository } from '../finding-candidate-draft/EvidenceDraftPersistenceContracts.js';
 import { InMemoryEvidenceDraftRepository } from '../finding-candidate-draft/InMemoryEvidenceDraftRepository.js';
+import type { OrchestratedAssessmentRepository } from '../application/OrchestratedAssessmentContracts.js';
+import { InMemoryOrchestratedAssessmentRepository } from '../storage/InMemoryOrchestratedAssessmentRepository.js';
+import { OrchestratedAssessmentApplicationService } from '../application/OrchestratedAssessmentApplicationService.js';
 
 export interface V2CompositionDependencies {
   readonly assessmentRepository?: AssessmentRepository;
@@ -17,6 +20,8 @@ export interface V2CompositionDependencies {
   readonly runtime?: V2AssessmentRuntime;
   readonly assessmentService?: AssessmentApplicationService;
   readonly reportService?: DefensiveReportReadinessService;
+  readonly orchestratedRepository?: OrchestratedAssessmentRepository;
+  readonly orchestratedService?: OrchestratedAssessmentApplicationService;
 }
 
 /**
@@ -32,6 +37,8 @@ export class V2CompositionRoot {
   public readonly runtime: V2AssessmentRuntime;
   public readonly assessmentService: AssessmentApplicationService;
   public readonly reportService: DefensiveReportReadinessService;
+  public readonly orchestratedRepository: OrchestratedAssessmentRepository;
+  public readonly orchestratedService: OrchestratedAssessmentApplicationService;
 
   constructor(deps: V2CompositionDependencies = {}) {
     this.assessmentRepository = deps.assessmentRepository ?? new InMemoryAssessmentRepository();
@@ -40,6 +47,13 @@ export class V2CompositionRoot {
     this.runtime = deps.runtime ?? new V2AssessmentRuntime(this.assessmentRepository, deps.orchestrator);
     this.assessmentService = deps.assessmentService ?? new AssessmentApplicationService(this.runtime);
     this.reportService = deps.reportService ?? new DefensiveReportReadinessService(this.candidateRepository);
+    this.orchestratedRepository =
+      deps.orchestratedRepository ?? new InMemoryOrchestratedAssessmentRepository();
+    this.orchestratedService =
+      deps.orchestratedService ??
+      new OrchestratedAssessmentApplicationService({
+        repository: this.orchestratedRepository,
+      });
   }
 
   public static createDefault(): V2CompositionRoot {

@@ -3,8 +3,16 @@ import { db } from '@/db/db';
 import { findings } from '@/db/schema';
 import { eq } from 'drizzle-orm';
 
+type FindingRecord = typeof findings.$inferSelect;
+
+interface FindingDiffResult {
+  new: FindingRecord[];
+  resolved: FindingRecord[];
+  persisted: Array<{ current: FindingRecord; previous: FindingRecord }>;
+}
+
 // Helper para generar una clave única de comparación (evita falsos positivos si el payload exacto cambia)
-function getFindingKey(f: any) {
+function getFindingKey(f: { title: string; endpoint?: string | null; method?: string | null }) {
   return `${f.title}|${f.endpoint || 'global'}|${f.method || 'ANY'}`.toLowerCase();
 }
 
@@ -26,28 +34,29 @@ export async function GET(request: Request) {
     const findingsB = await db.select().from(findings).where(eq(findings.scanId, scanB));
 
     // Mapear findings A por su clave para búsqueda rápida
-    const mapA = new Map();
+    const mapA = new Map<string, FindingRecord>();
     for (const f of findingsA) {
       mapA.set(getFindingKey(f), f);
     }
 
     // Mapear findings B
-    const mapB = new Map();
+    const mapB = new Map<string, FindingRecord>();
     for (const f of findingsB) {
       mapB.set(getFindingKey(f), f);
     }
 
-    const result = {
-      new: [] as any[],
-      resolved: [] as any[],
-      persisted: [] as any[]
+    const result: FindingDiffResult = {
+      new: [],
+      resolved: [],
+      persisted: []
     };
 
     // Calcular "Nuevas" y "Persistentes" (Iterando sobre B)
     for (const fB of findingsB) {
       const key = getFindingKey(fB);
-      if (mapA.has(key)) {
-        result.persisted.push({ current: fB, previous: mapA.get(key) });
+      const prev = mapA.get(key);
+      if (prev) {
+        result.persisted.push({ current: fB, previous: prev });
       } else {
         result.new.push(fB);
       }

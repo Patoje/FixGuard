@@ -4,6 +4,7 @@ import { AssessmentController } from '../controllers/AssessmentController.js';
 import { ReportController } from '../controllers/ReportController.js';
 import { AuthorizationController } from '../controllers/AuthorizationController.js';
 import { TriageController } from '../controllers/TriageController.js';
+import { OrchestratedAssessmentController } from '../controllers/OrchestratedAssessmentController.js';
 
 export function createV2Router(root: V2CompositionRoot): Router {
   const router = Router();
@@ -12,6 +13,7 @@ export function createV2Router(root: V2CompositionRoot): Router {
   const reportController = new ReportController(root.reportService);
   const authController = new AuthorizationController();
   const triageController = new TriageController(root.candidateRepository, root.draftRepository);
+  const orchestratedController = new OrchestratedAssessmentController(root.orchestratedService);
 
   // Assessment endpoints
   router.post('/assessments', assessmentController.createAssessment);
@@ -28,6 +30,11 @@ export function createV2Router(root: V2CompositionRoot): Router {
 
   // Authorization establishment endpoint
   router.post('/auth/decisions', authController.establishDecision);
+
+  // Orchestrated Assessment endpoints (Milestone F6)
+  router.post('/orchestrated/assessments/start', orchestratedController.startAssessment);
+  router.get('/orchestrated/assessments/:assessmentId/summary', orchestratedController.getSummary);
+  router.get('/orchestrated/assessments/:assessmentId/status', orchestratedController.getStatus);
 
   return router;
 }

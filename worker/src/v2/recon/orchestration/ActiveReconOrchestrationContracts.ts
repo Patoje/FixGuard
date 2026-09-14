@@ -163,6 +163,19 @@ export type ActiveReconOrchestrationResult =
       readonly durationMs: number;
     }
   | {
+      readonly status: 'circuit_broken';
+      readonly contractVersion: ActiveReconOrchestrationContractVersion;
+      readonly targetDomain: string;
+      readonly reasonCode: 'target_instability_circuit_open';
+      readonly reason: string;
+      readonly stages: readonly ReconStageExecutionResult[];
+      readonly drafts: readonly OrchestratedReconEvidenceDraft[];
+      readonly aggregatedObservations: AggregatedReconObservations;
+      readonly explicitNonClaims: ReconOrchestrationExplicitNonClaims;
+      readonly lineage: AuthorizedActiveReconRequestLineage;
+      readonly durationMs: number;
+    }
+  | {
       readonly status: 'preflight_denied';
       readonly contractVersion: ActiveReconOrchestrationContractVersion;
       readonly targetDomain: string;
@@ -172,3 +185,4 @@ export type ActiveReconOrchestrationResult =
       readonly lineage: AuthorizedActiveReconRequestLineage;
       readonly durationMs: number;
     };
+
