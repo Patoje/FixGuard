@@ -81,13 +81,16 @@
                                                                 │
                                                                 ▼
                                                         [PHASE 2: P2-3] COMPLETED (Information Disclosure Detection Engine)
+                                                                │
+                                                                ▼
+                                                        [PHASE 2: P2-4] COMPLETED (Subdomain Takeover Detection Engine)
 ```
 
 ---
 
 ## 2. Completed Milestones (`CONFIRMED`)
 
-All completed milestones are verified via active TypeScript contracts and the regression test suite (`npm run check:v2` with 50 passing smoke suites, 100% pass rate).
+All completed milestones are verified via active TypeScript contracts and the regression test suite (`npm run check:v2` with 51 passing smoke suites, 100% pass rate).
 
 
 ### Foundation Era (M0 – M29)
@@ -663,6 +666,37 @@ All completed milestones are verified via active TypeScript contracts and the re
      - Dedicated smoke test `worker/src/v2/smoke/milestoneP2_3_information_disclosure_smoke.ts` passes 100%.
      - `npm run typecheck:v2` exits 0.
      - Full regression suite (`npm run check:v2` across all 50 smoke suites) passes 100%.
+     - Next.js production build (`npm run build`) compiles cleanly.
+
+---
+
+#### Milestone P2-4: Subdomain Takeover Detection Engine
+- **Status:** COMPLETED.
+- **Goal:** Implement cross-recon active verification probing for dangling CNAME DNS records pointing to unclaimed cloud hosting providers (GitHub Pages, Heroku, AWS S3, Azure, Netlify, Fastly, Shopify), enforcing the crucial invariant that a cloud CNAME alone is NOT vulnerable until actively verified against provider error fingerprints, while cleanly abstaining on active/claimed services.
+- **Key Deliverables:**
+  1. **Domain Contracts & Typed Metadata (`worker/src/v2/core/Evidence.ts`, `worker/src/v2/detection/DetectionContracts.ts`)**:
+     - Added `SubdomainTakeoverMetadata` interface to `FindingMetadata` discriminated union: `{ kind: 'subdomain_takeover_metadata', subdomain: string, cnameTarget: string, hostingProvider: 'github_pages' | 'heroku' | 'aws_s3' | 'azure' | 'fastly' | 'netlify' | 'shopify' | 'unknown', fingerprintMatch: string, observedAt: string }`.
+     - Defined `SubdomainTakeoverDetectionRequest`, `SubdomainTakeoverDetectionResult`, `SubdomainTakeoverHostingProvider`, and `SubdomainTakeoverDetectionStatus` (`'vulnerability_detected' | 'potential_weakness' | 'secure_target_abstained' | 'pending_human_review' | 'preflight_denied' | 'unexpected_failure'`).
+  2. **Subdomain Takeover Detection Service (`worker/src/v2/detection/SubdomainTakeoverDetectionService.ts`)**:
+     - Fingerprint catalog mapping cloud hosting targets to unclaimed error signatures:
+       - GitHub Pages: `*.github.io` $\rightarrow$ `"There isn't a GitHub Pages site here."`
+       - Heroku: `*.herokudns.com` / `*.herokuapp.com` $\rightarrow$ `"There's nothing here, yet."` / `"No such app"`
+       - AWS S3: `*.s3.amazonaws.com` / `*.s3-website-*.amazonaws.com` $\rightarrow$ `"<Code>NoSuchBucket</Code>"`
+       - Azure: `*.azurewebsites.net` $\rightarrow$ `"404 Web Site not found"`
+       - Netlify: `*.netlify.app` $\rightarrow$ `"Not Found - Request ID"`
+       - Fastly: `*.fastly.net` $\rightarrow$ `"Fastly error: unknown domain"`
+       - Shopify: `*.myshopify.com` $\rightarrow$ `"Sorry, this shop is currently unavailable."`
+     - Targeted Verification Probe: Performs safe HTTP GET probe through `TargetExecutionCoordinator` and SSRF preflight gates.
+     - Clean Abstention: Active services or valid responses (200 OK without unclaimed error signatures) cleanly return `status: 'secure_target_abstained'` with 0 findings and 0 drafts.
+     - Human-in-the-Loop Routing: Unattended runs return `status: 'pending_human_review'` routing to `pendingEvidenceDrafts`. Upon approval, promotes to `status: 'vulnerability_detected'` with `severity: 'high'`.
+  3. **Orchestrated Assessment Integration & Web Review UI (`worker/src/v2/application/OrchestratedAssessmentApplicationService.ts`, `web/src/app/v2/review/page.tsx`)**:
+     - Consumes CNAME records collected in Stage 1/Stage 2 recon and automatically dispatches `runSubdomainTakeoverDetection`.
+     - Extended `reviewEvidenceDraft()` to promote approved `subdomain_takeover` drafts into formal `Finding` records with `SubdomainTakeoverMetadata`.
+     - Updated web triage UI to display dangling subdomain, CNAME target, matched hosting provider, and unclaimed fingerprint.
+  4. **Verification**:
+     - Dedicated smoke test `worker/src/v2/smoke/milestoneP2_4_subdomain_takeover_smoke.ts` passes 100%.
+     - `npm run typecheck:v2` exits 0.
+     - Full regression suite (`npm run check:v2` across all 51 smoke suites) passes 100%.
      - Next.js production build (`npm run build`) compiles cleanly.
 
 ---

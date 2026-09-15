@@ -46,7 +46,15 @@ export interface OrchestratedAssessmentTiming {
 
 export interface DifferentialEvidenceContext {
   readonly endpointUrl: string;
-  readonly detectionKind: 'cors_misconfiguration' | 'parameter_reflection' | 'idor_access_control' | 'missing_security_headers' | 'open_redirect' | 'information_disclosure' | 'custom_difference';
+  readonly detectionKind:
+    | 'cors_misconfiguration'
+    | 'parameter_reflection'
+    | 'idor_access_control'
+    | 'missing_security_headers'
+    | 'open_redirect'
+    | 'information_disclosure'
+    | 'subdomain_takeover'
+    | 'custom_difference';
   readonly baselineStatusCode?: number;
   readonly baselineBodyHash?: string;
   readonly validationStatusCode?: number;
@@ -65,7 +73,12 @@ export interface DifferentialEvidenceContext {
   readonly disclosureKind?: 'stack_trace' | 'framework_version' | 'server_banner' | 'internal_path';
   readonly disclosedFragment?: string;
   readonly trigger?: string;
+  readonly subdomain?: string;
+  readonly cnameTarget?: string;
+  readonly hostingProvider?: 'github_pages' | 'heroku' | 'aws_s3' | 'azure' | 'fastly' | 'netlify' | 'shopify' | 'unknown';
+  readonly fingerprintMatch?: string;
 }
+
 
 
 export type EnrichedEvidenceDraft = EvidenceDraftEnvelope & {

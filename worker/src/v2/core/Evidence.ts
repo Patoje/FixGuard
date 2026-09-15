@@ -74,6 +74,21 @@ export interface InformationDisclosureMetadata {
   readonly [key: string]: unknown;
 }
 
+export interface SubdomainTakeoverMetadata {
+  readonly kind: 'subdomain_takeover_metadata';
+  readonly subdomain: string;
+  readonly cnameTarget: string;
+  readonly hostingProvider: 'github_pages' | 'heroku' | 'aws_s3' | 'azure' | 'fastly' | 'netlify' | 'shopify' | 'unknown';
+  readonly fingerprintMatch: string;
+  readonly observedAt: string;
+  readonly category?: 'DNS_HIJACKING_RISK' | 'SECURITY_MISCONFIGURATION';
+  readonly endpointUrl?: string;
+  readonly candidateId?: string;
+  readonly evidenceRecordId?: string;
+  readonly lineage?: Record<string, unknown>;
+  readonly [key: string]: unknown;
+}
+
 export interface DiscoveryFindingMetadata {
   readonly kind: 'discovery_finding_metadata';
   readonly category?: string;
@@ -87,7 +102,9 @@ export type FindingMetadata =
   | MissingSecurityHeadersMetadata
   | OpenRedirectMetadata
   | InformationDisclosureMetadata
+  | SubdomainTakeoverMetadata
   | DiscoveryFindingMetadata;
+
 
 
 export interface Finding {

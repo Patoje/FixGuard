@@ -48,6 +48,7 @@ import { runParameterReflectionDetection } from '../detection/ParameterReflectio
 import { runSecurityHeaderDetection } from '../detection/SecurityHeaderDetectionService.js';
 import { runOpenRedirectDetection } from '../detection/OpenRedirectDetectionService.js';
 import { runInformationDisclosureDetection } from '../detection/InformationDisclosureDetectionService.js';
+import { runSubdomainTakeoverDetection } from '../detection/SubdomainTakeoverDetectionService.js';
 
 
 import { buildTargetProfile } from '../intelligence/TargetProfileBuilder.js';
@@ -888,7 +889,48 @@ export class OrchestratedAssessmentApplicationService {
             },
           },
         };
+      } else if (detKind === 'subdomain_takeover') {
+        const subdomain = context?.subdomain ?? record.targetDomain;
+        const cnameTarget = context?.cnameTarget ?? 'cloud-provider-target';
+        const provider = context?.hostingProvider ?? 'unknown';
+        const fingerprint = context?.fingerprintMatch ?? 'unclaimed resource signature';
+
+        findingCreated = {
+          id: `fnd_takeover_${draftId.replace(/^dft_/, '')}`,
+          type: 'DNS_HIJACKING_RISK',
+          severity: 'high',
+          title: `Approved Subdomain Takeover Risk (${provider}) on ${subdomain}`,
+          description: `Human operator verified subdomain takeover vulnerability. Subdomain '${subdomain}' points via CNAME to '${cnameTarget}' (${provider}) with unclaimed fingerprint: "${fingerprint}".`,
+          target: context?.endpointUrl ?? `https://${subdomain}/`,
+          evidence: JSON.stringify({
+            draftId,
+            reviewerId,
+            reviewedAt,
+            notes,
+            differentialContext: context,
+          }),
+          confidence: 1.0,
+          metadata: {
+            kind: 'subdomain_takeover_metadata',
+            category: 'DNS_HIJACKING_RISK',
+            subdomain,
+            cnameTarget,
+            hostingProvider: provider,
+            fingerprintMatch: fingerprint,
+            observedAt: reviewedAt,
+            endpointUrl: context?.endpointUrl ?? `https://${subdomain}/`,
+            candidateId: `cnd_${draftId}`,
+            evidenceRecordId: `evd_${draftId}`,
+            lineage: {
+              assessmentId: record.assessmentId,
+              scanId: record.scanId,
+              reviewerId,
+              reviewedAt,
+            },
+          },
+        };
       } else {
+
 
         findingCreated = {
           id: `fnd_appr_${draftId.replace(/^dft_/, '')}`,
@@ -1252,6 +1294,56 @@ export class OrchestratedAssessmentApplicationService {
         }
       }
 
+      // Subdomain Takeover Detection (Milestone P2-4)
+      const cnameRecords = reconResult.aggregatedObservations.dnsRecords.filter(
+        (r) => r.recordType === 'CNAME'
+      );
+
+      for (const cnameRec of cnameRecords) {
+        if (coordinator.isCircuitOpen(record.targetDomain)) break;
+        for (const cnameTarget of cnameRec.values) {
+          if (coordinator.isCircuitOpen(record.targetDomain)) break;
+          try {
+            const takeoverResult = await runSubdomainTakeoverDetection({
+              contractVersion: DETECTION_CONTRACT_VERSION,
+              kind: 'subdomain_takeover_detection_request',
+              detectionId: `det_takeover_${record.assessmentId.slice(-8)}_${cnameRec.domain.replace(/[^a-zA-Z0-9]/g, '').slice(0, 8)}`,
+              assessmentId: lineage.assessmentId,
+              scanId: lineage.scanId,
+              authorizationGrantId: lineage.authorizationGrantId,
+              authorizationDecisionId: lineage.authorizationDecisionId,
+              actorId: lineage.actorId,
+              subdomain: cnameRec.domain,
+              cnameTarget,
+              verifiedAuthorizationDecision: verifiedDecision,
+              scopeGrant,
+              coordinator,
+              transport: this.httpTransport,
+              dnsResolver: this.dnsResolver,
+            });
+
+            if (takeoverResult.status === 'vulnerability_detected' && takeoverResult.finding) {
+              findings.push(takeoverResult.finding);
+            } else if (takeoverResult.status === 'pending_human_review' && takeoverResult.evidenceDraft) {
+              const enrichedDraft: EnrichedEvidenceDraft = {
+                ...takeoverResult.evidenceDraft,
+                differentialContext: {
+                  endpointUrl: `https://${cnameRec.domain}`,
+                  detectionKind: 'subdomain_takeover',
+                  subdomain: cnameRec.domain,
+                  cnameTarget,
+                  hostingProvider: takeoverResult.hostingProvider,
+                  fingerprintMatch: takeoverResult.fingerprintMatch,
+                },
+              };
+              pendingEvidenceDrafts.push(enrichedDraft);
+            }
+          } catch {
+            // Safe error containment
+          }
+        }
+      }
+
       // 3. F5 Intelligence Synthesis (TargetProfile & Recommendations)
       const rawObservations = [
         ...reconResult.aggregatedObservations.webObservations,
@@ -1259,6 +1351,7 @@ export class OrchestratedAssessmentApplicationService {
         ...reconResult.aggregatedObservations.ports,
         ...reconResult.aggregatedObservations.tlsCertificates,
       ];
+
 
       const profile = buildTargetProfile({
         targetHost: record.targetDomain,

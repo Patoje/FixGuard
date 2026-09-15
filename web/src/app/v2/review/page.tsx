@@ -467,6 +467,36 @@ function HumanReviewContent() {
                         </div>
                       )}
 
+                      {diffContext?.subdomain && (
+                        <div className="rounded-lg bg-black/40 border border-zinc-800 p-2.5">
+                          <span className="text-zinc-500 text-[10px] block">Dangling Subdomain:</span>
+                          <span className="text-rose-400 font-bold">{diffContext.subdomain}</span>
+                        </div>
+                      )}
+
+                      {diffContext?.cnameTarget && (
+                        <div className="rounded-lg bg-black/40 border border-zinc-800 p-2.5">
+                          <span className="text-zinc-500 text-[10px] block">CNAME Target:</span>
+                          <span className="text-amber-400 font-bold">{diffContext.cnameTarget}</span>
+                        </div>
+                      )}
+
+                      {diffContext?.hostingProvider && (
+                        <div className="rounded-lg bg-black/40 border border-zinc-800 p-2.5">
+                          <span className="text-zinc-500 text-[10px] block">Hosting Provider:</span>
+                          <span className="text-purple-300 font-bold uppercase">{diffContext.hostingProvider.replace('_', ' ')}</span>
+                        </div>
+                      )}
+
+                      {diffContext?.fingerprintMatch && (
+                        <div className="rounded-lg bg-black/40 border border-rose-500/30 p-2.5 col-span-2">
+                          <span className="text-rose-400 text-[10px] block font-semibold mb-1">Matched Unclaimed Resource Fingerprint:</span>
+                          <code className="text-rose-300 text-[11px] font-mono bg-black/60 p-2 rounded border border-zinc-900 block">
+                            {diffContext.fingerprintMatch}
+                          </code>
+                        </div>
+                      )}
+
                       {diffContext?.disclosedFragment && (
                         <div className="rounded-lg bg-black/40 border border-rose-500/30 p-2.5 col-span-2">
                           <span className="text-rose-400 text-[10px] block font-semibold mb-1">Disclosed Fragment (Sanitized):</span>
@@ -476,6 +506,7 @@ function HumanReviewContent() {
                         </div>
                       )}
                     </div>
+
 
                     <div className="rounded bg-black/40 p-3 border border-zinc-800 text-xs text-zinc-300 font-mono leading-relaxed">
                       <strong className="text-zinc-500 block text-[10px] uppercase mb-1">Fundamento del Borrador:</strong>

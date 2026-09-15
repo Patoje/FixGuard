@@ -431,6 +431,78 @@ export interface InformationDisclosureDetectionResult {
   };
 }
 
+// ---------------------------------------------------------------------------
+// Milestone P2-4 — Subdomain Takeover Detection Contracts
+// ---------------------------------------------------------------------------
+
+export type SubdomainTakeoverHostingProvider =
+  | 'github_pages'
+  | 'heroku'
+  | 'aws_s3'
+  | 'azure'
+  | 'fastly'
+  | 'netlify'
+  | 'shopify'
+  | 'unknown';
+
+export type SubdomainTakeoverDetectionStatus =
+  | 'vulnerability_detected'
+  | 'potential_weakness'
+  | 'secure_target_abstained'
+  | 'pending_human_review'
+  | 'preflight_denied'
+  | 'unexpected_failure';
+
+export interface SubdomainTakeoverDetectionRequest {
+  readonly contractVersion: DetectionContractVersion;
+  readonly kind: 'subdomain_takeover_detection_request';
+  readonly detectionId: string;
+  readonly assessmentId: string;
+  readonly scanId: string;
+  readonly authorizationGrantId: string;
+  readonly authorizationDecisionId: string;
+  readonly actorId: string;
+  readonly verifiedAuthorizationDecision: VerifiedAuthorizationDecision;
+  readonly scopeGrant: AuthorizedScopeGrant;
+  readonly subdomain: string;
+  readonly cnameTarget: string;
+  readonly endpointUrl?: string;
+  readonly hostingProvider?: SubdomainTakeoverHostingProvider;
+  readonly authContext?: ProbeAuthContext;
+  readonly reviewerPolicy?: ReviewerPolicy;
+  readonly humanReviewDecision?: HumanReviewDecision;
+  readonly triageDecision?: ReviewedEvidenceFindingCandidateTriageDecision;
+  readonly coordinator?: TargetExecutionCoordinator;
+  readonly transport?: IdorHttpProbeTransport;
+  readonly dnsResolver?: PreSpawnDnsResolver;
+}
+
+export interface SubdomainTakeoverDetectionResult {
+  readonly contractVersion: DetectionContractVersion;
+  readonly kind: 'subdomain_takeover_detection_result';
+  readonly detectionId: string;
+  readonly scanId: string;
+  readonly assessmentId: string;
+  readonly authorizationGrantId: string;
+  readonly authorizationDecisionId: string;
+  readonly actorId: string;
+  readonly status: SubdomainTakeoverDetectionStatus;
+  readonly reasonCode: string;
+  readonly lineage: AuthorizedExecutionLineageTuple;
+  readonly subdomain: string;
+  readonly cnameTarget: string;
+  readonly hostingProvider: SubdomainTakeoverHostingProvider;
+  readonly fingerprintMatch?: string;
+  readonly evidenceDraft?: EvidenceDraftEnvelope;
+  readonly findingCandidate?: ReviewedEvidenceFormalFindingCandidate;
+  readonly finding?: Finding;
+  readonly error?: {
+    readonly code: string;
+    readonly safeMessage: string;
+  };
+}
+
+
 
 
 
