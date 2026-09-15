@@ -60,13 +60,16 @@
                                                                 │
                                                                 ▼
                                                         [MILESTONE 8] COMPLETED (Controlled Active Verification & Safe PoC Engine)
+                                                                │
+                                                                ▼
+                                                        [PHASE 0: P0-1, P0-2, P0-3] COMPLETED (Human Review Gate, Typed Finding, Binary Availability)
 ```
 
 ---
 
 ## 2. Completed Milestones (`CONFIRMED`)
 
-All completed milestones are verified via active TypeScript contracts and the regression test suite (`npm run check:v2` with 44 passing smoke suites, 100% pass rate).
+All completed milestones are verified via active TypeScript contracts and the regression test suite (`npm run check:v2` with 45 passing smoke suites, 100% pass rate).
 
 ### Foundation Era (M0 – M29)
 - **M0 – M6.5 (Core Loop Foundation)**: `TargetContext`, `CapabilityRequest`, `ExecutionRequest`, `RawExecutionOutput`, `ProcessRunner` (safe spawn without shell interpolation), `SubfinderAdapter`, `SubfinderParser`.
@@ -456,6 +459,44 @@ All completed milestones are verified via active TypeScript contracts and the re
 
 ---
 
+### Phase 0: Foundations Correction & Binary Availability (Canonical Roadmap)
+
+#### Milestone P0-1: Real Human Review Gate (Eradication of Synthetic Reviewers)
+- **Status:** COMPLETED.
+- **Goal:** Strictly enforce the core platform axiom ("Humans authorize") by eradicating synthetic auto-reviewers (`reviewer_lead_sec`) across all detection engines.
+- **Key Deliverables:**
+  1. Eradicated all default injection of fake reviewer IDs and auto-approval branches in production detection services (`IdorDifferentialDetectionService.ts`, `CorsMisconfigurationDetectionService.ts`, `ParameterReflectionDetectionService.ts`, `OrchestratedAssessmentApplicationService.ts`).
+  2. Unattended detection runs without an explicit `humanReviewDecision` return `status: 'pending_human_review'` and an unsigned `EvidenceDraftEnvelope`.
+  3. Automated assessment records collect unreviewed drafts into `pendingEvidenceDrafts` and emit strictly ZERO findings (`findings: []`).
+
+#### Milestone P0-2: Discriminated Finding Metadata Union
+- **Status:** COMPLETED.
+- **Goal:** Replace dangerous untyped `metadata: Record<string, unknown>` on `Finding` with an exact, strongly-typed discriminated union.
+- **Key Deliverables:**
+  1. Defined `FindingMetadata` in `worker/src/v2/core/Evidence.ts` with discriminated variants: `BrokenAccessControlMetadata`, `SecurityMisconfigurationMetadata`, `InputValidationFlawMetadata`, and `DiscoveryFindingMetadata`.
+  2. Updated all downstream parsers, profiler rules, `TargetProfileBuilder`, and `TargetRecommendationEngine` with compile-time exhaustion checks.
+
+#### Milestone P0-3: Binary Availability Verification & Honest Composition
+- **Status:** COMPLETED.
+- **Goal:** Eliminate the "empty scan" illusion by verifying that required underlying recon CLI binaries (`subfinder`, `naabu`, `httpx`, `dnsx`, `tlsx`, `ffuf`, `gau`, `arjun`, `trufflehog`) are installed and executable on the host PATH before launching dependent stages.
+- **Key Deliverables:**
+  1. **Capability Status Contracts (`worker/src/v2/capabilities/CapabilityStatusContracts.ts`)**:
+     - Contract version: `'fixguard-capability-status/v0'`.
+     - Strict allowlist `RECON_TOOL_ALLOWLIST` and stage-to-tool mapping `STAGE_REQUIRED_TOOLS`.
+     - Typed models: `SingleToolStatus`, `ToolCapabilityMatrix`, and `CapabilityStatusResponse`.
+  2. **Recon Tool Availability Service (`worker/src/v2/capabilities/ReconToolAvailabilityService.ts`)**:
+     - Safe non-shell execution (`which <tool>` and `<binary> --version`) via `ProcessRunner` (`shell: false`).
+     - Strict allowlist rejection of arbitrary command inputs with `ApiValidationError`.
+  3. **API Gateway Route (`worker/src/v2/api/controllers/CapabilityStatusController.ts`)**:
+     - `GET /api/v2/capabilities/status` exposing host binary capability matrix behind `createV2AuthMiddleware`.
+  4. **Honest Composition Pre-Scan Gate (`worker/src/v2/application/OrchestratedAssessmentApplicationService.ts`)**:
+     - Verifies required binaries before dispatching recon stages; immediately aborts with HTTP 400 and `reasonCode: 'unavailable_tools'` if any required binary is absent, executing strictly 0 network probes.
+  5. **Verification**:
+     - `npm run smoke:v2:capabilities-status` passing all 4 assertions (100%).
+     - Zero `as any` across `worker/src/v2` and `web/src`.
+     - Full regression suite (`npm run check:v2` across all 45 smoke suites) passes 100%.
+
+---
 
 ## 5. Architectural Proposals (`PROPOSED` — NOT YET DECIDED)
 
