@@ -111,7 +111,7 @@ export interface OrchestratedAssessmentStatusResponse {
 
 export interface DifferentialEvidenceContextDto {
   readonly endpointUrl: string;
-  readonly detectionKind: 'cors_misconfiguration' | 'parameter_reflection' | 'idor_access_control' | 'missing_security_headers' | 'open_redirect' | 'custom_difference';
+  readonly detectionKind: 'cors_misconfiguration' | 'parameter_reflection' | 'idor_access_control' | 'missing_security_headers' | 'open_redirect' | 'information_disclosure' | 'custom_difference';
   readonly baselineStatusCode?: number;
   readonly baselineBodyHash?: string;
   readonly validationStatusCode?: number;
@@ -127,6 +127,9 @@ export interface DifferentialEvidenceContextDto {
   readonly injectedCanary?: string;
   readonly finalDestination?: string;
   readonly redirectChain?: readonly string[];
+  readonly disclosureKind?: 'stack_trace' | 'framework_version' | 'server_banner' | 'internal_path';
+  readonly disclosedFragment?: string;
+  readonly trigger?: string;
 }
 
 export interface EvidenceDraftDto {

@@ -78,13 +78,16 @@
                                                                 │
                                                                 ▼
                                                         [PHASE 2: P2-2] COMPLETED (Open Redirect Detection Engine)
+                                                                │
+                                                                ▼
+                                                        [PHASE 2: P2-3] COMPLETED (Information Disclosure Detection Engine)
 ```
 
 ---
 
 ## 2. Completed Milestones (`CONFIRMED`)
 
-All completed milestones are verified via active TypeScript contracts and the regression test suite (`npm run check:v2` with 49 passing smoke suites, 100% pass rate).
+All completed milestones are verified via active TypeScript contracts and the regression test suite (`npm run check:v2` with 50 passing smoke suites, 100% pass rate).
 
 
 ### Foundation Era (M0 – M29)
@@ -636,6 +639,30 @@ All completed milestones are verified via active TypeScript contracts and the re
      - Dedicated smoke test `worker/src/v2/smoke/milestoneP2_2_open_redirect_smoke.ts` passes 100%.
      - `npm run typecheck:v2` exits 0.
      - Full regression suite (`npm run check:v2` across all 49 smoke suites) passes 100%.
+     - Next.js production build (`npm run build`) compiles cleanly.
+
+---
+
+#### Milestone P2-3: Information Disclosure Detection Engine
+- **Status:** COMPLETED.
+- **Goal:** Implement passive and non-destructive active probing for information disclosures (stack traces, server banners, internal filesystem paths, and framework versions), enforcing sensitive credential redaction, clean error page abstention, and the invariant that information disclosures represent hardening gaps (`status: 'potential_weakness'`, severity: `'low'` or `'info'`).
+- **Key Deliverables:**
+  1. **Domain Contracts & Typed Metadata (`worker/src/v2/core/Evidence.ts`, `worker/src/v2/detection/DetectionContracts.ts`)**:
+     - Added `InformationDisclosureMetadata` interface to `FindingMetadata` discriminated union: `{ kind: 'information_disclosure_metadata', disclosureKind: 'stack_trace' | 'framework_version' | 'server_banner' | 'internal_path', disclosedFragment: string, trigger: string, observedAt: string }`.
+     - Defined `InformationDisclosureDetectionRequest`, `InformationDisclosureDetectionResult`, and `InformationDisclosureDetectionStatus` (`'potential_weakness' | 'secure_target_abstained' | 'pending_human_review' | 'preflight_denied' | 'unexpected_failure'`).
+  2. **Information Disclosure Detection Service (`worker/src/v2/detection/InformationDisclosureDetectionService.ts`)**:
+     - Pattern matchers for stack traces (Java, Node.js, Python, PHP, ASP.NET), server banners (`Server: Apache/2.4.41`, `X-Powered-By: PHP/7.4.3`), and internal paths (`C:\inetpub`, `/var/www/`, `/home/app/`).
+     - Sensitive Data Redaction: `sanitizeDisclosedExcerpt()` strips plaintext tokens, authorization bearer tokens, and secrets from captured excerpts before persistence or DTO creation.
+     - Clean Abstention: Standard hardened error pages (generic 404/400) return `status: 'secure_target_abstained'` with 0 findings and 0 drafts.
+     - Human Review Routing: Unattended detections route to `pendingEvidenceDrafts` (`status: 'pending_human_review'`). Upon approval, promotes to `status: 'potential_weakness'`.
+  3. **Orchestrated Assessment Integration & Web UI Triage (`worker/src/v2/application/OrchestratedAssessmentApplicationService.ts`, `web/src/app/v2/review/page.tsx`)**:
+     - Wired `runInformationDisclosureDetection` into `runPipeline()`.
+     - Extended `reviewEvidenceDraft()` to promote approved `information_disclosure` drafts into formal `Finding` records with `InformationDisclosureMetadata`.
+     - Updated web review UI with dedicated cards for `disclosureKind`, `trigger`, and sanitized `disclosedFragment`.
+  4. **Verification**:
+     - Dedicated smoke test `worker/src/v2/smoke/milestoneP2_3_information_disclosure_smoke.ts` passes 100%.
+     - `npm run typecheck:v2` exits 0.
+     - Full regression suite (`npm run check:v2` across all 50 smoke suites) passes 100%.
      - Next.js production build (`npm run build`) compiles cleanly.
 
 ---

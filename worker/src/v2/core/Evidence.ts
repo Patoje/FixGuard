@@ -60,6 +60,20 @@ export interface OpenRedirectMetadata {
   readonly [key: string]: unknown;
 }
 
+export interface InformationDisclosureMetadata {
+  readonly kind: 'information_disclosure_metadata';
+  readonly disclosureKind: 'stack_trace' | 'framework_version' | 'server_banner' | 'internal_path';
+  readonly disclosedFragment: string; // sanitized excerpt
+  readonly trigger: string; // the request/anomaly that produced the response
+  readonly observedAt: string;
+  readonly category?: 'SECURITY_MISCONFIGURATION';
+  readonly endpointUrl?: string;
+  readonly candidateId?: string;
+  readonly evidenceRecordId?: string;
+  readonly lineage?: Record<string, unknown>;
+  readonly [key: string]: unknown;
+}
+
 export interface DiscoveryFindingMetadata {
   readonly kind: 'discovery_finding_metadata';
   readonly category?: string;
@@ -72,6 +86,7 @@ export type FindingMetadata =
   | InputValidationFlawMetadata
   | MissingSecurityHeadersMetadata
   | OpenRedirectMetadata
+  | InformationDisclosureMetadata
   | DiscoveryFindingMetadata;
 
 

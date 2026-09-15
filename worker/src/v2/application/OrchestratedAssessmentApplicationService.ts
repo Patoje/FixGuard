@@ -47,6 +47,7 @@ import { runCorsMisconfigurationDetection } from '../detection/CorsMisconfigurat
 import { runParameterReflectionDetection } from '../detection/ParameterReflectionDetectionService.js';
 import { runSecurityHeaderDetection } from '../detection/SecurityHeaderDetectionService.js';
 import { runOpenRedirectDetection } from '../detection/OpenRedirectDetectionService.js';
+import { runInformationDisclosureDetection } from '../detection/InformationDisclosureDetectionService.js';
 
 
 import { buildTargetProfile } from '../intelligence/TargetProfileBuilder.js';
@@ -850,6 +851,43 @@ export class OrchestratedAssessmentApplicationService {
             },
           },
         };
+      } else if (detKind === 'information_disclosure') {
+        const discKind = context?.disclosureKind ?? 'server_banner';
+        const fragment = context?.disclosedFragment ?? 'Disclosed internal fragment';
+        const trig = context?.trigger ?? 'Anomalous probe';
+        findingCreated = {
+          id: `fnd_infodisc_${draftId.replace(/^dft_/, '')}`,
+          type: 'SECURITY_MISCONFIGURATION',
+          severity: discKind === 'stack_trace' ? 'low' : 'info',
+          title: `Approved Information Disclosure (${discKind}) on ${context?.endpointUrl ?? record.targetDomain}`,
+          description: `Human operator verified information disclosure (${discKind}) under trigger '${trig}': ${fragment}`,
+          target: context?.endpointUrl ?? `https://${record.targetDomain}/`,
+          evidence: JSON.stringify({
+            draftId,
+            reviewerId,
+            reviewedAt,
+            notes,
+            differentialContext: context,
+          }),
+          confidence: 0.95,
+          metadata: {
+            kind: 'information_disclosure_metadata',
+            category: 'SECURITY_MISCONFIGURATION',
+            disclosureKind: discKind,
+            disclosedFragment: fragment,
+            trigger: trig,
+            observedAt: reviewedAt,
+            endpointUrl: context?.endpointUrl,
+            candidateId: `cnd_${draftId}`,
+            evidenceRecordId: `evd_${draftId}`,
+            lineage: {
+              assessmentId: record.assessmentId,
+              scanId: record.scanId,
+              reviewerId,
+              reviewedAt,
+            },
+          },
+        };
       } else {
 
         findingCreated = {
@@ -1165,6 +1203,46 @@ export class OrchestratedAssessmentApplicationService {
                 injectedCanary: redirectResult.injectedCanary,
                 finalDestination: redirectResult.finalDestination,
                 redirectChain: redirectResult.redirectChain,
+              },
+            };
+            pendingEvidenceDrafts.push(enrichedDraft);
+          }
+        } catch {
+          // Safe error containment
+        }
+      }
+
+      if (!coordinator.isCircuitOpen(record.targetDomain)) {
+        try {
+          const infoDiscResult = await runInformationDisclosureDetection({
+            contractVersion: DETECTION_CONTRACT_VERSION,
+            kind: 'information_disclosure_detection_request',
+            detectionId: `det_infodisc_${record.assessmentId.slice(-8)}`,
+            assessmentId: lineage.assessmentId,
+            scanId: lineage.scanId,
+            authorizationGrantId: lineage.authorizationGrantId,
+            authorizationDecisionId: lineage.authorizationDecisionId,
+            actorId: lineage.actorId,
+            endpointUrl: targetUrl,
+            verifiedAuthorizationDecision: verifiedDecision,
+            scopeGrant,
+            coordinator,
+            transport: this.httpTransport,
+            dnsResolver: this.dnsResolver,
+          });
+
+          if (infoDiscResult.status === 'potential_weakness' && infoDiscResult.finding) {
+            findings.push(infoDiscResult.finding);
+          } else if (infoDiscResult.status === 'pending_human_review' && infoDiscResult.evidenceDraft) {
+            const primaryDisc = infoDiscResult.disclosures[0];
+            const enrichedDraft: EnrichedEvidenceDraft = {
+              ...infoDiscResult.evidenceDraft,
+              differentialContext: {
+                endpointUrl: targetUrl,
+                detectionKind: 'information_disclosure',
+                disclosureKind: primaryDisc?.disclosureKind,
+                disclosedFragment: primaryDisc?.disclosedFragment,
+                trigger: primaryDisc?.trigger,
               },
             };
             pendingEvidenceDrafts.push(enrichedDraft);

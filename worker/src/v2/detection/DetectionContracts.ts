@@ -370,5 +370,67 @@ export interface OpenRedirectDetectionResult {
   };
 }
 
+// ---------------------------------------------------------------------------
+// Milestone P2-3 — Information Disclosure Detection Contracts
+// ---------------------------------------------------------------------------
+
+export type InformationDisclosureDetectionStatus =
+  | 'potential_weakness'
+  | 'secure_target_abstained'
+  | 'pending_human_review'
+  | 'preflight_denied'
+  | 'unexpected_failure';
+
+export interface InformationDisclosureDetectionRequest {
+  readonly contractVersion: DetectionContractVersion;
+  readonly kind: 'information_disclosure_detection_request';
+  readonly detectionId: string;
+  readonly assessmentId: string;
+  readonly scanId: string;
+  readonly authorizationGrantId: string;
+  readonly authorizationDecisionId: string;
+  readonly actorId: string;
+  readonly verifiedAuthorizationDecision: VerifiedAuthorizationDecision;
+  readonly scopeGrant: AuthorizedScopeGrant;
+  readonly endpointUrl: string;
+  readonly method?: 'GET' | 'HEAD';
+  readonly authContext?: ProbeAuthContext;
+  readonly reviewerPolicy?: ReviewerPolicy;
+  readonly humanReviewDecision?: HumanReviewDecision;
+  readonly triageDecision?: ReviewedEvidenceFindingCandidateTriageDecision;
+  readonly coordinator?: TargetExecutionCoordinator;
+  readonly transport?: IdorHttpProbeTransport;
+  readonly dnsResolver?: PreSpawnDnsResolver;
+}
+
+export interface DisclosedItem {
+  readonly disclosureKind: 'stack_trace' | 'framework_version' | 'server_banner' | 'internal_path';
+  readonly disclosedFragment: string;
+  readonly trigger: string;
+}
+
+export interface InformationDisclosureDetectionResult {
+  readonly contractVersion: DetectionContractVersion;
+  readonly kind: 'information_disclosure_detection_result';
+  readonly detectionId: string;
+  readonly scanId: string;
+  readonly assessmentId: string;
+  readonly authorizationGrantId: string;
+  readonly authorizationDecisionId: string;
+  readonly actorId: string;
+  readonly status: InformationDisclosureDetectionStatus;
+  readonly reasonCode: string;
+  readonly lineage: AuthorizedExecutionLineageTuple;
+  readonly disclosures: readonly DisclosedItem[];
+  readonly evidenceDraft?: EvidenceDraftEnvelope;
+  readonly findingCandidate?: ReviewedEvidenceFormalFindingCandidate;
+  readonly finding?: Finding;
+  readonly error?: {
+    readonly code: string;
+    readonly safeMessage: string;
+  };
+}
+
+
 
 
