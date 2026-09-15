@@ -75,13 +75,16 @@
                                                                 │
                                                                 ▼
                                                         [PHASE 2: P2-1] COMPLETED (Security Header Detection Engine)
+                                                                │
+                                                                ▼
+                                                        [PHASE 2: P2-2] COMPLETED (Open Redirect Detection Engine)
 ```
 
 ---
 
 ## 2. Completed Milestones (`CONFIRMED`)
 
-All completed milestones are verified via active TypeScript contracts and the regression test suite (`npm run check:v2` with 48 passing smoke suites, 100% pass rate).
+All completed milestones are verified via active TypeScript contracts and the regression test suite (`npm run check:v2` with 49 passing smoke suites, 100% pass rate).
 
 
 ### Foundation Era (M0 – M29)
@@ -608,6 +611,31 @@ All completed milestones are verified via active TypeScript contracts and the re
      - Dedicated smoke test `worker/src/v2/smoke/milestoneP2_1_security_headers_smoke.ts` passes 100%.
      - `npm run typecheck:v2` exits 0.
      - Full regression suite (`npm run check:v2` across all 48 smoke suites) passes 100%.
+     - Next.js production build (`npm run build`) compiles cleanly.
+
+---
+
+#### Milestone P2-2: Open Redirect Detection Engine
+- **Status:** COMPLETED.
+- **Goal:** Implement high-precision active probing for unvalidated URL redirection vulnerabilities using safe canary targets (`https://canary.fixguard.internal/`), enforcing SSRF egress gates on redirect destinations, routing unreviewed detections to `pendingEvidenceDrafts`, and promoting approved drafts to formal `Finding` records with `OpenRedirectMetadata`.
+- **Key Deliverables:**
+  1. **Domain Contracts & Typed Metadata (`worker/src/v2/core/Evidence.ts`, `worker/src/v2/detection/DetectionContracts.ts`)**:
+     - Added `OpenRedirectMetadata` interface to `FindingMetadata` discriminated union: `{ kind: 'open_redirect_metadata', parameterName: string, injectedCanary: string, finalDestination: string, redirectChain: readonly string[], observedAt: string }`.
+     - Defined `OpenRedirectDetectionRequest`, `OpenRedirectDetectionResult`, and `OpenRedirectDetectionStatus` (`'exploit_confirmed' | 'potential_weakness' | 'secure_target_abstained' | 'pending_human_review' | 'preflight_denied' | 'unexpected_failure'`).
+  2. **Open Redirect Detection Service (`worker/src/v2/detection/OpenRedirectDetectionService.ts`)**:
+     - Probes candidate parameters (`redirect`, `next`, `url`, `return`, `dest`, `return_to`, `redirect_uri`, `continue`, `target`, `to`) with safe canary destination (`https://canary.fixguard.internal/`).
+     - Analyzes HTTP 301/302/303/307/308 responses: detects unvalidated redirection to the injected canary.
+     - Egress SSRF Gate: Inspects redirect destination hostnames, strictly failing closed (`status: 'preflight_denied'`, `reasonCode: 'ssrf_destination_blocked'`) if the redirect destination points to private IP spaces, loopback, or cloud metadata.
+     - Clean Abstention: If target sanitizes to relative paths or validates against internal allowlists, returns `status: 'secure_target_abstained'` with 0 findings and 0 drafts.
+     - Human-in-the-Loop: Routes unreviewed candidates to `pendingEvidenceDrafts` (`status: 'pending_human_review'`).
+  3. **Orchestrated Assessment Integration & Web UI Triage (`worker/src/v2/application/OrchestratedAssessmentApplicationService.ts`, `web/src/app/v2/review/page.tsx`)**:
+     - Wired `runOpenRedirectDetection` into `runPipeline()`.
+     - Extended `reviewEvidenceDraft()` to promote approved `open_redirect` drafts into formal `Finding` records with `OpenRedirectMetadata`.
+     - Updated web triage UI to display redirect destination, injected canary, and differential context.
+  4. **Verification**:
+     - Dedicated smoke test `worker/src/v2/smoke/milestoneP2_2_open_redirect_smoke.ts` passes 100%.
+     - `npm run typecheck:v2` exits 0.
+     - Full regression suite (`npm run check:v2` across all 49 smoke suites) passes 100%.
      - Next.js production build (`npm run build`) compiles cleanly.
 
 ---

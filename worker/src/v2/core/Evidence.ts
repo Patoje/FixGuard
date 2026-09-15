@@ -45,6 +45,21 @@ export interface MissingSecurityHeadersMetadata {
   readonly [key: string]: unknown;
 }
 
+export interface OpenRedirectMetadata {
+  readonly kind: 'open_redirect_metadata';
+  readonly parameterName: string;
+  readonly injectedCanary: string;
+  readonly finalDestination: string;
+  readonly redirectChain: readonly string[];
+  readonly observedAt: string;
+  readonly category?: 'INPUT_VALIDATION_FLAW' | 'SECURITY_MISCONFIGURATION';
+  readonly endpointUrl?: string;
+  readonly candidateId?: string;
+  readonly evidenceRecordId?: string;
+  readonly lineage?: Record<string, unknown>;
+  readonly [key: string]: unknown;
+}
+
 export interface DiscoveryFindingMetadata {
   readonly kind: 'discovery_finding_metadata';
   readonly category?: string;
@@ -56,6 +71,7 @@ export type FindingMetadata =
   | SecurityMisconfigurationMetadata
   | InputValidationFlawMetadata
   | MissingSecurityHeadersMetadata
+  | OpenRedirectMetadata
   | DiscoveryFindingMetadata;
 
 

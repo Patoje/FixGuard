@@ -431,6 +431,27 @@ function HumanReviewContent() {
                           <span className="text-amber-400 font-bold">{diffContext.resourceParamName}</span>
                         </div>
                       )}
+
+                      {diffContext?.finalDestination && (
+                        <div className="rounded-lg bg-black/40 border border-zinc-800 p-2.5">
+                          <span className="text-zinc-500 text-[10px] block">Redirect Destination (Location):</span>
+                          <span className="text-rose-400 font-bold">{diffContext.finalDestination}</span>
+                        </div>
+                      )}
+
+                      {diffContext?.injectedCanary && (
+                        <div className="rounded-lg bg-black/40 border border-zinc-800 p-2.5">
+                          <span className="text-zinc-500 text-[10px] block">Injected Canary:</span>
+                          <span className="text-amber-400 font-bold">{diffContext.injectedCanary}</span>
+                        </div>
+                      )}
+
+                      {diffContext?.missingHeaders && diffContext.missingHeaders.length > 0 && (
+                        <div className="rounded-lg bg-black/40 border border-zinc-800 p-2.5 col-span-2">
+                          <span className="text-zinc-500 text-[10px] block">Missing Hardening Headers:</span>
+                          <span className="text-amber-400 font-bold">{diffContext.missingHeaders.join(', ')}</span>
+                        </div>
+                      )}
                     </div>
 
                     <div className="rounded bg-black/40 p-3 border border-zinc-800 text-xs text-zinc-300 font-mono leading-relaxed">

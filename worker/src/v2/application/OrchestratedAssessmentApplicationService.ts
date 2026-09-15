@@ -46,6 +46,7 @@ import { DETECTION_CONTRACT_VERSION } from '../detection/DetectionContracts.js';
 import { runCorsMisconfigurationDetection } from '../detection/CorsMisconfigurationDetectionService.js';
 import { runParameterReflectionDetection } from '../detection/ParameterReflectionDetectionService.js';
 import { runSecurityHeaderDetection } from '../detection/SecurityHeaderDetectionService.js';
+import { runOpenRedirectDetection } from '../detection/OpenRedirectDetectionService.js';
 
 
 import { buildTargetProfile } from '../intelligence/TargetProfileBuilder.js';
@@ -810,6 +811,45 @@ export class OrchestratedAssessmentApplicationService {
             },
           },
         };
+      } else if (detKind === 'open_redirect') {
+        const param = context?.parameterName ?? 'redirect';
+        const canary = context?.injectedCanary ?? 'https://canary.fixguard.internal/';
+        const dest = context?.finalDestination ?? canary;
+        const chain = context?.redirectChain ?? [dest];
+        findingCreated = {
+          id: `fnd_redir_${draftId.replace(/^dft_/, '')}`,
+          type: 'INPUT_VALIDATION_FLAW',
+          severity: 'medium',
+          title: `Approved Open Redirect on ${context?.endpointUrl ?? record.targetDomain}`,
+          description: `Human operator verified unvalidated redirection via parameter '${param}' to canary destination '${dest}'.`,
+          target: context?.endpointUrl ?? `https://${record.targetDomain}/`,
+          evidence: JSON.stringify({
+            draftId,
+            reviewerId,
+            reviewedAt,
+            notes,
+            differentialContext: context,
+          }),
+          confidence: 1.0,
+          metadata: {
+            kind: 'open_redirect_metadata',
+            category: 'INPUT_VALIDATION_FLAW',
+            parameterName: param,
+            injectedCanary: canary,
+            finalDestination: dest,
+            redirectChain: chain,
+            observedAt: reviewedAt,
+            endpointUrl: context?.endpointUrl,
+            candidateId: `cnd_${draftId}`,
+            evidenceRecordId: `evd_${draftId}`,
+            lineage: {
+              assessmentId: record.assessmentId,
+              scanId: record.scanId,
+              reviewerId,
+              reviewedAt,
+            },
+          },
+        };
       } else {
 
         findingCreated = {
@@ -1085,6 +1125,46 @@ export class OrchestratedAssessmentApplicationService {
                 detectionKind: 'missing_security_headers',
                 missingHeaders: headerResult.missingHeaders,
                 presentHeaders: headerResult.presentHeaders,
+              },
+            };
+            pendingEvidenceDrafts.push(enrichedDraft);
+          }
+        } catch {
+          // Safe error containment
+        }
+      }
+
+      if (!coordinator.isCircuitOpen(record.targetDomain)) {
+        try {
+          const redirectResult = await runOpenRedirectDetection({
+            contractVersion: DETECTION_CONTRACT_VERSION,
+            kind: 'open_redirect_detection_request',
+            detectionId: `det_redir_${record.assessmentId.slice(-8)}`,
+            assessmentId: lineage.assessmentId,
+            scanId: lineage.scanId,
+            authorizationGrantId: lineage.authorizationGrantId,
+            authorizationDecisionId: lineage.authorizationDecisionId,
+            actorId: lineage.actorId,
+            endpointUrl: targetUrl,
+            verifiedAuthorizationDecision: verifiedDecision,
+            scopeGrant,
+            coordinator,
+            transport: this.httpTransport,
+            dnsResolver: this.dnsResolver,
+          });
+
+          if (redirectResult.status === 'exploit_confirmed' && redirectResult.finding) {
+            findings.push(redirectResult.finding);
+          } else if (redirectResult.status === 'pending_human_review' && redirectResult.evidenceDraft) {
+            const enrichedDraft: EnrichedEvidenceDraft = {
+              ...redirectResult.evidenceDraft,
+              differentialContext: {
+                endpointUrl: targetUrl,
+                detectionKind: 'open_redirect',
+                parameterName: redirectResult.parameterName,
+                injectedCanary: redirectResult.injectedCanary,
+                finalDestination: redirectResult.finalDestination,
+                redirectChain: redirectResult.redirectChain,
               },
             };
             pendingEvidenceDrafts.push(enrichedDraft);
