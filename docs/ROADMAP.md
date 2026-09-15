@@ -63,13 +63,16 @@
                                                                 │
                                                                 ▼
                                                         [PHASE 0: P0-1, P0-2, P0-3] COMPLETED (Human Review Gate, Typed Finding, Binary Availability)
+                                                                │
+                                                                ▼
+                                                        [PHASE 1: P1-1] COMPLETED (Async Assessment HTTP API Lifecycle)
 ```
 
 ---
 
 ## 2. Completed Milestones (`CONFIRMED`)
 
-All completed milestones are verified via active TypeScript contracts and the regression test suite (`npm run check:v2` with 45 passing smoke suites, 100% pass rate).
+All completed milestones are verified via active TypeScript contracts and the regression test suite (`npm run check:v2` with 46 passing smoke suites, 100% pass rate).
 
 ### Foundation Era (M0 – M29)
 - **M0 – M6.5 (Core Loop Foundation)**: `TargetContext`, `CapabilityRequest`, `ExecutionRequest`, `RawExecutionOutput`, `ProcessRunner` (safe spawn without shell interpolation), `SubfinderAdapter`, `SubfinderParser`.
@@ -495,6 +498,30 @@ All completed milestones are verified via active TypeScript contracts and the re
      - `npm run smoke:v2:capabilities-status` passing all 4 assertions (100%).
      - Zero `as any` across `worker/src/v2` and `web/src`.
      - Full regression suite (`npm run check:v2` across all 45 smoke suites) passes 100%.
+
+---
+
+### Phase 1: Production Pipeline & Human Triage (Canonical Roadmap)
+
+#### Milestone P1-1: Async Assessment HTTP API Lifecycle
+- **Status:** COMPLETED.
+- **Goal:** Decouple multi-stage assessment execution from the HTTP request/response thread, acknowledging launches immediately with `HTTP 202 Accepted` (< 100ms) and exposing non-blocking polling endpoints for real-time stage progress and synthesized results.
+- **Key Deliverables:**
+  1. **Immediate HTTP 202 Acknowledgment (`worker/src/v2/api/controllers/OrchestratedAssessmentController.ts`)**:
+     - `POST /api/v2/orchestrated/assessments/start` returns `202 Accepted` in < 100ms (measured at 22-29ms) with `{ assessmentId, scanId, status: 'running', lineage }`.
+     - In-process asynchronous dispatch preserving ADR-001 `WeakSet` authorization brand without external queuing overhead.
+  2. **Real-Time Stage Callbacks (`worker/src/v2/recon/orchestration/CompositeActiveReconOrchestratorService.ts`)**:
+     - Injected `onStageComplete` callback into the composite active recon orchestrator, incrementally updating stage status, durations, and observation counts as stages complete.
+  3. **Non-Blocking Polling Endpoints**:
+     - `GET /api/v2/orchestrated/assessments/:assessmentId/status` returns structured lifecycle metrics during execution.
+     - `GET /api/v2/orchestrated/assessments/:assessmentId/summary` returns synthesized `TargetProfile`, `pendingEvidenceDrafts` (custody for human review), and advisory recommendations upon completion.
+  4. **Web Frontend Client & Polling Integration (`web/src/lib/v2Api.ts`, `web/src/app/v2/assessments/page.tsx`)**:
+     - Typed client supporting draft counts and non-blocking 2s polling loops.
+  5. **Verification**:
+     - `npm run smoke:v2:async-api` passing all 4 assertions (100%).
+     - Zero `as any` across `worker/src/v2` and `web/src`.
+     - Full regression suite (`npm run check:v2` across all 46 smoke suites) passes 100%.
+     - Next.js production build (`npm run build`) compiles cleanly.
 
 ---
 
