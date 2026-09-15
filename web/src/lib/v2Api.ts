@@ -337,6 +337,50 @@ export class V2OrchestratedApiClient {
       }
     );
   }
+
+  /**
+   * Generates and downloads a signed defensive HTML report.
+   * POST /api/v2/orchestrated/assessments/:assessmentId/report/html
+   */
+  public async generateHtmlReport(
+    assessmentId: string,
+    params: { operatorId: string; attestationText: string }
+  ): Promise<string> {
+    const url = `${this.baseUrl}/orchestrated/assessments/${encodeURIComponent(assessmentId)}/report/html`;
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+      Accept: 'text/html',
+    };
+
+    if (this.apiSecret) {
+      headers['Authorization'] = `Bearer ${this.apiSecret}`;
+    }
+
+    const res = await fetch(url, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(params),
+    });
+
+    if (!res.ok) {
+      let errorType = 'HttpError';
+      let message = `HTTP ${res.status} ${res.statusText}`;
+      let reasonCode: string | undefined;
+
+      try {
+        const body = (await res.json()) as Record<string, unknown>;
+        if (typeof body.error === 'string') errorType = body.error;
+        if (typeof body.message === 'string') message = body.message;
+        if (typeof body.reasonCode === 'string') reasonCode = body.reasonCode;
+      } catch {
+        // Non-JSON response
+      }
+
+      throw new V2ApiError(res.status, errorType, message, reasonCode);
+    }
+
+    return res.text();
+  }
 }
 
 export const v2OrchestratedApi = new V2OrchestratedApiClient();
@@ -381,5 +425,14 @@ export async function reviewEvidenceDraft(
 ): Promise<ReviewEvidenceDraftResponse> {
   const client = config ? new V2OrchestratedApiClient(config) : v2OrchestratedApi;
   return client.reviewEvidenceDraft(assessmentId, draftId, params);
+}
+
+export async function generateHtmlReport(
+  assessmentId: string,
+  params: { operatorId: string; attestationText: string },
+  config?: V2ApiClientConfig
+): Promise<string> {
+  const client = config ? new V2OrchestratedApiClient(config) : v2OrchestratedApi;
+  return client.generateHtmlReport(assessmentId, params);
 }
 

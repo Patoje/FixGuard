@@ -36,12 +36,13 @@ export function createV2Router(root: V2CompositionRoot): Router {
   // Authorization establishment endpoint
   router.post('/auth/decisions', authController.establishDecision);
 
-  // Orchestrated Assessment endpoints (Milestone F6 & P1-3)
+  // Orchestrated Assessment endpoints (Milestone F6 & P1-3 & P2-6)
   router.post('/orchestrated/assessments/start', orchestratedController.startAssessment);
   router.get('/orchestrated/assessments/:assessmentId/summary', orchestratedController.getSummary);
   router.get('/orchestrated/assessments/:assessmentId/status', orchestratedController.getStatus);
   router.get('/orchestrated/assessments/:assessmentId/evidence-drafts', orchestratedController.getEvidenceDrafts);
   router.post('/orchestrated/assessments/:assessmentId/evidence/:draftId/review', orchestratedController.reviewEvidenceDraft);
+  router.post('/orchestrated/assessments/:assessmentId/report/html', orchestratedController.generateHtmlReport);
 
   return router;
 }

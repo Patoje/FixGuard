@@ -17,6 +17,7 @@ import type { OrchestratedAssessmentApplicationService } from '../../application
 import {
   parseStartOrchestratedAssessmentBody,
   parseReviewEvidenceDraftBody,
+  parseGenerateHtmlReportHttpBody,
 } from '../validation/ApiRequestValidators.js';
 import { isStrictSafeId } from '../../reporting-boundary/DefensiveReportContracts.js';
 import { ApiValidationError } from '../ApiErrors.js';
@@ -118,6 +119,30 @@ export class OrchestratedAssessmentController {
       });
 
       res.status(200).json(result);
+    } catch (err) {
+      next(err);
+    }
+  };
+
+  public generateHtmlReport = async (
+    req: Request,
+    res: Response,
+    next: NextFunction
+  ): Promise<void> => {
+    try {
+      const assessmentId = req.params.assessmentId;
+      if (!assessmentId || typeof assessmentId !== 'string' || !isStrictSafeId(assessmentId)) {
+        throw new ApiValidationError('Field assessmentId must satisfy strict identifier format');
+      }
+
+      const body = parseGenerateHtmlReportHttpBody(req.body);
+      const html = await this.service.generateHtmlReport(
+        assessmentId,
+        body.operatorId,
+        body.attestationText
+      );
+
+      res.setHeader('Content-Type', 'text/html; charset=utf-8').status(200).send(html);
     } catch (err) {
       next(err);
     }

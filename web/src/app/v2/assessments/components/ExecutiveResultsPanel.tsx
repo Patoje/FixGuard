@@ -15,13 +15,18 @@ import {
   Info,
   CheckCircle2,
   AlertTriangle,
-  Scale
+  Scale,
+  FileText,
+  Download,
+  X,
+  Loader2
 } from "lucide-react";
-import type {
-  OrchestratedAssessmentSummaryResponse,
-  FindingDto,
-  RecommendationDto,
-  ProfileEndpointDto
+import {
+  type OrchestratedAssessmentSummaryResponse,
+  type FindingDto,
+  type RecommendationDto,
+  type ProfileEndpointDto,
+  generateHtmlReport
 } from "@/lib/v2Api";
 
 interface ExecutiveResultsPanelProps {
@@ -30,6 +35,47 @@ interface ExecutiveResultsPanelProps {
 
 export function ExecutiveResultsPanel({ summary }: ExecutiveResultsPanelProps) {
   const [activeTab, setActiveTab] = useState<"profile" | "findings" | "recommendations">("profile");
+  const [isReportModalOpen, setIsReportModalOpen] = useState(false);
+  const [operatorId, setOperatorId] = useState("operator_lead");
+  const [attestationText, setAttestationText] = useState("");
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [reportError, setReportError] = useState<string | null>(null);
+
+  const handleDownloadReport = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!summary) return;
+    if (attestationText.trim().length < 10) {
+      setReportError("La declaración de atestación debe tener al menos 10 caracteres.");
+      return;
+    }
+
+    try {
+      setIsGenerating(true);
+      setReportError(null);
+      const htmlContent = await generateHtmlReport(summary.assessmentId, {
+        operatorId: operatorId.trim() || "operator_lead",
+        attestationText: attestationText.trim()
+      });
+
+      const blob = new Blob([htmlContent], { type: "text/html;charset=utf-8" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `FixGuard_Defensive_Report_${summary.assessmentId}.html`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+
+      setIsReportModalOpen(false);
+      setAttestationText("");
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Error al generar informe defensivo";
+      setReportError(msg);
+    } finally {
+      setIsGenerating(false);
+    }
+  };
 
   if (!summary) return null;
 
@@ -72,6 +118,15 @@ export function ExecutiveResultsPanel({ summary }: ExecutiveResultsPanelProps) {
               Revisión HITL ({pendingDrafts.length}) &rarr;
             </Link>
           )}
+
+          <button
+            type="button"
+            onClick={() => setIsReportModalOpen(true)}
+            className="rounded-xl border border-emerald-500/40 bg-emerald-500/10 hover:bg-emerald-500/20 px-3 py-1.5 text-xs font-mono text-emerald-300 font-semibold flex items-center gap-1.5 transition cursor-pointer"
+          >
+            <FileText className="h-3.5 w-3.5 text-emerald-400" />
+            Generar Informe Defensivo (HTML)
+          </button>
 
           <div className="flex items-center gap-1 rounded-xl border border-zinc-800 bg-zinc-900/60 p-1 text-xs font-mono">
             <button
@@ -335,6 +390,120 @@ export function ExecutiveResultsPanel({ summary }: ExecutiveResultsPanelProps) {
               ))}
             </div>
           )}
+        </div>
+      )}
+
+      {/* Operator Attestation & HTML Report Modal */}
+      {isReportModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
+          <div className="relative w-full max-w-lg rounded-2xl border border-zinc-700 bg-zinc-900 p-6 shadow-2xl space-y-5">
+            {/* Modal Header */}
+            <div className="flex items-center justify-between border-b border-zinc-800 pb-4">
+              <div className="flex items-center gap-2.5">
+                <div className="flex h-8 w-8 items-center justify-center rounded-lg border border-emerald-500/30 bg-emerald-500/10 text-emerald-400">
+                  <FileText className="h-4 w-4" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-semibold text-white">
+                    Generar Informe Defensivo (HTML)
+                  </h3>
+                  <p className="text-[11px] font-mono text-zinc-400">
+                    Artefacto auditable con atestación de operador
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsReportModalOpen(false)}
+                className="rounded-lg p-1.5 text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200 transition cursor-pointer"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            {/* Defensive Notice */}
+            <div className="rounded-xl border border-zinc-800 bg-zinc-950/60 p-3 space-y-1.5 text-[11px] font-mono text-zinc-300">
+              <div className="flex items-center gap-1.5 text-amber-400 font-semibold">
+                <AlertTriangle className="h-3.5 w-3.5" />
+                <span>Requisitos de Integridad y Atestación</span>
+              </div>
+              <p className="text-zinc-400 text-[10px] leading-relaxed">
+                El informe exportado incluirá únicamente los hallazgos confirmados mediante revisión humana (HITL),
+                las limitaciones obligatorias de la auditoría y la cadena de linaje inmutable.
+              </p>
+            </div>
+
+            {/* Attestation Form */}
+            <form onSubmit={handleDownloadReport} className="space-y-4">
+              <div className="space-y-1.5">
+                <label className="text-xs font-mono text-zinc-300 block">
+                  Identificador del Operador (Operator ID)
+                </label>
+                <input
+                  type="text"
+                  value={operatorId}
+                  onChange={(e) => setOperatorId(e.target.value)}
+                  placeholder="operator_lead"
+                  required
+                  className="w-full rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-2 text-xs font-mono text-zinc-100 placeholder-zinc-500 focus:border-emerald-500 focus:outline-none"
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-mono text-zinc-300 block">
+                    Declaración de Atestación del Operador
+                  </label>
+                  <span className="text-[10px] font-mono text-zinc-500">
+                    Mínimo 10 caracteres ({attestationText.trim().length}/10)
+                  </span>
+                </div>
+                <textarea
+                  value={attestationText}
+                  onChange={(e) => setAttestationText(e.target.value)}
+                  placeholder="Certifico que la evaluación fue realizada dentro del alcance autorizado y que los hallazgos presentados reflejan observaciones genuinas verificadas..."
+                  rows={4}
+                  required
+                  className="w-full rounded-xl border border-zinc-700 bg-zinc-950 p-3 text-xs font-mono text-zinc-100 placeholder-zinc-500 focus:border-emerald-500 focus:outline-none resize-none"
+                />
+              </div>
+
+              {reportError && (
+                <div className="rounded-lg border border-rose-500/30 bg-rose-500/10 p-2.5 text-xs font-mono text-rose-300">
+                  {reportError}
+                </div>
+              )}
+
+              {/* Modal Actions */}
+              <div className="flex items-center justify-end gap-2.5 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setIsReportModalOpen(false)}
+                  disabled={isGenerating}
+                  className="rounded-xl border border-zinc-700 bg-zinc-800 hover:bg-zinc-750 px-4 py-2 text-xs font-mono text-zinc-300 transition cursor-pointer disabled:opacity-50"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={isGenerating || attestationText.trim().length < 10}
+                  className="rounded-xl border border-emerald-500/40 bg-emerald-500 hover:bg-emerald-400 px-4 py-2 text-xs font-mono font-bold text-black flex items-center gap-2 transition cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {isGenerating ? (
+                    <>
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      Generando...
+                    </>
+                  ) : (
+                    <>
+                      <Download className="h-3.5 w-3.5" />
+                      Descargar Informe HTML
+                    </>
+                  )}
+                </button>
+              </div>
+            </form>
+          </div>
         </div>
       )}
     </div>

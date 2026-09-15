@@ -60,6 +60,7 @@ import type { EvidenceDraftEnvelope } from '../evidence-mapping/ComparisonEviden
 import { SessionNotFoundError } from '../storage/StorageErrors.js';
 import { ApiValidationError, UnauthorizedGatewayError, UnavailableToolsError } from '../api/ApiErrors.js';
 import { isStrictSafeId } from '../reporting-boundary/DefensiveReportContracts.js';
+import { ReportGeneratorService } from '../reporting-boundary/ReportGeneratorService.js';
 import { isForbiddenSyntheticReviewerId } from '../api/validation/ApiRequestValidators.js';
 import { ReconToolAvailabilityService } from '../capabilities/ReconToolAvailabilityService.js';
 import type { ReconToolName } from '../capabilities/CapabilityStatusContracts.js';
@@ -638,7 +639,38 @@ export class OrchestratedAssessmentApplicationService {
   }
 
   /**
+   * Generates a complete standalone defensive HTML report with mandatory operator attestation.
+   */
+  public async generateHtmlReport(
+    assessmentId: string,
+    operatorId: string,
+    attestationText: string,
+    verifiedAt?: string
+  ): Promise<string> {
+    if (!assessmentId || typeof assessmentId !== 'string' || !isStrictSafeId(assessmentId)) {
+      throw new ApiValidationError('Field assessmentId must satisfy strict identifier format');
+    }
+
+    const record = await this.repository.findById(assessmentId);
+    if (!record) {
+      throw new SessionNotFoundError(
+        `Orchestrated assessment '${assessmentId}' was not found`,
+        assessmentId
+      );
+    }
+
+    const generator = new ReportGeneratorService();
+    return generator.generateHtmlReport({
+      assessmentRecord: record,
+      operatorId,
+      attestationText,
+      ...(verifiedAt ? { verifiedAt } : {}),
+    });
+  }
+
+  /**
    * Evaluates human-in-the-loop review decision for a pending evidence draft.
+
    * On 'approve_evidence': promotes draft to strongly typed Finding and adds to assessment findings.
    * On 'reject_evidence': discards draft with ZERO findings or persisted evidence.
    */

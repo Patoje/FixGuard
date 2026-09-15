@@ -298,3 +298,40 @@ export function parseReviewEvidenceDraftBody(body: unknown): ReviewEvidenceDraft
   };
 }
 
+export interface GenerateHtmlReportHttpCommand {
+  readonly operatorId: string;
+  readonly attestationText: string;
+}
+
+export function parseGenerateHtmlReportHttpBody(body: unknown): GenerateHtmlReportHttpCommand {
+  if (!body || typeof body !== 'object' || Array.isArray(body)) {
+    throw new ApiValidationError('Request body must be a non-empty object');
+  }
+
+  const record = body as Record<string, unknown>;
+  const allowedKeys = ['operatorId', 'attestationText'] as const;
+
+  assertExactKeys(record, allowedKeys, 'GenerateHtmlReportRequest');
+
+  const { operatorId, attestationText } = record;
+
+  if (typeof operatorId !== 'string' || operatorId.trim().length === 0) {
+    throw new ApiValidationError("Field 'operatorId' must be a non-empty string");
+  }
+
+  if (!isStrictSafeId(operatorId)) {
+    throw new ApiValidationError("Field 'operatorId' must satisfy strict identifier format");
+  }
+
+  if (typeof attestationText !== 'string' || attestationText.trim().length < 10) {
+    throw new ApiValidationError(
+      "Field 'attestationText' must be a string containing at least 10 characters"
+    );
+  }
+
+  return {
+    operatorId: operatorId.trim(),
+    attestationText: attestationText.trim(),
+  };
+}
+

@@ -87,13 +87,16 @@
                                                                 │
                                                                 ▼
                                                         [PHASE 2: P2-5] COMPLETED (TLS Configuration Analysis Engine)
+                                                                │
+                                                                ▼
+                                                        [PHASE 2: P2-6] COMPLETED (HTML Report Generation & Operator Attestation)
 ```
 
 ---
 
 ## 2. Completed Milestones (`CONFIRMED`)
 
-All completed milestones are verified via active TypeScript contracts and the regression test suite (`npm run check:v2` with 52 passing smoke suites, 100% pass rate).
+All completed milestones are verified via active TypeScript contracts and the regression test suite (`npm run check:v2` with 53 passing smoke suites, 100% pass rate).
 
 
 
@@ -729,6 +732,38 @@ All completed milestones are verified via active TypeScript contracts and the re
      - Dedicated smoke test `worker/src/v2/smoke/milestoneP2_5_tls_configuration_smoke.ts` passes 100%.
      - `npm run typecheck:v2` exits 0.
      - Full regression suite (`npm run check:v2` across all 52 smoke suites) passes 100%.
+     - Next.js production build (`npm run build`) compiles cleanly.
+
+---
+
+#### Milestone P2-6: HTML Report Generation & Operator Attestation (Phase 2 Finale)
+- **Status:** COMPLETED.
+- **Goal:** Implement the authoritative defensive HTML report generator with signed operator attestation, concluding Phase 2 of the canonical roadmap.
+- **Key Deliverables:**
+  1. **Self-Contained Report Builder (`worker/src/v2/reporting-boundary/ReportSectionBuilders.ts`)**:
+     - Modern, dependency-free CSS design with dark/neutral aesthetics.
+     - Six comprehensive report sections:
+       1. Header & Target Metadata (Target domain, execution dates, scan scope, lineage tuple).
+       2. Executive Summary (Severity breakdown badges, total confirmed findings count).
+       3. Mandatory Audit Limitations (Point-in-Time constraints, defensive execution principles, unassessed vectors, abstention guarantees).
+       4. Confirmed Findings (Title, severity badge, description, proof of evidence excerpt, typed differential metadata, continuous lineage chain).
+       5. Advisory Recommendations (Rule-correlated advisory guidance derived from profile observations).
+       6. Signed Operator Attestation (Operator identity, verification timestamp, signed attestation statement).
+  2. **Report Generator Service (`worker/src/v2/reporting-boundary/ReportGeneratorService.ts`)**:
+     - Strict validation: Requires valid operator identity and an explicit attestation statement of at least 10 characters.
+     - Fail-Closed: Rejects empty statements, synthetic reviewer IDs, and forbidden speculation terms with `ReportGenerationError`.
+     - Anti-Leak Invariant: Renders only confirmed `findings` promoted via HITL triage; strictly excludes unreviewed drafts.
+  3. **Application Service & Gateway Controller (`worker/src/v2/application/OrchestratedAssessmentApplicationService.ts`, `worker/src/v2/api/controllers/OrchestratedAssessmentController.ts`, `worker/src/v2/api/routes/v2Routes.ts`)**:
+     - Added `generateHtmlReport()` to `OrchestratedAssessmentApplicationService`.
+     - Exposed `POST /api/v2/orchestrated/assessments/:assessmentId/report/html` returning `Content-Type: text/html; charset=utf-8`.
+     - Validated request payloads using exact-key closed-world validator `parseGenerateHtmlReportHttpBody()`.
+  4. **Next.js Web UI Integration (`web/src/lib/v2Api.ts`, `web/src/app/v2/assessments/components/ExecutiveResultsPanel.tsx`)**:
+     - Integrated "Generar Informe Defensivo (HTML)" button in the Executive Assessment Results toolbar.
+     - Modal dialog enabling operator identification, minimum 10-char attestation entry, and automated HTML report blob download.
+  5. **Verification**:
+     - Dedicated smoke test `worker/src/v2/smoke/milestoneP2_6_report_generation_smoke.ts` passes 100%.
+     - `npm run typecheck:v2` exits 0.
+     - Full regression suite (`npm run check:v2` across all 53 smoke suites) passes 100%.
      - Next.js production build (`npm run build`) compiles cleanly.
 
 ---
