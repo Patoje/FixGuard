@@ -12,6 +12,7 @@ import type {
 import type { AuthorizedActiveReconRequestLineage } from '../lineage/AuthorizedExecutionLineageContracts.js';
 import type { TargetProfile, TargetRecommendation } from '../intelligence/IntelligenceContracts.js';
 import type { Finding } from '../core/Evidence.js';
+import type { EvidenceDraftEnvelope } from '../evidence-mapping/ComparisonEvidenceMappingContracts.js';
 
 export const ORCHESTRATED_ASSESSMENT_CONTRACT_VERSION =
   'fixguard-orchestrated-assessment/v0' as const;
@@ -56,6 +57,7 @@ export interface OrchestratedAssessmentRecord {
   readonly warningCount: number;
   readonly profile?: TargetProfile;
   readonly findings: readonly Finding[];
+  readonly pendingEvidenceDrafts?: readonly EvidenceDraftEnvelope[];
   readonly recommendations: readonly TargetRecommendation[];
   readonly error?: string;
 }
@@ -70,6 +72,7 @@ export interface OrchestratedAssessmentStatusDto {
   readonly errorCount: number;
   readonly warningCount: number;
   readonly lineage: AuthorizedActiveReconRequestLineage;
+  readonly pendingEvidenceDraftCount?: number;
   readonly error?: string;
 }
 
@@ -80,6 +83,7 @@ export interface OrchestratedAssessmentSummaryDto {
   readonly status: OrchestratedAssessmentStatus;
   readonly profile?: TargetProfile;
   readonly findings: readonly Finding[];
+  readonly pendingEvidenceDrafts?: readonly EvidenceDraftEnvelope[];
   readonly recommendations: readonly TargetRecommendation[];
   readonly lineage: AuthorizedActiveReconRequestLineage;
   readonly timing: OrchestratedAssessmentTiming;

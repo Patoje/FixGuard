@@ -132,7 +132,7 @@ async function runSmokeTest() {
       target: 'api.example.com', 
       evidence: '{}',
       confidence: 1.0,
-      metadata: {}
+      metadata: { kind: 'discovery_finding_metadata' }
     };
     discoveryEvidence.findings.push(mockFinding);
   } else {

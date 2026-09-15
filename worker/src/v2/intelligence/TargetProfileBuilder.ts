@@ -123,12 +123,14 @@ export function buildTargetProfile(input: TargetProfileBuilderInput): TargetProf
     const category = typeof finding.metadata?.category === 'string' ? finding.metadata.category : finding.type;
     ep.flawCategories.add(category);
 
+    const meta = finding.metadata;
+
     // Contextual extraction for CORS
     if (category === 'CORS_MISCONFIGURATION' || category === 'SECURITY_MISCONFIGURATION') {
-      const allowOrigin = typeof finding.metadata?.reflectedOrigin === 'string'
-        ? finding.metadata.reflectedOrigin
+      const allowOrigin = meta?.kind === 'security_misconfiguration_metadata' && typeof meta.reflectedOrigin === 'string'
+        ? meta.reflectedOrigin
         : undefined;
-      const allowCredentials = finding.metadata?.allowCredentials === true;
+      const allowCredentials = meta?.kind === 'security_misconfiguration_metadata' && meta.allowCredentials === true;
       ep.corsConfiguration = {
         allowOrigin,
         allowCredentials,
@@ -137,16 +139,16 @@ export function buildTargetProfile(input: TargetProfileBuilderInput): TargetProf
 
     // Contextual extraction for Parameter Reflection
     if (category === 'INPUT_VALIDATION_FLAW' || category === 'PARAMETER_REFLECTION') {
-      if (typeof finding.metadata?.parameterName === 'string') {
-        ep.parameters.add(finding.metadata.parameterName);
+      if (meta?.kind === 'input_validation_flaw_metadata' && typeof meta.parameterName === 'string') {
+        ep.parameters.add(meta.parameterName);
       }
     }
 
     // Contextual extraction for Broken Access Control
     if (category === 'BROKEN_ACCESS_CONTROL') {
       ep.authRequirement = 'authenticated';
-      if (typeof finding.metadata?.resourceParamName === 'string') {
-        ep.parameters.add(finding.metadata.resourceParamName);
+      if (meta?.kind === 'broken_access_control_metadata' && typeof meta.resourceParamName === 'string') {
+        ep.parameters.add(meta.resourceParamName);
       }
     }
   }

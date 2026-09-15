@@ -557,6 +557,29 @@ export async function runIdorDifferentialDetection(
     };
   }
 
+  // If no explicit human review decision is supplied, halt at the human review boundary
+  // and return pending_human_review with the unsigned EvidenceDraft envelope.
+  if (!request.humanReviewDecision) {
+    return {
+      contractVersion: DETECTION_CONTRACT_VERSION,
+      kind: 'idor_differential_detection_result',
+      detectionId: request.detectionId,
+      scanId: request.scanId,
+      assessmentId: request.assessmentId,
+      authorizationGrantId: request.authorizationGrantId,
+      authorizationDecisionId: request.authorizationDecisionId,
+      actorId: request.actorId,
+      status: 'pending_human_review',
+      reasonCode: 'pending_human_review',
+      lineage,
+      baselineSnapshot,
+      validationSnapshot,
+      comparisonResult,
+      validationResult,
+      evidenceDraft: validationResult.evidenceDraft
+    };
+  }
+
   // 8. Human-Reviewed Evidence Promotion (M50)
   const promotionRequest: HumanReviewedEvidencePromotionRequest = {
     contractVersion: 'fixguard-human-reviewed-evidence-promotion/v0',
@@ -570,11 +593,7 @@ export async function runIdorDifferentialDetection(
       indicatorId: `ind_${safeSeed}`,
       scanId: request.scanId
     },
-    reviewDecision: request.humanReviewDecision ?? {
-      decision: 'approve_evidence',
-      reviewerId: 'reviewer_lead_sec',
-      reviewedAt: nowIso
-    },
+    reviewDecision: request.humanReviewDecision,
     substancePayload: {
       evidenceType: 'authorization_difference',
       baseline: {
@@ -797,7 +816,7 @@ export async function runIdorDifferentialDetection(
   // 10. Promote Candidate to Formal Candidate (M54)
   const candidateTriageDecision = request.triageDecision ?? {
     decisionId: `dectriage_${safeSeed}`,
-    reviewerId: 'reviewer_lead_sec',
+    reviewerId: request.humanReviewDecision.reviewerId,
     reviewedAt: nowIso,
     decision: 'approve_finding_candidate_promotion' as const,
     attestations: {
@@ -902,9 +921,14 @@ export async function runIdorDifferentialDetection(
     }),
     confidence: 0.95,
     metadata: {
+      kind: 'broken_access_control_metadata',
       category: 'BROKEN_ACCESS_CONTROL',
       candidateId: promoteCandidateResult.candidate.candidateId,
       evidenceRecordId: evidenceRecord.evidenceId,
+      endpointUrl: request.endpointUrl,
+      resourceParamName: request.resourceParamName,
+      baselineResourceId: request.baselineResourceId,
+      unauthorizedActorId: request.identityB.identityId,
       lineage
     }
   };

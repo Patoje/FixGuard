@@ -149,10 +149,11 @@ async function runMilestoneF4SmokeSuite(): Promise<void> {
       };
     };
 
-    const vulnResult = await runCorsMisconfigurationDetection({
+    // 1a. Unreviewed execution returns pending_human_review
+    const unreviewedCorsResult = await runCorsMisconfigurationDetection({
       contractVersion: 'fixguard-detection/v0',
       kind: 'cors_misconfiguration_detection_request',
-      detectionId: 'det_f4_cors_001',
+      detectionId: 'det_f4_cors_001_unreviewed',
       assessmentId: auth.lineage.assessmentId,
       scanId: auth.lineage.scanId,
       authorizationGrantId: auth.lineage.authorizationGrantId,
@@ -166,6 +167,34 @@ async function runMilestoneF4SmokeSuite(): Promise<void> {
       dnsResolver: async () => ['93.184.216.34'],
     });
 
+    assert.strictEqual(unreviewedCorsResult.status, 'pending_human_review');
+    assert.strictEqual(unreviewedCorsResult.reasonCode, 'pending_human_review');
+    assert.ok(unreviewedCorsResult.evidenceDraft, 'Evidence draft must be present for review');
+    assert.strictEqual(unreviewedCorsResult.finding, undefined);
+    assert.strictEqual(unreviewedCorsResult.findingCandidate, undefined);
+
+    const vulnResult = await runCorsMisconfigurationDetection({
+      contractVersion: 'fixguard-detection/v0',
+      kind: 'cors_misconfiguration_detection_request',
+      detectionId: 'det_f4_cors_001',
+      assessmentId: auth.lineage.assessmentId,
+      scanId: auth.lineage.scanId,
+      authorizationGrantId: auth.lineage.authorizationGrantId,
+      authorizationDecisionId: auth.lineage.authorizationDecisionId,
+      actorId: auth.lineage.actorId,
+      verifiedAuthorizationDecision: auth.verifiedAuthorizationDecision,
+      scopeGrant: auth.scopeGrant,
+      endpointUrl: 'https://api.example.com/user/profile',
+      humanReviewDecision: {
+        decision: 'approve_evidence',
+        reviewerId: 'reviewer_lead_sec',
+        reviewedAt: new Date().toISOString(),
+      },
+      coordinator,
+      transport: vulnerableCorsTransport,
+      dnsResolver: async () => ['93.184.216.34'],
+    });
+
     assert.strictEqual(vulnResult.status, 'vulnerability_detected');
     assert.strictEqual(vulnResult.reasonCode, 'cors_misconfiguration_proven');
     assert.strictEqual(vulnResult.reflectedOrigin, 'https://untrusted-cross-origin.example.com');
@@ -174,6 +203,7 @@ async function runMilestoneF4SmokeSuite(): Promise<void> {
     assert.ok(vulnResult.finding, 'Canonical Finding must be created');
     assert.strictEqual(vulnResult.finding.type, 'SECURITY_MISCONFIGURATION');
     assert.strictEqual(vulnResult.finding.severity, 'high');
+    assert.strictEqual(vulnResult.finding.metadata.kind, 'security_misconfiguration_metadata');
     assert.strictEqual(vulnResult.lineage.scanId, auth.lineage.scanId);
 
     // 1b. Secure Target: rejects untrusted origin
@@ -233,10 +263,11 @@ async function runMilestoneF4SmokeSuite(): Promise<void> {
       };
     };
 
-    const reflectResult = await runParameterReflectionDetection({
+    // Unreviewed execution returns pending_human_review
+    const unreviewedReflectResult = await runParameterReflectionDetection({
       contractVersion: 'fixguard-detection/v0',
       kind: 'parameter_reflection_detection_request',
-      detectionId: 'det_f4_refl_001',
+      detectionId: 'det_f4_refl_001_unreviewed',
       assessmentId: auth.lineage.assessmentId,
       scanId: auth.lineage.scanId,
       authorizationGrantId: auth.lineage.authorizationGrantId,
@@ -252,12 +283,43 @@ async function runMilestoneF4SmokeSuite(): Promise<void> {
       dnsResolver: async () => ['93.184.216.34'],
     });
 
+    assert.strictEqual(unreviewedReflectResult.status, 'pending_human_review');
+    assert.strictEqual(unreviewedReflectResult.reasonCode, 'pending_human_review');
+    assert.ok(unreviewedReflectResult.evidenceDraft, 'Evidence draft must be present');
+    assert.strictEqual(unreviewedReflectResult.finding, undefined);
+    assert.strictEqual(unreviewedReflectResult.findingCandidate, undefined);
+
+    const reflectResult = await runParameterReflectionDetection({
+      contractVersion: 'fixguard-detection/v0',
+      kind: 'parameter_reflection_detection_request',
+      detectionId: 'det_f4_refl_001',
+      assessmentId: auth.lineage.assessmentId,
+      scanId: auth.lineage.scanId,
+      authorizationGrantId: auth.lineage.authorizationGrantId,
+      authorizationDecisionId: auth.lineage.authorizationDecisionId,
+      actorId: auth.lineage.actorId,
+      verifiedAuthorizationDecision: auth.verifiedAuthorizationDecision,
+      scopeGrant: auth.scopeGrant,
+      endpointUrl: 'https://api.example.com/search',
+      parameterName: 'q',
+      canaryPayload: 'fgcanary991test',
+      humanReviewDecision: {
+        decision: 'approve_evidence',
+        reviewerId: 'reviewer_lead_sec',
+        reviewedAt: new Date().toISOString(),
+      },
+      coordinator,
+      transport: reflectingTransport,
+      dnsResolver: async () => ['93.184.216.34'],
+    });
+
     assert.strictEqual(reflectResult.status, 'vulnerability_detected');
     assert.strictEqual(reflectResult.reasonCode, 'parameter_reflection_proven');
     assert.ok(reflectResult.findingCandidate, 'Finding candidate must be created');
     assert.ok(reflectResult.finding, 'Canonical Finding must be created');
     assert.strictEqual(reflectResult.finding.type, 'INPUT_VALIDATION_FLAW');
     assert.strictEqual(reflectResult.finding.severity, 'medium');
+    assert.strictEqual(reflectResult.finding.metadata.kind, 'input_validation_flaw_metadata');
     assert.strictEqual(reflectResult.lineage.scanId, auth.lineage.scanId);
 
     // 2b. Non-Reflecting Target: ignores or safely encodes parameter

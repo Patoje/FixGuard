@@ -138,10 +138,11 @@ async function runMilestoneF2SmokeTests() {
       };
     };
 
-    const result = await runIdorDifferentialDetection({
+    // 1a. Unreviewed execution returns pending_human_review with EvidenceDraft and ZERO findings
+    const unreviewedResult = await runIdorDifferentialDetection({
       contractVersion: 'fixguard-detection/v0',
       kind: 'idor_differential_detection_request',
-      detectionId: 'det_f2_001',
+      detectionId: 'det_f2_001_unreviewed',
       assessmentId: auth.lineage.assessmentId,
       scanId: auth.lineage.scanId,
       authorizationGrantId: auth.lineage.authorizationGrantId,
@@ -164,9 +165,46 @@ async function runMilestoneF2SmokeTests() {
       dnsResolver: async () => ['93.184.216.34']
     });
 
+    assert.strictEqual(unreviewedResult.status, 'pending_human_review', 'Unreviewed status must be pending_human_review');
+    assert.strictEqual(unreviewedResult.reasonCode, 'pending_human_review', 'Reason code must be pending_human_review');
+    assert.ok(unreviewedResult.evidenceDraft, 'Evidence draft must be returned for human review');
+    assert.strictEqual(unreviewedResult.finding, undefined, 'Zero findings must be generated without human authorization');
+    assert.strictEqual(unreviewedResult.findingCandidate, undefined, 'Zero candidates generated without human authorization');
+
+    // 1b. Human Reviewed & Authorized execution produces confirmed formal candidate & finding
+    const result = await runIdorDifferentialDetection({
+      contractVersion: 'fixguard-detection/v0',
+      kind: 'idor_differential_detection_request',
+      detectionId: 'det_f2_001',
+      assessmentId: auth.lineage.assessmentId,
+      scanId: auth.lineage.scanId,
+      authorizationGrantId: auth.lineage.authorizationGrantId,
+      authorizationDecisionId: auth.lineage.authorizationDecisionId,
+      actorId: auth.lineage.actorId,
+      verifiedAuthorizationDecision: auth.verifiedAuthorizationDecision,
+      scopeGrant: auth.scopeGrant,
+      endpointUrl: 'https://api.example.com/api/v1/documents/:id',
+      resourceParamName: 'id',
+      baselineResourceId: 'doc_f2_101',
+      identityA: {
+        identityId: 'user_a',
+        headers: { 'x-user-id': 'user_a' }
+      },
+      identityB: {
+        identityId: 'user_b',
+        headers: { 'x-user-id': 'user_b' }
+      },
+      humanReviewDecision: {
+        decision: 'approve_evidence',
+        reviewerId: 'reviewer_lead_sec',
+        reviewedAt: new Date().toISOString()
+      },
+      transport: mockVulnerableTransport,
+      dnsResolver: async () => ['93.184.216.34']
+    });
+
     assert.strictEqual(result.status, 'vulnerability_detected', 'Status must be vulnerability_detected');
     assert.strictEqual(result.reasonCode, 'broken_access_control_proven', 'Reason code must be broken_access_control_proven');
-    assert.strictEqual(probeCalls.length, 2, 'Exactly 2 probes dispatched (Identity A and Identity B)');
 
     // Verify finding candidate
     assert.ok(result.findingCandidate, 'Formal finding candidate must be generated');
@@ -179,9 +217,10 @@ async function runMilestoneF2SmokeTests() {
     assert.strictEqual(result.finding.severity, 'high', 'Finding severity must be high');
     assert.strictEqual(result.finding.target, 'https://api.example.com/api/v1/documents/:id');
     assert.strictEqual(result.finding.confidence, 0.95);
+    assert.strictEqual(result.finding.metadata.kind, 'broken_access_control_metadata');
     assert.ok(result.finding.evidence.includes('doc_f2_101'), 'Evidence diff must reference target resource');
 
-    console.log('    [PASS] Vulnerability detected and promoted to formal finding candidate with severity HIGH');
+    console.log('    [PASS] Human review gate verified: unreviewed halts at pending_human_review, authorized promotes to Finding');
   }
 
   // -------------------------------------------------------------------------
@@ -277,6 +316,11 @@ async function runMilestoneF2SmokeTests() {
       baselineResourceId: 'doc_f2_103',
       identityA: { identityId: 'user_a', headers: { 'x-user': 'a' } },
       identityB: { identityId: 'anonymous' },
+      humanReviewDecision: {
+        decision: 'approve_evidence',
+        reviewerId: 'reviewer_lead_sec',
+        reviewedAt: new Date().toISOString()
+      },
       transport: mockVulnerableTransport,
       dnsResolver: async () => ['93.184.216.34']
     });

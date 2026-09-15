@@ -38,9 +38,12 @@ export function correlateTargetProfile(profile: TargetProfile): RecommendationEn
   // Group findings by category
   const corsFindings = findings.filter(f => {
     const cat = getFindingCategory(f);
+    const allowCredentials = f.metadata?.kind === 'security_misconfiguration_metadata'
+      ? f.metadata.allowCredentials === true
+      : false;
     return (
       (cat === 'CORS_MISCONFIGURATION' || cat === 'SECURITY_MISCONFIGURATION') &&
-      f.metadata?.allowCredentials === true
+      allowCredentials
     );
   });
 

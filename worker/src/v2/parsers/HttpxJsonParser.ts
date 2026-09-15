@@ -45,6 +45,7 @@ export class HttpxJsonParser implements Parser {
             evidence: JSON.stringify(record),
             confidence: 0.95,
             metadata: {
+              kind: 'discovery_finding_metadata',
               host: record.host,
               port: record.port,
               statusCode,

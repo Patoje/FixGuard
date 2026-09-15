@@ -456,6 +456,7 @@ async function runMilestoneF6SmokeTests(): Promise<void> {
     assert.ok(summaryBody.profile.technologies.includes('Next.js'));
     assert.ok(summaryBody.profile.technologies.includes('Vercel'));
     assert.strictEqual(summaryBody.profile.lineage.assessmentId, assessmentId);
+    assert.strictEqual(summaryBody.findings.length, 0, 'Automated assessment must produce 0 promoted findings without human review');
     assert.ok(typeof summaryBody.timing.durationMs === 'number');
     assert.ok(summaryBody.timing.durationMs >= 0);
     console.log('    [PASS] GET /summary verified: TargetProfile, technologies, endpoints, and lineage confirmed');

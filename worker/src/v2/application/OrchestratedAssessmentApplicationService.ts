@@ -49,6 +49,7 @@ import { runParameterReflectionDetection } from '../detection/ParameterReflectio
 import { buildTargetProfile } from '../intelligence/TargetProfileBuilder.js';
 import { correlateTargetProfile } from '../intelligence/TargetRecommendationEngine.js';
 import type { Finding } from '../core/Evidence.js';
+import type { EvidenceDraftEnvelope } from '../evidence-mapping/ComparisonEvidenceMappingContracts.js';
 
 import { SessionNotFoundError } from '../storage/StorageErrors.js';
 import { ApiValidationError, UnauthorizedGatewayError } from '../api/ApiErrors.js';
@@ -473,6 +474,7 @@ export class OrchestratedAssessmentApplicationService {
       errorCount: 0,
       warningCount: 0,
       findings: [],
+      pendingEvidenceDrafts: [],
       recommendations: [],
     };
 
@@ -522,6 +524,7 @@ export class OrchestratedAssessmentApplicationService {
       errorCount: record.errorCount,
       warningCount: record.warningCount,
       lineage: record.lineage,
+      pendingEvidenceDraftCount: record.pendingEvidenceDrafts?.length ?? 0,
       ...(record.error ? { error: record.error } : {}),
     };
   }
@@ -549,6 +552,7 @@ export class OrchestratedAssessmentApplicationService {
       status: record.status,
       profile: record.profile,
       findings: record.findings,
+      pendingEvidenceDrafts: record.pendingEvidenceDrafts ?? [],
       recommendations: record.recommendations,
       lineage: record.lineage,
       timing: record.timing,
@@ -648,6 +652,7 @@ export class OrchestratedAssessmentApplicationService {
       // 2. F4 Vulnerability Detection Verticals (CORS & Parameter Reflection)
       const targetUrl = `https://${record.targetDomain}/`;
       const findings: Finding[] = [];
+      const pendingEvidenceDrafts: EvidenceDraftEnvelope[] = [];
 
       if (!coordinator.isCircuitOpen(record.targetDomain)) {
         try {
@@ -670,6 +675,8 @@ export class OrchestratedAssessmentApplicationService {
 
           if (corsResult.status === 'vulnerability_detected' && corsResult.finding) {
             findings.push(corsResult.finding);
+          } else if (corsResult.status === 'pending_human_review' && corsResult.evidenceDraft) {
+            pendingEvidenceDrafts.push(corsResult.evidenceDraft);
           }
         } catch {
           // Safe error containment
@@ -698,6 +705,8 @@ export class OrchestratedAssessmentApplicationService {
 
           if (reflectionResult.status === 'vulnerability_detected' && reflectionResult.finding) {
             findings.push(reflectionResult.finding);
+          } else if (reflectionResult.status === 'pending_human_review' && reflectionResult.evidenceDraft) {
+            pendingEvidenceDrafts.push(reflectionResult.evidenceDraft);
           }
         } catch {
           // Safe error containment
@@ -730,6 +739,7 @@ export class OrchestratedAssessmentApplicationService {
           stages: reconResult.stages,
           profile,
           findings,
+          pendingEvidenceDrafts,
           recommendations: recommendationResult.recommendations,
           timing: {
             startedAt: prev.timing.startedAt,
@@ -749,6 +759,7 @@ export class OrchestratedAssessmentApplicationService {
         stages: reconResult.stages,
         profile,
         findings,
+        pendingEvidenceDrafts,
         recommendations: recommendationResult.recommendations,
         timing: {
           startedAt: prev.timing.startedAt,

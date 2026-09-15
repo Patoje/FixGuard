@@ -114,7 +114,7 @@ async function runSmoke() {
     ...nextState,
     version: 3,
     evidenceCollections: [
-      { findings: [{ id: 'f1', type: 't', severity: 'info', title: 't', description: 'd', target: 't', evidence: 'e', confidence: 1, metadata: {} }], metadata: {} }
+      { findings: [{ id: 'f1', type: 't', severity: 'info', title: 't', description: 'd', target: 't', evidence: 'e', confidence: 1, metadata: { kind: 'discovery_finding_metadata' } }], metadata: {} }
     ],
     pendingRecommendations: [{ id: 'r2', capability: 'c', targetContext: { uri: 't' }, rationale: 'r', confidence: 1, severity: 'info', sourceFindingIds: [] }],
     executionFailures: [mockFailure]

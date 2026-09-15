@@ -521,6 +521,31 @@ export async function runCorsMisconfigurationDetection(
     };
   }
 
+  // If no explicit human review decision is supplied, halt at the human review boundary
+  // and return pending_human_review with the unsigned EvidenceDraft envelope.
+  if (!request.humanReviewDecision) {
+    return {
+      contractVersion: DETECTION_CONTRACT_VERSION,
+      kind: 'cors_misconfiguration_detection_result',
+      detectionId: request.detectionId,
+      scanId: request.scanId,
+      assessmentId: request.assessmentId,
+      authorizationGrantId: request.authorizationGrantId,
+      authorizationDecisionId: request.authorizationDecisionId,
+      actorId: request.actorId,
+      status: 'pending_human_review',
+      reasonCode: 'pending_human_review',
+      lineage,
+      reflectedOrigin: vulnerableOrigin,
+      allowCredentials: true,
+      baselineSnapshot,
+      validationSnapshot,
+      comparisonResult,
+      validationResult,
+      evidenceDraft: validationResult.evidenceDraft
+    };
+  }
+
   // 9. Human-Reviewed Evidence Promotion (M50)
   const promotionRequest: HumanReviewedEvidencePromotionRequest = {
     contractVersion: 'fixguard-human-reviewed-evidence-promotion/v0',
@@ -534,11 +559,7 @@ export async function runCorsMisconfigurationDetection(
       indicatorId: `ind_${safeSeed}`,
       scanId: request.scanId
     },
-    reviewDecision: request.humanReviewDecision ?? {
-      decision: 'approve_evidence',
-      reviewerId: 'reviewer_lead_sec',
-      reviewedAt: nowIso
-    },
+    reviewDecision: request.humanReviewDecision,
     substancePayload: {
       evidenceType: 'authorization_difference',
       baseline: {
@@ -761,7 +782,7 @@ export async function runCorsMisconfigurationDetection(
   // 11. Promote Candidate to Formal Candidate (M54)
   const candidateTriageDecision = request.triageDecision ?? {
     decisionId: `dec_${safeSeed}`,
-    reviewerId: 'reviewer_lead_sec',
+    reviewerId: request.humanReviewDecision.reviewerId,
     reviewedAt: nowIso,
     decision: 'approve_finding_candidate_promotion' as const,
     attestations: {
@@ -863,9 +884,11 @@ export async function runCorsMisconfigurationDetection(
     }),
     confidence: 0.95,
     metadata: {
+      kind: 'security_misconfiguration_metadata',
       category: 'CORS_MISCONFIGURATION',
       candidateId: promoteCandidateResult.candidate.candidateId,
       evidenceRecordId: evidenceRecord.evidenceId,
+      endpointUrl: request.endpointUrl,
       reflectedOrigin: vulnerableOrigin,
       allowCredentials: true,
       lineage

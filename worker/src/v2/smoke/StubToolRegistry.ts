@@ -1,5 +1,5 @@
 /**
- * StubToolRegistry — smoke-test-only deterministic stub.
+ * StubToolRegistry ï¿½ smoke-test-only deterministic stub.
  *
  * Returns fixed EvidenceCollections for subdomain_discovery and http_probe
  * without spawning any external processes. Exports createStubOrchestrator()
@@ -22,7 +22,7 @@ import type { Parser } from '../parsers/Parser';
 import type { EvidenceCollection } from '../core/Evidence';
 
 // ---------------------------------------------------------------------------
-// Stub ProcessRunner — never spawns; returns a harmless dummy RawExecutionOutput
+// Stub ProcessRunner ï¿½ never spawns; returns a harmless dummy RawExecutionOutput
 // ---------------------------------------------------------------------------
 class StubProcessRunner implements ProcessRunner {
   async execute(_request: ExecutionRequest): Promise<RawExecutionOutput> {
@@ -31,7 +31,7 @@ class StubProcessRunner implements ProcessRunner {
 }
 
 // ---------------------------------------------------------------------------
-// Stub Adapter — validate always passes; prepare returns a harmless placeholder
+// Stub Adapter ï¿½ validate always passes; prepare returns a harmless placeholder
 // ---------------------------------------------------------------------------
 class StubAdapter implements ToolAdapter {
   constructor(readonly capability: string) {}
@@ -41,13 +41,13 @@ class StubAdapter implements ToolAdapter {
   }
 
   prepare(_request: CapabilityRequest): ExecutionRequest {
-    // Never actually executed — StubProcessRunner returns before the binary matters
+    // Never actually executed ï¿½ StubProcessRunner returns before the binary matters
     return { binary: 'stub', args: [], timeoutMs: 1000 };
   }
 }
 
 // ---------------------------------------------------------------------------
-// Fixed deterministic evidence — types match real parser output so Intelligence
+// Fixed deterministic evidence ï¿½ types match real parser output so Intelligence
 // Layer profiler rules (SubdomainProfilerRule, HttpProbeProfilerRule) fire.
 // ---------------------------------------------------------------------------
 const STUB_SUBDOMAIN_EVIDENCE: EvidenceCollection = {
@@ -61,7 +61,7 @@ const STUB_SUBDOMAIN_EVIDENCE: EvidenceCollection = {
       target: 'api.example.com',
       evidence: 'api.example.com',
       confidence: 1.0,
-      metadata: { subdomain: 'api.example.com', host: 'api.example.com' }
+      metadata: { kind: 'discovery_finding_metadata', subdomain: 'api.example.com', host: 'api.example.com' }
     }
   ],
   metadata: { source: 'stub', runtimeMs: 0 }
@@ -79,6 +79,7 @@ const STUB_HTTP_EVIDENCE: EvidenceCollection = {
       evidence: '{"url":"https://api.example.com","status-code":200}',
       confidence: 0.95,
       metadata: {
+        kind: 'discovery_finding_metadata',
         url: 'https://api.example.com',
         host: 'api.example.com',
         statusCode: 200,
@@ -106,7 +107,7 @@ class StubHttpParser implements Parser {
 }
 
 // ---------------------------------------------------------------------------
-// StubToolRegistry — implements ToolRegistry; always resolves to stub stubs
+// StubToolRegistry ï¿½ implements ToolRegistry; always resolves to stub stubs
 // ---------------------------------------------------------------------------
 const STUB_DEFINITIONS: ToolDefinition[] = [
   {
@@ -138,7 +139,7 @@ class StubToolRegistry implements ToolRegistry {
 }
 
 // ---------------------------------------------------------------------------
-// Factory — exported for use by smoke tests only
+// Factory ï¿½ exported for use by smoke tests only
 // ---------------------------------------------------------------------------
 export function createStubOrchestrator(): MinimalOrchestrator {
   return new MinimalOrchestrator(new StubToolRegistry(), new StubProcessRunner());

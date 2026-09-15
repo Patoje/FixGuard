@@ -9,7 +9,7 @@
  */
 
 import assert from 'node:assert';
-import type { Finding } from '../core/Evidence.js';
+import type { Finding, FindingMetadata } from '../core/Evidence.js';
 import type { AuthorizedExecutionLineageTuple } from '../detection/DetectionContracts.js';
 import { TargetProfileBuilder, buildTargetProfile } from '../intelligence/TargetProfileBuilder.js';
 import { TargetRecommendationEngine, correlateTargetProfile } from '../intelligence/TargetRecommendationEngine.js';
@@ -29,8 +29,51 @@ function createMockFinding(params: {
   target: string;
   confidence: number;
   severity?: 'info' | 'low' | 'medium' | 'high' | 'critical';
-  metadata?: Record<string, unknown>;
+  metadata?: FindingMetadata | Record<string, unknown>;
 }): Finding {
+  let meta: FindingMetadata;
+  const inputMeta = params.metadata ?? {};
+  if ('kind' in inputMeta && typeof (inputMeta as { kind?: unknown }).kind === 'string') {
+    meta = inputMeta as FindingMetadata;
+  } else {
+    const raw = inputMeta as Record<string, unknown>;
+    const category = typeof raw.category === 'string' ? raw.category : undefined;
+    if (category === 'BROKEN_ACCESS_CONTROL' || params.type === 'BROKEN_ACCESS_CONTROL') {
+      meta = {
+        kind: 'broken_access_control_metadata',
+        category: 'BROKEN_ACCESS_CONTROL',
+        candidateId: `cand_${params.id}`,
+        evidenceRecordId: `ev_${params.id}`,
+        resourceParamName: typeof raw.resourceParamName === 'string' ? raw.resourceParamName : undefined,
+        lineage: {},
+      };
+    } else if (category === 'CORS_MISCONFIGURATION' || params.type === 'SECURITY_MISCONFIGURATION') {
+      meta = {
+        kind: 'security_misconfiguration_metadata',
+        category: 'CORS_MISCONFIGURATION',
+        candidateId: `cand_${params.id}`,
+        evidenceRecordId: `ev_${params.id}`,
+        allowCredentials: raw.allowCredentials === true,
+        reflectedOrigin: typeof raw.reflectedOrigin === 'string' ? raw.reflectedOrigin : undefined,
+        lineage: {},
+      };
+    } else if (category === 'PARAMETER_REFLECTION' || params.type === 'INPUT_VALIDATION_FLAW') {
+      meta = {
+        kind: 'input_validation_flaw_metadata',
+        category: category === 'PARAMETER_REFLECTION' ? 'PARAMETER_REFLECTION' : 'INPUT_VALIDATION_FLAW',
+        candidateId: `cand_${params.id}`,
+        evidenceRecordId: `ev_${params.id}`,
+        parameterName: typeof raw.parameterName === 'string' ? raw.parameterName : 'q',
+        lineage: {},
+      };
+    } else {
+      meta = {
+        kind: 'discovery_finding_metadata',
+        ...raw,
+      };
+    }
+  }
+
   return {
     id: params.id,
     type: params.type,
@@ -40,7 +83,7 @@ function createMockFinding(params: {
     target: params.target,
     evidence: `evidence_for_${params.id}`,
     confidence: params.confidence,
-    metadata: params.metadata ?? {},
+    metadata: meta,
   };
 }
 

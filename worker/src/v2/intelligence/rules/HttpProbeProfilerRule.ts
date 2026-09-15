@@ -40,10 +40,11 @@ export class HttpProbeProfilerRule implements ProfilerRule {
     const newSourceFindingIds = [...profile.sourceFindingIds];
 
     for (const f of probeFindings) {
-      const metadata = f.representativeFinding.metadata || {};
+      const meta = f.representativeFinding.metadata;
+      const metaRecord: Record<string, unknown> = meta?.kind === 'discovery_finding_metadata' ? meta : {};
       const url = f.representativeFinding.target;
 
-      const techList: string[] = Array.isArray(metadata.technologies) ? metadata.technologies : [];
+      const techList: string[] = Array.isArray(metaRecord.technologies) ? (metaRecord.technologies as string[]) : [];
       for (const t of techList) {
         const existingTech = updatedTechnologies.find(tech => tech.name === t);
         if (!existingTech) {
@@ -63,13 +64,13 @@ export class HttpProbeProfilerRule implements ProfilerRule {
       const existingIndex = existingHttpServices.findIndex(s => s.url === url);
       const serviceData: HttpServiceMetadata = {
         url,
-        host: metadata.host as string,
-        statusCode: metadata.statusCode as number,
-        title: metadata.title as string | undefined,
-        webserver: metadata.webserver as string | undefined,
+        host: typeof metaRecord.host === 'string' ? metaRecord.host : '',
+        statusCode: typeof metaRecord.statusCode === 'number' ? metaRecord.statusCode : 0,
+        title: typeof metaRecord.title === 'string' ? metaRecord.title : undefined,
+        webserver: typeof metaRecord.webserver === 'string' ? metaRecord.webserver : undefined,
         technologies: techList,
-        scheme: metadata.scheme as string,
-        finalUrl: metadata.finalUrl as string | undefined,
+        scheme: typeof metaRecord.scheme === 'string' ? metaRecord.scheme : '',
+        finalUrl: typeof metaRecord.finalUrl === 'string' ? metaRecord.finalUrl : undefined,
         sourceFindingIds: [...f.sourceFindingIds]
       };
 

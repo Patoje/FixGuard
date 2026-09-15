@@ -10,7 +10,7 @@ import type { VerifiedAuthorizationDecision } from '../authorization/VerifiedAut
 import type { AuthorizedScopeGrant } from '../scope/AuthorizedScopeContracts.js';
 import type { SafeResponseSnapshot, ResponseComparisonResult } from '../comparison/ResponseComparatorContracts.js';
 import type { AuthorizedComparisonValidationResult } from '../validation/AuthorizedComparisonValidationContracts.js';
-import type { ReviewerPolicy } from '../evidence-mapping/ComparisonEvidenceMappingContracts.js';
+import type { ReviewerPolicy, EvidenceDraftEnvelope } from '../evidence-mapping/ComparisonEvidenceMappingContracts.js';
 import type { HumanReviewedEvidencePromotionResult } from '../evidence-review/HumanReviewedEvidencePromotionContracts.js';
 import type { EvidenceRecord } from '../evidence/EvidenceBoundaryContracts.js';
 import type { ReviewedEvidenceFormalFindingCandidate, ReviewedEvidenceFindingCandidateTriageDecision } from '../finding-candidate-promotion/ReviewedEvidenceFindingCandidatePromotionContracts.js';
@@ -86,6 +86,7 @@ export interface IdorDifferentialDetectionRequest {
 
 export type IdorDetectionStatus =
   | 'vulnerability_detected'
+  | 'pending_human_review'
   | 'secure_target_abstained'
   | 'preflight_denied'
   | 'comparison_failed'
@@ -108,6 +109,7 @@ export interface IdorDifferentialDetectionResult {
   readonly validationSnapshot?: SafeResponseSnapshot;
   readonly comparisonResult?: ResponseComparisonResult;
   readonly validationResult?: AuthorizedComparisonValidationResult;
+  readonly evidenceDraft?: EvidenceDraftEnvelope;
   readonly evidenceRecord?: EvidenceRecord;
   readonly promotedEvidenceResult?: HumanReviewedEvidencePromotionResult;
   readonly findingCandidate?: ReviewedEvidenceFormalFindingCandidate;
@@ -124,6 +126,7 @@ export interface IdorDifferentialDetectionResult {
 
 export type CorsDetectionStatus =
   | 'vulnerability_detected'
+  | 'pending_human_review'
   | 'secure_target_abstained'
   | 'preflight_denied'
   | 'comparison_failed'
@@ -171,6 +174,7 @@ export interface CorsMisconfigurationDetectionResult {
   readonly validationSnapshot?: SafeResponseSnapshot;
   readonly comparisonResult?: ResponseComparisonResult;
   readonly validationResult?: AuthorizedComparisonValidationResult;
+  readonly evidenceDraft?: EvidenceDraftEnvelope;
   readonly evidenceRecord?: EvidenceRecord;
   readonly promotedEvidenceResult?: HumanReviewedEvidencePromotionResult;
   readonly findingCandidate?: ReviewedEvidenceFormalFindingCandidate;
@@ -187,6 +191,7 @@ export interface CorsMisconfigurationDetectionResult {
 
 export type ParameterReflectionStatus =
   | 'vulnerability_detected'
+  | 'pending_human_review'
   | 'secure_target_abstained'
   | 'preflight_denied'
   | 'comparison_failed'
@@ -235,6 +240,7 @@ export interface ParameterReflectionDetectionResult {
   readonly validationSnapshot?: SafeResponseSnapshot;
   readonly comparisonResult?: ResponseComparisonResult;
   readonly validationResult?: AuthorizedComparisonValidationResult;
+  readonly evidenceDraft?: EvidenceDraftEnvelope;
   readonly evidenceRecord?: EvidenceRecord;
   readonly promotedEvidenceResult?: HumanReviewedEvidencePromotionResult;
   readonly findingCandidate?: ReviewedEvidenceFormalFindingCandidate;

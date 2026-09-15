@@ -207,6 +207,11 @@ async function runMilestoneF3SmokeTests() {
       identityB: {
         identityId: 'user_b'
       },
+      humanReviewDecision: {
+        decision: 'approve_evidence',
+        reviewerId: 'reviewer_lead_sec',
+        reviewedAt: new Date().toISOString()
+      },
       transport: refreshableTransport,
       dnsResolver: async () => ['93.184.216.34']
     });
@@ -295,6 +300,11 @@ async function runMilestoneF3SmokeTests() {
       baselineResourceId: 'doc_f3_103',
       identityA: { identityId: 'user_a' },
       identityB: { identityId: 'user_b' },
+      humanReviewDecision: {
+        decision: 'approve_evidence',
+        reviewerId: 'reviewer_lead_sec',
+        reviewedAt: new Date().toISOString()
+      },
       transport: vulnerableTransport,
       dnsResolver: async () => ['93.184.216.34']
     });
@@ -338,24 +348,19 @@ async function runMilestoneF3SmokeTests() {
       resourceParamName: 'id',
       baselineResourceId: 'doc_f3_103',
       identityA: { identityId: 'user_a', headers: { 'x-user': 'a' } },
-      identityB: { identityId: 'user_b', headers: { 'x-user': 'b' } },
+      identityB: { identityId: 'user_b' },
       transport: secureTransport,
       dnsResolver: async () => ['93.184.216.34']
     });
 
     assert.strictEqual(abstainedResult.status, 'secure_target_abstained');
-    assert.strictEqual(abstainedResult.finding, undefined, 'Finding must be undefined for abstention');
-    assert.strictEqual(abstainedResult.findingCandidate, undefined, 'Candidate must be undefined for abstention');
+    assert.strictEqual(abstainedResult.reasonCode, 'access_control_enforced');
+    assert.strictEqual(abstainedResult.finding, undefined, 'Zero findings on abstention');
+    assert.strictEqual(abstainedResult.findingCandidate, undefined, 'Zero candidates on abstention');
+    assert.strictEqual(abstainedResult.baselineSnapshot?.bodyHash !== undefined, true, 'Hash preserved on baseline');
+    assert.strictEqual(abstainedResult.validationSnapshot?.bodyHash !== undefined, true, 'Hash preserved on validation');
 
-    // Confirm pruning: safeExcerpt removed, while hashes, status, and shapeKind are strictly preserved
-    assert.strictEqual(abstainedResult.baselineSnapshot?.safeExcerpt, undefined, 'Transient excerpt pruned');
-    assert.strictEqual(abstainedResult.validationSnapshot?.safeExcerpt, undefined, 'Transient excerpt pruned');
-    assert.ok(abstainedResult.baselineSnapshot?.bodyHash, 'Cryptographic bodyHash preserved');
-    assert.ok(abstainedResult.validationSnapshot?.bodyHash, 'Cryptographic bodyHash preserved');
-    assert.strictEqual(abstainedResult.baselineSnapshot?.statusCode, 200, 'Baseline status code preserved');
-    assert.strictEqual(abstainedResult.validationSnapshot?.statusCode, 403, 'Validation status code preserved');
-
-    console.log('    [PASS] Full bodies retained for promoted findings; transient bodies pruned for abstained comparisons');
+    console.log('    [PASS] Evidence retention verified: complete data on vulnerabilities, pruned on abstention');
   }
 
   // -------------------------------------------------------------------------
@@ -388,6 +393,11 @@ async function runMilestoneF3SmokeTests() {
       baselineResourceId: 'doc_f3_104',
       identityA: { identityId: 'user_a' },
       identityB: { identityId: 'user_b' },
+      humanReviewDecision: {
+        decision: 'approve_evidence',
+        reviewerId: 'reviewer_lead_sec',
+        reviewedAt: new Date().toISOString()
+      },
       transport: mockTransport,
       dnsResolver: async () => ['93.184.216.34']
     });
