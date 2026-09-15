@@ -32,6 +32,19 @@ export interface InputValidationFlawMetadata {
   readonly reflectedCanary?: string;
 }
 
+export interface MissingSecurityHeadersMetadata {
+  readonly kind: 'missing_security_headers_metadata';
+  readonly category?: 'SECURITY_MISCONFIGURATION';
+  readonly missingHeaders: readonly string[];
+  readonly presentHeaders: readonly string[];
+  readonly observedAt: string;
+  readonly endpointUrl?: string;
+  readonly candidateId?: string;
+  readonly evidenceRecordId?: string;
+  readonly lineage?: Record<string, unknown>;
+  readonly [key: string]: unknown;
+}
+
 export interface DiscoveryFindingMetadata {
   readonly kind: 'discovery_finding_metadata';
   readonly category?: string;
@@ -42,7 +55,9 @@ export type FindingMetadata =
   | BrokenAccessControlMetadata
   | SecurityMisconfigurationMetadata
   | InputValidationFlawMetadata
+  | MissingSecurityHeadersMetadata
   | DiscoveryFindingMetadata;
+
 
 export interface Finding {
   id: string;

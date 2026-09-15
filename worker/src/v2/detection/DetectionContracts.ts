@@ -251,3 +251,61 @@ export interface ParameterReflectionDetectionResult {
   };
 }
 
+// ---------------------------------------------------------------------------
+// Milestone P2-1 — Security Header Detection Contracts
+// ---------------------------------------------------------------------------
+
+export type SecurityHeaderDetectionStatus =
+  | 'potential_weakness'
+  | 'secure_target_abstained'
+  | 'pending_human_review'
+  | 'preflight_denied'
+  | 'unexpected_failure';
+
+export interface SecurityHeaderDetectionRequest {
+  readonly contractVersion: DetectionContractVersion;
+  readonly kind: 'security_header_detection_request';
+  readonly detectionId: string;
+  readonly assessmentId: string;
+  readonly scanId: string;
+  readonly authorizationGrantId: string;
+  readonly authorizationDecisionId: string;
+  readonly actorId: string;
+  readonly verifiedAuthorizationDecision: VerifiedAuthorizationDecision;
+  readonly scopeGrant: AuthorizedScopeGrant;
+  readonly endpointUrl: string;
+  readonly method?: 'GET' | 'HEAD';
+  readonly requiredHeaders?: readonly string[];
+  readonly authContext?: ProbeAuthContext;
+  readonly reviewerPolicy?: ReviewerPolicy;
+  readonly humanReviewDecision?: HumanReviewDecision;
+  readonly triageDecision?: ReviewedEvidenceFindingCandidateTriageDecision;
+  readonly coordinator?: TargetExecutionCoordinator;
+  readonly transport?: IdorHttpProbeTransport;
+  readonly dnsResolver?: PreSpawnDnsResolver;
+}
+
+export interface SecurityHeaderDetectionResult {
+  readonly contractVersion: DetectionContractVersion;
+  readonly kind: 'security_header_detection_result';
+  readonly detectionId: string;
+  readonly scanId: string;
+  readonly assessmentId: string;
+  readonly authorizationGrantId: string;
+  readonly authorizationDecisionId: string;
+  readonly actorId: string;
+  readonly status: SecurityHeaderDetectionStatus;
+  readonly reasonCode: string;
+  readonly lineage: AuthorizedExecutionLineageTuple;
+  readonly missingHeaders: readonly string[];
+  readonly presentHeaders: readonly string[];
+  readonly evidenceDraft?: EvidenceDraftEnvelope;
+  readonly findingCandidate?: ReviewedEvidenceFormalFindingCandidate;
+  readonly finding?: Finding;
+  readonly error?: {
+    readonly code: string;
+    readonly safeMessage: string;
+  };
+}
+
+

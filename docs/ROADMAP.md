@@ -72,13 +72,16 @@
                                                                 │
                                                                 ▼
                                                         [PHASE 1: P1-3] COMPLETED (Human Review UI Flow & Real HITL Triage)
+                                                                │
+                                                                ▼
+                                                        [PHASE 2: P2-1] COMPLETED (Security Header Detection Engine)
 ```
 
 ---
 
 ## 2. Completed Milestones (`CONFIRMED`)
 
-All completed milestones are verified via active TypeScript contracts and the regression test suite (`npm run check:v2` with 47 passing smoke suites, 100% pass rate).
+All completed milestones are verified via active TypeScript contracts and the regression test suite (`npm run check:v2` with 48 passing smoke suites, 100% pass rate).
 
 
 ### Foundation Era (M0 – M29)
@@ -580,6 +583,32 @@ All completed milestones are verified via active TypeScript contracts and the re
      - `npm run typecheck:v2` exits 0.
      - Full regression suite (`npm run check:v2` across all 47 smoke suites) passes 100%.
      - Next.js production build (`npm run build`) compiles cleanly with route `/v2/review`.
+
+---
+
+### Phase 2: Expanded Detection Coverage (DAST Active Probes & Advanced Differential Analyzers)
+
+#### Milestone P2-1: Security Header Detection Engine
+- **Status:** COMPLETED.
+- **Goal:** Expand vulnerability detection coverage to passive/light inspection of HTTP security headers (`Content-Security-Policy`, `Strict-Transport-Security`, `X-Frame-Options`, `Referrer-Policy`, `Permissions-Policy`), strictly enforcing the invariant that missing headers are hardening gaps (`status: 'potential_weakness'`), NEVER confirmed exploits.
+- **Key Deliverables:**
+  1. **Domain Contracts & Typed Metadata (`worker/src/v2/core/Evidence.ts`, `worker/src/v2/detection/DetectionContracts.ts`)**:
+     - Added `MissingSecurityHeadersMetadata` interface to `FindingMetadata` discriminated union: `{ kind: 'missing_security_headers_metadata', missingHeaders: string[], presentHeaders: string[], observedAt: string }`.
+     - Defined `SecurityHeaderDetectionRequest`, `SecurityHeaderDetectionResult`, and `SecurityHeaderDetectionStatus` (`'potential_weakness' | 'secure_target_abstained' | 'pending_human_review' | 'preflight_denied' | 'unexpected_failure'`).
+  2. **Security Header Detection Service (`worker/src/v2/detection/SecurityHeaderDetectionService.ts`)**:
+     - Performs 7-pass preflight validation (`runAdapterPreflight`) including SSRF / DNS rebinding prevention and session health validation.
+     - Dispatches safe HTTP probe and evaluates response headers against standard security headers.
+     - Full hardening: returns `status: 'secure_target_abstained'` (0 findings, 0 drafts).
+     - Missing headers (unreviewed): returns `status: 'pending_human_review'` with `evidenceDraft` envelope.
+     - Missing headers (approved): returns `status: 'potential_weakness'` with strongly-typed `Finding` carrying `MissingSecurityHeadersMetadata`.
+  3. **Orchestrated Assessment Integration (`worker/src/v2/application/OrchestratedAssessmentApplicationService.ts`)**:
+     - Integrated `runSecurityHeaderDetection` into `runPipeline()`.
+     - Added triage review handling for `'missing_security_headers'` drafts, promoting approved drafts to `potential_weakness` finding records with `MissingSecurityHeadersMetadata`.
+  4. **Verification**:
+     - Dedicated smoke test `worker/src/v2/smoke/milestoneP2_1_security_headers_smoke.ts` passes 100%.
+     - `npm run typecheck:v2` exits 0.
+     - Full regression suite (`npm run check:v2` across all 48 smoke suites) passes 100%.
+     - Next.js production build (`npm run build`) compiles cleanly.
 
 ---
 

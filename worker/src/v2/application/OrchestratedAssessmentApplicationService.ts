@@ -45,6 +45,8 @@ import type {
 import { DETECTION_CONTRACT_VERSION } from '../detection/DetectionContracts.js';
 import { runCorsMisconfigurationDetection } from '../detection/CorsMisconfigurationDetectionService.js';
 import { runParameterReflectionDetection } from '../detection/ParameterReflectionDetectionService.js';
+import { runSecurityHeaderDetection } from '../detection/SecurityHeaderDetectionService.js';
+
 
 import { buildTargetProfile } from '../intelligence/TargetProfileBuilder.js';
 import { correlateTargetProfile } from '../intelligence/TargetRecommendationEngine.js';
@@ -773,7 +775,43 @@ export class OrchestratedAssessmentApplicationService {
             baselineResourceId: context?.baselineResourceId,
           },
         };
+      } else if (detKind === 'missing_security_headers') {
+        const missing = context?.missingHeaders ?? [];
+        const present = context?.presentHeaders ?? [];
+        findingCreated = {
+          id: `fnd_sh_${draftId.replace(/^dft_/, '')}`,
+          type: 'SECURITY_MISCONFIGURATION',
+          severity: 'low',
+          title: `Approved Missing HTTP Security Headers on ${context?.endpointUrl ?? record.targetDomain}`,
+          description: `Human operator verified missing hardening security headers: ${missing.join(', ')}. Present headers: ${present.join(', ') || 'none'}.`,
+          target: context?.endpointUrl ?? `https://${record.targetDomain}/`,
+          evidence: JSON.stringify({
+            draftId,
+            reviewerId,
+            reviewedAt,
+            notes,
+            differentialContext: context,
+          }),
+          confidence: 0.95,
+          metadata: {
+            kind: 'missing_security_headers_metadata',
+            category: 'SECURITY_MISCONFIGURATION',
+            candidateId: `cnd_${draftId}`,
+            evidenceRecordId: `evd_${draftId}`,
+            missingHeaders: missing,
+            presentHeaders: present,
+            observedAt: reviewedAt,
+            endpointUrl: context?.endpointUrl,
+            lineage: {
+              assessmentId: record.assessmentId,
+              scanId: record.scanId,
+              reviewerId,
+              reviewedAt,
+            },
+          },
+        };
       } else {
+
         findingCreated = {
           id: `fnd_appr_${draftId.replace(/^dft_/, '')}`,
           type: 'SECURITY_MISCONFIGURATION',
@@ -1009,6 +1047,44 @@ export class OrchestratedAssessmentApplicationService {
                 validationBodyHash: reflectionResult.validationSnapshot?.bodyHash,
                 parameterName: 'q',
                 reflectedCanary: reflectionResult.reflectedCanary,
+              },
+            };
+            pendingEvidenceDrafts.push(enrichedDraft);
+          }
+        } catch {
+          // Safe error containment
+        }
+      }
+
+      if (!coordinator.isCircuitOpen(record.targetDomain)) {
+        try {
+          const headerResult = await runSecurityHeaderDetection({
+            contractVersion: DETECTION_CONTRACT_VERSION,
+            kind: 'security_header_detection_request',
+            detectionId: `det_sh_${record.assessmentId.slice(-8)}`,
+            assessmentId: lineage.assessmentId,
+            scanId: lineage.scanId,
+            authorizationGrantId: lineage.authorizationGrantId,
+            authorizationDecisionId: lineage.authorizationDecisionId,
+            actorId: lineage.actorId,
+            endpointUrl: targetUrl,
+            verifiedAuthorizationDecision: verifiedDecision,
+            scopeGrant,
+            coordinator,
+            transport: this.httpTransport,
+            dnsResolver: this.dnsResolver,
+          });
+
+          if (headerResult.status === 'potential_weakness' && headerResult.finding) {
+            findings.push(headerResult.finding);
+          } else if (headerResult.status === 'pending_human_review' && headerResult.evidenceDraft) {
+            const enrichedDraft: EnrichedEvidenceDraft = {
+              ...headerResult.evidenceDraft,
+              differentialContext: {
+                endpointUrl: targetUrl,
+                detectionKind: 'missing_security_headers',
+                missingHeaders: headerResult.missingHeaders,
+                presentHeaders: headerResult.presentHeaders,
               },
             };
             pendingEvidenceDrafts.push(enrichedDraft);
