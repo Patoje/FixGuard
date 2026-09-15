@@ -50,17 +50,23 @@
                                                         [MILESTONE F6] COMPLETED (V2 API Orchestrator Controller & Assessment Gateway)
                                                                 │
                                                                 ▼
-                                                        [MILESTONE F7] COMPLETED (V2 Orchestrated Assessment UI Integration)
+                                                         [MILESTONE F7] COMPLETED (V2 Orchestrated Assessment UI Integration)
                                                                 │
                                                                 ▼
                                                         [MILESTONE F8] COMPLETED (Blast Radius Hardening & Target Circuit Breaker)
+                                                                │
+                                                                ▼
+                                                        [MILESTONE 7] COMPLETED (Browser Automation Engine for SPA & DOM Discovery)
+                                                                │
+                                                                ▼
+                                                        [MILESTONE 8] COMPLETED (Controlled Active Verification & Safe PoC Engine)
 ```
 
 ---
 
 ## 2. Completed Milestones (`CONFIRMED`)
 
-All completed milestones are verified via active TypeScript contracts and the regression test suite (`npm run check:v2` with 42 passing smoke suites, 100% pass rate).
+All completed milestones are verified via active TypeScript contracts and the regression test suite (`npm run check:v2` with 44 passing smoke suites, 100% pass rate).
 
 ### Foundation Era (M0 – M29)
 - **M0 – M6.5 (Core Loop Foundation)**: `TargetContext`, `CapabilityRequest`, `ExecutionRequest`, `RawExecutionOutput`, `ProcessRunner` (safe spawn without shell interpolation), `SubfinderAdapter`, `SubfinderParser`.
@@ -394,6 +400,59 @@ All completed milestones are verified via active TypeScript contracts and the re
      - Zero `as any` in `worker/src/v2` and `web/src`.
      - Next.js production build (`npm run build`) compiles cleanly.
      - Full regression suite (`npm run check:v2` across all 42 smoke suites) passes 100%.
+
+---
+
+### Milestone 7: Browser Automation Engine for SPA & DOM Discovery (Plan Maestro Orden Exacto)
+- **Status:** COMPLETED.
+- **Goal:** Implement a headless browser automation engine (Playwright) to handle JS hydration, DOM-based parameter extraction, form analysis, and dynamic route discovery in modern Single Page Applications (SPAs) with its own non-determinism model and explicit non-claims.
+- **Key Deliverables:**
+  1. **Contracts & Adapter Boundary (`worker/src/v2/recon/adapters/BrowserAutomationContracts.ts`, `worker/src/v2/recon/adapters/PlaywrightSpaAdapter.ts`)**:
+     - Contract version: `'fixguard-browser-automation/v0'`.
+     - Explicit non-claims: `BROWSER_AUTOMATION_NON_CLAIMS` enforcing `severity: 'info'`, `createsRealFindings: false`, `confirmsVulnerabilities: false`, `executesNetworkPayloads: false`.
+     - Structured observations: `DiscoveredSpaObservation`, `DiscoveredSpaRouteObservation` (`dom_link`, `form_action`), and `DiscoveredDomInputObservation`.
+     - Port abstraction interfaces: `PlaywrightBrowserLauncher`, `BrowserInstance`, `BrowserContextInstance`, `PageInstance`, `RouteInstance`, `ResponseInstance`.
+     - Zero type bypasses (`as any`, `forceCast`, `unknown as T` strictly prohibited).
+  2. **Double SSRF Gate**:
+     - **Gate 1 (Preflight)**: Executes `runAdapterPreflight()` before browser context creation, verifying target FQDN/URL, WeakSet authorization decision brand, scope permissions (`endpointDiscovery`, `activeCrawling`, `technologyFingerprinting`), and DNS rebinding with 0 browser launches on denial.
+     - **Gate 2 (In-Browser Subresource Interception)**: Registers `page.route('**/*')` intercepting every subresource fetch in real time, aborting requests to loopback (`127.0.0.0/8`, `localhost`), RFC1918 private subnets, and cloud metadata (`169.254.169.254`) with `'blockedbyclient'`.
+  3. **Lifecycle, Circuit Breaker & Blast Radius Protections (Milestone F8 Integration)**:
+     - Feeds page HTTP response status codes into `coordinator.recordTargetResponse()`.
+     - Halts execution and transitions to `status: 'circuit_broken'` immediately if the circuit trips to `OPEN`.
+     - Guaranteed teardown: closes page, browser context, and browser instance inside a `finally` block to prevent zombie processes.
+  4. **Orchestrator & Application Service Integration**:
+     - Integrated into Stage 4 (`stage_4_crawling_parameters`) of `CompositeActiveReconOrchestratorService.ts`, synthesizing `discovered_spa_observations` evidence drafts and aggregating dynamic routes into URL and parameter pools.
+     - Attached `PlaywrightSpaAdapter` to default recon adapters in `OrchestratedAssessmentApplicationService.ts`.
+  5. **Verification**:
+     - `npm run smoke:v2:browser-automation` passing all 4 assertions (100%).
+     - Zero `as any` across `worker/src/v2` and `web/src`.
+     - Full regression suite (`npm run check:v2` across all 43 smoke suites) passes 100%.
+     - Next.js production build (`npm run build`) compiles cleanly.
+
+---
+
+### Milestone 8: Controlled Active Verification & Safe PoC Engine (Plan Maestro Orden Exacto)
+- **Status:** COMPLETED.
+- **Goal:** Implement a controlled active verification and safe Proof of Concept (PoC) engine to definitively certify exploitability of detected candidates without causing harm, data alteration, or service disruption.
+- **Key Deliverables:**
+  1. **Active Verification Contracts (`worker/src/v2/verification/ActiveVerificationContracts.ts`)**:
+     - Contract version: `'fixguard-active-verification/v0'`.
+     - Explicit non-claims: `ACTIVE_VERIFICATION_NON_CLAIMS` enforcing `executesDestructivePayloads: false`, `modifiesTargetState: false`, `exploitsServiceDenial: false`, `causesDataLoss: false`, and `requiresHumanAuthorization: true`.
+     - Safe exploitation vectors: `SafeExploitationVectorKind` (`'idor_read_differential'`, `'cors_arbitrary_origin_reflection'`, `'parameter_reflection_canary'`, `'security_header_enforcement'`).
+     - Runtime-branded decision: `VerifiedExploitationAuthorizationDecision` sealed via module-private `WeakSet<object>` brand (ADR-001).
+     - Execution contracts: `ActiveVerificationCommand`, `ActiveVerificationProofRecord` (SHA-256 request/response hashes, sanitized diff excerpts, canary reflection boolean), and `ActiveVerificationResult`.
+     - Transport contracts: `VerificationHttpRequest`, `VerificationHttpResponse`, and `VerificationHttpTransport`.
+  2. **Controlled Verification Service (`worker/src/v2/verification/ControlledActiveVerificationService.ts`)**:
+     - **Human Authorization Gate**: Requires explicit, unexpired `VerifiedExploitationAuthorizationDecision` verified against runtime `WeakSet` brand; blocks forged or vector-mismatched decisions with 0 network calls.
+     - **Non-Destructive Invariant**: Strictly limits payloads to inert alphanumeric tokens (`fgcanary<safeId>`) and read-only differential probing.
+     - **Double SSRF & Egress Gate**: Validates target host against loopback (`127.0.0.0/8`), private subnets (RFC1918), and cloud metadata (`169.254.169.254`), augmented with pre-probe dynamic DNS rebinding resolution.
+     - **Blast Radius & Circuit Breaker Containment**: Respects `TargetExecutionCoordinator` concurrency ceilings, records response status codes, and halts immediately with `status: 'circuit_broken'` if the target enters `OPEN` state.
+     - **Deterministic Cryptographic Proof**: Calculates SHA-256 hashes of outgoing request and incoming response body, producing verifiable `ActiveVerificationProofRecord` and confirmed finding candidate records (`exploitConfidence: 1.0`).
+  3. **Verification**:
+     - `npm run smoke:v2:active-verification` passing all 4 assertions (100%).
+     - Zero `as any` across `worker/src/v2` and `web/src`.
+     - Full regression suite (`npm run check:v2` across all 44 smoke suites) passes 100%.
+     - Next.js production build (`npm run build`) compiles cleanly.
 
 ---
 

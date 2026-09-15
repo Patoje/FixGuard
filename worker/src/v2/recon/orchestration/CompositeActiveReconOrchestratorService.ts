@@ -70,6 +70,10 @@ import type {
   SecretDiscoveryResult,
   DiscoveredSecretObservation,
 } from '../adapters/SecretDiscoveryContracts.js';
+import type {
+  BrowserAutomationResult,
+  DiscoveredSpaObservation,
+} from '../adapters/BrowserAutomationContracts.js';
 
 function sanitizeToSafeId(raw: string): string {
   const cleaned = raw.replace(/[^A-Za-z0-9]/g, '').slice(0, 16);
@@ -158,6 +162,7 @@ export class CompositeActiveReconOrchestratorService {
     const content: DiscoveredContentObservation[] = [];
     const parameters: DiscoveredParameterObservation[] = [];
     const secrets: DiscoveredSecretObservation[] = [];
+    const spaObservations: DiscoveredSpaObservation[] = [];
 
     function createDraft(
       stage: ReconStageName,
@@ -197,6 +202,7 @@ export class CompositeActiveReconOrchestratorService {
         content,
         parameters,
         secrets,
+        spaObservations,
       },
       explicitNonClaims: RECON_ORCHESTRATION_NON_CLAIMS,
       lineage: { ...request.lineage },
@@ -585,16 +591,62 @@ export class CompositeActiveReconOrchestratorService {
               parameters.push(obs);
             }
           }
+
+          // 4. SPA DOM & dynamic route discovery (Playwright)
+          if (this.tools.spaDiscoveryTool) {
+            const spaResult: BrowserAutomationResult = await coordinator.execute(
+              parsed.hostname,
+              () =>
+                this.tools.spaDiscoveryTool!.discoverSpa({
+                  targetUrlOrDomain: rootUrl,
+                  verifiedAuthorizationDecision: request.verifiedAuthorizationDecision,
+                  authorizedScopeGrant: request.authorizedScopeGrant,
+                  lineage: request.lineage,
+                  coordinator,
+                  timeoutMs: request.config?.timeoutMs,
+                })
+            );
+
+            if (spaResult.status === 'success') {
+              for (const obs of spaResult.observations) {
+                spaObservations.push(obs);
+                for (const route of obs.routes) {
+                  try {
+                    const parsedRoute = new URL(route.url);
+                    urls.push({
+                      url: route.url,
+                      host: parsedRoute.hostname,
+                      path: parsedRoute.pathname,
+                      query: parsedRoute.search ? parsedRoute.search.slice(1) : undefined,
+                      sources: ['playwright_spa_dom'],
+                      discoveredAt: obs.discoveredAt,
+                    });
+                  } catch {
+                    // Ignore invalid dynamic URLs
+                  }
+                }
+                for (const input of obs.inputs) {
+                  parameters.push({
+                    url: input.formAction || obs.url,
+                    method: input.method === 'POST' ? 'POST' : 'GET',
+                    parameterName: input.inputName,
+                    discoveredAt: obs.discoveredAt,
+                  });
+                }
+              }
+            }
+          }
         } catch (err) {
           if (err instanceof TargetInstabilityError || coordinator.isCircuitOpen(currentHost)) {
             createDraft('stage_4_crawling_parameters', request.targetDomain, 'discovered_urls', urls.length);
             createDraft('stage_4_crawling_parameters', request.targetDomain, 'discovered_content', content.length);
             createDraft('stage_4_crawling_parameters', request.targetDomain, 'discovered_parameters', parameters.length);
+            createDraft('stage_4_crawling_parameters', request.targetDomain, 'discovered_spa_observations', spaObservations.length);
             stageResults.push({
               stage: 'stage_4_crawling_parameters',
               status: 'partial_failure',
               durationMs: Date.now() - stage4Start,
-              observationsCount: urls.length + content.length + parameters.length,
+              observationsCount: urls.length + content.length + parameters.length + spaObservations.length,
               warnings: [`Circuit breaker tripped on ${currentHost}`],
             });
             return buildCircuitBrokenResult(currentHost);
@@ -606,12 +658,13 @@ export class CompositeActiveReconOrchestratorService {
       createDraft('stage_4_crawling_parameters', request.targetDomain, 'discovered_urls', urls.length);
       createDraft('stage_4_crawling_parameters', request.targetDomain, 'discovered_content', content.length);
       createDraft('stage_4_crawling_parameters', request.targetDomain, 'discovered_parameters', parameters.length);
+      createDraft('stage_4_crawling_parameters', request.targetDomain, 'discovered_spa_observations', spaObservations.length);
 
       stageResults.push({
         stage: 'stage_4_crawling_parameters',
         status: stage4Warnings.length > 0 && urls.length === 0 ? 'partial_failure' : 'completed',
         durationMs: Date.now() - stage4Start,
-        observationsCount: urls.length + content.length + parameters.length,
+        observationsCount: urls.length + content.length + parameters.length + spaObservations.length,
         warnings: stage4Warnings.length > 0 ? stage4Warnings : undefined,
       });
     }
@@ -704,6 +757,7 @@ export class CompositeActiveReconOrchestratorService {
       content,
       parameters,
       secrets,
+      spaObservations,
     };
 
     return {

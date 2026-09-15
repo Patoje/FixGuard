@@ -84,6 +84,11 @@ export type ReconStageName =
   | 'stage_4_crawling_parameters'
   | 'stage_5_secret_inspection';
 
+import type {
+  BrowserAutomationTool,
+  DiscoveredSpaObservation,
+} from '../adapters/BrowserAutomationContracts.js';
+
 export interface ReconToolAdapters {
   readonly subdomainTool: SubdomainDiscoveryTool;
   readonly dnsTool: DnsResolutionTool;
@@ -94,7 +99,9 @@ export interface ReconToolAdapters {
   readonly contentTool: ContentDiscoveryTool;
   readonly parameterTool: ParameterDiscoveryTool;
   readonly secretTool: SecretScannerTool;
+  readonly spaDiscoveryTool?: BrowserAutomationTool;
 }
+
 
 export interface ReconStageExecutionResult {
   readonly stage: ReconStageName;
@@ -148,7 +155,9 @@ export interface AggregatedReconObservations {
   readonly content: readonly DiscoveredContentObservation[];
   readonly parameters: readonly DiscoveredParameterObservation[];
   readonly secrets: readonly DiscoveredSecretObservation[];
+  readonly spaObservations?: readonly DiscoveredSpaObservation[];
 }
+
 
 export type ActiveReconOrchestrationResult =
   | {

@@ -35,6 +35,7 @@ import { URL_DISCOVERY_NON_CLAIMS } from '../recon/adapters/UrlDiscoveryContract
 import { CONTENT_DISCOVERY_NON_CLAIMS } from '../recon/adapters/ContentDiscoveryContracts.js';
 import { PARAMETER_DISCOVERY_NON_CLAIMS } from '../recon/adapters/ParameterDiscoveryContracts.js';
 import { SECRET_DISCOVERY_NON_CLAIMS } from '../recon/adapters/SecretDiscoveryContracts.js';
+import { PlaywrightSpaAdapter } from '../recon/adapters/PlaywrightSpaAdapter.js';
 
 import type {
   HttpProbeRequest,
@@ -291,6 +292,7 @@ function createDefaultReconAdapters(
         };
       },
     },
+    spaDiscoveryTool: new PlaywrightSpaAdapter(undefined, dnsResolver),
   };
 }
 

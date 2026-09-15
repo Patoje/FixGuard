@@ -39,13 +39,15 @@ import { InMemoryOrchestratedAssessmentRepository } from '../storage/InMemoryOrc
 import type { HttpProbeRequest, HttpProbeResponse } from '../detection/DetectionContracts.js';
 
 function createScopeGrant(domain: string): AuthorizedScopeGrant {
+  const now = new Date();
+  const expires = new Date(now.getTime() + 86400_000);
   return {
     contractVersion: 'fixguard-authorized-scope-policy/v0',
     kind: 'authorized_scope_grant',
     grantId: `grant_${domain.replace(/[^a-z0-9]/gi, '_')}`,
     scanId: 'scan_f8_001',
-    issuedAt: '2026-09-14T00:00:00.000Z',
-    expiresAt: '2026-09-15T00:00:00.000Z',
+    issuedAt: now.toISOString(),
+    expiresAt: expires.toISOString(),
     subject: {
       targetKind: 'domain',
       domain,

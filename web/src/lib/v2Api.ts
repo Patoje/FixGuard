@@ -4,7 +4,7 @@
  * Provides typed, Bearer-authenticated client functions for invoking the
  * FixGuard V2 Orchestrated Assessment Gateway from Next.js.
  *
- * Strictly adheres to 0 'as any' policy and strict closed typing.
+ * Strictly adheres to zero type bypass policy and strict closed typing.
  */
 
 export interface LineageTuple {
