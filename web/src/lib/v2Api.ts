@@ -119,6 +119,7 @@ export interface DifferentialEvidenceContextDto {
     | 'open_redirect'
     | 'information_disclosure'
     | 'subdomain_takeover'
+    | 'weak_tls_configuration'
     | 'custom_difference';
   readonly baselineStatusCode?: number;
   readonly baselineBodyHash?: string;
@@ -142,7 +143,14 @@ export interface DifferentialEvidenceContextDto {
   readonly cnameTarget?: string;
   readonly hostingProvider?: 'github_pages' | 'heroku' | 'aws_s3' | 'azure' | 'fastly' | 'netlify' | 'shopify' | 'unknown';
   readonly fingerprintMatch?: string;
+  readonly targetHost?: string;
+  readonly port?: number;
+  readonly weakProtocols?: readonly string[];
+  readonly weakCiphers?: readonly string[];
+  readonly certificateIssues?: readonly ('expired' | 'self_signed' | 'invalid_san')[];
+  readonly supportedTlsVersions?: readonly string[];
 }
+
 
 
 export interface EvidenceDraftDto {

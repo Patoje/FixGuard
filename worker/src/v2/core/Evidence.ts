@@ -89,6 +89,23 @@ export interface SubdomainTakeoverMetadata {
   readonly [key: string]: unknown;
 }
 
+export interface WeakTlsMetadata {
+  readonly kind: 'weak_tls_metadata';
+  readonly targetHost: string;
+  readonly port: number;
+  readonly weakProtocols: readonly string[];
+  readonly weakCiphers: readonly string[];
+  readonly certificateIssues: readonly ('expired' | 'self_signed' | 'invalid_san')[];
+  readonly supportedTlsVersions: readonly string[];
+  readonly observedAt: string;
+  readonly category?: 'SECURITY_MISCONFIGURATION';
+  readonly endpointUrl?: string;
+  readonly candidateId?: string;
+  readonly evidenceRecordId?: string;
+  readonly lineage?: Record<string, unknown>;
+  readonly [key: string]: unknown;
+}
+
 export interface DiscoveryFindingMetadata {
   readonly kind: 'discovery_finding_metadata';
   readonly category?: string;
@@ -103,7 +120,9 @@ export type FindingMetadata =
   | OpenRedirectMetadata
   | InformationDisclosureMetadata
   | SubdomainTakeoverMetadata
+  | WeakTlsMetadata
   | DiscoveryFindingMetadata;
+
 
 
 

@@ -497,6 +497,36 @@ function HumanReviewContent() {
                         </div>
                       )}
 
+                      {diffContext?.weakProtocols && diffContext.weakProtocols.length > 0 && (
+                        <div className="rounded-lg bg-black/40 border border-rose-500/30 p-2.5">
+                          <span className="text-zinc-500 text-[10px] block">Insecure / Deprecated Protocols:</span>
+                          <span className="text-rose-400 font-bold">{diffContext.weakProtocols.join(', ')}</span>
+                        </div>
+                      )}
+
+                      {diffContext?.weakCiphers && diffContext.weakCiphers.length > 0 && (
+                        <div className="rounded-lg bg-black/40 border border-amber-500/30 p-2.5">
+                          <span className="text-zinc-500 text-[10px] block">Weak / Insecure Cipher Suites:</span>
+                          <span className="text-amber-400 font-bold text-[11px] truncate block" title={diffContext.weakCiphers.join(', ')}>
+                            {diffContext.weakCiphers.join(', ')}
+                          </span>
+                        </div>
+                      )}
+
+                      {diffContext?.certificateIssues && diffContext.certificateIssues.length > 0 && (
+                        <div className="rounded-lg bg-black/40 border border-rose-500/30 p-2.5">
+                          <span className="text-zinc-500 text-[10px] block">Certificate Health Anomalies:</span>
+                          <span className="text-rose-300 font-bold uppercase">{diffContext.certificateIssues.join(', ')}</span>
+                        </div>
+                      )}
+
+                      {diffContext?.supportedTlsVersions && diffContext.supportedTlsVersions.length > 0 && (
+                        <div className="rounded-lg bg-black/40 border border-zinc-800 p-2.5">
+                          <span className="text-zinc-500 text-[10px] block">Supported TLS Versions:</span>
+                          <span className="text-zinc-300 font-mono text-[11px]">{diffContext.supportedTlsVersions.join(', ')}</span>
+                        </div>
+                      )}
+
                       {diffContext?.disclosedFragment && (
                         <div className="rounded-lg bg-black/40 border border-rose-500/30 p-2.5 col-span-2">
                           <span className="text-rose-400 text-[10px] block font-semibold mb-1">Disclosed Fragment (Sanitized):</span>
@@ -505,6 +535,7 @@ function HumanReviewContent() {
                           </pre>
                         </div>
                       )}
+
                     </div>
 
 

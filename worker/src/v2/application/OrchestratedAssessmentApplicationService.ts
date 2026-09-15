@@ -49,6 +49,7 @@ import { runSecurityHeaderDetection } from '../detection/SecurityHeaderDetection
 import { runOpenRedirectDetection } from '../detection/OpenRedirectDetectionService.js';
 import { runInformationDisclosureDetection } from '../detection/InformationDisclosureDetectionService.js';
 import { runSubdomainTakeoverDetection } from '../detection/SubdomainTakeoverDetectionService.js';
+import { analyzeTlsConfiguration } from '../detection/TlsConfigurationAnalysisService.js';
 
 
 import { buildTargetProfile } from '../intelligence/TargetProfileBuilder.js';
@@ -929,7 +930,75 @@ export class OrchestratedAssessmentApplicationService {
             },
           },
         };
+      } else if (detKind === 'weak_tls_configuration') {
+        const targetHost = context?.targetHost ?? record.targetDomain;
+        const port = context?.port ?? 443;
+        const weakProtocols = context?.weakProtocols ?? [];
+        const weakCiphers = context?.weakCiphers ?? [];
+        const certificateIssues = context?.certificateIssues ?? [];
+        const supportedTlsVersions = context?.supportedTlsVersions ?? [];
+        const hasInsecure = weakProtocols.some((p) => {
+          const norm = p.toLowerCase().trim();
+          return (
+            norm.includes('ssl2') ||
+            norm.includes('ssl3') ||
+            norm.includes('sslv2') ||
+            norm.includes('sslv3') ||
+            norm.includes('ssl 2') ||
+            norm.includes('ssl 3') ||
+            /(?:ssl|sslv)[23]|ssl\s*[23]/i.test(norm)
+          );
+        });
+
+
+
+        const flawDescriptions: string[] = [];
+        if (weakProtocols.length > 0) flawDescriptions.push(`Protocols: ${weakProtocols.join(', ')}`);
+        if (weakCiphers.length > 0) flawDescriptions.push(`Weak Ciphers: ${weakCiphers.join(', ')}`);
+        if (certificateIssues.length > 0) flawDescriptions.push(`Cert Issues: ${certificateIssues.join(', ')}`);
+
+        findingCreated = {
+          id: `fnd_tls_${draftId.replace(/^dft_/, '')}`,
+          type: 'SECURITY_MISCONFIGURATION',
+          severity: hasInsecure
+            ? 'high'
+            : weakProtocols.length > 0 || certificateIssues.includes('expired') || certificateIssues.includes('self_signed')
+            ? 'medium'
+            : 'low',
+          title: `Approved Weak TLS Configuration on ${targetHost}:${port}`,
+          description: `Human operator verified TLS weaknesses on ${targetHost}:${port}: ${flawDescriptions.join(' | ') || 'non-compliant configuration'}.`,
+          target: context?.endpointUrl ?? `https://${targetHost}:${port}/`,
+          evidence: JSON.stringify({
+            draftId,
+            reviewerId,
+            reviewedAt,
+            notes,
+            differentialContext: context,
+          }),
+          confidence: 1.0,
+          metadata: {
+            kind: 'weak_tls_metadata',
+            category: 'SECURITY_MISCONFIGURATION',
+            targetHost,
+            port,
+            weakProtocols,
+            weakCiphers,
+            certificateIssues,
+            supportedTlsVersions,
+            observedAt: reviewedAt,
+            endpointUrl: context?.endpointUrl ?? `https://${targetHost}:${port}/`,
+            candidateId: `cnd_${draftId}`,
+            evidenceRecordId: `evd_${draftId}`,
+            lineage: {
+              assessmentId: record.assessmentId,
+              scanId: record.scanId,
+              reviewerId,
+              reviewedAt,
+            },
+          },
+        };
       } else {
+
 
 
         findingCreated = {
@@ -1344,6 +1413,49 @@ export class OrchestratedAssessmentApplicationService {
         }
       }
 
+      // TLS Configuration Analysis (Milestone P2-5)
+      const tlsObservations = reconResult.aggregatedObservations.tlsCertificates;
+      for (const tlsObs of tlsObservations) {
+        try {
+          const tlsResult = analyzeTlsConfiguration({
+            contractVersion: DETECTION_CONTRACT_VERSION,
+            kind: 'tls_configuration_analysis_request',
+            detectionId: `det_tls_${record.assessmentId.slice(-8)}_${tlsObs.host.replace(/[^a-zA-Z0-9]/g, '').slice(0, 8)}`,
+            assessmentId: lineage.assessmentId,
+            scanId: lineage.scanId,
+            authorizationGrantId: lineage.authorizationGrantId,
+            authorizationDecisionId: lineage.authorizationDecisionId,
+            actorId: lineage.actorId,
+            targetHost: tlsObs.host,
+            port: tlsObs.port,
+            tlsObservation: tlsObs,
+          });
+
+          if (tlsResult.status === 'vulnerability_detected' || tlsResult.status === 'potential_weakness') {
+            if (tlsResult.finding) {
+              findings.push(tlsResult.finding);
+            }
+          } else if (tlsResult.status === 'pending_human_review' && tlsResult.evidenceDraft) {
+            const enrichedDraft: EnrichedEvidenceDraft = {
+              ...tlsResult.evidenceDraft,
+              differentialContext: {
+                endpointUrl: `https://${tlsObs.host}:${tlsObs.port}`,
+                detectionKind: 'weak_tls_configuration',
+                targetHost: tlsObs.host,
+                port: tlsObs.port,
+                weakProtocols: tlsResult.weakProtocols,
+                weakCiphers: tlsResult.weakCiphers,
+                certificateIssues: tlsResult.certificateIssues,
+                supportedTlsVersions: tlsResult.supportedTlsVersions,
+              },
+            };
+            pendingEvidenceDrafts.push(enrichedDraft);
+          }
+        } catch {
+          // Safe error containment
+        }
+      }
+
       // 3. F5 Intelligence Synthesis (TargetProfile & Recommendations)
       const rawObservations = [
         ...reconResult.aggregatedObservations.webObservations,
@@ -1351,6 +1463,7 @@ export class OrchestratedAssessmentApplicationService {
         ...reconResult.aggregatedObservations.ports,
         ...reconResult.aggregatedObservations.tlsCertificates,
       ];
+
 
 
       const profile = buildTargetProfile({

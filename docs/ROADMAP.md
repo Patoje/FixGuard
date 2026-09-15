@@ -84,13 +84,17 @@
                                                                 │
                                                                 ▼
                                                         [PHASE 2: P2-4] COMPLETED (Subdomain Takeover Detection Engine)
+                                                                │
+                                                                ▼
+                                                        [PHASE 2: P2-5] COMPLETED (TLS Configuration Analysis Engine)
 ```
 
 ---
 
 ## 2. Completed Milestones (`CONFIRMED`)
 
-All completed milestones are verified via active TypeScript contracts and the regression test suite (`npm run check:v2` with 51 passing smoke suites, 100% pass rate).
+All completed milestones are verified via active TypeScript contracts and the regression test suite (`npm run check:v2` with 52 passing smoke suites, 100% pass rate).
+
 
 
 ### Foundation Era (M0 – M29)
@@ -700,6 +704,35 @@ All completed milestones are verified via active TypeScript contracts and the re
      - Next.js production build (`npm run build`) compiles cleanly.
 
 ---
+
+#### Milestone P2-5: TLS Configuration Analysis Engine
+- **Status:** COMPLETED.
+- **Goal:** Implement a pure analytical engine over Stage 3 `tlsx` reconnaissance observations to evaluate SSL/TLS configuration security, detecting insecure protocols (SSLv2, SSLv3), deprecated protocols (TLS 1.0, TLS 1.1), weak cipher suites (RC4, 3DES, DES, NULL, EXPORT, MD5), and certificate anomalies (expired, self-signed, SAN mismatch) with strictly ZERO additional network requests.
+- **Key Deliverables:**
+  1. **Domain Contracts & Typed Metadata (`worker/src/v2/core/Evidence.ts`, `worker/src/v2/detection/DetectionContracts.ts`)**:
+     - Added `WeakTlsMetadata` interface to `FindingMetadata` discriminated union: `{ kind: 'weak_tls_metadata', targetHost: string, port: number, weakProtocols: string[], weakCiphers: string[], certificateIssues: ('expired' | 'self_signed' | 'invalid_san')[], supportedTlsVersions: string[], observedAt: string }`.
+     - Defined `TlsConfigurationAnalysisRequest`, `TlsConfigurationAnalysisResult`, `TlsCertificateIssue`, and `TlsAnalysisStatus` (`'vulnerability_detected' | 'potential_weakness' | 'secure_target_abstained' | 'pending_human_review' | 'unexpected_failure'`).
+  2. **TLS Configuration Analysis Service (`worker/src/v2/detection/TlsConfigurationAnalysisService.ts`)**:
+     - Purely analytical evaluation over existing `DiscoveredTlsObservation` records from Stage 3 active recon with 0 network calls dispatched.
+     - Evaluation & Severity Rules:
+       - Insecure protocols: `SSLv2`, `SSLv3` $\rightarrow$ `status: 'vulnerability_detected'`, `severity: 'high'`.
+       - Deprecated protocols: `TLS 1.0`, `TLS 1.1` $\rightarrow$ `status: 'potential_weakness'`, `severity: 'medium'`.
+       - Weak ciphers: `RC4`, `3DES`, `DES`, `NULL`, `EXPORT`, `MD5` $\rightarrow$ `status: 'potential_weakness'`.
+       - Certificate health: `expired`, `self_signed`, `invalid_san` $\rightarrow$ `status: 'potential_weakness'`, `severity: 'medium'`.
+     - Clean Abstention: Targets enforcing modern TLS 1.2+ / TLS 1.3 with secure ciphers and valid certificates cleanly return `status: 'secure_target_abstained'` (0 findings, 0 drafts).
+     - Human-in-the-Loop Routing: Unattended runs route to `pendingEvidenceDrafts` (`status: 'pending_human_review'`).
+  3. **Orchestrated Assessment Integration & Web Review UI (`worker/src/v2/application/OrchestratedAssessmentApplicationService.ts`, `web/src/app/v2/review/page.tsx`)**:
+     - Automatically processes all TLS observations gathered in Stage 3 and evaluates them through `analyzeTlsConfiguration()`.
+     - Extended `reviewEvidenceDraft()` to promote approved `weak_tls_configuration` drafts into formal `Finding` records with `WeakTlsMetadata`.
+     - Updated web triage UI with cards displaying weak protocols, weak cipher suites, certificate health anomalies, and supported TLS versions.
+  4. **Verification**:
+     - Dedicated smoke test `worker/src/v2/smoke/milestoneP2_5_tls_configuration_smoke.ts` passes 100%.
+     - `npm run typecheck:v2` exits 0.
+     - Full regression suite (`npm run check:v2` across all 52 smoke suites) passes 100%.
+     - Next.js production build (`npm run build`) compiles cleanly.
+
+---
+
 
 ## 5. Architectural Proposals (`PROPOSED` — NOT YET DECIDED)
 

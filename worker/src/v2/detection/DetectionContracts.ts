@@ -17,6 +17,7 @@ import type { ReviewedEvidenceFormalFindingCandidate, ReviewedEvidenceFindingCan
 import type { Finding } from '../core/Evidence.js';
 import type { PreSpawnDnsResolver } from '../recon/adapters/AdapterPreflightPipeline.js';
 import type { TargetExecutionCoordinator } from '../runtime/TargetExecutionCoordinator.js';
+import type { DiscoveredTlsObservation } from '../recon/adapters/TlsInspectionContracts.js';
 
 export type DetectionContractVersion = 'fixguard-detection/v0';
 export const DETECTION_CONTRACT_VERSION: DetectionContractVersion = 'fixguard-detection/v0';
@@ -501,6 +502,62 @@ export interface SubdomainTakeoverDetectionResult {
     readonly safeMessage: string;
   };
 }
+
+// ---------------------------------------------------------------------------
+// Milestone P2-5 — TLS Configuration Analysis Contracts
+// ---------------------------------------------------------------------------
+
+export type TlsCertificateIssue = 'expired' | 'self_signed' | 'invalid_san';
+
+export type TlsAnalysisStatus =
+  | 'vulnerability_detected'
+  | 'potential_weakness'
+  | 'secure_target_abstained'
+  | 'pending_human_review'
+  | 'unexpected_failure';
+
+export interface TlsConfigurationAnalysisRequest {
+  readonly contractVersion: DetectionContractVersion;
+  readonly kind: 'tls_configuration_analysis_request';
+  readonly detectionId: string;
+  readonly assessmentId: string;
+  readonly scanId: string;
+  readonly authorizationGrantId: string;
+  readonly authorizationDecisionId: string;
+  readonly actorId: string;
+  readonly targetHost: string;
+  readonly port?: number;
+  readonly tlsObservation: DiscoveredTlsObservation;
+  readonly humanReviewDecision?: HumanReviewDecision;
+}
+
+export interface TlsConfigurationAnalysisResult {
+  readonly contractVersion: DetectionContractVersion;
+  readonly kind: 'tls_configuration_analysis_result';
+  readonly detectionId: string;
+  readonly scanId: string;
+  readonly assessmentId: string;
+  readonly authorizationGrantId: string;
+  readonly authorizationDecisionId: string;
+  readonly actorId: string;
+  readonly status: TlsAnalysisStatus;
+  readonly reasonCode: string;
+  readonly lineage: AuthorizedExecutionLineageTuple;
+  readonly targetHost: string;
+  readonly port: number;
+  readonly weakProtocols: readonly string[];
+  readonly weakCiphers: readonly string[];
+  readonly certificateIssues: readonly TlsCertificateIssue[];
+  readonly supportedTlsVersions: readonly string[];
+  readonly evidenceDraft?: EvidenceDraftEnvelope;
+  readonly findingCandidate?: ReviewedEvidenceFormalFindingCandidate;
+  readonly finding?: Finding;
+  readonly error?: {
+    readonly code: string;
+    readonly safeMessage: string;
+  };
+}
+
 
 
 
