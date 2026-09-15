@@ -184,6 +184,17 @@ export class CompositeActiveReconOrchestratorService {
       });
     }
 
+    async function recordStageResult(res: ReconStageExecutionResult): Promise<void> {
+      stageResults.push(res);
+      if (request.onStageComplete) {
+        try {
+          await request.onStageComplete(res);
+        } catch {
+          // Non-blocking containment
+        }
+      }
+    }
+
     const buildCircuitBrokenResult = (host: string): ActiveReconOrchestrationResult => ({
       status: 'circuit_broken',
       contractVersion: ACTIVE_RECON_ORCHESTRATION_CONTRACT_VERSION,
@@ -218,7 +229,7 @@ export class CompositeActiveReconOrchestratorService {
 
     const stage1Start = Date.now();
     if (skipStages.has('stage_1_domain_zone')) {
-      stageResults.push({
+      await recordStageResult({
         stage: 'stage_1_domain_zone',
         status: 'skipped',
         durationMs: 0,
@@ -249,7 +260,7 @@ export class CompositeActiveReconOrchestratorService {
         }
       } catch (err) {
         if (err instanceof TargetInstabilityError || coordinator.isCircuitOpen(request.targetDomain)) {
-          stageResults.push({
+          await recordStageResult({
             stage: 'stage_1_domain_zone',
             status: 'partial_failure',
             durationMs: Date.now() - stage1Start,
@@ -291,7 +302,7 @@ export class CompositeActiveReconOrchestratorService {
           if (err instanceof TargetInstabilityError || coordinator.isCircuitOpen(host)) {
             createDraft('stage_1_domain_zone', request.targetDomain, 'subdomains', subdomains.length);
             createDraft('stage_1_domain_zone', request.targetDomain, 'dns_records', dnsRecords.length);
-            stageResults.push({
+            await recordStageResult({
               stage: 'stage_1_domain_zone',
               status: 'partial_failure',
               durationMs: Date.now() - stage1Start,
@@ -307,7 +318,7 @@ export class CompositeActiveReconOrchestratorService {
       createDraft('stage_1_domain_zone', request.targetDomain, 'subdomains', subdomains.length);
       createDraft('stage_1_domain_zone', request.targetDomain, 'dns_records', dnsRecords.length);
 
-      stageResults.push({
+      await recordStageResult({
         stage: 'stage_1_domain_zone',
         status: stage1Warnings.length > 0 && subdomains.length === 0 ? 'partial_failure' : 'completed',
         durationMs: Date.now() - stage1Start,
@@ -326,7 +337,7 @@ export class CompositeActiveReconOrchestratorService {
 
     const stage2Start = Date.now();
     if (skipStages.has('stage_2_port_service')) {
-      stageResults.push({
+      await recordStageResult({
         stage: 'stage_2_port_service',
         status: 'skipped',
         durationMs: 0,
@@ -365,7 +376,7 @@ export class CompositeActiveReconOrchestratorService {
         } catch (err) {
           if (err instanceof TargetInstabilityError || coordinator.isCircuitOpen(host)) {
             createDraft('stage_2_port_service', request.targetDomain, 'open_ports', ports.length);
-            stageResults.push({
+            await recordStageResult({
               stage: 'stage_2_port_service',
               status: 'partial_failure',
               durationMs: Date.now() - stage2Start,
@@ -380,7 +391,7 @@ export class CompositeActiveReconOrchestratorService {
 
       createDraft('stage_2_port_service', request.targetDomain, 'open_ports', ports.length);
 
-      stageResults.push({
+      await recordStageResult({
         stage: 'stage_2_port_service',
         status: stage2Warnings.length > 0 && ports.length === 0 ? 'partial_failure' : 'completed',
         durationMs: Date.now() - stage2Start,
@@ -398,7 +409,7 @@ export class CompositeActiveReconOrchestratorService {
 
     const stage3Start = Date.now();
     if (skipStages.has('stage_3_web_tls')) {
-      stageResults.push({
+      await recordStageResult({
         stage: 'stage_3_web_tls',
         status: 'skipped',
         durationMs: 0,
@@ -473,7 +484,7 @@ export class CompositeActiveReconOrchestratorService {
           if (err instanceof TargetInstabilityError || coordinator.isCircuitOpen(currentHost)) {
             createDraft('stage_3_web_tls', request.targetDomain, 'web_technologies', webObservations.length);
             createDraft('stage_3_web_tls', request.targetDomain, 'tls_certificates', tlsCertificates.length);
-            stageResults.push({
+            await recordStageResult({
               stage: 'stage_3_web_tls',
               status: 'partial_failure',
               durationMs: Date.now() - stage3Start,
@@ -489,7 +500,7 @@ export class CompositeActiveReconOrchestratorService {
       createDraft('stage_3_web_tls', request.targetDomain, 'web_technologies', webObservations.length);
       createDraft('stage_3_web_tls', request.targetDomain, 'tls_certificates', tlsCertificates.length);
 
-      stageResults.push({
+      await recordStageResult({
         stage: 'stage_3_web_tls',
         status: stage3Warnings.length > 0 && webObservations.length === 0 ? 'partial_failure' : 'completed',
         durationMs: Date.now() - stage3Start,
@@ -507,7 +518,7 @@ export class CompositeActiveReconOrchestratorService {
 
     const stage4Start = Date.now();
     if (skipStages.has('stage_4_crawling_parameters')) {
-      stageResults.push({
+      await recordStageResult({
         stage: 'stage_4_crawling_parameters',
         status: 'skipped',
         durationMs: 0,
@@ -642,7 +653,7 @@ export class CompositeActiveReconOrchestratorService {
             createDraft('stage_4_crawling_parameters', request.targetDomain, 'discovered_content', content.length);
             createDraft('stage_4_crawling_parameters', request.targetDomain, 'discovered_parameters', parameters.length);
             createDraft('stage_4_crawling_parameters', request.targetDomain, 'discovered_spa_observations', spaObservations.length);
-            stageResults.push({
+            await recordStageResult({
               stage: 'stage_4_crawling_parameters',
               status: 'partial_failure',
               durationMs: Date.now() - stage4Start,
@@ -660,7 +671,7 @@ export class CompositeActiveReconOrchestratorService {
       createDraft('stage_4_crawling_parameters', request.targetDomain, 'discovered_parameters', parameters.length);
       createDraft('stage_4_crawling_parameters', request.targetDomain, 'discovered_spa_observations', spaObservations.length);
 
-      stageResults.push({
+      await recordStageResult({
         stage: 'stage_4_crawling_parameters',
         status: stage4Warnings.length > 0 && urls.length === 0 ? 'partial_failure' : 'completed',
         durationMs: Date.now() - stage4Start,
@@ -678,7 +689,7 @@ export class CompositeActiveReconOrchestratorService {
 
     const stage5Start = Date.now();
     if (skipStages.has('stage_5_secret_inspection')) {
-      stageResults.push({
+      await recordStageResult({
         stage: 'stage_5_secret_inspection',
         status: 'skipped',
         durationMs: 0,
@@ -722,7 +733,7 @@ export class CompositeActiveReconOrchestratorService {
         } catch (err) {
           if (err instanceof TargetInstabilityError || coordinator.isCircuitOpen(currentHost)) {
             createDraft('stage_5_secret_inspection', request.targetDomain, 'discovered_secrets', secrets.length);
-            stageResults.push({
+            await recordStageResult({
               stage: 'stage_5_secret_inspection',
               status: 'partial_failure',
               durationMs: Date.now() - stage5Start,
@@ -737,7 +748,7 @@ export class CompositeActiveReconOrchestratorService {
 
       createDraft('stage_5_secret_inspection', request.targetDomain, 'discovered_secrets', secrets.length);
 
-      stageResults.push({
+      await recordStageResult({
         stage: 'stage_5_secret_inspection',
         status: stage5Warnings.length > 0 && secrets.length === 0 ? 'partial_failure' : 'completed',
         durationMs: Date.now() - stage5Start,

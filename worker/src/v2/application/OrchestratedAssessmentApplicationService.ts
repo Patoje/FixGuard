@@ -632,6 +632,15 @@ export class OrchestratedAssessmentApplicationService {
         config,
         coordinator,
         dnsResolver: this.dnsResolver,
+        onStageComplete: async (stageResult) => {
+          await this.repository.update(record.assessmentId, (prev) => {
+            const existingStages = prev.stages.filter((s) => s.stage !== stageResult.stage);
+            return {
+              ...prev,
+              stages: [...existingStages, stageResult],
+            };
+          });
+        },
       });
 
       if (reconResult.status === 'preflight_denied') {

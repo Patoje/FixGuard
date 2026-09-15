@@ -143,6 +143,7 @@ export interface ActiveReconOrchestrationRequest {
   readonly coordinator?: TargetExecutionCoordinator;
   readonly config?: ActiveReconOrchestrationConfig;
   readonly dnsResolver?: PreSpawnDnsResolver;
+  readonly onStageComplete?: (stageResult: ReconStageExecutionResult) => Promise<void> | void;
 }
 
 export interface AggregatedReconObservations {

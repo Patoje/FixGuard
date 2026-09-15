@@ -105,6 +105,7 @@ export interface OrchestratedAssessmentStatusResponse {
   readonly errorCount: number;
   readonly warningCount: number;
   readonly lineage: LineageTuple;
+  readonly pendingEvidenceDraftCount?: number;
   readonly error?: string;
 }
 
@@ -115,6 +116,7 @@ export interface OrchestratedAssessmentSummaryResponse {
   readonly status: 'pending' | 'running' | 'completed' | 'failed' | 'preflight_denied' | 'circuit_broken';
   readonly profile?: TargetProfileDto;
   readonly findings: readonly FindingDto[];
+  readonly pendingEvidenceDrafts?: readonly unknown[];
   readonly recommendations: readonly RecommendationDto[];
   readonly lineage: LineageTuple;
   readonly timing: TimingDto;
