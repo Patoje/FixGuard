@@ -207,3 +207,94 @@ export function parseStartOrchestratedAssessmentBody(
     ...(config ? { config: config as Record<string, unknown> } : {}),
   };
 }
+
+export interface ReviewEvidenceDraftHttpCommand {
+  readonly decision: 'approve_evidence' | 'reject_evidence';
+  readonly reviewerId: string;
+  readonly reviewedAt: string;
+  readonly notes?: string;
+}
+
+const BANNED_SYNTHETIC_REVIEWERS = new Set([
+  'reviewer_lead_sec',
+  'synthetic_reviewer',
+  'mock_reviewer',
+  'auto_reviewer',
+  'bot_reviewer',
+  'system_auto',
+]);
+
+export function isForbiddenSyntheticReviewerId(reviewerId: string): boolean {
+  if (!reviewerId || typeof reviewerId !== 'string') return true;
+  const lower = reviewerId.trim().toLowerCase();
+  if (BANNED_SYNTHETIC_REVIEWERS.has(lower)) return true;
+  if (
+    lower.startsWith('synthetic_') ||
+    lower.startsWith('mock_') ||
+    lower.startsWith('auto_') ||
+    lower.startsWith('bot_')
+  ) {
+    return true;
+  }
+  return false;
+}
+
+export function parseReviewEvidenceDraftBody(body: unknown): ReviewEvidenceDraftHttpCommand {
+  if (!body || typeof body !== 'object' || Array.isArray(body)) {
+    throw new ApiValidationError('Request body must be a non-empty object');
+  }
+
+  const record = body as Record<string, unknown>;
+  const allowedKeys = ['decision', 'reviewerId', 'reviewedAt', 'notes'] as const;
+  for (const k of Object.keys(record)) {
+    if (!allowedKeys.includes(k as typeof allowedKeys[number])) {
+      throw new ApiValidationError(
+        `Closed-world validation failed: unexpected field '${k}' in ReviewEvidenceDraftRequest`
+      );
+    }
+  }
+
+  if (!('decision' in record) || !('reviewerId' in record) || !('reviewedAt' in record)) {
+    throw new ApiValidationError(
+      "Closed-world validation failed: missing required fields 'decision', 'reviewerId', and/or 'reviewedAt'"
+    );
+  }
+
+  const { decision, reviewerId, reviewedAt, notes } = record;
+
+  if (decision !== 'approve_evidence' && decision !== 'reject_evidence') {
+    throw new ApiValidationError(
+      "Field 'decision' must be either 'approve_evidence' or 'reject_evidence'"
+    );
+  }
+
+  if (typeof reviewerId !== 'string' || !isStrictSafeId(reviewerId)) {
+    throw new ApiValidationError("Field 'reviewerId' must satisfy strict identifier format");
+  }
+
+  if (isForbiddenSyntheticReviewerId(reviewerId)) {
+    throw new ApiValidationError(
+      `Field 'reviewerId' contains forbidden synthetic or unauthenticated reviewer pattern '${reviewerId}'`
+    );
+  }
+
+  if (
+    typeof reviewedAt !== 'string' ||
+    !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{3})?Z$/.test(reviewedAt) ||
+    Number.isNaN(Date.parse(reviewedAt))
+  ) {
+    throw new ApiValidationError("Field 'reviewedAt' must be a valid ISO 8601 timestamp string");
+  }
+
+  if (notes !== undefined && typeof notes !== 'string') {
+    throw new ApiValidationError("Field 'notes' must be a string if provided");
+  }
+
+  return {
+    decision,
+    reviewerId,
+    reviewedAt,
+    ...(notes ? { notes } : {}),
+  };
+}
+

@@ -1,0 +1,509 @@
+"use client";
+
+import React, { useState, useEffect, useCallback, Suspense } from "react";
+import Link from "next/link";
+import { useSearchParams } from "next/navigation";
+import {
+  ShieldAlert,
+  ShieldCheck,
+  ArrowLeft,
+  Zap,
+  CheckCircle2,
+  XCircle,
+  AlertTriangle,
+  FileSearch,
+  Fingerprint,
+  Layers,
+  ArrowRight,
+  Info,
+  RefreshCw,
+  UserCheck,
+  Scale
+} from "lucide-react";
+import {
+  getEvidenceDrafts,
+  reviewEvidenceDraft,
+  getOrchestratedAssessmentSummary,
+  V2ApiError,
+  type EvidenceDraftDto,
+  type OrchestratedAssessmentSummaryResponse
+} from "@/lib/v2Api";
+
+function HumanReviewContent() {
+  const searchParams = useSearchParams();
+  const assessmentIdFromQuery = searchParams.get("assessmentId") || "";
+
+  const [assessmentId, setAssessmentId] = useState<string>(assessmentIdFromQuery);
+  const [operatorId, setOperatorId] = useState<string>("usr_secops_lead");
+  const [drafts, setDrafts] = useState<readonly EvidenceDraftDto[]>([]);
+  const [summary, setSummary] = useState<OrchestratedAssessmentSummaryResponse | null>(null);
+  const [selectedDraftId, setSelectedDraftId] = useState<string | null>(null);
+  const [notes, setNotes] = useState<string>("");
+  const [isLoading, setIsLoading] = useState<boolean>(false);
+  const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
+  const [error, setError] = useState<string | null>(null);
+  const [successMsg, setSuccessMsg] = useState<string | null>(null);
+
+  const fetchDraftsAndSummary = useCallback(async (id: string) => {
+    if (!id || id.trim().length === 0) return;
+    setIsLoading(true);
+    setError(null);
+    try {
+      const [draftsRes, summaryRes] = await Promise.all([
+        getEvidenceDrafts(id),
+        getOrchestratedAssessmentSummary(id).catch(() => null),
+      ]);
+      setDrafts(draftsRes.drafts);
+      setSummary(summaryRes);
+      if (draftsRes.drafts.length > 0) {
+        setSelectedDraftId(draftsRes.drafts[0].draftId);
+      } else {
+        setSelectedDraftId(null);
+      }
+    } catch (err) {
+      if (err instanceof V2ApiError) {
+        setError(`[${err.errorType}] ${err.message}`);
+      } else {
+        setError((err as Error).message || "Failed to load evidence drafts");
+      }
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (assessmentIdFromQuery) {
+      setAssessmentId(assessmentIdFromQuery);
+      fetchDraftsAndSummary(assessmentIdFromQuery);
+    }
+  }, [assessmentIdFromQuery, fetchDraftsAndSummary]);
+
+  const handleReviewAction = async (decision: "approve_evidence" | "reject_evidence") => {
+    if (!selectedDraftId || !assessmentId) return;
+
+    if (!operatorId || operatorId.trim().length === 0) {
+      setError("Debe especificar un ID de operador válido");
+      return;
+    }
+
+    if (operatorId.toLowerCase().includes("reviewer_lead_sec") || operatorId.toLowerCase().startsWith("synthetic_")) {
+      setError("Anti-Bypass Gate: El ID de operador sintético/mock no está autorizado en producción.");
+      return;
+    }
+
+    setIsSubmitting(true);
+    setError(null);
+    setSuccessMsg(null);
+
+    try {
+      const result = await reviewEvidenceDraft(assessmentId, selectedDraftId, {
+        decision,
+        reviewerId: operatorId.trim(),
+        reviewedAt: new Date().toISOString(),
+        ...(notes.trim() ? { notes: notes.trim() } : {}),
+      });
+
+      setSuccessMsg(
+        decision === "approve_evidence"
+          ? `Evidencia '${selectedDraftId}' aprobada y promovida exitosamente a Hallazgo formal.`
+          : `Borrador de evidencia '${selectedDraftId}' rechazado y descartado limpiamente.`
+      );
+      setNotes("");
+
+      // Refresh drafts and summary
+      await fetchDraftsAndSummary(assessmentId);
+    } catch (err) {
+      if (err instanceof V2ApiError) {
+        setError(`[${err.errorType}] ${err.message}`);
+      } else {
+        setError((err as Error).message || "Error al procesar la revisión");
+      }
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const selectedDraft = drafts.find((d) => d.draftId === selectedDraftId);
+  const diffContext = selectedDraft?.differentialContext;
+
+  return (
+    <div className="min-h-screen bg-black text-zinc-100 font-sans pb-24">
+      {/* Header Banner */}
+      <header className="border-b border-zinc-900 bg-zinc-950/70 backdrop-blur-xl sticky top-0 z-40">
+        <div className="max-w-6xl mx-auto px-6 py-4 flex flex-wrap items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <Link
+              href={assessmentId ? `/v2/assessments` : `/v2`}
+              className="flex h-9 w-9 items-center justify-center rounded-lg border border-zinc-800 bg-zinc-900 text-zinc-400 hover:text-white hover:border-zinc-700 transition cursor-pointer"
+              title="Return to Assessments"
+            >
+              <ArrowLeft className="h-4 w-4" />
+            </Link>
+
+            <div className="flex h-9 w-9 items-center justify-center rounded-lg border border-amber-500/30 bg-amber-500/10 text-amber-400">
+              <Scale className="h-5 w-5" />
+            </div>
+
+            <div>
+              <div className="flex items-center gap-2">
+                <h1 className="text-base font-bold tracking-tight text-white">
+                  FixGuard V2 — Human Review &amp; Evidence Triage (HITL)
+                </h1>
+                <span className="rounded bg-amber-500/10 border border-amber-500/30 px-2 py-0.5 text-[10px] font-mono font-semibold text-amber-400">
+                  Milestone P1-3
+                </span>
+                <span className="rounded bg-emerald-500/10 border border-emerald-500/30 px-2 py-0.5 text-[10px] font-mono text-emerald-300">
+                  Level 2 HITL
+                </span>
+              </div>
+              <p className="text-xs text-zinc-400">
+                Human-in-the-Loop Verification: Differential HTTP Evidence Inspection &amp; Finding Promotion Gate
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-3 text-xs font-mono">
+            <Link
+              href="/v2/assessments"
+              className="rounded-lg border border-zinc-800 bg-zinc-900/60 hover:bg-zinc-900 px-3 py-1.5 text-zinc-400 hover:text-zinc-200 transition"
+            >
+              Assessments &rarr;
+            </Link>
+          </div>
+        </div>
+      </header>
+
+      {/* Main Container */}
+      <main className="max-w-6xl mx-auto px-6 mt-8 space-y-8">
+        {/* Controls Bar */}
+        <section className="rounded-2xl border border-zinc-800 bg-zinc-950/80 p-5 shadow-2xl backdrop-blur-xl">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
+            <div>
+              <label className="text-[11px] font-mono text-zinc-400 uppercase tracking-wider block mb-1.5">
+                Assessment ID
+              </label>
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={assessmentId}
+                  onChange={(e) => setAssessmentId(e.target.value)}
+                  placeholder="asmt_orch_..."
+                  className="w-full rounded-xl border border-zinc-800 bg-zinc-900/60 px-3.5 py-2 text-xs font-mono text-white placeholder:text-zinc-600 focus:border-amber-500/50 focus:outline-none focus:ring-1 focus:ring-amber-500/50"
+                />
+                <button
+                  type="button"
+                  onClick={() => fetchDraftsAndSummary(assessmentId)}
+                  disabled={isLoading || !assessmentId}
+                  className="rounded-xl border border-zinc-800 bg-zinc-900 px-3 py-2 text-xs font-mono text-zinc-300 hover:bg-zinc-800 hover:text-white transition disabled:opacity-50 cursor-pointer flex items-center gap-1"
+                >
+                  <RefreshCw className={`h-3.5 w-3.5 ${isLoading ? "animate-spin" : ""}`} />
+                  Cargar
+                </button>
+              </div>
+            </div>
+
+            <div>
+              <label className="text-[11px] font-mono text-zinc-400 uppercase tracking-wider block mb-1.5">
+                Operator Authenticated Identity (HITL)
+              </label>
+              <div className="flex items-center gap-2 rounded-xl border border-zinc-800 bg-zinc-900/60 px-3.5 py-2">
+                <UserCheck className="h-4 w-4 text-emerald-400 shrink-0" />
+                <input
+                  type="text"
+                  value={operatorId}
+                  onChange={(e) => setOperatorId(e.target.value)}
+                  placeholder="usr_secops_lead"
+                  className="w-full bg-transparent text-xs font-mono text-white placeholder:text-zinc-600 focus:outline-none"
+                />
+              </div>
+            </div>
+
+            <div className="flex items-center justify-between border border-zinc-800/80 rounded-xl bg-zinc-900/30 p-2.5 px-4 text-xs font-mono">
+              <div>
+                <span className="text-zinc-500 block text-[10px]">Borradores Pendientes</span>
+                <span className="text-sm font-bold text-amber-400">{drafts.length}</span>
+              </div>
+              <div className="text-right">
+                <span className="text-zinc-500 block text-[10px]">Hallazgos Promovidos</span>
+                <span className="text-sm font-bold text-emerald-400">{summary?.findings.length ?? 0}</span>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        {/* Alerts */}
+        {error && (
+          <div className="rounded-xl border border-rose-500/30 bg-rose-500/10 p-4 flex items-start gap-3 text-xs text-rose-300">
+            <AlertTriangle className="h-4 w-4 shrink-0 text-rose-400 mt-0.5" />
+            <div className="space-y-0.5">
+              <span className="font-semibold block font-mono">Error de Validación / Autorización</span>
+              <p className="leading-relaxed">{error}</p>
+            </div>
+          </div>
+        )}
+
+        {successMsg && (
+          <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-4 flex items-start gap-3 text-xs text-emerald-300">
+            <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-400 mt-0.5" />
+            <div className="space-y-0.5">
+              <span className="font-semibold block font-mono">Acción de Triage Registrada</span>
+              <p className="leading-relaxed">{successMsg}</p>
+            </div>
+          </div>
+        )}
+
+        {/* Review Workspace Grid */}
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+          {/* Left Column: Draft Queue */}
+          <div className="lg:col-span-4 space-y-4">
+            <div className="flex items-center justify-between">
+              <h3 className="text-xs font-mono uppercase tracking-wider text-zinc-400 flex items-center gap-2">
+                <Layers className="h-3.5 w-3.5 text-amber-400" />
+                Cola de Evidencia ({drafts.length})
+              </h3>
+            </div>
+
+            {drafts.length === 0 ? (
+              <div className="rounded-2xl border border-zinc-800 bg-zinc-950/60 p-8 text-center space-y-3">
+                <CheckCircle2 className="mx-auto h-8 w-8 text-emerald-400" />
+                <div className="text-xs font-semibold text-white">Cola de Triage Vacía</div>
+                <p className="text-[11px] text-zinc-400">
+                  No hay borradores de evidencia pendientes de revisión humana para esta evaluación.
+                </p>
+              </div>
+            ) : (
+              <div className="space-y-2.5 max-h-[600px] overflow-y-auto pr-1">
+                {drafts.map((d) => (
+                  <button
+                    key={d.draftId}
+                    type="button"
+                    onClick={() => setSelectedDraftId(d.draftId)}
+                    className={`w-full text-left rounded-xl border p-3.5 transition cursor-pointer space-y-2 ${
+                      selectedDraftId === d.draftId
+                        ? "border-amber-500/50 bg-amber-500/10 shadow-lg"
+                        : "border-zinc-800 bg-zinc-900/40 hover:bg-zinc-900 hover:border-zinc-700"
+                    }`}
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="rounded bg-amber-500/20 border border-amber-500/40 px-2 py-0.5 text-[10px] font-mono font-bold text-amber-300 uppercase">
+                        {d.differentialContext?.detectionKind?.replace(/_/g, " ") ?? d.suggestedEvidenceType}
+                      </span>
+                      <span className="text-[10px] font-mono text-zinc-500">
+                        {d.suggestedStrength}
+                      </span>
+                    </div>
+
+                    <div className="text-xs font-mono text-white font-medium truncate">
+                      {d.draftId}
+                    </div>
+
+                    <p className="text-[11px] text-zinc-400 line-clamp-2 leading-relaxed">
+                      {d.safeRationale}
+                    </p>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Right Column: Differential Viewer & Action Controls */}
+          <div className="lg:col-span-8 space-y-6">
+            {selectedDraft ? (
+              <div className="rounded-2xl border border-zinc-800 bg-zinc-950/80 p-6 shadow-2xl backdrop-blur-xl space-y-6">
+                {/* Draft Header */}
+                <div className="flex flex-wrap items-center justify-between gap-4 border-b border-zinc-800/80 pb-4">
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <span className="rounded bg-amber-500 text-black px-2 py-0.5 text-[10px] font-bold uppercase font-mono">
+                        HITL Review Required
+                      </span>
+                      <h3 className="text-sm font-semibold text-white font-mono">
+                        {selectedDraft.draftId}
+                      </h3>
+                    </div>
+                    <p className="text-xs text-zinc-400 mt-1">
+                      Target Endpoint: <strong className="text-zinc-200 font-mono">{diffContext?.endpointUrl ?? "N/A"}</strong>
+                    </p>
+                  </div>
+
+                  <div className="text-right text-[11px] font-mono text-zinc-500">
+                    <div>Comparison ID: {selectedDraft.sourceComparisonId}</div>
+                    <div>Strength: {selectedDraft.suggestedStrength}</div>
+                  </div>
+                </div>
+
+                {/* Differential Viewer: HTTP Observation Evidence */}
+                <div className="space-y-4">
+                  <h4 className="text-xs font-mono uppercase tracking-wider text-zinc-400 flex items-center gap-2">
+                    <FileSearch className="h-4 w-4 text-purple-400" />
+                    Visor de Evidencia Diferencial HTTP (M47 / M49)
+                  </h4>
+
+                  {/* Differential Cards Grid */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {/* Baseline Snapshot Card */}
+                    <div className="rounded-xl border border-zinc-800 bg-zinc-900/40 p-4 space-y-2">
+                      <div className="flex items-center justify-between text-[11px] font-mono border-b border-zinc-800 pb-2">
+                        <span className="text-zinc-400 font-semibold uppercase">Baseline (Control)</span>
+                        <span className="text-zinc-500">{selectedDraft.sourceSnapshotIds.baselineSnapshotId}</span>
+                      </div>
+                      <div className="space-y-1 text-xs font-mono">
+                        <div className="flex justify-between">
+                          <span className="text-zinc-500">Status Code:</span>
+                          <span className="text-zinc-200">{diffContext?.baselineStatusCode ?? "200 OK"}</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-zinc-500">Body Hash:</span>
+                          <span className="text-zinc-400 text-[10px] truncate max-w-[150px]">
+                            {diffContext?.baselineBodyHash ?? "N/A"}
+                          </span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-zinc-500">Auth Signal:</span>
+                          <span className="text-zinc-400">Baseline Context</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Validation Snapshot Card */}
+                    <div className="rounded-xl border border-purple-500/30 bg-purple-500/5 p-4 space-y-2">
+                      <div className="flex items-center justify-between text-[11px] font-mono border-b border-purple-500/20 pb-2">
+                        <span className="text-purple-300 font-semibold uppercase">Validation (Probe)</span>
+                        <span className="text-purple-400/60">{selectedDraft.sourceSnapshotIds.validationSnapshotId}</span>
+                      </div>
+                      <div className="space-y-1 text-xs font-mono">
+                        <div className="flex justify-between">
+                          <span className="text-zinc-500">Status Code:</span>
+                          <span className="text-emerald-400 font-bold">{diffContext?.validationStatusCode ?? "200 OK"}</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-zinc-500">Body Hash:</span>
+                          <span className="text-zinc-400 text-[10px] truncate max-w-[150px]">
+                            {diffContext?.validationBodyHash ?? "N/A"}
+                          </span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-zinc-500">Detection Type:</span>
+                          <span className="text-purple-300 font-bold">{diffContext?.detectionKind ?? "N/A"}</span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Differential Specifics (CORS / Parameter Reflection details) */}
+                  <div className="rounded-xl border border-zinc-800 bg-zinc-900/60 p-4 space-y-3">
+                    <span className="text-[11px] font-mono text-zinc-400 uppercase tracking-wider block">
+                      Parámetros &amp; Observaciones Específicas
+                    </span>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs font-mono">
+                      {diffContext?.reflectedOrigin && (
+                        <div className="rounded-lg bg-black/40 border border-zinc-800 p-2.5">
+                          <span className="text-zinc-500 text-[10px] block">Reflected Origin (ACAO):</span>
+                          <span className="text-rose-400 font-bold">{diffContext.reflectedOrigin}</span>
+                        </div>
+                      )}
+
+                      {diffContext?.allowCredentials !== undefined && (
+                        <div className="rounded-lg bg-black/40 border border-zinc-800 p-2.5">
+                          <span className="text-zinc-500 text-[10px] block">Allow Credentials (ACAC):</span>
+                          <span className="text-amber-400 font-bold">{String(diffContext.allowCredentials)}</span>
+                        </div>
+                      )}
+
+                      {diffContext?.parameterName && (
+                        <div className="rounded-lg bg-black/40 border border-zinc-800 p-2.5">
+                          <span className="text-zinc-500 text-[10px] block">Parameter Tested:</span>
+                          <span className="text-blue-400 font-bold">{diffContext.parameterName}</span>
+                        </div>
+                      )}
+
+                      {diffContext?.reflectedCanary && (
+                        <div className="rounded-lg bg-black/40 border border-zinc-800 p-2.5">
+                          <span className="text-zinc-500 text-[10px] block">Reflected Canary Payload:</span>
+                          <span className="text-emerald-400 font-bold">{diffContext.reflectedCanary}</span>
+                        </div>
+                      )}
+
+                      {diffContext?.resourceParamName && (
+                        <div className="rounded-lg bg-black/40 border border-zinc-800 p-2.5">
+                          <span className="text-zinc-500 text-[10px] block">Resource Param:</span>
+                          <span className="text-amber-400 font-bold">{diffContext.resourceParamName}</span>
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="rounded bg-black/40 p-3 border border-zinc-800 text-xs text-zinc-300 font-mono leading-relaxed">
+                      <strong className="text-zinc-500 block text-[10px] uppercase mb-1">Fundamento del Borrador:</strong>
+                      {selectedDraft.safeRationale}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Operator Notes & Triage Actions */}
+                <div className="border-t border-zinc-800/80 pt-5 space-y-4">
+                  <div>
+                    <label className="text-[11px] font-mono text-zinc-400 uppercase tracking-wider block mb-1.5">
+                      Notas del Operador (Opcional)
+                    </label>
+                    <textarea
+                      value={notes}
+                      onChange={(e) => setNotes(e.target.value)}
+                      placeholder="Observaciones adicionales, contexto de la aplicación, o justificación de triage..."
+                      rows={2}
+                      className="w-full rounded-xl border border-zinc-800 bg-zinc-900/60 px-3.5 py-2 text-xs font-mono text-white placeholder:text-zinc-600 focus:border-amber-500/50 focus:outline-none focus:ring-1 focus:ring-amber-500/50"
+                    />
+                  </div>
+
+                  <div className="flex flex-wrap items-center justify-between gap-4 pt-2">
+                    <div className="text-[11px] font-mono text-zinc-500">
+                      Operador: <strong className="text-zinc-300">{operatorId || "N/A"}</strong>
+                    </div>
+
+                    <div className="flex items-center gap-3">
+                      <button
+                        type="button"
+                        onClick={() => handleReviewAction("reject_evidence")}
+                        disabled={isSubmitting}
+                        className="rounded-xl border border-zinc-800 bg-zinc-900 hover:bg-rose-950/40 hover:border-rose-500/50 hover:text-rose-300 px-4 py-2.5 text-xs font-mono font-medium text-zinc-300 transition cursor-pointer disabled:opacity-50 flex items-center gap-2"
+                      >
+                        <XCircle className="h-4 w-4 text-rose-400" />
+                        Rechazar Evidencia
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => handleReviewAction("approve_evidence")}
+                        disabled={isSubmitting}
+                        className="rounded-xl border border-emerald-500/50 bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 px-5 py-2.5 text-xs font-mono font-bold transition cursor-pointer disabled:opacity-50 shadow-lg flex items-center gap-2"
+                      >
+                        <CheckCircle2 className="h-4 w-4 text-emerald-400" />
+                        Aprobar y Promover a Hallazgo
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div className="rounded-2xl border border-zinc-800 bg-zinc-950/60 p-12 text-center space-y-3">
+                <FileSearch className="mx-auto h-10 w-10 text-zinc-600" />
+                <div className="text-sm font-semibold text-white">Seleccione un Borrador de Evidencia</div>
+                <p className="text-xs text-zinc-400 max-w-md mx-auto">
+                  Seleccione un elemento de la cola de la izquierda para inspeccionar las diferencias de respuesta HTTP y tomar una decisión de autorización.
+                </p>
+              </div>
+            )}
+          </div>
+        </div>
+      </main>
+    </div>
+  );
+}
+
+export default function HumanReviewPage() {
+  return (
+    <Suspense fallback={<div className="min-h-screen bg-black text-zinc-400 p-8 font-mono text-xs">Cargando interfaz de revisión...</div>}>
+      <HumanReviewContent />
+    </Suspense>
+  );
+}

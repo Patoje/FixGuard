@@ -69,13 +69,17 @@
                                                                 │
                                                                 ▼
                                                         [PHASE 1: P1-2] COMPLETED (First Real Integration Test Suite - Level 2)
+                                                                │
+                                                                ▼
+                                                        [PHASE 1: P1-3] COMPLETED (Human Review UI Flow & Real HITL Triage)
 ```
 
 ---
 
 ## 2. Completed Milestones (`CONFIRMED`)
 
-All completed milestones are verified via active TypeScript contracts and the regression test suite (`npm run check:v2` with 46 passing smoke suites, 100% pass rate).
+All completed milestones are verified via active TypeScript contracts and the regression test suite (`npm run check:v2` with 47 passing smoke suites, 100% pass rate).
+
 
 ### Foundation Era (M0 – M29)
 - **M0 – M6.5 (Core Loop Foundation)**: `TargetContext`, `CapabilityRequest`, `ExecutionRequest`, `RawExecutionOutput`, `ProcessRunner` (safe spawn without shell interpolation), `SubfinderAdapter`, `SubfinderParser`.
@@ -551,6 +555,31 @@ All completed milestones are verified via active TypeScript contracts and the re
      - `npm run typecheck:v2` exits 0.
      - All 46 smoke test suites in `npm run check:v2` pass 100%.
      - Next.js production build (`npm run build`) compiles cleanly.
+
+---
+
+#### Milestone P1-3: Human Review UI Flow & Real HITL Triage
+- **Status:** COMPLETED.
+- **Goal:** Close the loop on the Human-in-the-Loop invariant by delivering API triage endpoints and a Next.js UI allowing operators to inspect differential HTTP evidence, enforce Server-Side Anti-Bypass gates, and formally approve/promote evidence drafts into strongly-typed `Finding` records.
+- **Key Deliverables:**
+  1. **API Gateway Review & Differential Endpoints (`worker/src/v2/api/controllers/OrchestratedAssessmentController.ts`)**:
+     - `GET /api/v2/orchestrated/assessments/:assessmentId/evidence-drafts`: returns pending evidence drafts with complete differential context (baseline vs probe status codes, body hashes, reflected origins, canary parameters).
+     - `POST /api/v2/orchestrated/assessments/:assessmentId/evidence/:draftId/review`: accepts `{ decision, reviewerId, reviewedAt, notes }`.
+  2. **Server-Side Anti-Bypass Gate (`worker/src/v2/api/validation/ApiRequestValidators.ts`)**:
+     - `parseReviewEvidenceDraftBody()` and `isForbiddenSyntheticReviewerId()` strictly reject mock/synthetic identities (e.g. `'reviewer_lead_sec'`, `'synthetic_*'`, `'mock_*'`, `'auto_*'`, `'bot_*'`) with HTTP 400 Bad Request.
+  3. **Domain Finding Promotion & Clean Rejection (`worker/src/v2/application/OrchestratedAssessmentApplicationService.ts`)**:
+     - On `'approve_evidence'`: converts the draft into a formal `Finding` using the strongly-typed `FindingMetadata` union (`SecurityMisconfigurationMetadata`, `InputValidationFlawMetadata`, `BrokenAccessControlMetadata`), adds it to `record.findings`, and dequeues the draft from `pendingEvidenceDrafts`.
+     - On `'reject_evidence'`: cleans the draft from the queue with strictly ZERO findings created and ZERO evidence persisted.
+  4. **Next.js HITL Triage & Review UI (`web/src/app/v2/review/page.tsx`)**:
+     - Interactive differential viewer with side-by-side control baseline and probe response metrics.
+     - Specific observation callouts (reflected origins with credentials, reflected parameter canaries).
+     - Action buttons: "Aprobar y Promover a Hallazgo" and "Rechazar Evidencia".
+     - Real-time feedback and navigation link integration from `/v2/assessments` executive panel.
+  5. **Verification**:
+     - Dedicated smoke test `worker/src/v2/smoke/milestoneP1_3_human_review_smoke.ts` passes 100%.
+     - `npm run typecheck:v2` exits 0.
+     - Full regression suite (`npm run check:v2` across all 47 smoke suites) passes 100%.
+     - Next.js production build (`npm run build`) compiles cleanly with route `/v2/review`.
 
 ---
 

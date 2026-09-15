@@ -109,6 +109,60 @@ export interface OrchestratedAssessmentStatusResponse {
   readonly error?: string;
 }
 
+export interface DifferentialEvidenceContextDto {
+  readonly endpointUrl: string;
+  readonly detectionKind: 'cors_misconfiguration' | 'parameter_reflection' | 'idor_access_control' | 'custom_difference';
+  readonly baselineStatusCode?: number;
+  readonly baselineBodyHash?: string;
+  readonly validationStatusCode?: number;
+  readonly validationBodyHash?: string;
+  readonly reflectedOrigin?: string;
+  readonly allowCredentials?: boolean;
+  readonly parameterName?: string;
+  readonly reflectedCanary?: string;
+  readonly resourceParamName?: string;
+  readonly baselineResourceId?: string;
+}
+
+export interface EvidenceDraftDto {
+  readonly draftKind: string;
+  readonly draftId: string;
+  readonly suggestedEvidenceType: string;
+  readonly suggestedStrength: string;
+  readonly sourceComparisonId: string;
+  readonly sourceSnapshotIds: {
+    readonly baselineSnapshotId: string;
+    readonly validationSnapshotId: string;
+  };
+  readonly requiresHumanReview: true;
+  readonly safeRationale: string;
+  readonly differentialContext?: DifferentialEvidenceContextDto;
+}
+
+export interface GetEvidenceDraftsResponse {
+  readonly assessmentId: string;
+  readonly scanId: string;
+  readonly draftCount: number;
+  readonly drafts: readonly EvidenceDraftDto[];
+}
+
+export interface ReviewEvidenceDraftParams {
+  readonly decision: 'approve_evidence' | 'reject_evidence';
+  readonly reviewerId: string;
+  readonly reviewedAt: string;
+  readonly notes?: string;
+}
+
+export interface ReviewEvidenceDraftResponse {
+  readonly assessmentId: string;
+  readonly draftId: string;
+  readonly decision: 'approve_evidence' | 'reject_evidence';
+  readonly reviewerId: string;
+  readonly reviewedAt: string;
+  readonly findingCreated?: FindingDto;
+  readonly remainingDraftCount: number;
+}
+
 export interface OrchestratedAssessmentSummaryResponse {
   readonly assessmentId: string;
   readonly scanId: string;
@@ -116,13 +170,12 @@ export interface OrchestratedAssessmentSummaryResponse {
   readonly status: 'pending' | 'running' | 'completed' | 'failed' | 'preflight_denied' | 'circuit_broken';
   readonly profile?: TargetProfileDto;
   readonly findings: readonly FindingDto[];
-  readonly pendingEvidenceDrafts?: readonly unknown[];
+  readonly pendingEvidenceDrafts?: readonly EvidenceDraftDto[];
   readonly recommendations: readonly RecommendationDto[];
   readonly lineage: LineageTuple;
   readonly timing: TimingDto;
   readonly error?: string;
 }
-
 
 export interface V2ApiClientConfig {
   readonly baseUrl?: string;
@@ -225,6 +278,36 @@ export class V2OrchestratedApiClient {
       `/orchestrated/assessments/${encodeURIComponent(assessmentId)}/summary`
     );
   }
+
+  /**
+   * Retrieves pending evidence drafts with differential context for human triage.
+   * GET /api/v2/orchestrated/assessments/:assessmentId/evidence-drafts
+   */
+  public async getEvidenceDrafts(
+    assessmentId: string
+  ): Promise<GetEvidenceDraftsResponse> {
+    return this.request<GetEvidenceDraftsResponse>(
+      `/orchestrated/assessments/${encodeURIComponent(assessmentId)}/evidence-drafts`
+    );
+  }
+
+  /**
+   * Submits a formal human review decision for an evidence draft.
+   * POST /api/v2/orchestrated/assessments/:assessmentId/evidence/:draftId/review
+   */
+  public async reviewEvidenceDraft(
+    assessmentId: string,
+    draftId: string,
+    params: ReviewEvidenceDraftParams
+  ): Promise<ReviewEvidenceDraftResponse> {
+    return this.request<ReviewEvidenceDraftResponse>(
+      `/orchestrated/assessments/${encodeURIComponent(assessmentId)}/evidence/${encodeURIComponent(draftId)}/review`,
+      {
+        method: 'POST',
+        body: JSON.stringify(params),
+      }
+    );
+  }
 }
 
 export const v2OrchestratedApi = new V2OrchestratedApiClient();
@@ -252,3 +335,22 @@ export async function getOrchestratedAssessmentSummary(
   const client = config ? new V2OrchestratedApiClient(config) : v2OrchestratedApi;
   return client.getSummary(assessmentId);
 }
+
+export async function getEvidenceDrafts(
+  assessmentId: string,
+  config?: V2ApiClientConfig
+): Promise<GetEvidenceDraftsResponse> {
+  const client = config ? new V2OrchestratedApiClient(config) : v2OrchestratedApi;
+  return client.getEvidenceDrafts(assessmentId);
+}
+
+export async function reviewEvidenceDraft(
+  assessmentId: string,
+  draftId: string,
+  params: ReviewEvidenceDraftParams,
+  config?: V2ApiClientConfig
+): Promise<ReviewEvidenceDraftResponse> {
+  const client = config ? new V2OrchestratedApiClient(config) : v2OrchestratedApi;
+  return client.reviewEvidenceDraft(assessmentId, draftId, params);
+}
+

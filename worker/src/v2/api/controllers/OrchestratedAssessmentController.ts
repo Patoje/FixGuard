@@ -14,7 +14,10 @@
 
 import type { Request, Response, NextFunction } from 'express';
 import type { OrchestratedAssessmentApplicationService } from '../../application/OrchestratedAssessmentApplicationService.js';
-import { parseStartOrchestratedAssessmentBody } from '../validation/ApiRequestValidators.js';
+import {
+  parseStartOrchestratedAssessmentBody,
+  parseReviewEvidenceDraftBody,
+} from '../validation/ApiRequestValidators.js';
 import { isStrictSafeId } from '../../reporting-boundary/DefensiveReportContracts.js';
 import { ApiValidationError } from '../ApiErrors.js';
 
@@ -70,4 +73,54 @@ export class OrchestratedAssessmentController {
       next(err);
     }
   };
+
+  public getEvidenceDrafts = async (
+    req: Request,
+    res: Response,
+    next: NextFunction
+  ): Promise<void> => {
+    try {
+      const assessmentId = req.params.assessmentId;
+      if (!assessmentId || typeof assessmentId !== 'string' || !isStrictSafeId(assessmentId)) {
+        throw new ApiValidationError('Field assessmentId must satisfy strict identifier format');
+      }
+
+      const drafts = await this.service.getEvidenceDrafts(assessmentId);
+      res.status(200).json(drafts);
+    } catch (err) {
+      next(err);
+    }
+  };
+
+  public reviewEvidenceDraft = async (
+    req: Request,
+    res: Response,
+    next: NextFunction
+  ): Promise<void> => {
+    try {
+      const assessmentId = req.params.assessmentId;
+      const draftId = req.params.draftId;
+      if (!assessmentId || typeof assessmentId !== 'string' || !isStrictSafeId(assessmentId)) {
+        throw new ApiValidationError('Field assessmentId must satisfy strict identifier format');
+      }
+      if (!draftId || typeof draftId !== 'string' || !isStrictSafeId(draftId)) {
+        throw new ApiValidationError('Field draftId must satisfy strict identifier format');
+      }
+
+      const body = parseReviewEvidenceDraftBody(req.body);
+      const result = await this.service.reviewEvidenceDraft({
+        assessmentId,
+        draftId,
+        decision: body.decision,
+        reviewerId: body.reviewerId,
+        reviewedAt: body.reviewedAt,
+        ...(body.notes ? { notes: body.notes } : {}),
+      });
+
+      res.status(200).json(result);
+    } catch (err) {
+      next(err);
+    }
+  };
 }
+

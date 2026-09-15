@@ -44,6 +44,25 @@ export interface OrchestratedAssessmentTiming {
   readonly durationMs?: number;
 }
 
+export interface DifferentialEvidenceContext {
+  readonly endpointUrl: string;
+  readonly detectionKind: 'cors_misconfiguration' | 'parameter_reflection' | 'idor_access_control' | 'custom_difference';
+  readonly baselineStatusCode?: number;
+  readonly baselineBodyHash?: string;
+  readonly validationStatusCode?: number;
+  readonly validationBodyHash?: string;
+  readonly reflectedOrigin?: string;
+  readonly allowCredentials?: boolean;
+  readonly parameterName?: string;
+  readonly reflectedCanary?: string;
+  readonly resourceParamName?: string;
+  readonly baselineResourceId?: string;
+}
+
+export type EnrichedEvidenceDraft = EvidenceDraftEnvelope & {
+  readonly differentialContext?: DifferentialEvidenceContext;
+};
+
 export interface OrchestratedAssessmentRecord {
   readonly contractVersion: typeof ORCHESTRATED_ASSESSMENT_CONTRACT_VERSION;
   readonly assessmentId: string;
@@ -57,7 +76,7 @@ export interface OrchestratedAssessmentRecord {
   readonly warningCount: number;
   readonly profile?: TargetProfile;
   readonly findings: readonly Finding[];
-  readonly pendingEvidenceDrafts?: readonly EvidenceDraftEnvelope[];
+  readonly pendingEvidenceDrafts?: readonly EnrichedEvidenceDraft[];
   readonly recommendations: readonly TargetRecommendation[];
   readonly error?: string;
 }
@@ -83,11 +102,37 @@ export interface OrchestratedAssessmentSummaryDto {
   readonly status: OrchestratedAssessmentStatus;
   readonly profile?: TargetProfile;
   readonly findings: readonly Finding[];
-  readonly pendingEvidenceDrafts?: readonly EvidenceDraftEnvelope[];
+  readonly pendingEvidenceDrafts?: readonly EnrichedEvidenceDraft[];
   readonly recommendations: readonly TargetRecommendation[];
   readonly lineage: AuthorizedActiveReconRequestLineage;
   readonly timing: OrchestratedAssessmentTiming;
   readonly error?: string;
+}
+
+export interface ReviewEvidenceDraftCommand {
+  readonly assessmentId: string;
+  readonly draftId: string;
+  readonly decision: 'approve_evidence' | 'reject_evidence';
+  readonly reviewerId: string;
+  readonly reviewedAt: string;
+  readonly notes?: string;
+}
+
+export interface ReviewEvidenceDraftResult {
+  readonly assessmentId: string;
+  readonly draftId: string;
+  readonly decision: 'approve_evidence' | 'reject_evidence';
+  readonly reviewerId: string;
+  readonly reviewedAt: string;
+  readonly findingCreated?: Finding;
+  readonly remainingDraftCount: number;
+}
+
+export interface GetEvidenceDraftsResult {
+  readonly assessmentId: string;
+  readonly scanId: string;
+  readonly draftCount: number;
+  readonly drafts: readonly EnrichedEvidenceDraft[];
 }
 
 export interface OrchestratedAssessmentRepository {
@@ -98,3 +143,4 @@ export interface OrchestratedAssessmentRepository {
     updater: (prev: OrchestratedAssessmentRecord) => OrchestratedAssessmentRecord
   ): Promise<OrchestratedAssessmentRecord>;
 }
+

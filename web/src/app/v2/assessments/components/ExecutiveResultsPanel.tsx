@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState } from "react";
+import Link from "next/link";
 import {
   ShieldAlert,
   ShieldCheck,
@@ -13,7 +14,8 @@ import {
   Fingerprint,
   Info,
   CheckCircle2,
-  AlertTriangle
+  AlertTriangle,
+  Scale
 } from "lucide-react";
 import type {
   OrchestratedAssessmentSummaryResponse,
@@ -34,6 +36,7 @@ export function ExecutiveResultsPanel({ summary }: ExecutiveResultsPanelProps) {
   const profile = summary.profile;
   const findings = summary.findings || [];
   const recommendations = summary.recommendations || [];
+  const pendingDrafts = summary.pendingEvidenceDrafts || [];
 
   return (
     <div className="rounded-2xl border border-zinc-800 bg-zinc-950/80 p-6 shadow-2xl backdrop-blur-xl space-y-6">
@@ -58,49 +61,62 @@ export function ExecutiveResultsPanel({ summary }: ExecutiveResultsPanelProps) {
           </div>
         </div>
 
-        {/* Tab Switcher */}
-        <div className="flex items-center gap-1 rounded-xl border border-zinc-800 bg-zinc-900/60 p-1 text-xs font-mono">
-          <button
-            type="button"
-            onClick={() => setActiveTab("profile")}
-            className={`rounded-lg px-3 py-1.5 transition cursor-pointer ${
-              activeTab === "profile"
-                ? "bg-purple-500/20 text-purple-300 font-semibold border border-purple-500/40"
-                : "text-zinc-400 hover:text-zinc-200"
-            }`}
-          >
-            Target Profile ({profile?.endpoints.length || 0} routes)
-          </button>
-          <button
-            type="button"
-            onClick={() => setActiveTab("findings")}
-            className={`rounded-lg px-3 py-1.5 transition cursor-pointer flex items-center gap-1.5 ${
-              activeTab === "findings"
-                ? "bg-rose-500/20 text-rose-300 font-semibold border border-rose-500/40"
-                : "text-zinc-400 hover:text-zinc-200"
-            }`}
-          >
-            Findings
-            <span className={`rounded px-1.5 py-0.2 text-[10px] ${findings.length > 0 ? "bg-rose-500 text-black font-bold" : "bg-zinc-800 text-zinc-500"}`}>
-              {findings.length}
-            </span>
-          </button>
-          <button
-            type="button"
-            onClick={() => setActiveTab("recommendations")}
-            className={`rounded-lg px-3 py-1.5 transition cursor-pointer flex items-center gap-1.5 ${
-              activeTab === "recommendations"
-                ? "bg-blue-500/20 text-blue-300 font-semibold border border-blue-500/40"
-                : "text-zinc-400 hover:text-zinc-200"
-            }`}
-          >
-            Advisory Recommendations
-            <span className={`rounded px-1.5 py-0.2 text-[10px] ${recommendations.length > 0 ? "bg-blue-500 text-black font-bold" : "bg-zinc-800 text-zinc-500"}`}>
-              {recommendations.length}
-            </span>
-          </button>
+        {/* Tab Switcher & Triage Link */}
+        <div className="flex flex-wrap items-center gap-2">
+          {pendingDrafts.length > 0 && (
+            <Link
+              href={`/v2/review?assessmentId=${encodeURIComponent(summary.assessmentId)}`}
+              className="rounded-xl border border-amber-500/40 bg-amber-500/10 hover:bg-amber-500/20 px-3 py-1.5 text-xs font-mono text-amber-300 font-bold flex items-center gap-1.5 transition"
+            >
+              <Scale className="h-3.5 w-3.5 text-amber-400" />
+              Revisión HITL ({pendingDrafts.length}) &rarr;
+            </Link>
+          )}
+
+          <div className="flex items-center gap-1 rounded-xl border border-zinc-800 bg-zinc-900/60 p-1 text-xs font-mono">
+            <button
+              type="button"
+              onClick={() => setActiveTab("profile")}
+              className={`rounded-lg px-3 py-1.5 transition cursor-pointer ${
+                activeTab === "profile"
+                  ? "bg-purple-500/20 text-purple-300 font-semibold border border-purple-500/40"
+                  : "text-zinc-400 hover:text-zinc-200"
+              }`}
+            >
+              Target Profile ({profile?.endpoints.length || 0} routes)
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveTab("findings")}
+              className={`rounded-lg px-3 py-1.5 transition cursor-pointer flex items-center gap-1.5 ${
+                activeTab === "findings"
+                  ? "bg-rose-500/20 text-rose-300 font-semibold border border-rose-500/40"
+                  : "text-zinc-400 hover:text-zinc-200"
+              }`}
+            >
+              Findings
+              <span className={`rounded px-1.5 py-0.2 text-[10px] ${findings.length > 0 ? "bg-rose-500 text-black font-bold" : "bg-zinc-800 text-zinc-500"}`}>
+                {findings.length}
+              </span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveTab("recommendations")}
+              className={`rounded-lg px-3 py-1.5 transition cursor-pointer flex items-center gap-1.5 ${
+                activeTab === "recommendations"
+                  ? "bg-blue-500/20 text-blue-300 font-semibold border border-blue-500/40"
+                  : "text-zinc-400 hover:text-zinc-200"
+              }`}
+            >
+              Advisory Recommendations
+              <span className={`rounded px-1.5 py-0.2 text-[10px] ${recommendations.length > 0 ? "bg-blue-500 text-black font-bold" : "bg-zinc-800 text-zinc-500"}`}>
+                {recommendations.length}
+              </span>
+            </button>
+          </div>
         </div>
       </div>
+
 
       {/* Tab 1: Target Profile */}
       {activeTab === "profile" && profile && (

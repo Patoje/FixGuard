@@ -54,20 +54,27 @@ import type { EvidenceDraftEnvelope } from '../evidence-mapping/ComparisonEviden
 import { SessionNotFoundError } from '../storage/StorageErrors.js';
 import { ApiValidationError, UnauthorizedGatewayError, UnavailableToolsError } from '../api/ApiErrors.js';
 import { isStrictSafeId } from '../reporting-boundary/DefensiveReportContracts.js';
+import { isForbiddenSyntheticReviewerId } from '../api/validation/ApiRequestValidators.js';
 import { ReconToolAvailabilityService } from '../capabilities/ReconToolAvailabilityService.js';
 import type { ReconToolName } from '../capabilities/CapabilityStatusContracts.js';
 import { STAGE_REQUIRED_TOOLS } from '../capabilities/CapabilityStatusContracts.js';
 import type { ReconStageName } from '../recon/orchestration/ActiveReconOrchestrationContracts.js';
 
 import type {
+  DifferentialEvidenceContext,
+  EnrichedEvidenceDraft,
+  GetEvidenceDraftsResult,
   OrchestratedAssessmentRecord,
   OrchestratedAssessmentRepository,
   OrchestratedAssessmentStatusDto,
   OrchestratedAssessmentSummaryDto,
+  ReviewEvidenceDraftCommand,
+  ReviewEvidenceDraftResult,
   StartOrchestratedAssessmentCommand,
   StartOrchestratedAssessmentResult,
 } from './OrchestratedAssessmentContracts.js';
 import { ORCHESTRATED_ASSESSMENT_CONTRACT_VERSION } from './OrchestratedAssessmentContracts.js';
+
 
 export interface OrchestratedAssessmentServiceDependencies {
   readonly repository: OrchestratedAssessmentRepository;
@@ -433,13 +440,14 @@ export class OrchestratedAssessmentApplicationService {
         technologyFingerprinting: true,
         endpointDiscovery: true,
         activeCrawling: true,
-        authenticatedTesting: false,
+        authenticatedTesting: true,
         lightValidation: true,
         activeValidation: true,
         aggressiveValidation: false,
         oobTesting: false,
         destructiveOperations: false,
       },
+
       boundaries: {
         allowedDomains: [cleanedDomain],
         allowedHosts: [cleanedDomain, ...resolvedIps],
@@ -447,12 +455,13 @@ export class OrchestratedAssessmentApplicationService {
         allowedMethods: ['GET', 'HEAD', 'OPTIONS'],
       },
       constraints: {
-        allowLoginRequiredAreas: false,
+        allowLoginRequiredAreas: true,
         allowStateChangingRequests: false,
-        allowCredentialUse: false,
+        allowCredentialUse: true,
         allowOobCallbacks: false,
         allowThirdPartyTargets: false,
       },
+
       classification: {
         createsRealFindings: false,
         createsPersistedEvidence: false,
@@ -598,9 +607,233 @@ export class OrchestratedAssessmentApplicationService {
   }
 
   /**
+   * Returns pending evidence drafts with full differential context for human triage.
+   */
+  public async getEvidenceDrafts(assessmentId: string): Promise<GetEvidenceDraftsResult> {
+    if (!assessmentId || typeof assessmentId !== 'string' || !isStrictSafeId(assessmentId)) {
+      throw new ApiValidationError('Field assessmentId must satisfy strict identifier format');
+    }
+
+    const record = await this.repository.findById(assessmentId);
+    if (!record) {
+      throw new SessionNotFoundError(
+        `Orchestrated assessment '${assessmentId}' was not found`,
+        assessmentId
+      );
+    }
+
+    const drafts = record.pendingEvidenceDrafts ?? [];
+    return {
+      assessmentId: record.assessmentId,
+      scanId: record.scanId,
+      draftCount: drafts.length,
+      drafts,
+    };
+  }
+
+  /**
+   * Evaluates human-in-the-loop review decision for a pending evidence draft.
+   * On 'approve_evidence': promotes draft to strongly typed Finding and adds to assessment findings.
+   * On 'reject_evidence': discards draft with ZERO findings or persisted evidence.
+   */
+  public async reviewEvidenceDraft(
+    command: ReviewEvidenceDraftCommand
+  ): Promise<ReviewEvidenceDraftResult> {
+    const { assessmentId, draftId, decision, reviewerId, reviewedAt, notes } = command;
+
+    if (!assessmentId || typeof assessmentId !== 'string' || !isStrictSafeId(assessmentId)) {
+      throw new ApiValidationError('Field assessmentId must satisfy strict identifier format');
+    }
+    if (!draftId || typeof draftId !== 'string' || !isStrictSafeId(draftId)) {
+      throw new ApiValidationError('Field draftId must satisfy strict identifier format');
+    }
+    if (isForbiddenSyntheticReviewerId(reviewerId)) {
+      throw new ApiValidationError(
+        `Field 'reviewerId' contains forbidden synthetic or unauthenticated reviewer pattern '${reviewerId}'`
+      );
+    }
+
+    const record = await this.repository.findById(assessmentId);
+    if (!record) {
+      throw new SessionNotFoundError(
+        `Orchestrated assessment '${assessmentId}' was not found`,
+        assessmentId
+      );
+    }
+
+    const existingDrafts = record.pendingEvidenceDrafts ?? [];
+    const targetDraft = existingDrafts.find((d) => d.draftId === draftId);
+    if (!targetDraft) {
+      throw new ApiValidationError(
+        `Evidence draft '${draftId}' was not found in assessment '${assessmentId}'`
+      );
+    }
+
+    const remainingDrafts = existingDrafts.filter((d) => d.draftId !== draftId);
+
+    let findingCreated: Finding | undefined;
+
+    if (decision === 'approve_evidence') {
+      const context = targetDraft.differentialContext;
+      const detKind = context?.detectionKind;
+
+      if (detKind === 'cors_misconfiguration') {
+        findingCreated = {
+          id: `fnd_cors_${draftId.replace(/^dft_/, '')}`,
+          type: 'SECURITY_MISCONFIGURATION',
+          severity: 'high',
+          title: `Approved CORS Misconfiguration on ${context?.endpointUrl ?? record.targetDomain}`,
+          description: `Human operator verified that origin '${context?.reflectedOrigin ?? 'untrusted'}' is reflected with credentials on ${context?.endpointUrl ?? record.targetDomain}.`,
+          target: context?.endpointUrl ?? `https://${record.targetDomain}/`,
+          evidence: JSON.stringify({
+            draftId,
+            reviewerId,
+            reviewedAt,
+            notes,
+            differentialContext: context,
+          }),
+          confidence: 1.0,
+          metadata: {
+            kind: 'security_misconfiguration_metadata',
+            category: 'CORS_MISCONFIGURATION',
+            candidateId: `cnd_${draftId}`,
+            evidenceRecordId: `evd_${draftId}`,
+            lineage: {
+              assessmentId: record.assessmentId,
+              scanId: record.scanId,
+              reviewerId,
+              reviewedAt,
+            },
+            endpointUrl: context?.endpointUrl,
+            reflectedOrigin: context?.reflectedOrigin,
+            allowCredentials: context?.allowCredentials ?? true,
+          },
+        };
+      } else if (detKind === 'parameter_reflection') {
+        findingCreated = {
+          id: `fnd_refl_${draftId.replace(/^dft_/, '')}`,
+          type: 'INPUT_VALIDATION_FLAW',
+          severity: 'medium',
+          title: `Approved Parameter Reflection on ${context?.endpointUrl ?? record.targetDomain}`,
+          description: `Human operator verified parameter reflection of parameter '${context?.parameterName ?? 'q'}' on ${context?.endpointUrl ?? record.targetDomain}.`,
+          target: context?.endpointUrl ?? `https://${record.targetDomain}/`,
+          evidence: JSON.stringify({
+            draftId,
+            reviewerId,
+            reviewedAt,
+            notes,
+            differentialContext: context,
+          }),
+          confidence: 1.0,
+          metadata: {
+            kind: 'input_validation_flaw_metadata',
+            category: 'PARAMETER_REFLECTION',
+            candidateId: `cnd_${draftId}`,
+            evidenceRecordId: `evd_${draftId}`,
+            lineage: {
+              assessmentId: record.assessmentId,
+              scanId: record.scanId,
+              reviewerId,
+              reviewedAt,
+            },
+            endpointUrl: context?.endpointUrl,
+            parameterName: context?.parameterName,
+            reflectedCanary: context?.reflectedCanary,
+          },
+        };
+      } else if (detKind === 'idor_access_control') {
+        findingCreated = {
+          id: `fnd_idor_${draftId.replace(/^dft_/, '')}`,
+          type: 'BROKEN_ACCESS_CONTROL',
+          severity: 'high',
+          title: `Approved Broken Access Control on ${context?.endpointUrl ?? record.targetDomain}`,
+          description: `Human operator verified broken access control on resource parameter '${context?.resourceParamName ?? 'id'}'.`,
+          target: context?.endpointUrl ?? `https://${record.targetDomain}/`,
+          evidence: JSON.stringify({
+            draftId,
+            reviewerId,
+            reviewedAt,
+            notes,
+            differentialContext: context,
+          }),
+          confidence: 1.0,
+          metadata: {
+            kind: 'broken_access_control_metadata',
+            category: 'BROKEN_ACCESS_CONTROL',
+            candidateId: `cnd_${draftId}`,
+            evidenceRecordId: `evd_${draftId}`,
+            lineage: {
+              assessmentId: record.assessmentId,
+              scanId: record.scanId,
+              reviewerId,
+              reviewedAt,
+            },
+            endpointUrl: context?.endpointUrl,
+            resourceParamName: context?.resourceParamName,
+            baselineResourceId: context?.baselineResourceId,
+          },
+        };
+      } else {
+        findingCreated = {
+          id: `fnd_appr_${draftId.replace(/^dft_/, '')}`,
+          type: 'SECURITY_MISCONFIGURATION',
+          severity: 'medium',
+          title: `Approved Finding from Evidence Draft ${draftId}`,
+          description: `Human operator verified evidence draft with rationale: ${targetDraft.safeRationale}.`,
+          target: context?.endpointUrl ?? `https://${record.targetDomain}/`,
+          evidence: JSON.stringify({
+            draftId,
+            reviewerId,
+            reviewedAt,
+            notes,
+            differentialContext: context,
+          }),
+          confidence: 1.0,
+          metadata: {
+            kind: 'security_misconfiguration_metadata',
+            category: 'SECURITY_MISCONFIGURATION',
+            candidateId: `cnd_${draftId}`,
+            evidenceRecordId: `evd_${draftId}`,
+            lineage: {
+              assessmentId: record.assessmentId,
+              scanId: record.scanId,
+              reviewerId,
+              reviewedAt,
+            },
+            endpointUrl: context?.endpointUrl,
+          },
+        };
+      }
+
+      await this.repository.update(assessmentId, (prev) => ({
+        ...prev,
+        findings: [...prev.findings, findingCreated!],
+        pendingEvidenceDrafts: remainingDrafts,
+      }));
+    } else {
+      // reject_evidence
+      await this.repository.update(assessmentId, (prev) => ({
+        ...prev,
+        pendingEvidenceDrafts: remainingDrafts,
+      }));
+    }
+
+    return {
+      assessmentId,
+      draftId,
+      decision,
+      reviewerId,
+      reviewedAt,
+      ...(findingCreated ? { findingCreated } : {}),
+      remainingDraftCount: remainingDrafts.length,
+    };
+  }
+
+  /**
    * Waits for an active assessment pipeline to complete (useful in tests and synchronous gateways).
    */
   public async awaitAssessment(assessmentId: string): Promise<OrchestratedAssessmentRecord | null> {
+
     const promise = this.activeAssessments.get(assessmentId);
     if (promise) {
       await promise;
@@ -698,7 +931,7 @@ export class OrchestratedAssessmentApplicationService {
       // 2. F4 Vulnerability Detection Verticals (CORS & Parameter Reflection)
       const targetUrl = `https://${record.targetDomain}/`;
       const findings: Finding[] = [];
-      const pendingEvidenceDrafts: EvidenceDraftEnvelope[] = [];
+      const pendingEvidenceDrafts: EnrichedEvidenceDraft[] = [];
 
       if (!coordinator.isCircuitOpen(record.targetDomain)) {
         try {
@@ -722,7 +955,20 @@ export class OrchestratedAssessmentApplicationService {
           if (corsResult.status === 'vulnerability_detected' && corsResult.finding) {
             findings.push(corsResult.finding);
           } else if (corsResult.status === 'pending_human_review' && corsResult.evidenceDraft) {
-            pendingEvidenceDrafts.push(corsResult.evidenceDraft);
+            const enrichedDraft: EnrichedEvidenceDraft = {
+              ...corsResult.evidenceDraft,
+              differentialContext: {
+                endpointUrl: targetUrl,
+                detectionKind: 'cors_misconfiguration',
+                baselineStatusCode: corsResult.baselineSnapshot?.statusCode,
+                baselineBodyHash: corsResult.baselineSnapshot?.bodyHash,
+                validationStatusCode: corsResult.validationSnapshot?.statusCode,
+                validationBodyHash: corsResult.validationSnapshot?.bodyHash,
+                reflectedOrigin: corsResult.reflectedOrigin,
+                allowCredentials: corsResult.allowCredentials,
+              },
+            };
+            pendingEvidenceDrafts.push(enrichedDraft);
           }
         } catch {
           // Safe error containment
@@ -752,7 +998,20 @@ export class OrchestratedAssessmentApplicationService {
           if (reflectionResult.status === 'vulnerability_detected' && reflectionResult.finding) {
             findings.push(reflectionResult.finding);
           } else if (reflectionResult.status === 'pending_human_review' && reflectionResult.evidenceDraft) {
-            pendingEvidenceDrafts.push(reflectionResult.evidenceDraft);
+            const enrichedDraft: EnrichedEvidenceDraft = {
+              ...reflectionResult.evidenceDraft,
+              differentialContext: {
+                endpointUrl: targetUrl,
+                detectionKind: 'parameter_reflection',
+                baselineStatusCode: reflectionResult.baselineSnapshot?.statusCode,
+                baselineBodyHash: reflectionResult.baselineSnapshot?.bodyHash,
+                validationStatusCode: reflectionResult.validationSnapshot?.statusCode,
+                validationBodyHash: reflectionResult.validationSnapshot?.bodyHash,
+                parameterName: 'q',
+                reflectedCanary: reflectionResult.reflectedCanary,
+              },
+            };
+            pendingEvidenceDrafts.push(enrichedDraft);
           }
         } catch {
           // Safe error containment
