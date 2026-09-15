@@ -66,6 +66,9 @@
                                                                 │
                                                                 ▼
                                                         [PHASE 1: P1-1] COMPLETED (Async Assessment HTTP API Lifecycle)
+                                                                │
+                                                                ▼
+                                                        [PHASE 1: P1-2] COMPLETED (First Real Integration Test Suite - Level 2)
 ```
 
 ---
@@ -521,6 +524,32 @@ All completed milestones are verified via active TypeScript contracts and the re
      - `npm run smoke:v2:async-api` passing all 4 assertions (100%).
      - Zero `as any` across `worker/src/v2` and `web/src`.
      - Full regression suite (`npm run check:v2` across all 46 smoke suites) passes 100%.
+     - Next.js production build (`npm run build`) compiles cleanly.
+
+#### Milestone P1-2: First Real Integration Test Suite (Level 2 Validation)
+- **Status:** COMPLETED.
+- **Goal:** Validate the real execution path of FixGuard V2 by executing real reconnaissance binaries (`dnsx`, `httpx`) against authorized low-risk public targets (`example.com`, `scanme.nmap.org`) without mocks, while asserting SSRF containment in real execution contexts.
+- **Key Deliverables:**
+  1. **Integration Test Suite Directory & Runner (`worker/src/v2/integration/run_integration_suite.ts`)**:
+     - Dedicated integration runner executing when `RUN_INTEGRATION=true`.
+     - Skips cleanly when the environment flag or tool binaries are absent without breaking standard CI or `npm run check:v2`.
+     - Wired npm script: `"test:v2:integration": "tsx src/v2/integration/run_integration_suite.ts"`.
+  2. **Real SSRF Containment Smoke (`worker/src/v2/integration/real_ssrf_containment_smoke.ts`)**:
+     - Asserts `isInternalOrSsrfTarget()` and `AdapterPreflightPipeline` strictly block loopback (`127.0.0.1`), cloud metadata (`169.254.169.254`), and private RFC1918 subnets in real process execution contexts with 0 child processes spawned.
+  3. **Real DNS Smoke (`worker/src/v2/integration/real_target_dns_smoke.ts`)**:
+     - Executes real `dnsx` against `example.com` via `LocalProcessRunner` (`shell: false`).
+     - Parses live A records into typed `DiscoveredDnsRecordObservation` DTOs, falling back cleanly to Node.js native DNS resolution when `dnsx` is absent.
+  4. **Real HTTPX Smoke (`worker/src/v2/integration/real_target_httpx_smoke.ts`)**:
+     - Executes real `httpx` against public authorized host `http://scanme.nmap.org`.
+     - Parses live HTTP response (`status: 200`, title, web server banner) with factual non-claim classifications (`WEB_INSPECTION_NON_CLAIMS`).
+  5. **Typing & Policy Hygiene**:
+     - Maintained strictly 0 occurrences of `as any` across all integration test files.
+     - Enforced strictly read-only reconnaissance (zero detection probes, zero fuzzing, zero exploitation).
+  6. **Verification**:
+     - `RUN_INTEGRATION=true npm run test:v2:integration` passes 100%.
+     - `npm run test:v2:integration` cleanly skips without error when flag is unset.
+     - `npm run typecheck:v2` exits 0.
+     - All 46 smoke test suites in `npm run check:v2` pass 100%.
      - Next.js production build (`npm run build`) compiles cleanly.
 
 ---
