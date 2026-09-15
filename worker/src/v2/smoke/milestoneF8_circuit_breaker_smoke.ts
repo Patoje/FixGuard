@@ -36,6 +36,7 @@ import { PARAMETER_DISCOVERY_NON_CLAIMS } from '../recon/adapters/ParameterDisco
 import { SECRET_DISCOVERY_NON_CLAIMS } from '../recon/adapters/SecretDiscoveryContracts.js';
 import { OrchestratedAssessmentApplicationService } from '../application/OrchestratedAssessmentApplicationService.js';
 import { InMemoryOrchestratedAssessmentRepository } from '../storage/InMemoryOrchestratedAssessmentRepository.js';
+import { ReconToolAvailabilityService } from '../capabilities/ReconToolAvailabilityService.js';
 import type { HttpProbeRequest, HttpProbeResponse } from '../detection/DetectionContracts.js';
 
 function createScopeGrant(domain: string): AuthorizedScopeGrant {
@@ -431,10 +432,23 @@ async function runMilestoneF8SmokeTests(): Promise<void> {
       };
     };
 
+    const mockAvailabilityService = new ReconToolAvailabilityService({
+      async execute() {
+        return {
+          stdout: 'version: 1.0.0\n',
+          stderr: '',
+          exitCode: 0,
+          durationMs: 1,
+          timedOut: false,
+        };
+      },
+    });
+
     const service = new OrchestratedAssessmentApplicationService({
       repository,
       httpTransport: mockHttpTransport,
       dnsResolver: async () => ['93.184.216.34'],
+      availabilityService: mockAvailabilityService,
     });
 
     // Start assessment

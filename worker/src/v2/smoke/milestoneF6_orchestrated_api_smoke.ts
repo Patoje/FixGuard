@@ -18,6 +18,7 @@ import { createV2App, DEFAULT_V2_HOST } from '../api/createV2App.js';
 import { V2CompositionRoot } from '../api/V2CompositionRoot.js';
 import { InMemoryOrchestratedAssessmentRepository } from '../storage/InMemoryOrchestratedAssessmentRepository.js';
 import { OrchestratedAssessmentApplicationService } from '../application/OrchestratedAssessmentApplicationService.js';
+import { ReconToolAvailabilityService } from '../capabilities/ReconToolAvailabilityService.js';
 import type { ReconToolAdapters } from '../recon/orchestration/ActiveReconOrchestrationContracts.js';
 import { SUBDOMAIN_DISCOVERY_NON_CLAIMS } from '../recon/adapters/SubdomainDiscoveryContracts.js';
 import { DNS_RESOLUTION_NON_CLAIMS } from '../recon/adapters/DnsResolutionContracts.js';
@@ -256,17 +257,31 @@ async function startServer(
     };
   };
 
+  const mockAvailabilityService = new ReconToolAvailabilityService({
+    async execute() {
+      return {
+        stdout: 'version: 1.0.0\n',
+        stderr: '',
+        exitCode: 0,
+        durationMs: 1,
+        timedOut: false,
+      };
+    },
+  });
+
   const reconAdapters = createMockReconAdapters(invocationTracker);
   const orchestratedService = new OrchestratedAssessmentApplicationService({
     repository,
     reconAdapters,
     httpTransport: mockHttpTransport,
     dnsResolver: mockDnsResolver,
+    availabilityService: mockAvailabilityService,
   });
 
   const root = V2CompositionRoot.withDependencies({
     orchestratedRepository: repository,
     orchestratedService,
+    availabilityService: mockAvailabilityService,
   });
 
   const app = createV2App(root, { apiSecret });

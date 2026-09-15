@@ -11,6 +11,7 @@ import { InMemoryEvidenceDraftRepository } from '../finding-candidate-draft/InMe
 import type { OrchestratedAssessmentRepository } from '../application/OrchestratedAssessmentContracts.js';
 import { InMemoryOrchestratedAssessmentRepository } from '../storage/InMemoryOrchestratedAssessmentRepository.js';
 import { OrchestratedAssessmentApplicationService } from '../application/OrchestratedAssessmentApplicationService.js';
+import { ReconToolAvailabilityService } from '../capabilities/ReconToolAvailabilityService.js';
 
 export interface V2CompositionDependencies {
   readonly assessmentRepository?: AssessmentRepository;
@@ -22,6 +23,7 @@ export interface V2CompositionDependencies {
   readonly reportService?: DefensiveReportReadinessService;
   readonly orchestratedRepository?: OrchestratedAssessmentRepository;
   readonly orchestratedService?: OrchestratedAssessmentApplicationService;
+  readonly availabilityService?: ReconToolAvailabilityService;
 }
 
 /**
@@ -39,6 +41,7 @@ export class V2CompositionRoot {
   public readonly reportService: DefensiveReportReadinessService;
   public readonly orchestratedRepository: OrchestratedAssessmentRepository;
   public readonly orchestratedService: OrchestratedAssessmentApplicationService;
+  public readonly availabilityService: ReconToolAvailabilityService;
 
   constructor(deps: V2CompositionDependencies = {}) {
     this.assessmentRepository = deps.assessmentRepository ?? new InMemoryAssessmentRepository();
@@ -47,12 +50,14 @@ export class V2CompositionRoot {
     this.runtime = deps.runtime ?? new V2AssessmentRuntime(this.assessmentRepository, deps.orchestrator);
     this.assessmentService = deps.assessmentService ?? new AssessmentApplicationService(this.runtime);
     this.reportService = deps.reportService ?? new DefensiveReportReadinessService(this.candidateRepository);
+    this.availabilityService = deps.availabilityService ?? new ReconToolAvailabilityService();
     this.orchestratedRepository =
       deps.orchestratedRepository ?? new InMemoryOrchestratedAssessmentRepository();
     this.orchestratedService =
       deps.orchestratedService ??
       new OrchestratedAssessmentApplicationService({
         repository: this.orchestratedRepository,
+        availabilityService: this.availabilityService,
       });
   }
 

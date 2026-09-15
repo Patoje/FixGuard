@@ -52,8 +52,12 @@ import type { Finding } from '../core/Evidence.js';
 import type { EvidenceDraftEnvelope } from '../evidence-mapping/ComparisonEvidenceMappingContracts.js';
 
 import { SessionNotFoundError } from '../storage/StorageErrors.js';
-import { ApiValidationError, UnauthorizedGatewayError } from '../api/ApiErrors.js';
+import { ApiValidationError, UnauthorizedGatewayError, UnavailableToolsError } from '../api/ApiErrors.js';
 import { isStrictSafeId } from '../reporting-boundary/DefensiveReportContracts.js';
+import { ReconToolAvailabilityService } from '../capabilities/ReconToolAvailabilityService.js';
+import type { ReconToolName } from '../capabilities/CapabilityStatusContracts.js';
+import { STAGE_REQUIRED_TOOLS } from '../capabilities/CapabilityStatusContracts.js';
+import type { ReconStageName } from '../recon/orchestration/ActiveReconOrchestrationContracts.js';
 
 import type {
   OrchestratedAssessmentRecord,
@@ -70,6 +74,7 @@ export interface OrchestratedAssessmentServiceDependencies {
   readonly reconAdapters?: ReconToolAdapters;
   readonly httpTransport?: IdorHttpProbeTransport;
   readonly dnsResolver?: (host: string) => Promise<string[]>;
+  readonly availabilityService?: ReconToolAvailabilityService;
 }
 
 const defaultHttpTransport: IdorHttpProbeTransport = async (
@@ -297,17 +302,27 @@ function createDefaultReconAdapters(
   };
 }
 
+const ALL_STAGE_NAMES: readonly ReconStageName[] = [
+  'stage_1_domain_zone',
+  'stage_2_port_service',
+  'stage_3_web_tls',
+  'stage_4_crawling_parameters',
+  'stage_5_secret_inspection',
+];
+
 export class OrchestratedAssessmentApplicationService {
   private readonly repository: OrchestratedAssessmentRepository;
   private readonly reconAdapters: ReconToolAdapters;
   private readonly httpTransport: IdorHttpProbeTransport;
   private readonly dnsResolver: (host: string) => Promise<string[]>;
+  private readonly availabilityService: ReconToolAvailabilityService;
   private readonly activeAssessments = new Map<string, Promise<void>>();
 
   constructor(deps: OrchestratedAssessmentServiceDependencies) {
     this.repository = deps.repository;
     this.httpTransport = deps.httpTransport ?? defaultHttpTransport;
     this.dnsResolver = deps.dnsResolver ?? defaultDnsResolver;
+    this.availabilityService = deps.availabilityService ?? new ReconToolAvailabilityService();
     this.reconAdapters =
       deps.reconAdapters ??
       createDefaultReconAdapters(this.dnsResolver, this.httpTransport);
@@ -358,6 +373,28 @@ export class OrchestratedAssessmentApplicationService {
           'ssrf_target_blocked'
         );
       }
+    }
+
+    // Pre-Scan Tool Availability Gate (Milestone P0-3 Honest Composition)
+    const skipStages = new Set(command.config?.skipStages ?? []);
+    const requiredToolSet = new Set<ReconToolName>();
+    for (const stage of ALL_STAGE_NAMES) {
+      if (!skipStages.has(stage)) {
+        const tools = STAGE_REQUIRED_TOOLS[stage] ?? [];
+        for (const tool of tools) {
+          requiredToolSet.add(tool);
+        }
+      }
+    }
+
+    const requiredTools = Array.from(requiredToolSet);
+    const availability = await this.availabilityService.verifyRequiredTools(requiredTools);
+    if (!availability.allAvailable) {
+      throw new UnavailableToolsError(
+        `Required recon CLI binaries are missing from the host environment: ${availability.missingTools.join(', ')}`,
+        availability.missingTools,
+        'unavailable_tools'
+      );
     }
 
     // Scope & Authorization Setup

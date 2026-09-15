@@ -23,3 +23,15 @@ export class UnauthorizedGatewayError extends Error {
     this.name = 'UnauthorizedGatewayError';
   }
 }
+
+export class UnavailableToolsError extends Error {
+  constructor(
+    message: string,
+    public readonly missingTools: readonly string[],
+    public readonly reasonCode: string = 'unavailable_tools'
+  ) {
+    super(message);
+    this.name = 'UnavailableToolsError';
+  }
+}
+

@@ -8,7 +8,7 @@ import {
 } from '../storage/StorageErrors.js';
 import { ReportGenerationError } from '../reporting-boundary/DefensiveReportContracts.js';
 import { RuntimeLifecycleError } from '../runtime/RuntimeLifecycleError.js';
-import { ApiValidationError, UnauthorizedGatewayError } from './ApiErrors.js';
+import { ApiValidationError, UnauthorizedGatewayError, UnavailableToolsError } from './ApiErrors.js';
 
 export interface SafeErrorResponseBody {
   readonly error: string;
@@ -121,6 +121,20 @@ export function v2ErrorHandler(
       error: 'BadRequest',
       message: err.message,
       ...(err.details ? { details: err.details } : {})
+    };
+    res.status(400).json(body);
+    return;
+  }
+
+  // 6b. UnavailableToolsError -> 400 Bad Request (reasonCode: unavailable_tools)
+  if (err instanceof UnavailableToolsError) {
+    const body: SafeErrorResponseBody = {
+      error: 'BadRequest',
+      message: err.message,
+      reasonCode: err.reasonCode,
+      details: {
+        missingTools: [...err.missingTools]
+      }
     };
     res.status(400).json(body);
     return;

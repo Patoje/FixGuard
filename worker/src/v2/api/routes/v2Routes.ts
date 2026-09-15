@@ -5,6 +5,7 @@ import { ReportController } from '../controllers/ReportController.js';
 import { AuthorizationController } from '../controllers/AuthorizationController.js';
 import { TriageController } from '../controllers/TriageController.js';
 import { OrchestratedAssessmentController } from '../controllers/OrchestratedAssessmentController.js';
+import { CapabilityStatusController } from '../controllers/CapabilityStatusController.js';
 
 export function createV2Router(root: V2CompositionRoot): Router {
   const router = Router();
@@ -14,6 +15,10 @@ export function createV2Router(root: V2CompositionRoot): Router {
   const authController = new AuthorizationController();
   const triageController = new TriageController(root.candidateRepository, root.draftRepository);
   const orchestratedController = new OrchestratedAssessmentController(root.orchestratedService);
+  const capabilityController = new CapabilityStatusController(root.availabilityService);
+
+  // Capability Status endpoint (Milestone P0-3)
+  router.get('/capabilities/status', capabilityController.getStatus);
 
   // Assessment endpoints
   router.post('/assessments', assessmentController.createAssessment);
