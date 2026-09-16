@@ -109,6 +109,7 @@ export interface OrchestratedAssessmentRecord {
   readonly pendingEvidenceDrafts?: readonly EnrichedEvidenceDraft[];
   readonly recommendations: readonly TargetRecommendation[];
   readonly error?: string;
+  readonly reasonCode?: string;
 }
 
 export interface OrchestratedAssessmentStatusDto {
@@ -123,6 +124,7 @@ export interface OrchestratedAssessmentStatusDto {
   readonly lineage: AuthorizedActiveReconRequestLineage;
   readonly pendingEvidenceDraftCount?: number;
   readonly error?: string;
+  readonly reasonCode?: string;
 }
 
 export interface OrchestratedAssessmentSummaryDto {
@@ -137,6 +139,7 @@ export interface OrchestratedAssessmentSummaryDto {
   readonly lineage: AuthorizedActiveReconRequestLineage;
   readonly timing: OrchestratedAssessmentTiming;
   readonly error?: string;
+  readonly reasonCode?: string;
 }
 
 export interface ReviewEvidenceDraftCommand {

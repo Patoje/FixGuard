@@ -42,7 +42,6 @@ export interface MissingSecurityHeadersMetadata {
   readonly candidateId?: string;
   readonly evidenceRecordId?: string;
   readonly lineage?: Record<string, unknown>;
-  readonly [key: string]: unknown;
 }
 
 export interface OpenRedirectMetadata {
@@ -57,7 +56,6 @@ export interface OpenRedirectMetadata {
   readonly candidateId?: string;
   readonly evidenceRecordId?: string;
   readonly lineage?: Record<string, unknown>;
-  readonly [key: string]: unknown;
 }
 
 export interface InformationDisclosureMetadata {
@@ -71,7 +69,6 @@ export interface InformationDisclosureMetadata {
   readonly candidateId?: string;
   readonly evidenceRecordId?: string;
   readonly lineage?: Record<string, unknown>;
-  readonly [key: string]: unknown;
 }
 
 export interface SubdomainTakeoverMetadata {
@@ -86,7 +83,6 @@ export interface SubdomainTakeoverMetadata {
   readonly candidateId?: string;
   readonly evidenceRecordId?: string;
   readonly lineage?: Record<string, unknown>;
-  readonly [key: string]: unknown;
 }
 
 export interface WeakTlsMetadata {
@@ -103,13 +99,30 @@ export interface WeakTlsMetadata {
   readonly candidateId?: string;
   readonly evidenceRecordId?: string;
   readonly lineage?: Record<string, unknown>;
-  readonly [key: string]: unknown;
 }
 
 export interface DiscoveryFindingMetadata {
   readonly kind: 'discovery_finding_metadata';
   readonly category?: string;
-  readonly [key: string]: unknown;
+  readonly candidateId?: string;
+  readonly evidenceRecordId?: string;
+  readonly lineage?: Record<string, unknown>;
+  readonly endpointUrl?: string;
+  readonly targetHost?: string;
+  readonly host?: string;
+  readonly subdomain?: string;
+  readonly url?: string;
+  readonly port?: number | string;
+  readonly statusCode?: number;
+  readonly title?: string;
+  readonly webserver?: string;
+  readonly technologies?: readonly string[];
+  readonly scheme?: string;
+  readonly finalUrl?: string;
+  readonly source?: string;
+  readonly ip?: string;
+  readonly observedAt?: string;
+  readonly details?: string;
 }
 
 export type FindingMetadata =

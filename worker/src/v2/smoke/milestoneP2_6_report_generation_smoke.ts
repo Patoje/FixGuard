@@ -22,13 +22,16 @@ import {
   buildRecommendationsSection,
   buildOperatorAttestationSection,
 } from '../reporting-boundary/ReportSectionBuilders.js';
-import { OrchestratedAssessmentApplicationService } from '../application/OrchestratedAssessmentApplicationService.js';
+import {
+  OrchestratedAssessmentApplicationService,
+  ASSESSMENT_GLOBAL_TIMEOUT_MS,
+} from '../application/OrchestratedAssessmentApplicationService.js';
 import { InMemoryOrchestratedAssessmentRepository } from '../storage/InMemoryOrchestratedAssessmentRepository.js';
 import { ReconToolAvailabilityService } from '../capabilities/ReconToolAvailabilityService.js';
 import { OrchestratedAssessmentController } from '../api/controllers/OrchestratedAssessmentController.js';
 import { parseGenerateHtmlReportHttpBody } from '../api/validation/ApiRequestValidators.js';
 import { ReportGenerationError } from '../reporting-boundary/DefensiveReportContracts.js';
-import { ApiValidationError } from '../api/ApiErrors.js';
+import { ApiValidationError, ConcurrencyLimitExceededError } from '../api/ApiErrors.js';
 import type { Finding } from '../core/Evidence.js';
 import {
   type OrchestratedAssessmentRecord,
@@ -214,18 +217,45 @@ async function runTests(): Promise<void> {
   assert.ok(fullHtml.startsWith('<!DOCTYPE html>'), 'Report must start with <!DOCTYPE html>');
   assert.ok(fullHtml.includes('<html lang="en">'), 'Report must have html root');
   assert.ok(fullHtml.includes('FixGuard V2 Defensive Security Report'), 'Report must have authoritative title');
+  assert.ok(fullHtml.includes('Content-Security-Policy'), 'Report must contain strict Content-Security-Policy meta tag');
   assert.ok(fullHtml.includes('example.com'), 'Report must have target domain');
   assert.ok(fullHtml.includes('Open Redirect via Insecure Return Parameter'), 'Confirmed finding must appear');
   assert.ok(fullHtml.includes('grant_test_report_001'), 'Lineage tuple must appear in full report');
   assert.ok(!fullHtml.includes('drf_unreviewed_001'), 'Unreviewed draft MUST NOT appear in findings');
   assert.ok(fullHtml.includes('Mandatory Audit Limitations'), 'Limitations section must be present');
   assert.ok(fullHtml.includes('operator_sec_lead'), 'Signed operator ID must be present');
-  console.log('  [PASS] Standalone HTML report generated successfully.');
+
+  // Test 3b: XSS Escaping Verification
+  const xssFinding: Finding = {
+    ...sampleFinding,
+    id: 'fnd_xss_001',
+    title: '<script>alert("xss_title")</script>',
+    description: '<img src=x onerror=alert("xss_desc")>',
+    evidence: '<svg onload=alert("xss_evidence")>',
+    target: 'https://example.com/<script>alert("xss_target")</script>',
+  };
+  const xssRecord: OrchestratedAssessmentRecord = {
+    ...sampleRecord,
+    targetDomain: 'xss.<script>alert("domain")</script>.com',
+    findings: [xssFinding],
+  };
+  const xssHtml = generateDefensiveHtmlReport({
+    record: xssRecord,
+    operatorId: 'operator_sec_lead',
+    attestationText: 'Testing <b>XSS escaping</b> in operator statement &lt;ok&gt;.',
+    generatedAt: '2026-09-15T12:15:00.000Z',
+  });
+  assert.ok(!xssHtml.includes('<script>'), 'XSS script tags must be escaped in HTML');
+  assert.ok(!xssHtml.includes('<img src=x'), 'XSS img tags must be escaped in HTML');
+  assert.ok(!xssHtml.includes('<svg onload='), 'XSS svg tags must be escaped in HTML');
+  assert.ok(xssHtml.includes('&lt;script&gt;alert(&quot;xss_title&quot;)&lt;/script&gt;'), 'XSS title must be escaped');
+  assert.ok(xssHtml.includes('&lt;img src=x onerror=alert(&quot;xss_desc&quot;)&gt;'), 'XSS desc must be escaped');
+  console.log('  [PASS] Standalone HTML report generated successfully with full XSS and CSP protection.');
 
   // ──────────────────────────────────────────────────────────────────────────
-  // Test 4: Application Service End-to-End Report Generation
+  // Test 4: Application Service End-to-End Report Generation & Concurrency / Timeout
   // ──────────────────────────────────────────────────────────────────────────
-  console.log('-> Test 4: OrchestratedAssessmentApplicationService.generateHtmlReport');
+  console.log('-> Test 4: OrchestratedAssessmentApplicationService.generateHtmlReport & Concurrency');
   const repository = new InMemoryOrchestratedAssessmentRepository();
   await repository.save(sampleRecord);
 
@@ -243,6 +273,7 @@ async function runTests(): Promise<void> {
 
   assert.ok(typeof reportFromApp === 'string' && reportFromApp.length > 500, 'App service must return HTML string');
   assert.ok(reportFromApp.includes('operator_auditor_99'), 'App service report must include operator ID');
+  assert.ok(reportFromApp.includes('Content-Security-Policy'), 'App report must include CSP meta tag');
   console.log('  [PASS] Application service generated report cleanly.');
 
   // ──────────────────────────────────────────────────────────────────────────

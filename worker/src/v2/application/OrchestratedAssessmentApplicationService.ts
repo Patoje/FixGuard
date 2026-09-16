@@ -58,7 +58,12 @@ import type { Finding } from '../core/Evidence.js';
 import type { EvidenceDraftEnvelope } from '../evidence-mapping/ComparisonEvidenceMappingContracts.js';
 
 import { SessionNotFoundError } from '../storage/StorageErrors.js';
-import { ApiValidationError, UnauthorizedGatewayError, UnavailableToolsError } from '../api/ApiErrors.js';
+import {
+  ApiValidationError,
+  UnauthorizedGatewayError,
+  UnavailableToolsError,
+  ConcurrencyLimitExceededError,
+} from '../api/ApiErrors.js';
 import { isStrictSafeId } from '../reporting-boundary/DefensiveReportContracts.js';
 import { ReportGeneratorService } from '../reporting-boundary/ReportGeneratorService.js';
 import { isForbiddenSyntheticReviewerId } from '../api/validation/ApiRequestValidators.js';
@@ -66,6 +71,8 @@ import { ReconToolAvailabilityService } from '../capabilities/ReconToolAvailabil
 import type { ReconToolName } from '../capabilities/CapabilityStatusContracts.js';
 import { STAGE_REQUIRED_TOOLS } from '../capabilities/CapabilityStatusContracts.js';
 import type { ReconStageName } from '../recon/orchestration/ActiveReconOrchestrationContracts.js';
+
+export const ASSESSMENT_GLOBAL_TIMEOUT_MS = 30 * 60 * 1000; // 30 minutes
 
 import type {
   DifferentialEvidenceContext,
@@ -349,6 +356,14 @@ export class OrchestratedAssessmentApplicationService {
   public async startAssessment(
     command: StartOrchestratedAssessmentCommand
   ): Promise<StartOrchestratedAssessmentResult> {
+    const maxConcurrent = parseInt(process.env.FIXGUARD_MAX_CONCURRENT_ASSESSMENTS ?? '3', 10);
+    const concurrencyCeiling = Number.isNaN(maxConcurrent) || maxConcurrent <= 0 ? 3 : maxConcurrent;
+    if (this.activeAssessments.size >= concurrencyCeiling) {
+      throw new ConcurrencyLimitExceededError(
+        `Maximum concurrent orchestrated assessments limit (${concurrencyCeiling}) reached. Please wait for running assessments to complete.`
+      );
+    }
+
     const rawTarget = command.targetDomain;
     if (!rawTarget || typeof rawTarget !== 'string' || rawTarget.trim().length === 0) {
       throw new ApiValidationError('Field targetDomain must be a non-empty string');
@@ -579,6 +594,7 @@ export class OrchestratedAssessmentApplicationService {
       lineage: record.lineage,
       pendingEvidenceDraftCount: record.pendingEvidenceDrafts?.length ?? 0,
       ...(record.error ? { error: record.error } : {}),
+      ...(record.reasonCode ? { reasonCode: record.reasonCode } : {}),
     };
   }
 
@@ -610,6 +626,7 @@ export class OrchestratedAssessmentApplicationService {
       lineage: record.lineage,
       timing: record.timing,
       ...(record.error ? { error: record.error } : {}),
+      ...(record.reasonCode ? { reasonCode: record.reasonCode } : {}),
     };
   }
 
@@ -1108,14 +1125,101 @@ export class OrchestratedAssessmentApplicationService {
     config?: ActiveReconOrchestrationConfig
   ): Promise<void> {
     const startTime = Date.now();
-    try {
-      const coordinator = new TargetExecutionCoordinator({
-        requestsPerSecond: 5,
-        maxConcurrency: 2,
-      });
+    let timeoutTimer: NodeJS.Timeout | undefined;
 
-      // 1. M73 Composite Active Reconnaissance Orchestration
-      const orchestrator = new CompositeActiveReconOrchestratorService(this.reconAdapters);
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      timeoutTimer = setTimeout(() => {
+        const err = new Error('Assessment exceeded global execution timeout limit (30m limit)');
+        err.name = 'AssessmentTimeoutError';
+        reject(err);
+      }, ASSESSMENT_GLOBAL_TIMEOUT_MS);
+      if (typeof timeoutTimer.unref === 'function') {
+        timeoutTimer.unref();
+      }
+    });
+
+    try {
+      await Promise.race([
+        this.executePipelineStages(
+          record,
+          verifiedDecision,
+          scopeGrant,
+          lineage,
+          startTime,
+          config
+        ),
+        timeoutPromise,
+      ]);
+    } catch (err: unknown) {
+      if (err instanceof Error && err.name === 'AssessmentTimeoutError') {
+        await this.repository.update(record.assessmentId, (prev) => ({
+          ...prev,
+          status: 'failed',
+          error: 'Assessment global timeout exceeded (30m limit)',
+          reasonCode: 'assessment_global_timeout',
+          errorCount: prev.errorCount + 1,
+          timing: {
+            startedAt: prev.timing.startedAt,
+            completedAt: new Date().toISOString(),
+            durationMs: Date.now() - startTime,
+          },
+        }));
+        return;
+      }
+
+      if (
+        err instanceof TargetInstabilityError ||
+        (err instanceof Error && err.name === 'TargetInstabilityError')
+      ) {
+        await this.repository.update(record.assessmentId, (prev) => ({
+          ...prev,
+          status: 'circuit_broken',
+          error: err instanceof Error ? err.message : 'Target instability circuit open',
+          warningCount: prev.warningCount + 1,
+          timing: {
+            startedAt: prev.timing.startedAt,
+            completedAt: new Date().toISOString(),
+            durationMs: Date.now() - startTime,
+          },
+        }));
+        return;
+      }
+
+      const errorMsg = err instanceof Error ? err.message : 'Unknown execution failure';
+      await this.repository.update(record.assessmentId, (prev) => ({
+        ...prev,
+        status: 'failed',
+        error: errorMsg,
+        errorCount: prev.errorCount + 1,
+        timing: {
+          startedAt: prev.timing.startedAt,
+          completedAt: new Date().toISOString(),
+          durationMs: Date.now() - startTime,
+        },
+      }));
+    } finally {
+      if (timeoutTimer) {
+        clearTimeout(timeoutTimer);
+      }
+      this.activeAssessments.delete(record.assessmentId);
+    }
+  }
+
+  private async executePipelineStages(
+    record: OrchestratedAssessmentRecord,
+    verifiedDecision: VerifiedAuthorizationDecision,
+    scopeGrant: AuthorizedScopeGrant,
+    lineage: AuthorizedActiveReconRequestLineage,
+    startTime: number,
+    config?: ActiveReconOrchestrationConfig
+  ): Promise<void> {
+    const coordinator = new TargetExecutionCoordinator({
+      requestsPerSecond: 5,
+      maxConcurrency: 2,
+    });
+
+    // 1. M73 Composite Active Reconnaissance Orchestration
+    const orchestrator = new CompositeActiveReconOrchestratorService(this.reconAdapters);
       const reconResult = await orchestrator.orchestrate({
         targetDomain: record.targetDomain,
         verifiedAuthorizationDecision: verifiedDecision,
@@ -1544,40 +1648,5 @@ export class OrchestratedAssessmentApplicationService {
           durationMs: Date.now() - startTime,
         },
       }));
-    } catch (err: unknown) {
-      if (
-        err instanceof TargetInstabilityError ||
-        (err instanceof Error && err.name === 'TargetInstabilityError')
-      ) {
-        await this.repository.update(record.assessmentId, (prev) => ({
-          ...prev,
-          status: 'circuit_broken',
-          error: err instanceof Error ? err.message : 'Target instability circuit open',
-          warningCount: prev.warningCount + 1,
-          timing: {
-            startedAt: prev.timing.startedAt,
-            completedAt: new Date().toISOString(),
-            durationMs: Date.now() - startTime,
-          },
-        }));
-        return;
-      }
-
-      const errorMsg = err instanceof Error ? err.message : 'Unknown execution failure';
-      await this.repository.update(record.assessmentId, (prev) => ({
-        ...prev,
-        status: 'failed',
-        error: errorMsg,
-        errorCount: prev.errorCount + 1,
-        timing: {
-          startedAt: prev.timing.startedAt,
-          completedAt: new Date().toISOString(),
-          durationMs: Date.now() - startTime,
-        },
-      }));
-    } finally {
-      this.activeAssessments.delete(record.assessmentId);
-    }
-
   }
 }

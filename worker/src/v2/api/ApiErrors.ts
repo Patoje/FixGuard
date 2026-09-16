@@ -35,3 +35,13 @@ export class UnavailableToolsError extends Error {
   }
 }
 
+export class ConcurrencyLimitExceededError extends Error {
+  constructor(
+    message: string = 'Maximum concurrent orchestrated assessments limit reached',
+    public readonly reasonCode: string = 'concurrency_limit_exceeded'
+  ) {
+    super(message);
+    this.name = 'ConcurrencyLimitExceededError';
+  }
+}
+

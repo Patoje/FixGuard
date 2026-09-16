@@ -8,7 +8,12 @@ import {
 } from '../storage/StorageErrors.js';
 import { ReportGenerationError } from '../reporting-boundary/DefensiveReportContracts.js';
 import { RuntimeLifecycleError } from '../runtime/RuntimeLifecycleError.js';
-import { ApiValidationError, UnauthorizedGatewayError, UnavailableToolsError } from './ApiErrors.js';
+import {
+  ApiValidationError,
+  UnauthorizedGatewayError,
+  UnavailableToolsError,
+  ConcurrencyLimitExceededError,
+} from './ApiErrors.js';
 
 export interface SafeErrorResponseBody {
   readonly error: string;
@@ -148,6 +153,17 @@ export function v2ErrorHandler(
       ...(err.reasonCode ? { reasonCode: err.reasonCode } : {})
     };
     res.status(403).json(body);
+    return;
+  }
+
+  // 7b. ConcurrencyLimitExceededError -> 429 Too Many Requests
+  if (err instanceof ConcurrencyLimitExceededError) {
+    const body: SafeErrorResponseBody = {
+      error: 'TooManyRequests',
+      message: err.message,
+      reasonCode: err.reasonCode
+    };
+    res.status(429).json(body);
     return;
   }
 

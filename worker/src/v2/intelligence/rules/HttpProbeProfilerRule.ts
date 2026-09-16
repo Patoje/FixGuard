@@ -41,10 +41,10 @@ export class HttpProbeProfilerRule implements ProfilerRule {
 
     for (const f of probeFindings) {
       const meta = f.representativeFinding.metadata;
-      const metaRecord: Record<string, unknown> = meta?.kind === 'discovery_finding_metadata' ? meta : {};
+      const metaRecord = meta?.kind === 'discovery_finding_metadata' ? meta : undefined;
       const url = f.representativeFinding.target;
 
-      const techList: string[] = Array.isArray(metaRecord.technologies) ? (metaRecord.technologies as string[]) : [];
+      const techList: string[] = metaRecord?.technologies ? [...metaRecord.technologies] : [];
       for (const t of techList) {
         const existingTech = updatedTechnologies.find(tech => tech.name === t);
         if (!existingTech) {
@@ -64,13 +64,13 @@ export class HttpProbeProfilerRule implements ProfilerRule {
       const existingIndex = existingHttpServices.findIndex(s => s.url === url);
       const serviceData: HttpServiceMetadata = {
         url,
-        host: typeof metaRecord.host === 'string' ? metaRecord.host : '',
-        statusCode: typeof metaRecord.statusCode === 'number' ? metaRecord.statusCode : 0,
-        title: typeof metaRecord.title === 'string' ? metaRecord.title : undefined,
-        webserver: typeof metaRecord.webserver === 'string' ? metaRecord.webserver : undefined,
+        host: typeof metaRecord?.host === 'string' ? metaRecord.host : '',
+        statusCode: typeof metaRecord?.statusCode === 'number' ? metaRecord.statusCode : 0,
+        title: typeof metaRecord?.title === 'string' ? metaRecord.title : undefined,
+        webserver: typeof metaRecord?.webserver === 'string' ? metaRecord.webserver : undefined,
         technologies: techList,
-        scheme: typeof metaRecord.scheme === 'string' ? metaRecord.scheme : '',
-        finalUrl: typeof metaRecord.finalUrl === 'string' ? metaRecord.finalUrl : undefined,
+        scheme: typeof metaRecord?.scheme === 'string' ? metaRecord.scheme : '',
+        finalUrl: typeof metaRecord?.finalUrl === 'string' ? metaRecord.finalUrl : undefined,
         sourceFindingIds: [...f.sourceFindingIds]
       };
 

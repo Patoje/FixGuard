@@ -21,6 +21,7 @@ import {
 } from './DefensiveReportContracts.js';
 import { isForbiddenSyntheticReviewerId } from '../api/validation/ApiRequestValidators.js';
 import {
+  escapeHtml,
   buildReportStyles,
   buildHeaderSection,
   buildExecutiveSummarySection,
@@ -124,13 +125,14 @@ export class ReportGeneratorService {
       attestationText: trimmedAttestation,
     });
 
-    const targetTitle = assessmentRecord.targetDomain;
+    const targetTitle = escapeHtml(assessmentRecord.targetDomain);
 
     return `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline';">
   <title>FixGuard V2 Defensive Security Report — ${targetTitle}</title>
   <style>
 ${styles}
