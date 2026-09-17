@@ -673,6 +673,27 @@ function HumanReviewContent() {
                           </pre>
                         </div>
                       )}
+
+                      {diffContext?.originalAlgorithm && (
+                        <div className="rounded-lg bg-black/40 border border-zinc-800 p-2.5">
+                          <span className="text-zinc-500 text-[10px] block">Original JWT Algorithm:</span>
+                          <span className="text-zinc-300 font-bold font-mono uppercase">{diffContext.originalAlgorithm}</span>
+                        </div>
+                      )}
+
+                      {diffContext?.manipulatedAlgorithm && (
+                        <div className="rounded-lg bg-black/40 border border-rose-500/30 p-2.5">
+                          <span className="text-zinc-500 text-[10px] block">Manipulated Algorithm (Bypass):</span>
+                          <span className="text-rose-400 font-bold font-mono uppercase">{diffContext.manipulatedAlgorithm} (Unsigned)</span>
+                        </div>
+                      )}
+
+                      {diffContext?.jwtProbeMechanism && (
+                        <div className="rounded-lg bg-black/40 border border-rose-500/30 p-2.5 col-span-2">
+                          <span className="text-zinc-500 text-[10px] block">JWT Probe Mechanism:</span>
+                          <span className="text-rose-300 font-mono text-[11px]">{diffContext.jwtProbeMechanism.replace('_', ' ').toUpperCase()}</span>
+                        </div>
+                      )}
                     </div>
 
 

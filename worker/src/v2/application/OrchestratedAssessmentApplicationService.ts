@@ -59,6 +59,7 @@ import { runSourcemapExposureDetection } from '../detection/SourcemapExposureDet
 import { runWordPressSurfaceDetection } from '../detection/WordPressSurfaceDetectionService.js';
 import { runSqlErrorOracleDetection } from '../detection/SqlErrorOracleDetectionService.js';
 import { runGraphQLSurfaceDetection } from '../detection/GraphQLSurfaceDetectionService.js';
+import { runJwtAlgorithmConfusionDetection } from '../detection/JwtAlgorithmConfusionDetectionService.js';
 
 
 import { buildTargetProfile } from '../intelligence/TargetProfileBuilder.js';
@@ -1317,6 +1318,49 @@ export class OrchestratedAssessmentApplicationService {
             lineage: `${record.assessmentId}:${record.scanId}:${reviewerId}:${reviewedAt}`,
           },
         };
+      } else if (detKind === 'jwt_algorithm_confusion') {
+        const endpointUrl = context?.endpointUrl ?? `https://${record.targetDomain}/`;
+        const httpMethod = context?.httpMethod ?? 'GET';
+        const originalAlgorithm = context?.originalAlgorithm ?? 'RS256';
+        const manipulatedAlgorithm = context?.manipulatedAlgorithm ?? 'none';
+        const probeMechanism = context?.jwtProbeMechanism ?? 'alg_none_header';
+
+        let parsedPath = '/';
+        try {
+          parsedPath = new URL(endpointUrl).pathname;
+        } catch {
+          // fallback
+        }
+
+        findingCreated = {
+          id: `fnd_jwt_${draftId.replace(/^dft_/, '').replace(/^draft_/, '')}`,
+          type: 'BROKEN_AUTHENTICATION',
+          severity: 'high',
+          title: `Approved JWT Algorithm Confusion (alg: none) on ${parsedPath}`,
+          description: `Human operator verified that target application accepts unsigned JSON Web Tokens (alg: none) on ${endpointUrl}, bypassing signature verification.`,
+          target: endpointUrl,
+          evidence: JSON.stringify({
+            draftId,
+            reviewerId,
+            reviewedAt,
+            notes,
+            differentialContext: context,
+          }),
+          confidence: 1.0,
+          metadata: {
+            kind: 'jwt_algorithm_confusion_metadata',
+            category: 'BROKEN_AUTHENTICATION',
+            endpointUrl,
+            httpMethod,
+            originalAlgorithm,
+            manipulatedAlgorithm,
+            probeMechanism,
+            observedAt: reviewedAt,
+            candidateId: `cnd_${draftId}`,
+            evidenceRecordId: `evd_${draftId}`,
+            lineage: `${record.assessmentId}:${record.scanId}:${reviewerId}:${reviewedAt}`,
+          },
+        };
       } else {
 
 
@@ -2261,6 +2305,50 @@ export class OrchestratedAssessmentApplicationService {
                   fieldSuggestionsEnabled: gqlResult.fieldSuggestionsEnabled,
                   discoveredRootTypes: gqlResult.discoveredRootTypes,
                   suggestionLeak: gqlResult.suggestionLeak,
+                },
+              };
+              pendingEvidenceDrafts.push(enrichedDraft);
+            }
+          } catch {
+            // Safe error containment
+          }
+        }
+
+        // JWT Algorithm Confusion Probe
+        if (!coordinator.isCircuitOpen(record.targetDomain) && identityAContext) {
+          try {
+            const jwtResult = await runJwtAlgorithmConfusionDetection({
+              contractVersion: DETECTION_CONTRACT_VERSION,
+              kind: 'jwt_algorithm_confusion_detection_request',
+              detectionId: `det_jwt_${record.assessmentId.slice(-8)}`,
+              assessmentId: lineage.assessmentId,
+              scanId: lineage.scanId,
+              authorizationGrantId: lineage.authorizationGrantId,
+              authorizationDecisionId: lineage.authorizationDecisionId,
+              actorId: lineage.actorId,
+              endpointUrl: targetUrl,
+              httpMethod: 'GET',
+              identityAContext,
+              verifiedAuthorizationDecision: verifiedDecision,
+              scopeGrant,
+              transport: this.httpTransport,
+              dnsResolver: this.dnsResolver,
+            });
+
+            if (jwtResult.status === 'vulnerability_detected' && jwtResult.finding) {
+              findings.push(jwtResult.finding);
+            } else if (jwtResult.status === 'pending_human_review' && jwtResult.evidenceDraft) {
+              const enrichedDraft: EnrichedEvidenceDraft = {
+                ...jwtResult.evidenceDraft,
+                differentialContext: {
+                  endpointUrl: jwtResult.endpointUrl,
+                  detectionKind: 'jwt_algorithm_confusion',
+                  httpMethod: jwtResult.httpMethod,
+                  originalAlgorithm: jwtResult.originalAlgorithm,
+                  manipulatedAlgorithm: jwtResult.manipulatedAlgorithm,
+                  jwtProbeMechanism: jwtResult.probeMechanism,
+                  baselineStatusCode: jwtResult.baselineStatusCode,
+                  validationStatusCode: jwtResult.forgedStatusCode,
                 },
               };
               pendingEvidenceDrafts.push(enrichedDraft);

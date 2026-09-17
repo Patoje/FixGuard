@@ -114,13 +114,16 @@
                                                                 │
                                                                 ▼
                                                         [PHASE 4: P4-6] COMPLETED (GraphQL Surface Mapper)
+                                                                │
+                                                                ▼
+                                                        [PHASE 4: P4-7] COMPLETED (JWT Algorithm Confusion Probe)
 ```
 
 ---
 
 ## 2. Completed Milestones (`CONFIRMED`)
 
-All completed milestones are verified via active TypeScript contracts and the regression test suite (`npm run check:v2` with 61 passing smoke suites, 100% pass rate).
+All completed milestones are verified via active TypeScript contracts and the regression test suite (`npm run check:v2` with 62 passing smoke suites, 100% pass rate).
 
 
 
@@ -1007,6 +1010,33 @@ All completed milestones are verified via active TypeScript contracts and the re
      - Dedicated smoke test `worker/src/v2/smoke/milestoneP4_6_graphql_surface_smoke.ts` passes 100% across all 5 assertions.
      - `npm run typecheck:v2` exits with code 0.
      - Full regression suite `npm run check:v2` (61/61 smoke suites) passes 100%.
+     - `cd web && npm run build` compiles cleanly with zero errors.
+     - 0 occurrences of `as any` across all production code.
+
+---
+
+### Milestone P4-7: JWT Algorithm Confusion Probe
+- **Status:** COMPLETED.
+- **Goal:** Implement the JWT Algorithm Confusion Probe targeting endpoints that accept JSON Web Tokens, verifying whether servers fail to enforce cryptographic signature verification when presented with manipulated tokens using `'alg': 'none'` or stripped signatures, with anti-leak sanitization and human review governance.
+- **Key Deliverables:**
+  1. **Domain Contracts & Typed Metadata (`JwtAlgorithmConfusionMetadata`)**:
+     - Defined `JwtAlgorithmConfusionMetadata` in `worker/src/v2/core/Evidence.ts` under the `FindingMetadata` discriminated union (`kind: 'jwt_algorithm_confusion_metadata'`, `category: 'BROKEN_AUTHENTICATION'`, `endpointUrl`, `httpMethod`, `originalAlgorithm`, `manipulatedAlgorithm: 'none' | 'None' | 'NONE'`, `probeMechanism: 'signature_stripping' | 'alg_none_header'`).
+     - Extended `DifferentialEvidenceContext` and `DifferentialEvidenceContextDto` with `detectionKind: 'jwt_algorithm_confusion'`, `originalAlgorithm`, `manipulatedAlgorithm`, and `jwtProbeMechanism`.
+  2. **Detection Service (`JwtAlgorithmConfusionDetectionService.ts`)**:
+     - Implemented `runJwtAlgorithmConfusionDetection()`.
+     - **Precondition & Token Parsing**: Inspects `identityAContext.headers['authorization']` for Bearer JWT (`Bearer eyJ...`). If absent, cleanly abstains returning `status: 'secure_target_abstained'` and `reasonCode: 'no_jwt_bearer_detected'`.
+     - **Controlled Manipulation**: Parses base64url header and payload, preserves all authentic claims, rewrites header to `{"alg":"none","typ":"JWT"}`, and strips the signature trailing dot (`<header>.<payload>.`).
+     - **Probing & Verification**: Dispatches probe with forged token. If endpoint responds with 200 OK, flags authentication flaw (`status: 'vulnerability_detected'`, `severity: 'high'`, `category: 'BROKEN_AUTHENTICATION'`). If endpoint rejects with 401/403, cleanly abstains (`status: 'secure_target_abstained'`).
+     - **Anti-Leak Sanitization**: Passes all request snapshots, diffs, and headers through `sanitizeEvidenceFragment()` ensuring raw JWT signatures are redacted.
+     - **SSRF Containment**: Passes requests through `runAdapterPreflight()` enforcing 7-pass SSRF/DNS rebinding defense.
+  3. **Pipeline & Review UI Integration**:
+     - Wired `runJwtAlgorithmConfusionDetection` into `executePipelineStages` in `OrchestratedAssessmentApplicationService.ts` whenever `identityAContext` carries a Bearer JWT.
+     - Added `reviewEvidenceDraft` handler for `'jwt_algorithm_confusion'` promoting unreviewed drafts to formal `Finding` records with `JwtAlgorithmConfusionMetadata`.
+     - Updated `web/src/app/v2/review/page.tsx` to render JWT Algorithm Confusion cards displaying original algorithm, manipulated algorithm (`none`), probe mechanism, and endpoint path.
+  4. **Verification & Hygiene**:
+     - Dedicated smoke test `worker/src/v2/smoke/milestoneP4_7_jwt_confusion_smoke.ts` passes 100% across all 5 assertions.
+     - `npm run typecheck:v2` exits with code 0.
+     - Full regression suite `npm run check:v2` (62/62 smoke suites) passes 100%.
      - `cd web && npm run build` compiles cleanly with zero errors.
      - 0 occurrences of `as any` across all production code.
 

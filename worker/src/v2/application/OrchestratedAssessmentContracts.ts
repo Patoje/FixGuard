@@ -62,6 +62,7 @@ export interface DifferentialEvidenceContext {
     | 'wordpress_surface'
     | 'sql_error_oracle'
     | 'graphql_surface'
+    | 'jwt_algorithm_confusion'
     | 'custom_difference';
   readonly baselineStatusCode?: number;
   readonly baselineBodyHash?: string;
@@ -111,6 +112,9 @@ export interface DifferentialEvidenceContext {
   readonly fieldSuggestionsEnabled?: boolean;
   readonly discoveredRootTypes?: readonly string[];
   readonly suggestionLeak?: string;
+  readonly originalAlgorithm?: string;
+  readonly manipulatedAlgorithm?: 'none' | 'None' | 'NONE';
+  readonly jwtProbeMechanism?: 'signature_stripping' | 'alg_none_header';
 }
 
 

@@ -198,6 +198,20 @@ export interface GraphQLSurfaceMetadata {
   readonly lineage?: string | Record<string, unknown>;
 }
 
+export interface JwtAlgorithmConfusionMetadata {
+  readonly kind: 'jwt_algorithm_confusion_metadata';
+  readonly category: 'BROKEN_AUTHENTICATION';
+  readonly endpointUrl: string;
+  readonly httpMethod: string;
+  readonly originalAlgorithm: string;
+  readonly manipulatedAlgorithm: 'none' | 'None' | 'NONE';
+  readonly probeMechanism: 'signature_stripping' | 'alg_none_header';
+  readonly observedAt: string;
+  readonly candidateId?: string;
+  readonly evidenceRecordId?: string;
+  readonly lineage?: string | Record<string, unknown>;
+}
+
 export type FindingMetadata =
   | BrokenAccessControlMetadata
   | SecurityMisconfigurationMetadata
@@ -212,6 +226,7 @@ export type FindingMetadata =
   | WordPressSurfaceMetadata
   | SqlErrorOracleMetadata
   | GraphQLSurfaceMetadata
+  | JwtAlgorithmConfusionMetadata
   | DiscoveryFindingMetadata;
 
 
