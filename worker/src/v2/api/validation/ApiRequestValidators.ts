@@ -165,15 +165,157 @@ export function parseApproveRecommendationBody(body: unknown): ApproveRecommenda
   };
 }
 
+import type { ByotIdentity, ByotSessionIdentityBundle } from '../../detection/DetectionContracts.js';
+
+export function parseByotIdentity(raw: unknown, identityLabel: string = 'ByotIdentity'): ByotIdentity {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+    throw new ApiValidationError(`${identityLabel} must be a non-empty object`);
+  }
+
+  const record = raw as Record<string, unknown>;
+  const allowedKeys = ['identityId', 'injectHeaders', 'injectCookies'] as const;
+  for (const k of Object.keys(record)) {
+    if (!allowedKeys.includes(k as typeof allowedKeys[number])) {
+      throw new ApiValidationError(
+        `Closed-world validation failed: unexpected field '${k}' in ${identityLabel}`
+      );
+    }
+  }
+
+  if (!('identityId' in record)) {
+    throw new ApiValidationError(
+      `Closed-world validation failed: missing required field 'identityId' in ${identityLabel}`
+    );
+  }
+
+  const { identityId, injectHeaders, injectCookies } = record;
+
+  if (typeof identityId !== 'string' || !isStrictSafeId(identityId)) {
+    throw new ApiValidationError(
+      `Field 'identityId' in ${identityLabel} must satisfy strict identifier format`
+    );
+  }
+
+  let parsedHeaders: Record<string, string> | undefined;
+  if (injectHeaders !== undefined) {
+    if (typeof injectHeaders !== 'object' || injectHeaders === null || Array.isArray(injectHeaders)) {
+      throw new ApiValidationError(
+        `Field 'injectHeaders' in ${identityLabel} must be an object if provided`
+      );
+    }
+    const headerEntries = Object.entries(injectHeaders);
+    if (headerEntries.length > 20) {
+      throw new ApiValidationError(
+        `Field 'injectHeaders' in ${identityLabel} cannot contain more than 20 entries`
+      );
+    }
+    parsedHeaders = {};
+    for (const [k, v] of headerEntries) {
+      if (typeof k !== 'string' || k.trim().length === 0 || !/^[a-zA-Z0-9_-]+$/.test(k)) {
+        throw new ApiValidationError(
+          `Invalid header name '${k}' in ${identityLabel}. Must be alphanumeric with hyphens/underscores.`
+        );
+      }
+      if (typeof v !== 'string') {
+        throw new ApiValidationError(
+          `Value for header '${k}' in ${identityLabel} must be a string`
+        );
+      }
+      if (v.length > 4096) {
+        throw new ApiValidationError(
+          `Value for header '${k}' in ${identityLabel} exceeds maximum allowed length (4096 chars)`
+        );
+      }
+      parsedHeaders[k] = v;
+    }
+  }
+
+  let parsedCookies: Record<string, string> | undefined;
+  if (injectCookies !== undefined) {
+    if (typeof injectCookies !== 'object' || injectCookies === null || Array.isArray(injectCookies)) {
+      throw new ApiValidationError(
+        `Field 'injectCookies' in ${identityLabel} must be an object if provided`
+      );
+    }
+    const cookieEntries = Object.entries(injectCookies);
+    if (cookieEntries.length > 20) {
+      throw new ApiValidationError(
+        `Field 'injectCookies' in ${identityLabel} cannot contain more than 20 entries`
+      );
+    }
+    parsedCookies = {};
+    for (const [k, v] of cookieEntries) {
+      if (typeof k !== 'string' || k.trim().length === 0 || !/^[a-zA-Z0-9_.-]+$/.test(k)) {
+        throw new ApiValidationError(
+          `Invalid cookie name '${k}' in ${identityLabel}. Must be alphanumeric with hyphens/underscores/dots.`
+        );
+      }
+      if (typeof v !== 'string') {
+        throw new ApiValidationError(
+          `Value for cookie '${k}' in ${identityLabel} must be a string`
+        );
+      }
+      if (v.length > 4096) {
+        throw new ApiValidationError(
+          `Value for cookie '${k}' in ${identityLabel} exceeds maximum allowed length (4096 chars)`
+        );
+      }
+      parsedCookies[k] = v;
+    }
+  }
+
+  return {
+    identityId: identityId.trim(),
+    ...(parsedHeaders ? { injectHeaders: Object.freeze(parsedHeaders) } : {}),
+    ...(parsedCookies ? { injectCookies: Object.freeze(parsedCookies) } : {}),
+  };
+}
+
+export function parseByotSessionIdentityBundle(raw: unknown): ByotSessionIdentityBundle {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+    throw new ApiValidationError('sessionIdentities must be a non-empty object');
+  }
+
+  const record = raw as Record<string, unknown>;
+  const allowedKeys = ['identityA', 'identityB'] as const;
+  for (const k of Object.keys(record)) {
+    if (!allowedKeys.includes(k as typeof allowedKeys[number])) {
+      throw new ApiValidationError(
+        `Closed-world validation failed: unexpected field '${k}' in sessionIdentities`
+      );
+    }
+  }
+
+  if (!('identityA' in record)) {
+    throw new ApiValidationError(
+      "Closed-world validation failed: missing required field 'identityA' in sessionIdentities"
+    );
+  }
+
+  const identityA = parseByotIdentity(record.identityA, 'identityA');
+  const identityB =
+    record.identityB !== undefined ? parseByotIdentity(record.identityB, 'identityB') : undefined;
+
+  return {
+    identityA,
+    ...(identityB ? { identityB } : {}),
+  };
+}
+
 export function parseStartOrchestratedAssessmentBody(
   body: unknown
-): { targetDomain: string; actorId?: string; config?: Record<string, unknown> } {
+): {
+  targetDomain: string;
+  actorId?: string;
+  config?: Record<string, unknown>;
+  sessionIdentities?: ByotSessionIdentityBundle;
+} {
   if (!body || typeof body !== 'object' || Array.isArray(body)) {
     throw new ApiValidationError('Request body must be a non-empty object');
   }
 
   const record = body as Record<string, unknown>;
-  const allowedKeys = ['targetDomain', 'actorId', 'config'] as const;
+  const allowedKeys = ['targetDomain', 'actorId', 'config', 'sessionIdentities'] as const;
   for (const k of Object.keys(record)) {
     if (!allowedKeys.includes(k as typeof allowedKeys[number])) {
       throw new ApiValidationError(
@@ -188,7 +330,7 @@ export function parseStartOrchestratedAssessmentBody(
     );
   }
 
-  const { targetDomain, actorId, config } = record;
+  const { targetDomain, actorId, config, sessionIdentities } = record;
   if (typeof targetDomain !== 'string' || targetDomain.trim().length === 0) {
     throw new ApiValidationError('Field targetDomain must be a non-empty string');
   }
@@ -201,10 +343,16 @@ export function parseStartOrchestratedAssessmentBody(
     throw new ApiValidationError('Field config must be an object if provided');
   }
 
+  let parsedSessionIdentities: ByotSessionIdentityBundle | undefined;
+  if (sessionIdentities !== undefined) {
+    parsedSessionIdentities = parseByotSessionIdentityBundle(sessionIdentities);
+  }
+
   return {
     targetDomain: targetDomain.trim(),
     ...(actorId ? { actorId } : {}),
     ...(config ? { config: config as Record<string, unknown> } : {}),
+    ...(parsedSessionIdentities ? { sessionIdentities: parsedSessionIdentities } : {}),
   };
 }
 

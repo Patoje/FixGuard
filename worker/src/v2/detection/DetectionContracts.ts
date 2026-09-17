@@ -45,6 +45,17 @@ export interface ProbeAuthContext {
   readonly sessionState?: TargetSessionState;
 }
 
+export interface ByotIdentity {
+  readonly identityId: string;
+  readonly injectHeaders?: Readonly<Record<string, string>>;
+  readonly injectCookies?: Readonly<Record<string, string>>;
+}
+
+export interface ByotSessionIdentityBundle {
+  readonly identityA: ByotIdentity;
+  readonly identityB?: ByotIdentity;
+}
+
 export interface HttpProbeRequest {
   readonly url: string;
   readonly method: 'GET' | 'HEAD';

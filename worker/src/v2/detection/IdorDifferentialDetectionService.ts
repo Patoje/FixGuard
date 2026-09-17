@@ -57,7 +57,11 @@ const SENSITIVE_HEADER_NAMES = new Set([
   'api-key',
   'apikey',
   'access-token',
-  'refresh-token'
+  'refresh-token',
+  'x-auth-token',
+  'x-session-id',
+  'x-csrf-token',
+  'www-authenticate',
 ]);
 
 function sha256(content: string): string {

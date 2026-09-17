@@ -79,6 +79,17 @@ export interface TimingDto {
   readonly durationMs?: number;
 }
 
+export interface ByotIdentityDto {
+  readonly identityId: string;
+  readonly injectHeaders?: Record<string, string>;
+  readonly injectCookies?: Record<string, string>;
+}
+
+export interface ByotSessionIdentityBundleDto {
+  readonly identityA: ByotIdentityDto;
+  readonly identityB?: ByotIdentityDto;
+}
+
 export interface StartOrchestratedAssessmentParams {
   readonly targetDomain: string;
   readonly actorId?: string;
@@ -86,6 +97,7 @@ export interface StartOrchestratedAssessmentParams {
     readonly skipStages?: readonly string[];
     readonly timeoutPerStageMs?: number;
   };
+  readonly sessionIdentities?: ByotSessionIdentityBundleDto;
 }
 
 export interface StartOrchestratedAssessmentResponse {

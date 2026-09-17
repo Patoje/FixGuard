@@ -41,6 +41,9 @@ import type {
   HttpProbeRequest,
   HttpProbeResponse,
   IdorHttpProbeTransport,
+  ByotIdentity,
+  ByotSessionIdentityBundle,
+  ProbeAuthContext,
 } from '../detection/DetectionContracts.js';
 import { DETECTION_CONTRACT_VERSION } from '../detection/DetectionContracts.js';
 import { runCorsMisconfigurationDetection } from '../detection/CorsMisconfigurationDetectionService.js';
@@ -73,6 +76,36 @@ import { STAGE_REQUIRED_TOOLS } from '../capabilities/CapabilityStatusContracts.
 import type { ReconStageName } from '../recon/orchestration/ActiveReconOrchestrationContracts.js';
 
 export const ASSESSMENT_GLOBAL_TIMEOUT_MS = 30 * 60 * 1000; // 30 minutes
+
+/**
+ * Pure helper function mapping operator-provided ByotIdentity to frozen ProbeAuthContext
+ * with normalized lowercase header keys.
+ */
+export function buildProbeAuthContext(identity: ByotIdentity): ProbeAuthContext {
+  const normalizedHeaders: Record<string, string> = {};
+  if (identity.injectHeaders) {
+    for (const [key, val] of Object.entries(identity.injectHeaders)) {
+      normalizedHeaders[key.toLowerCase()] = val;
+    }
+  }
+  const cookies = identity.injectCookies ? { ...identity.injectCookies } : undefined;
+  return Object.freeze({
+    identityId: identity.identityId,
+    headers: Object.freeze(normalizedHeaders),
+    cookies: cookies ? Object.freeze(cookies) : undefined,
+  });
+}
+
+/**
+ * Pure helper function constructing an anonymous/unauthenticated ProbeAuthContext.
+ */
+export function buildAnonymousProbeContext(identityId: string = 'anonymous_probe'): ProbeAuthContext {
+  return Object.freeze({
+    identityId,
+    headers: Object.freeze({}),
+    cookies: Object.freeze({}),
+  });
+}
 
 import type {
   DifferentialEvidenceContext,
@@ -554,7 +587,8 @@ export class OrchestratedAssessmentApplicationService {
       verifiedDecision,
       scopeGrant,
       lineage,
-      command.config
+      command.config,
+      command.sessionIdentities
     );
     this.activeAssessments.set(assessmentId, pipelinePromise);
 
@@ -1122,7 +1156,8 @@ export class OrchestratedAssessmentApplicationService {
     verifiedDecision: VerifiedAuthorizationDecision,
     scopeGrant: AuthorizedScopeGrant,
     lineage: AuthorizedActiveReconRequestLineage,
-    config?: ActiveReconOrchestrationConfig
+    config?: ActiveReconOrchestrationConfig,
+    sessionIdentities?: ByotSessionIdentityBundle
   ): Promise<void> {
     const startTime = Date.now();
     let timeoutTimer: NodeJS.Timeout | undefined;
@@ -1146,7 +1181,8 @@ export class OrchestratedAssessmentApplicationService {
           scopeGrant,
           lineage,
           startTime,
-          config
+          config,
+          sessionIdentities
         ),
         timeoutPromise,
       ]);
@@ -1211,12 +1247,21 @@ export class OrchestratedAssessmentApplicationService {
     scopeGrant: AuthorizedScopeGrant,
     lineage: AuthorizedActiveReconRequestLineage,
     startTime: number,
-    config?: ActiveReconOrchestrationConfig
+    config?: ActiveReconOrchestrationConfig,
+    sessionIdentities?: ByotSessionIdentityBundle
   ): Promise<void> {
     const coordinator = new TargetExecutionCoordinator({
       requestsPerSecond: 5,
       maxConcurrency: 2,
     });
+
+    const identityAContext = sessionIdentities?.identityA
+      ? buildProbeAuthContext(sessionIdentities.identityA)
+      : buildAnonymousProbeContext('identity_a');
+
+    const identityBContext = sessionIdentities?.identityB
+      ? buildProbeAuthContext(sessionIdentities.identityB)
+      : buildAnonymousProbeContext('identity_b');
 
     // 1. M73 Composite Active Reconnaissance Orchestration
     const orchestrator = new CompositeActiveReconOrchestratorService(this.reconAdapters);

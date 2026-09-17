@@ -13,6 +13,7 @@ import type { AuthorizedActiveReconRequestLineage } from '../lineage/AuthorizedE
 import type { TargetProfile, TargetRecommendation } from '../intelligence/IntelligenceContracts.js';
 import type { Finding } from '../core/Evidence.js';
 import type { EvidenceDraftEnvelope } from '../evidence-mapping/ComparisonEvidenceMappingContracts.js';
+import type { ByotSessionIdentityBundle } from '../detection/DetectionContracts.js';
 
 export const ORCHESTRATED_ASSESSMENT_CONTRACT_VERSION =
   'fixguard-orchestrated-assessment/v0' as const;
@@ -29,6 +30,7 @@ export interface StartOrchestratedAssessmentCommand {
   readonly targetDomain: string;
   readonly actorId?: string;
   readonly config?: ActiveReconOrchestrationConfig;
+  readonly sessionIdentities?: ByotSessionIdentityBundle;
 }
 
 export interface StartOrchestratedAssessmentResult {

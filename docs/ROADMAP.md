@@ -90,13 +90,16 @@
                                                                 │
                                                                 ▼
                                                         [PHASE 2: P2-6] COMPLETED (HTML Report Generation & Operator Attestation)
+                                                                │
+                                                                ▼
+                                                        [PHASE 3: P3-1] COMPLETED (BYOT Session Injection & Anti-Leak Boundary)
 ```
 
 ---
 
 ## 2. Completed Milestones (`CONFIRMED`)
 
-All completed milestones are verified via active TypeScript contracts and the regression test suite (`npm run check:v2` with 53 passing smoke suites, 100% pass rate).
+All completed milestones are verified via active TypeScript contracts and the regression test suite (`npm run check:v2` with 54 passing smoke suites, 100% pass rate).
 
 
 
@@ -764,6 +767,36 @@ All completed milestones are verified via active TypeScript contracts and the re
      - Dedicated smoke test `worker/src/v2/smoke/milestoneP2_6_report_generation_smoke.ts` passes 100%.
      - `npm run typecheck:v2` exits 0.
      - Full regression suite (`npm run check:v2` across all 53 smoke suites) passes 100%.
+     - Next.js production build (`npm run build`) compiles cleanly.
+
+---
+
+### Milestone P3-1: BYOT Session Injection Contract & Anti-Leak Boundary
+- **Status:** COMPLETED.
+- **Goal:** Establish the Bring Your Own Token (BYOT) ingestion boundary for operator-provided headers/cookies, replacing automated credential logins with strictly ephemeral, memory-only session tokens and enforcing anti-leak invariants (BYOT-SI-01 through BYOT-SI-06).
+- **Key Deliverables:**
+  1. **Anti-Leak Evidence Sanitizer (`worker/src/v2/core/EvidenceSanitizer.ts`)**:
+     - Implemented `sanitizeEvidenceFragment(raw: string, maxLength?: number): string`.
+     - Automatically redacts JWTs (`eyJ...`), Bearer tokens, Basic authorization credentials, session cookies, and API key patterns before storing free-text excerpts in evidence, finding metadata, or HTML reports.
+     - Extended `SENSITIVE_HEADER_NAMES` in `IdorDifferentialDetectionService.ts` with `'x-auth-token'`, `'x-session-id'`, `'x-csrf-token'`, `'www-authenticate'`.
+  2. **Domain Contracts & Anti-Persistence Invariant (`worker/src/v2/detection/DetectionContracts.ts`, `worker/src/v2/application/OrchestratedAssessmentContracts.ts`)**:
+     - Declared `ByotIdentity` (`identityId`, `injectHeaders`, `injectCookies`) and `ByotSessionIdentityBundle` (`identityA`, optional `identityB`).
+     - Extended `StartOrchestratedAssessmentCommand` with optional `sessionIdentities?: ByotSessionIdentityBundle`.
+     - Invariant: `ByotIdentity` is strictly ephemeral and NEVER persisted or serialized to `OrchestratedAssessmentRecord`.
+  3. **Closed-World API Validation Boundary (`worker/src/v2/api/validation/ApiRequestValidators.ts`)**:
+     - Implemented `parseByotIdentity()` and `parseByotSessionIdentityBundle()`.
+     - Enforces exact-key closed-world checking, safe identifier validation via `isStrictSafeId()`, and bounds limits (max 20 entries per map, max 4096 chars per value).
+     - Updated `parseStartOrchestratedAssessmentBody()` to accept and validate `sessionIdentities`.
+  4. **In-Memory Lifecycle Mapping (`worker/src/v2/application/OrchestratedAssessmentApplicationService.ts`)**:
+     - Implemented pure helpers `buildProbeAuthContext(identity: ByotIdentity)` and `buildAnonymousProbeContext(identityId: string)`.
+     - Injected ephemeral, frozen `ProbeAuthContext` instances with lowercase-normalized headers into background detection pipelines.
+  5. **Next.js Web UI Ingestion (`web/src/lib/v2Api.ts`, `web/src/app/v2/assessments/components/AssessmentLauncherCard.tsx`)**:
+     - Added optional "Sesión Autenticada (BYOT)" collapsible panel with password-masked inputs (`type="password"`) for Identity A and Identity B tokens.
+     - Displayed explicit UX anti-leak invariant disclaimer: *"Las credenciales son efímeras: residen solo en memoria durante el escaneo y nunca se persisten."*
+  6. **Verification**:
+     - Dedicated smoke test `worker/src/v2/smoke/milestoneP3_1_byot_smoke.ts` passes 100%.
+     - `npm run typecheck:v2` exits 0.
+     - Full regression suite `npm run check:v2` (54 suites) passes 100%.
      - Next.js production build (`npm run build`) compiles cleanly.
 
 ---

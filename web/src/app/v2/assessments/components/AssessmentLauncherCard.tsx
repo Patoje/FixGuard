@@ -9,12 +9,19 @@ import {
   Loader2,
   CheckCircle2,
   Terminal,
-  Zap
+  Zap,
+  Key,
+  ChevronDown,
+  ChevronRight,
+  Lock,
+  UserCheck
 } from "lucide-react";
 import {
   startOrchestratedAssessment,
   V2ApiError,
-  type StartOrchestratedAssessmentResponse
+  type StartOrchestratedAssessmentResponse,
+  type ByotIdentityDto,
+  type ByotSessionIdentityBundleDto
 } from "@/lib/v2Api";
 
 interface AssessmentLauncherCardProps {
@@ -49,6 +56,16 @@ export function AssessmentLauncherCard({
   const [loading, setLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
 
+  // BYOT Session Injection State
+  const [showByot, setShowByot] = useState<boolean>(false);
+  const [identityAId, setIdentityAId] = useState<string>("operator_identity_a");
+  const [identityAAuthHeader, setIdentityAAuthHeader] = useState<string>("");
+  const [identityACookie, setIdentityACookie] = useState<string>("");
+  const [enableIdentityB, setEnableIdentityB] = useState<boolean>(false);
+  const [identityBId, setIdentityBId] = useState<string>("operator_identity_b");
+  const [identityBAuthHeader, setIdentityBAuthHeader] = useState<string>("");
+  const [identityBCookie, setIdentityBCookie] = useState<string>("");
+
   const cleaned = cleanDomain(domainInput);
   const isValidFormat = cleaned.length > 2 && /^[a-z0-9.-]+\.[a-z]{2,}$/i.test(cleaned);
   const isSsrfRisk = isPrivateOrLoopbackHost(cleaned);
@@ -71,9 +88,60 @@ export function AssessmentLauncherCard({
     setError(null);
 
     try {
+      let sessionIdentities: ByotSessionIdentityBundleDto | undefined;
+      if (showByot && (identityAAuthHeader.trim() || identityACookie.trim())) {
+        const headersA: Record<string, string> = {};
+        if (identityAAuthHeader.trim()) {
+          headersA["authorization"] = identityAAuthHeader.trim();
+        }
+        const cookiesA: Record<string, string> = {};
+        if (identityACookie.trim()) {
+          const cookieStr = identityACookie.trim();
+          if (cookieStr.includes("=")) {
+            const [k, ...v] = cookieStr.split("=");
+            cookiesA[k.trim()] = v.join("=").trim();
+          } else {
+            cookiesA["session"] = cookieStr;
+          }
+        }
+
+        let identityB: ByotIdentityDto | undefined;
+        if (enableIdentityB && (identityBAuthHeader.trim() || identityBCookie.trim())) {
+          const headersB: Record<string, string> = {};
+          if (identityBAuthHeader.trim()) {
+            headersB["authorization"] = identityBAuthHeader.trim();
+          }
+          const cookiesB: Record<string, string> = {};
+          if (identityBCookie.trim()) {
+            const cookieStr = identityBCookie.trim();
+            if (cookieStr.includes("=")) {
+              const [k, ...v] = cookieStr.split("=");
+              cookiesB[k.trim()] = v.join("=").trim();
+            } else {
+              cookiesB["session"] = cookieStr;
+            }
+          }
+          identityB = {
+            identityId: identityBId.trim() || "operator_identity_b",
+            ...(Object.keys(headersB).length > 0 ? { injectHeaders: headersB } : {}),
+            ...(Object.keys(cookiesB).length > 0 ? { injectCookies: cookiesB } : {}),
+          };
+        }
+
+        sessionIdentities = {
+          identityA: {
+            identityId: identityAId.trim() || "operator_identity_a",
+            ...(Object.keys(headersA).length > 0 ? { injectHeaders: headersA } : {}),
+            ...(Object.keys(cookiesA).length > 0 ? { injectCookies: cookiesA } : {}),
+          },
+          ...(identityB ? { identityB } : {}),
+        };
+      }
+
       const result = await startOrchestratedAssessment({
         targetDomain: cleaned,
-        actorId: actorId.trim() || undefined
+        actorId: actorId.trim() || undefined,
+        ...(sessionIdentities ? { sessionIdentities } : {}),
       });
       onAssessmentStarted(result, cleaned);
     } catch (err) {
@@ -179,6 +247,162 @@ export function AssessmentLauncherCard({
               className="w-full rounded-xl border border-zinc-800 bg-zinc-900/80 py-2.5 px-3.5 text-xs font-mono text-white placeholder-zinc-500 focus:border-blue-500/60 focus:bg-zinc-900 focus:outline-none focus:ring-1 focus:ring-blue-500/40 transition disabled:opacity-50"
             />
           </div>
+        </div>
+
+        {/* BYOT Session Injection Collapsible Section */}
+        <div className="rounded-xl border border-zinc-800/80 bg-zinc-900/40 overflow-hidden transition-all duration-200">
+          <button
+            type="button"
+            onClick={() => setShowByot(!showByot)}
+            className="w-full flex items-center justify-between p-3.5 text-xs text-left hover:bg-zinc-800/40 transition cursor-pointer"
+          >
+            <div className="flex items-center gap-2 text-zinc-200 font-medium">
+              <Key className="h-4 w-4 text-amber-400" />
+              <span>Sesión Autenticada (BYOT)</span>
+              <span className="text-[10px] font-mono text-zinc-500 uppercase tracking-wider bg-zinc-800/80 px-2 py-0.5 rounded border border-zinc-700/50">
+                Opcional • Bring Your Own Token
+              </span>
+            </div>
+            {showByot ? (
+              <ChevronDown className="h-4 w-4 text-zinc-400" />
+            ) : (
+              <ChevronRight className="h-4 w-4 text-zinc-400" />
+            )}
+          </button>
+
+          {showByot && (
+            <div className="p-4 pt-1 border-t border-zinc-800/60 space-y-4 animate-in fade-in duration-150">
+              {/* Privacy / Ephemeral Invariant Warning */}
+              <div className="flex items-start gap-2.5 rounded-lg border border-amber-500/20 bg-amber-500/5 p-3 text-[11px] text-amber-300 font-mono">
+                <Lock className="h-3.5 w-3.5 text-amber-400 shrink-0 mt-0.5" />
+                <p className="leading-relaxed">
+                  <strong>Invariante Anti-Fuga:</strong> Las credenciales son efímeras: residen solo en memoria durante el escaneo y nunca se persisten en base de datos, logs ni reportes generados.
+                </p>
+              </div>
+
+              {/* Identity A Inputs */}
+              <div className="space-y-3 rounded-lg border border-zinc-800 bg-zinc-950/60 p-3.5">
+                <div className="flex items-center gap-1.5 text-xs font-semibold text-emerald-400">
+                  <UserCheck className="h-3.5 w-3.5" />
+                  <span>Identidad Principal (Identity A)</span>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                  <div>
+                    <label className="block text-[11px] text-zinc-400 mb-1 font-mono">
+                      Identity ID
+                    </label>
+                    <input
+                      type="text"
+                      value={identityAId}
+                      onChange={(e) => setIdentityAId(e.target.value)}
+                      placeholder="operator_identity_a"
+                      disabled={loading || isRunning}
+                      className="w-full rounded-lg border border-zinc-800 bg-zinc-900 py-1.5 px-3 text-xs font-mono text-white placeholder-zinc-500 focus:border-emerald-500/60 focus:outline-none"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] text-zinc-400 mb-1 font-mono">
+                      Authorization Header (Bearer/Token)
+                    </label>
+                    <input
+                      type="password"
+                      autoComplete="off"
+                      value={identityAAuthHeader}
+                      onChange={(e) => setIdentityAAuthHeader(e.target.value)}
+                      placeholder="Bearer eyJhbGciOi..."
+                      disabled={loading || isRunning}
+                      className="w-full rounded-lg border border-zinc-800 bg-zinc-900 py-1.5 px-3 text-xs font-mono text-white placeholder-zinc-500 focus:border-emerald-500/60 focus:outline-none"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] text-zinc-400 mb-1 font-mono">
+                      Cookie String
+                    </label>
+                    <input
+                      type="password"
+                      autoComplete="off"
+                      value={identityACookie}
+                      onChange={(e) => setIdentityACookie(e.target.value)}
+                      placeholder="session=abc123xyz..."
+                      disabled={loading || isRunning}
+                      className="w-full rounded-lg border border-zinc-800 bg-zinc-900 py-1.5 px-3 text-xs font-mono text-white placeholder-zinc-500 focus:border-emerald-500/60 focus:outline-none"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Optional Identity B (Differential / IDOR) */}
+              <div className="space-y-3 rounded-lg border border-zinc-800/80 bg-zinc-950/60 p-3.5">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-1.5 text-xs font-semibold text-blue-400">
+                    <UserCheck className="h-3.5 w-3.5" />
+                    <span>Identidad Secundaria (Identity B — Opcional para IDOR Diferencial)</span>
+                  </div>
+                  <label className="flex items-center gap-2 cursor-pointer text-xs text-zinc-400">
+                    <input
+                      type="checkbox"
+                      checked={enableIdentityB}
+                      onChange={(e) => setEnableIdentityB(e.target.checked)}
+                      disabled={loading || isRunning}
+                      className="rounded border-zinc-700 bg-zinc-800 text-blue-500 focus:ring-0"
+                    />
+                    <span>Habilitar Identity B</span>
+                  </label>
+                </div>
+
+                {enableIdentityB && (
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-3 pt-2">
+                    <div>
+                      <label className="block text-[11px] text-zinc-400 mb-1 font-mono">
+                        Identity B ID
+                      </label>
+                      <input
+                        type="text"
+                        value={identityBId}
+                        onChange={(e) => setIdentityBId(e.target.value)}
+                        placeholder="operator_identity_b"
+                        disabled={loading || isRunning}
+                        className="w-full rounded-lg border border-zinc-800 bg-zinc-900 py-1.5 px-3 text-xs font-mono text-white placeholder-zinc-500 focus:border-blue-500/60 focus:outline-none"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-[11px] text-zinc-400 mb-1 font-mono">
+                        Authorization Header
+                      </label>
+                      <input
+                        type="password"
+                        autoComplete="off"
+                        value={identityBAuthHeader}
+                        onChange={(e) => setIdentityBAuthHeader(e.target.value)}
+                        placeholder="Bearer eyJhbGciOi..."
+                        disabled={loading || isRunning}
+                        className="w-full rounded-lg border border-zinc-800 bg-zinc-900 py-1.5 px-3 text-xs font-mono text-white placeholder-zinc-500 focus:border-blue-500/60 focus:outline-none"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-[11px] text-zinc-400 mb-1 font-mono">
+                        Cookie String
+                      </label>
+                      <input
+                        type="password"
+                        autoComplete="off"
+                        value={identityBCookie}
+                        onChange={(e) => setIdentityBCookie(e.target.value)}
+                        placeholder="session=def456uvw..."
+                        disabled={loading || isRunning}
+                        className="w-full rounded-lg border border-zinc-800 bg-zinc-900 py-1.5 px-3 text-xs font-mono text-white placeholder-zinc-500 focus:border-blue-500/60 focus:outline-none"
+                      />
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Target Presets */}

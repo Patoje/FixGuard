@@ -15,6 +15,7 @@ import type { OrchestratedAssessmentRecord } from '../application/OrchestratedAs
 import type { Finding } from '../core/Evidence.js';
 import type { TargetRecommendation } from '../intelligence/IntelligenceContracts.js';
 import type { AuthorizedActiveReconRequestLineage } from '../lineage/AuthorizedExecutionLineageContracts.js';
+import { sanitizeEvidenceFragment } from '../core/EvidenceSanitizer.js';
 
 export function escapeHtml(str: string): string {
   if (!str) return '';
@@ -396,8 +397,8 @@ export function buildConfirmedFindingsSection(
       const desc = escapeHtml(f.description);
       const target = escapeHtml(f.target);
       const type = escapeHtml(f.type);
-      const evidence = escapeHtml(f.evidence);
-      const meta = escapeHtml(JSON.stringify(f.metadata, null, 2));
+      const evidence = escapeHtml(sanitizeEvidenceFragment(f.evidence));
+      const meta = escapeHtml(sanitizeEvidenceFragment(JSON.stringify(f.metadata, null, 2)));
 
       return `
         <div class="finding-card">
