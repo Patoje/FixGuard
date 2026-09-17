@@ -157,6 +157,7 @@ export interface DifferentialEvidenceContextDto {
     | 'sourcemap_exposure'
     | 'wordpress_surface'
     | 'sql_error_oracle'
+    | 'graphql_surface'
     | 'custom_difference';
   readonly baselineStatusCode?: number;
   readonly baselineBodyHash?: string;
@@ -201,6 +202,11 @@ export interface DifferentialEvidenceContextDto {
   readonly databaseEngine?: 'mysql' | 'mssql' | 'postgresql' | 'oracle' | 'sqlite' | 'unknown';
   readonly sqlErrorFragment?: string;
   readonly injectedProbe?: string;
+  readonly introspectionEnabled?: boolean;
+  readonly batchingEnabled?: boolean;
+  readonly fieldSuggestionsEnabled?: boolean;
+  readonly discoveredRootTypes?: readonly string[];
+  readonly suggestionLeak?: string;
 }
 
 

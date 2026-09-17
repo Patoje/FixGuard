@@ -819,6 +819,69 @@ export interface SqlErrorOracleDetectionResult {
   };
 }
 
+// ---------------------------------------------------------------------------
+// Milestone P4-6 — GraphQL Surface Detection Contracts
+// ---------------------------------------------------------------------------
+
+export type GraphQLSurfaceDetectionStatus =
+  | 'graphql_surface_detected'
+  | 'security_misconfiguration'
+  | 'information_disclosure'
+  | 'pending_human_review'
+  | 'secure_target_abstained'
+  | 'preflight_denied'
+  | 'unexpected_failure';
+
+export interface GraphQLSurfaceDetectionRequest {
+  readonly contractVersion: DetectionContractVersion;
+  readonly kind: 'graphql_surface_detection_request';
+  readonly detectionId: string;
+  readonly assessmentId: string;
+  readonly scanId: string;
+  readonly authorizationGrantId: string;
+  readonly authorizationDecisionId: string;
+  readonly actorId: string;
+  readonly verifiedAuthorizationDecision: VerifiedAuthorizationDecision;
+  readonly scopeGrant: AuthorizedScopeGrant;
+  readonly endpointUrl: string;
+  readonly customPaths?: readonly string[];
+  readonly reviewerPolicy?: ReviewerPolicy;
+  readonly humanReviewDecision?: HumanReviewDecision;
+  readonly triageDecision?: ReviewedEvidenceFindingCandidateTriageDecision;
+  readonly transport?: IdorHttpProbeTransport;
+  readonly dnsResolver?: PreSpawnDnsResolver;
+}
+
+export interface GraphQLSurfaceDetectionResult {
+  readonly contractVersion: DetectionContractVersion;
+  readonly kind: 'graphql_surface_detection_result';
+  readonly detectionId: string;
+  readonly scanId: string;
+  readonly assessmentId: string;
+  readonly authorizationGrantId: string;
+  readonly authorizationDecisionId: string;
+  readonly actorId: string;
+  readonly status: GraphQLSurfaceDetectionStatus;
+  readonly reasonCode: string;
+  readonly lineage: AuthorizedExecutionLineageTuple;
+  readonly endpointUrl: string;
+  readonly introspectionEnabled: boolean;
+  readonly batchingEnabled: boolean;
+  readonly fieldSuggestionsEnabled: boolean;
+  readonly discoveredRootTypes?: readonly string[];
+  readonly suggestionLeak?: string;
+  readonly evidenceDraft?: EvidenceDraftEnvelope;
+  readonly evidenceRecord?: EvidenceRecord;
+  readonly promotedEvidenceResult?: HumanReviewedEvidencePromotionResult;
+  readonly findingCandidate?: ReviewedEvidenceFormalFindingCandidate;
+  readonly finding?: Finding;
+  readonly error?: {
+    readonly code: string;
+    readonly safeMessage: string;
+  };
+}
+
+
 
 
 

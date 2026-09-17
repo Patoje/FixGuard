@@ -183,6 +183,21 @@ export interface SqlErrorOracleMetadata {
   readonly lineage?: string | Record<string, unknown>;
 }
 
+export interface GraphQLSurfaceMetadata {
+  readonly kind: 'graphql_surface_metadata';
+  readonly category: 'SECURITY_MISCONFIGURATION' | 'INFORMATION_DISCLOSURE';
+  readonly endpointUrl: string;
+  readonly introspectionEnabled: boolean;
+  readonly batchingEnabled: boolean;
+  readonly fieldSuggestionsEnabled: boolean;
+  readonly discoveredRootTypes?: readonly string[];
+  readonly suggestionLeak?: string;
+  readonly observedAt: string;
+  readonly candidateId?: string;
+  readonly evidenceRecordId?: string;
+  readonly lineage?: string | Record<string, unknown>;
+}
+
 export type FindingMetadata =
   | BrokenAccessControlMetadata
   | SecurityMisconfigurationMetadata
@@ -196,6 +211,7 @@ export type FindingMetadata =
   | SourcemapExposureMetadata
   | WordPressSurfaceMetadata
   | SqlErrorOracleMetadata
+  | GraphQLSurfaceMetadata
   | DiscoveryFindingMetadata;
 
 

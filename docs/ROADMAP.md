@@ -111,13 +111,16 @@
                                                                 │
                                                                 ▼
                                                         [PHASE 4: P4-5] COMPLETED (SQL Error Oracle Detection Engine)
+                                                                │
+                                                                ▼
+                                                        [PHASE 4: P4-6] COMPLETED (GraphQL Surface Mapper)
 ```
 
 ---
 
 ## 2. Completed Milestones (`CONFIRMED`)
 
-All completed milestones are verified via active TypeScript contracts and the regression test suite (`npm run check:v2` with 60 passing smoke suites, 100% pass rate).
+All completed milestones are verified via active TypeScript contracts and the regression test suite (`npm run check:v2` with 61 passing smoke suites, 100% pass rate).
 
 
 
@@ -975,7 +978,35 @@ All completed milestones are verified via active TypeScript contracts and the re
   4. **Verification & Hygiene**:
      - Dedicated smoke test `worker/src/v2/smoke/milestoneP4_5_sql_error_oracle_smoke.ts` passes 100% across all 4 assertions.
      - `npm run typecheck:v2` exits with code 0.
-     - Full regression suite `npm run check:v2` (60/60 smoke suites) passes 100%.
+     - Full regression suite `npm run check:v2` (61/61 smoke suites) passes 100%.
+     - `cd web && npm run build` compiles cleanly with zero errors.
+     - 0 occurrences of `as any` across all production code.
+
+---
+
+### Milestone P4-6: GraphQL Surface Mapper
+- **Status:** COMPLETED.
+- **Goal:** Implement the GraphQL Surface Mapper for modern API interfaces, safely detecting exposed schema introspection, field suggestion leakages, and query batching capabilities using strictly read-only queries with zero mutations or state-altering operations.
+- **Key Deliverables:**
+  1. **Domain Contracts & Typed Metadata (`GraphQLSurfaceMetadata`)**:
+     - Defined `GraphQLSurfaceMetadata` in `worker/src/v2/core/Evidence.ts` under the `FindingMetadata` discriminated union (`kind: 'graphql_surface_metadata'`, `category: 'SECURITY_MISCONFIGURATION' | 'INFORMATION_DISCLOSURE'`, `endpointUrl`, `introspectionEnabled`, `batchingEnabled`, `fieldSuggestionsEnabled`, `discoveredRootTypes`, `suggestionLeak`).
+     - Extended `DifferentialEvidenceContext` and `DifferentialEvidenceContextDto` with `detectionKind: 'graphql_surface'`, `introspectionEnabled`, `batchingEnabled`, `fieldSuggestionsEnabled`, `discoveredRootTypes`, and `suggestionLeak`.
+  2. **Detection Service (`GraphQLSurfaceDetectionService.ts`)**:
+     - Implemented `runGraphQLSurfaceDetection()`.
+     - Probes candidate GraphQL endpoints (`/graphql`, `/api/graphql`, `/v1/graphql`, `/query`, or custom paths).
+     - **Probe 1 (Introspection)**: Dispatches `POST` with `{"query":"{ __schema { types { name } } }"}`. On success, extracts up to 20 root/user-defined type names as proof of data model disclosure.
+     - **Probe 2 (Field Suggestion Leakage)**: Dispatches `POST` with `{"query":"{ fixguard_invalid_probe }"}`. Detects suggestion patterns (`Did you mean`, `Cannot query field`, `Unknown field`) and extracts a sanitized leak excerpt (max 128 chars).
+     - **Probe 3 (Batching Capability)**: Dispatches array payload `[{"query":"{ __typename }"},{"query":"{ __typename }"}]` to verify batch query execution support.
+     - **SSRF Containment**: Passes all requests through `runAdapterPreflight()` enforcing 7-pass SSRF/DNS rebinding prevention.
+     - **Abstention Discipline**: Cleanly returns `status: 'secure_target_abstained'` when endpoints are absent (404), disabled (403), or reject GraphQL queries without schema or suggestion leaks.
+  3. **Pipeline & Review UI Integration**:
+     - Wired `runGraphQLSurfaceDetection` into `executePipelineStages` in `OrchestratedAssessmentApplicationService.ts`.
+     - Added `reviewEvidenceDraft` handler for `'graphql_surface'` promoting drafts to formal `Finding` records with `GraphQLSurfaceMetadata`.
+     - Updated `web/src/app/v2/review/page.tsx` to render GraphQL surface cards displaying introspection status, batching support badges, field suggestion alerts, and exposed root types.
+  4. **Verification & Hygiene**:
+     - Dedicated smoke test `worker/src/v2/smoke/milestoneP4_6_graphql_surface_smoke.ts` passes 100% across all 5 assertions.
+     - `npm run typecheck:v2` exits with code 0.
+     - Full regression suite `npm run check:v2` (61/61 smoke suites) passes 100%.
      - `cd web && npm run build` compiles cleanly with zero errors.
      - 0 occurrences of `as any` across all production code.
 

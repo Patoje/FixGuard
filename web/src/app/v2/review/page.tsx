@@ -630,6 +630,49 @@ function HumanReviewContent() {
                           </pre>
                         </div>
                       )}
+
+                      {diffContext?.introspectionEnabled !== undefined && (
+                        <div className="rounded-lg bg-black/40 border border-rose-500/30 p-2.5">
+                          <span className="text-zinc-500 text-[10px] block">Schema Introspection:</span>
+                          <span className={`font-bold ${diffContext.introspectionEnabled ? 'text-rose-400' : 'text-zinc-400'}`}>
+                            {diffContext.introspectionEnabled ? 'ENABLED (Schema Exposed)' : 'Disabled'}
+                          </span>
+                        </div>
+                      )}
+
+                      {diffContext?.batchingEnabled !== undefined && (
+                        <div className="rounded-lg bg-black/40 border border-amber-500/30 p-2.5">
+                          <span className="text-zinc-500 text-[10px] block">Query Batching:</span>
+                          <span className={`font-bold ${diffContext.batchingEnabled ? 'text-amber-400' : 'text-zinc-400'}`}>
+                            {diffContext.batchingEnabled ? 'SUPPORTED (Amplification Risk)' : 'Not Supported'}
+                          </span>
+                        </div>
+                      )}
+
+                      {diffContext?.fieldSuggestionsEnabled !== undefined && (
+                        <div className="rounded-lg bg-black/40 border border-purple-500/30 p-2.5">
+                          <span className="text-zinc-500 text-[10px] block">Field Suggestions:</span>
+                          <span className={`font-bold ${diffContext.fieldSuggestionsEnabled ? 'text-purple-300' : 'text-zinc-400'}`}>
+                            {diffContext.fieldSuggestionsEnabled ? 'LEAKING (Field Autocomplete)' : 'Disabled'}
+                          </span>
+                        </div>
+                      )}
+
+                      {diffContext?.discoveredRootTypes && diffContext.discoveredRootTypes.length > 0 && (
+                        <div className="rounded-lg bg-black/40 border border-zinc-800 p-2.5 col-span-2">
+                          <span className="text-zinc-500 text-[10px] block font-semibold mb-1">Exposed Root Types ({diffContext.discoveredRootTypes.length}):</span>
+                          <span className="text-zinc-300 text-[11px] font-mono break-all">{diffContext.discoveredRootTypes.join(', ')}</span>
+                        </div>
+                      )}
+
+                      {diffContext?.suggestionLeak && (
+                        <div className="rounded-lg bg-black/40 border border-purple-500/30 p-2.5 col-span-2">
+                          <span className="text-purple-400 text-[10px] block font-semibold mb-1">Field Suggestion Leak Excerpt:</span>
+                          <pre className="text-purple-200 text-[11px] whitespace-pre-wrap break-all font-mono bg-black/60 p-2 rounded border border-zinc-900">
+                            {diffContext.suggestionLeak}
+                          </pre>
+                        </div>
+                      )}
                     </div>
 
 

@@ -58,6 +58,7 @@ import { runAuthBypassDetection } from '../detection/AuthBypassDetectionService.
 import { runSourcemapExposureDetection } from '../detection/SourcemapExposureDetectionService.js';
 import { runWordPressSurfaceDetection } from '../detection/WordPressSurfaceDetectionService.js';
 import { runSqlErrorOracleDetection } from '../detection/SqlErrorOracleDetectionService.js';
+import { runGraphQLSurfaceDetection } from '../detection/GraphQLSurfaceDetectionService.js';
 
 
 import { buildTargetProfile } from '../intelligence/TargetProfileBuilder.js';
@@ -1257,6 +1258,65 @@ export class OrchestratedAssessmentApplicationService {
             lineage: `${record.assessmentId}:${record.scanId}:${reviewerId}:${reviewedAt}`,
           },
         };
+      } else if (detKind === 'graphql_surface') {
+        const endpointUrl = context?.endpointUrl ?? `https://${record.targetDomain}/graphql`;
+        const introspectionEnabled = context?.introspectionEnabled ?? false;
+        const batchingEnabled = context?.batchingEnabled ?? false;
+        const fieldSuggestionsEnabled = context?.fieldSuggestionsEnabled ?? false;
+        const discoveredRootTypes = context?.discoveredRootTypes;
+        const suggestionLeak = context?.suggestionLeak;
+        const category = introspectionEnabled ? 'INFORMATION_DISCLOSURE' : 'SECURITY_MISCONFIGURATION';
+
+        let parsedPath = '/graphql';
+        try {
+          parsedPath = new URL(endpointUrl).pathname;
+        } catch {
+          // fallback
+        }
+
+        const details: string[] = [];
+        if (introspectionEnabled) {
+          details.push(`Schema introspection enabled (${(discoveredRootTypes ?? []).length} root types exposed).`);
+        }
+        if (fieldSuggestionsEnabled && suggestionLeak) {
+          details.push(`Field suggestions enabled disclosing schema fields ("${suggestionLeak}").`);
+        }
+        if (batchingEnabled) {
+          details.push('Array query batching enabled.');
+        }
+
+        findingCreated = {
+          id: `fnd_gql_${draftId.replace(/^dft_/, '').replace(/^draft_/, '')}`,
+          type: category,
+          severity: introspectionEnabled ? 'medium' : 'low',
+          title: introspectionEnabled
+            ? `Approved GraphQL Schema Introspection on ${parsedPath}`
+            : `Approved GraphQL Endpoint Misconfiguration on ${parsedPath}`,
+          description: `Human operator verified active GraphQL capabilities at ${endpointUrl}. ${details.join(' ')}`,
+          target: endpointUrl,
+          evidence: JSON.stringify({
+            draftId,
+            reviewerId,
+            reviewedAt,
+            notes,
+            differentialContext: context,
+          }),
+          confidence: 1.0,
+          metadata: {
+            kind: 'graphql_surface_metadata',
+            category,
+            endpointUrl,
+            introspectionEnabled,
+            batchingEnabled,
+            fieldSuggestionsEnabled,
+            discoveredRootTypes,
+            suggestionLeak,
+            observedAt: reviewedAt,
+            candidateId: `cnd_${draftId}`,
+            evidenceRecordId: `evd_${draftId}`,
+            lineage: `${record.assessmentId}:${record.scanId}:${reviewerId}:${reviewedAt}`,
+          },
+        };
       } else {
 
 
@@ -2155,6 +2215,52 @@ export class OrchestratedAssessmentApplicationService {
                   databaseEngine: sqlResult.databaseEngine,
                   sqlErrorFragment: sqlResult.errorFragment,
                   injectedProbe: sqlResult.injectedProbe,
+                },
+              };
+              pendingEvidenceDrafts.push(enrichedDraft);
+            }
+          } catch {
+            // Safe error containment
+          }
+        }
+
+        // GraphQL Surface Detection Probe
+        if (!coordinator.isCircuitOpen(record.targetDomain)) {
+          try {
+            const gqlResult = await runGraphQLSurfaceDetection({
+              contractVersion: DETECTION_CONTRACT_VERSION,
+              kind: 'graphql_surface_detection_request',
+              detectionId: `det_gql_${record.assessmentId.slice(-8)}`,
+              assessmentId: lineage.assessmentId,
+              scanId: lineage.scanId,
+              authorizationGrantId: lineage.authorizationGrantId,
+              authorizationDecisionId: lineage.authorizationDecisionId,
+              actorId: lineage.actorId,
+              endpointUrl: targetUrl,
+              verifiedAuthorizationDecision: verifiedDecision,
+              scopeGrant,
+              transport: this.httpTransport,
+              dnsResolver: this.dnsResolver,
+            });
+
+            if (
+              (gqlResult.status === 'graphql_surface_detected' ||
+                gqlResult.status === 'information_disclosure' ||
+                gqlResult.status === 'security_misconfiguration') &&
+              gqlResult.finding
+            ) {
+              findings.push(gqlResult.finding);
+            } else if (gqlResult.status === 'pending_human_review' && gqlResult.evidenceDraft) {
+              const enrichedDraft: EnrichedEvidenceDraft = {
+                ...gqlResult.evidenceDraft,
+                differentialContext: {
+                  endpointUrl: gqlResult.endpointUrl,
+                  detectionKind: 'graphql_surface',
+                  introspectionEnabled: gqlResult.introspectionEnabled,
+                  batchingEnabled: gqlResult.batchingEnabled,
+                  fieldSuggestionsEnabled: gqlResult.fieldSuggestionsEnabled,
+                  discoveredRootTypes: gqlResult.discoveredRootTypes,
+                  suggestionLeak: gqlResult.suggestionLeak,
                 },
               };
               pendingEvidenceDrafts.push(enrichedDraft);
