@@ -156,6 +156,7 @@ export interface DifferentialEvidenceContextDto {
     | 'auth_bypass'
     | 'sourcemap_exposure'
     | 'wordpress_surface'
+    | 'sql_error_oracle'
     | 'custom_difference';
   readonly baselineStatusCode?: number;
   readonly baselineBodyHash?: string;
@@ -197,6 +198,9 @@ export interface DifferentialEvidenceContextDto {
   readonly multicallSupported?: boolean;
   readonly exposedUsersCount?: number;
   readonly sampleUserSlugs?: readonly string[];
+  readonly databaseEngine?: 'mysql' | 'mssql' | 'postgresql' | 'oracle' | 'sqlite' | 'unknown';
+  readonly sqlErrorFragment?: string;
+  readonly injectedProbe?: string;
 }
 
 

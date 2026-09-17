@@ -169,6 +169,20 @@ export interface WordPressSurfaceMetadata {
   readonly lineage?: string | Record<string, unknown>;
 }
 
+export interface SqlErrorOracleMetadata {
+  readonly kind: 'sql_error_oracle_metadata';
+  readonly category: 'INFORMATION_DISCLOSURE';
+  readonly databaseEngine: 'mysql' | 'mssql' | 'postgresql' | 'oracle' | 'sqlite' | 'unknown';
+  readonly parameterName: string;
+  readonly injectedProbe: string;
+  readonly errorFragment: string;
+  readonly endpointUrl: string;
+  readonly observedAt: string;
+  readonly candidateId?: string;
+  readonly evidenceRecordId?: string;
+  readonly lineage?: string | Record<string, unknown>;
+}
+
 export type FindingMetadata =
   | BrokenAccessControlMetadata
   | SecurityMisconfigurationMetadata
@@ -181,6 +195,7 @@ export type FindingMetadata =
   | AuthBypassMetadata
   | SourcemapExposureMetadata
   | WordPressSurfaceMetadata
+  | SqlErrorOracleMetadata
   | DiscoveryFindingMetadata;
 
 

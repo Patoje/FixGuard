@@ -614,6 +614,22 @@ function HumanReviewContent() {
                           <span className="text-rose-300 text-[11px] font-mono break-all font-bold">{diffContext.sampleUserSlugs.join(', ')}</span>
                         </div>
                       )}
+
+                      {diffContext?.databaseEngine && (
+                        <div className="rounded-lg bg-black/40 border border-rose-500/30 p-2.5">
+                          <span className="text-zinc-500 text-[10px] block">Disclosed Database Engine:</span>
+                          <span className="text-rose-400 font-bold uppercase">{diffContext.databaseEngine}</span>
+                        </div>
+                      )}
+
+                      {diffContext?.sqlErrorFragment && (
+                        <div className="rounded-lg bg-black/40 border border-rose-500/30 p-2.5 col-span-2">
+                          <span className="text-rose-400 text-[10px] block font-semibold mb-1">Sanitized Database Error Fragment:</span>
+                          <pre className="text-rose-300 text-[11px] whitespace-pre-wrap break-all font-mono bg-black/60 p-2 rounded border border-zinc-900">
+                            {diffContext.sqlErrorFragment}
+                          </pre>
+                        </div>
+                      )}
                     </div>
 
 

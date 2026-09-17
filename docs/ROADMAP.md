@@ -108,13 +108,16 @@
                                                                 │
                                                                 ▼
                                                         [PHASE 4: P4-4] COMPLETED (WordPress XML-RPC and User Enumeration Probes)
+                                                                │
+                                                                ▼
+                                                        [PHASE 4: P4-5] COMPLETED (SQL Error Oracle Detection Engine)
 ```
 
 ---
 
 ## 2. Completed Milestones (`CONFIRMED`)
 
-All completed milestones are verified via active TypeScript contracts and the regression test suite (`npm run check:v2` with 59 passing smoke suites, 100% pass rate).
+All completed milestones are verified via active TypeScript contracts and the regression test suite (`npm run check:v2` with 60 passing smoke suites, 100% pass rate).
 
 
 
@@ -945,7 +948,34 @@ All completed milestones are verified via active TypeScript contracts and the re
   4. **Verification & Hygiene**:
      - Dedicated smoke test `worker/src/v2/smoke/milestoneP4_4_wordpress_surface_smoke.ts` passes 100% across all 5 assertions.
      - `npm run typecheck:v2` exits with code 0.
-     - Full regression suite `npm run check:v2` (59/59 smoke suites) passes 100%.
+     - Full regression suite `npm run check:v2` (60/60 smoke suites) passes 100%.
+     - `cd web && npm run build` compiles cleanly with zero errors.
+     - 0 occurrences of `as any` across all production code.
+
+---
+
+### Milestone P4-5: SQL Error Oracle Detection Engine
+- **Status:** COMPLETED.
+- **Goal:** Implement the SQL Error Oracle Detection Engine targeting data-access and legacy layers, safely detecting unhandled database error disclosure across MySQL, MSSQL, PostgreSQL, Oracle, and SQLite via inert syntax canary probes with zero boolean timing or data dumping exploitation.
+- **Key Deliverables:**
+  1. **Domain Contracts & Typed Metadata (`SqlErrorOracleMetadata`)**:
+     - Defined `SqlErrorOracleMetadata` in `worker/src/v2/core/Evidence.ts` under the `FindingMetadata` discriminated union (`kind: 'sql_error_oracle_metadata'`, `category: 'INFORMATION_DISCLOSURE'`, `databaseEngine: 'mysql' | 'mssql' | 'postgresql' | 'oracle' | 'sqlite' | 'unknown'`, `parameterName`, `injectedProbe`, `errorFragment`).
+     - Extended `DifferentialEvidenceContext` and `DifferentialEvidenceContextDto` with `detectionKind: 'sql_error_oracle'`, `databaseEngine`, `sqlErrorFragment`, and `injectedProbe`.
+  2. **Detection Service (`SqlErrorOracleDetectionService.ts`)**:
+     - Implemented `runSqlErrorOracleDetection()`.
+     - Injects safe, inert syntax-testing canary token (`'FixGuard_Oracle_<seed>`) into candidate parameters.
+     - Detects database syntax and runtime error signatures across MySQL (`/You have an error in your SQL syntax/i`), MSSQL (`/Unclosed quotation mark/i`, `/Microsoft OLE DB Provider for SQL Server/i`), PostgreSQL (`/syntax error at or near/i`), Oracle (`/ORA-01756/i`), and SQLite (`/SQLite3::prepare/i`, `/unrecognized token/i`).
+     - Sanitizes error excerpts via `sanitizeEvidenceFragment()` and truncates to a strict maximum of 128 characters.
+     - Enforces 7-pass SSRF preflight protection blocking internal IP and metadata probing.
+     - Cleanly abstains (`status: 'secure_target_abstained'`) when the target sanitizes parameters, returns clean responses, or responds with generic 400/404 templates.
+  3. **Pipeline & Review UI Integration**:
+     - Wired `runSqlErrorOracleDetection` into `executePipelineStages` in `OrchestratedAssessmentApplicationService.ts`.
+     - Added `reviewEvidenceDraft` handler for `'sql_error_oracle'` promoting drafts to formal `Finding` records with `SqlErrorOracleMetadata`.
+     - Updated `web/src/app/v2/review/page.tsx` to render SQL Error Oracle cards displaying database engine badges, vulnerable parameter names, and sanitized error fragments.
+  4. **Verification & Hygiene**:
+     - Dedicated smoke test `worker/src/v2/smoke/milestoneP4_5_sql_error_oracle_smoke.ts` passes 100% across all 4 assertions.
+     - `npm run typecheck:v2` exits with code 0.
+     - Full regression suite `npm run check:v2` (60/60 smoke suites) passes 100%.
      - `cd web && npm run build` compiles cleanly with zero errors.
      - 0 occurrences of `as any` across all production code.
 

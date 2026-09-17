@@ -758,6 +758,67 @@ export interface WordPressSurfaceDetectionResult {
   };
 }
 
+// ---------------------------------------------------------------------------
+// Milestone P4-5 — SQL Error Oracle Detection Contracts
+// ---------------------------------------------------------------------------
+
+export type SqlErrorOracleDetectionStatus =
+  | 'potential_weakness'
+  | 'information_disclosure'
+  | 'pending_human_review'
+  | 'secure_target_abstained'
+  | 'preflight_denied'
+  | 'unexpected_failure';
+
+export interface SqlErrorOracleDetectionRequest {
+  readonly contractVersion: DetectionContractVersion;
+  readonly kind: 'sql_error_oracle_detection_request';
+  readonly detectionId: string;
+  readonly assessmentId: string;
+  readonly scanId: string;
+  readonly authorizationGrantId: string;
+  readonly authorizationDecisionId: string;
+  readonly actorId: string;
+  readonly verifiedAuthorizationDecision: VerifiedAuthorizationDecision;
+  readonly scopeGrant: AuthorizedScopeGrant;
+  readonly endpointUrl: string;
+  readonly parameterName: string;
+  readonly method?: 'GET' | 'POST';
+  readonly reviewerPolicy?: ReviewerPolicy;
+  readonly humanReviewDecision?: HumanReviewDecision;
+  readonly triageDecision?: ReviewedEvidenceFindingCandidateTriageDecision;
+  readonly transport?: IdorHttpProbeTransport;
+  readonly dnsResolver?: PreSpawnDnsResolver;
+}
+
+export interface SqlErrorOracleDetectionResult {
+  readonly contractVersion: DetectionContractVersion;
+  readonly kind: 'sql_error_oracle_detection_result';
+  readonly detectionId: string;
+  readonly scanId: string;
+  readonly assessmentId: string;
+  readonly authorizationGrantId: string;
+  readonly authorizationDecisionId: string;
+  readonly actorId: string;
+  readonly status: SqlErrorOracleDetectionStatus;
+  readonly reasonCode: string;
+  readonly lineage: AuthorizedExecutionLineageTuple;
+  readonly endpointUrl: string;
+  readonly parameterName: string;
+  readonly databaseEngine?: 'mysql' | 'mssql' | 'postgresql' | 'oracle' | 'sqlite' | 'unknown';
+  readonly injectedProbe?: string;
+  readonly errorFragment?: string;
+  readonly evidenceDraft?: EvidenceDraftEnvelope;
+  readonly evidenceRecord?: EvidenceRecord;
+  readonly promotedEvidenceResult?: HumanReviewedEvidencePromotionResult;
+  readonly findingCandidate?: ReviewedEvidenceFormalFindingCandidate;
+  readonly finding?: Finding;
+  readonly error?: {
+    readonly code: string;
+    readonly safeMessage: string;
+  };
+}
+
 
 
 

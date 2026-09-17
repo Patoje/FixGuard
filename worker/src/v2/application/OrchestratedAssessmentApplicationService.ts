@@ -57,6 +57,7 @@ import { analyzeTlsConfiguration } from '../detection/TlsConfigurationAnalysisSe
 import { runAuthBypassDetection } from '../detection/AuthBypassDetectionService.js';
 import { runSourcemapExposureDetection } from '../detection/SourcemapExposureDetectionService.js';
 import { runWordPressSurfaceDetection } from '../detection/WordPressSurfaceDetectionService.js';
+import { runSqlErrorOracleDetection } from '../detection/SqlErrorOracleDetectionService.js';
 
 
 import { buildTargetProfile } from '../intelligence/TargetProfileBuilder.js';
@@ -1220,6 +1221,42 @@ export class OrchestratedAssessmentApplicationService {
             },
           };
         }
+      } else if (detKind === 'sql_error_oracle') {
+        const endpointUrl = context?.endpointUrl ?? `https://${record.targetDomain}/`;
+        const parameterName = context?.parameterName ?? 'id';
+        const databaseEngine = context?.databaseEngine ?? 'unknown';
+        const injectedProbe = context?.injectedProbe ?? `'FixGuard_Oracle_${draftId}`;
+        const errorFragment = context?.sqlErrorFragment ?? 'Unhandled database query error';
+
+        findingCreated = {
+          id: `fnd_sqlo_${draftId.replace(/^dft_/, '').replace(/^draft_/, '')}`,
+          type: 'INFORMATION_DISCLOSURE',
+          severity: 'medium',
+          title: `Approved Database Error Oracle (${databaseEngine.toUpperCase()}) on '${parameterName}'`,
+          description: `Human operator verified database error disclosure (${databaseEngine}) on parameter '${parameterName}' at ${endpointUrl}. Disclosed fragment: "${errorFragment}".`,
+          target: endpointUrl,
+          evidence: JSON.stringify({
+            draftId,
+            reviewerId,
+            reviewedAt,
+            notes,
+            differentialContext: context,
+          }),
+          confidence: 1.0,
+          metadata: {
+            kind: 'sql_error_oracle_metadata',
+            category: 'INFORMATION_DISCLOSURE',
+            databaseEngine,
+            parameterName,
+            injectedProbe,
+            errorFragment,
+            endpointUrl,
+            observedAt: reviewedAt,
+            candidateId: `cnd_${draftId}`,
+            evidenceRecordId: `evd_${draftId}`,
+            lineage: `${record.assessmentId}:${record.scanId}:${reviewerId}:${reviewedAt}`,
+          },
+        };
       } else {
 
 
@@ -2034,6 +2071,90 @@ export class OrchestratedAssessmentApplicationService {
                   multicallSupported: wpResult.multicallSupported,
                   exposedUsersCount: wpResult.exposedUsersCount,
                   sampleUserSlugs: wpResult.sampleUserSlugs,
+                },
+              };
+              pendingEvidenceDrafts.push(enrichedDraft);
+            }
+          } catch {
+            // Safe error containment
+          }
+        }
+      }
+
+      // SQL Error Oracle Detection (Milestone P4-5)
+      if (!coordinator.isCircuitOpen(record.targetDomain)) {
+        const sqlCandidates: { endpointUrl: string; parameterName: string; method?: 'GET' | 'POST' }[] = [];
+
+        if (reconResult?.aggregatedObservations?.parameters) {
+          for (const paramObs of reconResult.aggregatedObservations.parameters) {
+            sqlCandidates.push({
+              endpointUrl: paramObs.url,
+              parameterName: paramObs.parameterName,
+              method: 'GET',
+            });
+          }
+        }
+
+        if (reconResult?.aggregatedObservations?.urls) {
+          for (const urlObs of reconResult.aggregatedObservations.urls) {
+            try {
+              const parsed = new URL(urlObs.url);
+              for (const [key] of parsed.searchParams.entries()) {
+                if (!sqlCandidates.some((c) => c.endpointUrl === urlObs.url && c.parameterName === key)) {
+                  sqlCandidates.push({
+                    endpointUrl: urlObs.url,
+                    parameterName: key,
+                    method: 'GET',
+                  });
+                }
+              }
+            } catch {
+              // Ignore invalid URLs
+            }
+          }
+        }
+
+        if (sqlCandidates.length === 0) {
+          sqlCandidates.push({ endpointUrl: targetUrl, parameterName: 'id', method: 'GET' });
+          sqlCandidates.push({ endpointUrl: targetUrl, parameterName: 'q', method: 'GET' });
+        }
+
+        for (const candidate of sqlCandidates.slice(0, 5)) {
+          if (coordinator.isCircuitOpen(record.targetDomain)) break;
+          try {
+            const sqlResult = await runSqlErrorOracleDetection({
+              contractVersion: DETECTION_CONTRACT_VERSION,
+              kind: 'sql_error_oracle_detection_request',
+              detectionId: `det_sqlo_${record.assessmentId.slice(-8)}_${candidate.parameterName.replace(/[^a-zA-Z0-9]/g, '')}`,
+              assessmentId: lineage.assessmentId,
+              scanId: lineage.scanId,
+              authorizationGrantId: lineage.authorizationGrantId,
+              authorizationDecisionId: lineage.authorizationDecisionId,
+              actorId: lineage.actorId,
+              endpointUrl: candidate.endpointUrl,
+              parameterName: candidate.parameterName,
+              method: candidate.method,
+              verifiedAuthorizationDecision: verifiedDecision,
+              scopeGrant,
+              transport: this.httpTransport,
+              dnsResolver: this.dnsResolver,
+            });
+
+            if (
+              (sqlResult.status === 'potential_weakness' || sqlResult.status === 'information_disclosure') &&
+              sqlResult.finding
+            ) {
+              findings.push(sqlResult.finding);
+            } else if (sqlResult.status === 'pending_human_review' && sqlResult.evidenceDraft) {
+              const enrichedDraft: EnrichedEvidenceDraft = {
+                ...sqlResult.evidenceDraft,
+                differentialContext: {
+                  endpointUrl: sqlResult.endpointUrl,
+                  detectionKind: 'sql_error_oracle',
+                  parameterName: sqlResult.parameterName,
+                  databaseEngine: sqlResult.databaseEngine,
+                  sqlErrorFragment: sqlResult.errorFragment,
+                  injectedProbe: sqlResult.injectedProbe,
                 },
               };
               pendingEvidenceDrafts.push(enrichedDraft);
