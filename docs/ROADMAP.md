@@ -786,17 +786,39 @@ All completed milestones are verified via active TypeScript contracts and the re
   3. **Closed-World API Validation Boundary (`worker/src/v2/api/validation/ApiRequestValidators.ts`)**:
      - Implemented `parseByotIdentity()` and `parseByotSessionIdentityBundle()`.
      - Enforces exact-key closed-world checking, safe identifier validation via `isStrictSafeId()`, and bounds limits (max 20 entries per map, max 4096 chars per value).
-     - Updated `parseStartOrchestratedAssessmentBody()` to accept and validate `sessionIdentities`.
-  4. **In-Memory Lifecycle Mapping (`worker/src/v2/application/OrchestratedAssessmentApplicationService.ts`)**:
-     - Implemented pure helpers `buildProbeAuthContext(identity: ByotIdentity)` and `buildAnonymousProbeContext(identityId: string)`.
-     - Injected ephemeral, frozen `ProbeAuthContext` instances with lowercase-normalized headers into background detection pipelines.
-  5. **Next.js Web UI Ingestion (`web/src/lib/v2Api.ts`, `web/src/app/v2/assessments/components/AssessmentLauncherCard.tsx`)**:
-     - Added optional "Sesión Autenticada (BYOT)" collapsible panel with password-masked inputs (`type="password"`) for Identity A and Identity B tokens.
+     - Added optional "Sesión Autenticada (BYOT)" collapsible panel with password-masked inputs (`type="password"`) for Identity A and Identity B.
      - Displayed explicit UX anti-leak invariant disclaimer: *"Las credenciales son efímeras: residen solo en memoria durante el escaneo y nunca se persisten."*
   6. **Verification**:
      - Dedicated smoke test `worker/src/v2/smoke/milestoneP3_1_byot_smoke.ts` passes 100%.
      - `npm run typecheck:v2` exits 0.
      - Full regression suite `npm run check:v2` (54 suites) passes 100%.
+     - Next.js production build (`npm run build`) compiles cleanly.
+
+---
+
+### Milestone P3-3: Multi-Identity Differential IDOR with BYOT (Phase 3 Complete)
+- **Status:** COMPLETED.
+- **Goal:** Operationalize the multi-identity differential access control engine (`IdorDifferentialDetectionService`) inside `OrchestratedAssessmentApplicationService` using operator-injected BYOT session contexts (`ByotSessionIdentityBundle`), closing Phase 3.
+- **Key Deliverables:**
+  1. **Orchestration Pipeline Wiring (`worker/src/v2/application/OrchestratedAssessmentApplicationService.ts`)**:
+     - Derived `identityAContext` from `command.sessionIdentities?.identityA` with fallback to `identity_anon_a`.
+     - Derived `identityBContext` from `command.sessionIdentities?.identityB` with automatic fallback to `buildAnonymousProbeContext('identity_anon_b')` for single-identity or unauthenticated checks.
+     - Parameter Candidate Discovery: Evaluated resource candidates discovered during Stage 4/5 (`id`, `user_id`, `userid`, `account_id`, `order_id`, `doc_id`, `item_id`, and RESTful `/users/1`, `/api/orders/123` patterns) plus default fallback origin candidates.
+     - Executed `runIdorDifferentialDetection()` feeding dual probe contexts through the 7-pass preflight, HTTP differential probe transport, response comparator (M47), and evidence promotion pipeline (M49–M54).
+  2. **HITL Triage Lifecycle Integration**:
+     - Unattended runs generate non-persisted `EnrichedEvidenceDraft` with `status: 'pending_human_review'` carrying `BrokenAccessControlMetadata` and `DifferentialEvidenceContext`.
+     - Operator review via `reviewEvidenceDraft()` approves draft into canonical `Finding` with `type: 'BROKEN_ACCESS_CONTROL'`, `severity: 'high'`, confidence `0.95`, and lineage chain.
+  3. **Anti-Leak Invariant & Snapshot Sanitization**:
+     - Redacted all sensitive session headers (`authorization`, `cookie`, `set-cookie`, `x-api-key`, `x-auth-token`, etc.) via `SENSITIVE_HEADER_NAMES` from response snapshots.
+     - Sanitized body excerpts and differential fragments via `sanitizeEvidenceFragment()`.
+     - Maintained 0 credentials persisted to storage.
+  4. **Typing & Reviewer Discipline**:
+     - Strictly 0 occurrences of `as any` across all production code.
+     - Strict human review gate (zero synthetic reviewer IDs).
+  5. **Verification**:
+     - Dedicated smoke test `worker/src/v2/smoke/milestoneP3_3_idor_byot_smoke.ts` passes 100%.
+     - `npm run typecheck:v2` exits 0.
+     - Full regression suite `npm run check:v2` (55 suites) passes 100%.
      - Next.js production build (`npm run build`) compiles cleanly.
 
 ---

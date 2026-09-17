@@ -43,6 +43,7 @@ import type { PromoteReviewedEvidenceFindingCandidateDraftRequest } from '../fin
 import type { Finding } from '../core/Evidence.js';
 import { validateSessionHealth } from '../core/SessionLifecycleService.js';
 import { pruneTransientEvidence } from '../evidence/EvidenceRetentionService.js';
+import { sanitizeEvidenceFragment } from '../core/EvidenceSanitizer.js';
 
 const SENSITIVE_HEADER_NAMES = new Set([
   'authorization',
@@ -274,9 +275,21 @@ export async function runIdorDifferentialDetection(
   const transport = request.transport ?? defaultHttpProbeTransport;
   const method = request.method ?? 'GET';
 
-  // 2.5. Session Lifecycle Health Check (Acción 10)
+  // 2.5. Session Lifecycle Health Check & Cookie Injection (BYOT-SI-02)
   let identityAHeaders = { ...(request.identityA.headers ?? {}) };
   let identityBHeaders = { ...(request.identityB.headers ?? {}) };
+
+  if (request.identityA.cookies && Object.keys(request.identityA.cookies).length > 0 && !identityAHeaders['cookie']) {
+    identityAHeaders['cookie'] = Object.entries(request.identityA.cookies)
+      .map(([k, v]) => `${k}=${v}`)
+      .join('; ');
+  }
+
+  if (request.identityB.cookies && Object.keys(request.identityB.cookies).length > 0 && !identityBHeaders['cookie']) {
+    identityBHeaders['cookie'] = Object.entries(request.identityB.cookies)
+      .map(([k, v]) => `${k}=${v}`)
+      .join('; ');
+  }
 
   if (request.identityA.sessionState) {
     const sessionHealthA = await validateSessionHealth(request.identityA.sessionState, nowIso);
@@ -912,7 +925,7 @@ export async function runIdorDifferentialDetection(
     title: `Broken Object Level Authorization on ${pathTemplate}`,
     description: `Differential inspection proved that unauthorized identity (${request.identityB.identityId}) accessed resource (${request.baselineResourceId}) belonging to authorized identity (${request.identityA.identityId}) with HTTP 200 and matching structural payload.`,
     target: request.endpointUrl,
-    evidence: JSON.stringify({
+    evidence: sanitizeEvidenceFragment(JSON.stringify({
       resourceId: request.baselineResourceId,
       endpointUrl: request.endpointUrl,
       comparisonId: comparisonResult.comparisonId,
@@ -922,7 +935,7 @@ export async function runIdorDifferentialDetection(
       significance: comparisonResult.significance,
       candidateId: promoteCandidateResult.candidate.candidateId,
       evidenceId: evidenceRecord.evidenceId
-    }),
+    })),
     confidence: 0.95,
     metadata: {
       kind: 'broken_access_control_metadata',

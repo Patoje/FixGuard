@@ -48,6 +48,7 @@ import type {
 import { DETECTION_CONTRACT_VERSION } from '../detection/DetectionContracts.js';
 import { runCorsMisconfigurationDetection } from '../detection/CorsMisconfigurationDetectionService.js';
 import { runParameterReflectionDetection } from '../detection/ParameterReflectionDetectionService.js';
+import { runIdorDifferentialDetection } from '../detection/IdorDifferentialDetectionService.js';
 import { runSecurityHeaderDetection } from '../detection/SecurityHeaderDetectionService.js';
 import { runOpenRedirectDetection } from '../detection/OpenRedirectDetectionService.js';
 import { runInformationDisclosureDetection } from '../detection/InformationDisclosureDetectionService.js';
@@ -1257,11 +1258,11 @@ export class OrchestratedAssessmentApplicationService {
 
     const identityAContext = sessionIdentities?.identityA
       ? buildProbeAuthContext(sessionIdentities.identityA)
-      : buildAnonymousProbeContext('identity_a');
+      : buildAnonymousProbeContext('identity_anon_a');
 
     const identityBContext = sessionIdentities?.identityB
       ? buildProbeAuthContext(sessionIdentities.identityB)
-      : buildAnonymousProbeContext('identity_b');
+      : buildAnonymousProbeContext('identity_anon_b');
 
     // 1. M73 Composite Active Reconnaissance Orchestration
     const orchestrator = new CompositeActiveReconOrchestratorService(this.reconAdapters);
@@ -1423,6 +1424,102 @@ export class OrchestratedAssessmentApplicationService {
           }
         } catch {
           // Safe error containment
+        }
+      }
+
+      // Multi-Identity Differential IDOR Detection with BYOT (Milestone P3-3)
+      if (!coordinator.isCircuitOpen(record.targetDomain)) {
+        const candidateEndpoints: Array<{ endpointUrl: string; resourceParamName: string; baselineResourceId: string }> = [];
+
+        // Check discovered parameters from recon
+        if (reconResult?.aggregatedObservations?.parameters) {
+          for (const paramObs of reconResult.aggregatedObservations.parameters) {
+            const pName = paramObs.parameterName.toLowerCase();
+            if (
+              pName === 'id' ||
+              pName === 'user_id' ||
+              pName === 'userid' ||
+              pName === 'account_id' ||
+              pName === 'order_id' ||
+              pName === 'doc_id' ||
+              pName === 'item_id'
+            ) {
+              candidateEndpoints.push({
+                endpointUrl: paramObs.url,
+                resourceParamName: paramObs.parameterName,
+                baselineResourceId: '1',
+              });
+            }
+          }
+        }
+
+        // Also check discovered URLs for RESTful ID patterns (e.g. /users/1, /api/orders/123)
+        if (reconResult?.aggregatedObservations?.urls) {
+          for (const urlObs of reconResult.aggregatedObservations.urls) {
+            const match = urlObs.url.match(/\/(users|orders|accounts|items|documents|api\/users|api\/orders|api\/accounts)\/([0-9a-zA-Z_-]+)$/i);
+            if (match && match[2]) {
+              candidateEndpoints.push({
+                endpointUrl: urlObs.url,
+                resourceParamName: match[1],
+                baselineResourceId: match[2],
+              });
+            }
+          }
+        }
+
+        // Fallback default endpoint candidate if none was explicitly crawled
+        if (candidateEndpoints.length === 0) {
+          candidateEndpoints.push({
+            endpointUrl: `https://${record.targetDomain}/api/user/1`,
+            resourceParamName: 'id',
+            baselineResourceId: '1',
+          });
+        }
+
+        for (const candidate of candidateEndpoints.slice(0, 3)) {
+          if (coordinator.isCircuitOpen(record.targetDomain)) break;
+          try {
+            const idorResult = await runIdorDifferentialDetection({
+              contractVersion: DETECTION_CONTRACT_VERSION,
+              kind: 'idor_differential_detection_request',
+              detectionId: `det_diff_${record.assessmentId.slice(-8)}_${candidate.resourceParamName.replace(/[^a-zA-Z0-9]/g, '')}`,
+              assessmentId: lineage.assessmentId,
+              scanId: lineage.scanId,
+              authorizationGrantId: lineage.authorizationGrantId,
+              authorizationDecisionId: lineage.authorizationDecisionId,
+              actorId: lineage.actorId,
+              endpointUrl: candidate.endpointUrl,
+              resourceParamName: candidate.resourceParamName,
+              baselineResourceId: candidate.baselineResourceId,
+              identityA: identityAContext,
+              identityB: identityBContext,
+              verifiedAuthorizationDecision: verifiedDecision,
+              scopeGrant,
+              transport: this.httpTransport,
+              dnsResolver: this.dnsResolver,
+            });
+
+            if (idorResult.status === 'vulnerability_detected' && idorResult.finding) {
+              findings.push(idorResult.finding);
+            } else if (idorResult.status === 'pending_human_review' && idorResult.evidenceDraft) {
+              const enrichedDraft: EnrichedEvidenceDraft = {
+                ...idorResult.evidenceDraft,
+                differentialContext: {
+                  endpointUrl: candidate.endpointUrl,
+                  detectionKind: 'idor_access_control',
+                  baselineStatusCode: idorResult.baselineSnapshot?.statusCode,
+                  baselineBodyHash: idorResult.baselineSnapshot?.bodyHash,
+                  validationStatusCode: idorResult.validationSnapshot?.statusCode,
+                  validationBodyHash: idorResult.validationSnapshot?.bodyHash,
+                  resourceParamName: candidate.resourceParamName,
+                  baselineResourceId: candidate.baselineResourceId,
+                },
+              };
+              pendingEvidenceDrafts.push(enrichedDraft);
+            }
+          } catch {
+            // Safe error containment
+          }
         }
       }
 
