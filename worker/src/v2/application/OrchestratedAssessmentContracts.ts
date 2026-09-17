@@ -58,6 +58,7 @@ export interface DifferentialEvidenceContext {
     | 'subdomain_takeover'
     | 'weak_tls_configuration'
     | 'auth_bypass'
+    | 'sourcemap_exposure'
     | 'custom_difference';
   readonly baselineStatusCode?: number;
   readonly baselineBodyHash?: string;
@@ -90,6 +91,10 @@ export interface DifferentialEvidenceContext {
   readonly bypassMechanism?: 'header_stripping' | 'cookie_omission' | 'verb_tampering';
   readonly bodySimilarityRatio?: number;
   readonly httpMethod?: string;
+  readonly exposedMapUrl?: string;
+  readonly sourceJsUrl?: string;
+  readonly sampleSourcesCount?: number;
+  readonly mapFileSizeBytes?: number;
 }
 
 

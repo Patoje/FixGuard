@@ -550,6 +550,33 @@ function HumanReviewContent() {
                         </div>
                       )}
 
+                      {diffContext?.exposedMapUrl && (
+                        <div className="rounded-lg bg-black/40 border border-rose-500/30 p-2.5 col-span-2">
+                          <span className="text-rose-400 text-[10px] block font-semibold mb-1">Exposed Sourcemap URL (.map):</span>
+                          <span className="text-rose-300 text-[11px] font-mono break-all">{diffContext.exposedMapUrl}</span>
+                        </div>
+                      )}
+
+                      {diffContext?.sourceJsUrl && (
+                        <div className="rounded-lg bg-black/40 border border-zinc-800 p-2.5 col-span-2">
+                          <span className="text-zinc-500 text-[10px] block font-semibold mb-1">Source JavaScript Bundle:</span>
+                          <span className="text-zinc-300 text-[11px] font-mono break-all">{diffContext.sourceJsUrl}</span>
+                        </div>
+                      )}
+
+                      {diffContext?.sampleSourcesCount !== undefined && (
+                        <div className="rounded-lg bg-black/40 border border-amber-500/30 p-2.5">
+                          <span className="text-zinc-500 text-[10px] block">Exposed Source Files Count:</span>
+                          <span className="text-amber-400 font-bold">{diffContext.sampleSourcesCount} files</span>
+                        </div>
+                      )}
+
+                      {diffContext?.mapFileSizeBytes !== undefined && (
+                        <div className="rounded-lg bg-black/40 border border-zinc-800 p-2.5">
+                          <span className="text-zinc-500 text-[10px] block">Sourcemap File Size:</span>
+                          <span className="text-zinc-300 font-bold font-mono">{(diffContext.mapFileSizeBytes / 1024).toFixed(1)} KB</span>
+                        </div>
+                      )}
                     </div>
 
 

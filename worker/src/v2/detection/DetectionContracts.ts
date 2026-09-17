@@ -634,6 +634,68 @@ export interface AuthBypassDetectionResult {
   };
 }
 
+// ---------------------------------------------------------------------------
+// Milestone P4-3 — Sourcemap Exposure Detection Contracts
+// ---------------------------------------------------------------------------
+
+export type SourcemapExposureDetectionStatus =
+  | 'potential_weakness'
+  | 'pending_human_review'
+  | 'secure_target_abstained'
+  | 'preflight_denied'
+  | 'unexpected_failure';
+
+export interface SourcemapExposureDetectionRequest {
+  readonly contractVersion: DetectionContractVersion;
+  readonly kind: 'sourcemap_exposure_detection_request';
+  readonly detectionId: string;
+  readonly assessmentId: string;
+  readonly scanId: string;
+  readonly authorizationGrantId: string;
+  readonly authorizationDecisionId: string;
+  readonly actorId: string;
+  readonly verifiedAuthorizationDecision: VerifiedAuthorizationDecision;
+  readonly scopeGrant: AuthorizedScopeGrant;
+  readonly sourceJsUrl: string;
+  readonly exposedMapUrl?: string;
+  readonly jsBodyText?: string;
+  readonly jsHeaders?: Readonly<Record<string, string>>;
+  readonly reviewerPolicy?: ReviewerPolicy;
+  readonly humanReviewDecision?: HumanReviewDecision;
+  readonly triageDecision?: ReviewedEvidenceFindingCandidateTriageDecision;
+  readonly transport?: IdorHttpProbeTransport;
+  readonly dnsResolver?: PreSpawnDnsResolver;
+}
+
+export interface SourcemapExposureDetectionResult {
+  readonly contractVersion: DetectionContractVersion;
+  readonly kind: 'sourcemap_exposure_detection_result';
+  readonly detectionId: string;
+  readonly scanId: string;
+  readonly assessmentId: string;
+  readonly authorizationGrantId: string;
+  readonly authorizationDecisionId: string;
+  readonly actorId: string;
+  readonly status: SourcemapExposureDetectionStatus;
+  readonly reasonCode: string;
+  readonly lineage: AuthorizedExecutionLineageTuple;
+  readonly sourceJsUrl: string;
+  readonly exposedMapUrl?: string;
+  readonly detectionSignal?: 'sourcemapping_url_comment' | 'sourcemap_header' | 'deterministic_path_probe';
+  readonly mapFileSizeBytes?: number;
+  readonly sampleSourcesCount?: number;
+  readonly evidenceDraft?: EvidenceDraftEnvelope;
+  readonly evidenceRecord?: EvidenceRecord;
+  readonly promotedEvidenceResult?: HumanReviewedEvidencePromotionResult;
+  readonly findingCandidate?: ReviewedEvidenceFormalFindingCandidate;
+  readonly finding?: Finding;
+  readonly error?: {
+    readonly code: string;
+    readonly safeMessage: string;
+  };
+}
+
+
 
 
 

@@ -140,6 +140,20 @@ export interface AuthBypassMetadata {
   readonly lineage?: string | Record<string, unknown>;
 }
 
+export interface SourcemapExposureMetadata {
+  readonly kind: 'sourcemap_exposure_metadata';
+  readonly category: 'INFORMATION_DISCLOSURE';
+  readonly exposedMapUrl: string;
+  readonly sourceJsUrl: string;
+  readonly detectionSignal: 'sourcemapping_url_comment' | 'sourcemap_header' | 'deterministic_path_probe';
+  readonly mapFileSizeBytes?: number;
+  readonly sampleSourcesCount?: number;
+  readonly observedAt: string;
+  readonly candidateId?: string;
+  readonly evidenceRecordId?: string;
+  readonly lineage?: string | Record<string, unknown>;
+}
+
 export type FindingMetadata =
   | BrokenAccessControlMetadata
   | SecurityMisconfigurationMetadata
@@ -150,6 +164,7 @@ export type FindingMetadata =
   | SubdomainTakeoverMetadata
   | WeakTlsMetadata
   | AuthBypassMetadata
+  | SourcemapExposureMetadata
   | DiscoveryFindingMetadata;
 
 

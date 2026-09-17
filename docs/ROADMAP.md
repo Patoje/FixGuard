@@ -96,19 +96,22 @@
                                                                 │
                                                                 ▼
                                                         [PHASE 3: P3-3] COMPLETED (Multi-Identity Differential IDOR with BYOT)
-                                                                │
+                                                                 │
                                                                 ▼
                                                         [PHASE 4: P4-1] COMPLETED (Authentication Bypass Detection Engine)
                                                                 │
                                                                 ▼
                                                         [PHASE 4: P4-2] COMPLETED (Technology Fingerprint Engine)
+                                                                │
+                                                                ▼
+                                                        [PHASE 4: P4-3] COMPLETED (Sourcemap Exposure Detection Engine)
 ```
 
 ---
 
 ## 2. Completed Milestones (`CONFIRMED`)
 
-All completed milestones are verified via active TypeScript contracts and the regression test suite (`npm run check:v2` with 57 passing smoke suites, 100% pass rate).
+All completed milestones are verified via active TypeScript contracts and the regression test suite (`npm run check:v2` with 58 passing smoke suites, 100% pass rate).
 
 
 
@@ -885,7 +888,34 @@ All completed milestones are verified via active TypeScript contracts and the re
   4. **Verification & Hygiene**:
      - Dedicated smoke test `worker/src/v2/smoke/milestoneP4_2_tech_fingerprint_smoke.ts` passes 100% (4/4 assertions).
      - `npm run typecheck:v2` exits with code 0.
-     - Full regression suite `npm run check:v2` (57/57 smoke suites) passes 100%.
+     - Full regression suite `npm run check:v2` (58/58 smoke suites) passes 100%.
+     - `cd web && npm run build` compiles cleanly with zero errors.
+     - 0 occurrences of `as any` across all production code.
+
+---
+
+### Milestone P4-3: Sourcemap Exposure Detection Engine
+- **Status:** COMPLETED.
+- **Goal:** Implement the Sourcemap Exposure Detection Engine targeting SPA architectures and modern frontend bundles, verifying accessible `.js.map` files that expose full source code and internal API surfaces with strict abstention and human review promotion.
+- **Key Deliverables:**
+  1. **Domain Contracts & Typed Metadata (`SourcemapExposureMetadata`)**:
+     - Defined `SourcemapExposureMetadata` in `worker/src/v2/core/Evidence.ts` under the `FindingMetadata` discriminated union (`kind: 'sourcemap_exposure_metadata'`, `category: 'INFORMATION_DISCLOSURE'`, `detectionSignal: 'sourcemapping_url_comment' | 'sourcemap_header' | 'deterministic_path_probe'`).
+     - Extended `DifferentialEvidenceContext` and `DifferentialEvidenceContextDto` with `detectionKind: 'sourcemap_exposure'`, `exposedMapUrl`, `sourceJsUrl`, `sampleSourcesCount`, and `mapFileSizeBytes`.
+  2. **Detection Service (`SourcemapExposureDetectionService.ts`)**:
+     - Implemented `runSourcemapExposureDetection()` and helper `extractSourcemapUrlAndSignal()`.
+     - Extracts `.js.map` URLs from `//# sourceMappingURL=` comments, `SourceMap:` / `X-SourceMap:` HTTP response headers, or deterministic `.map` paths.
+     - Enforces 7-pass SSRF preflight protection blocking internal IP and loopback addresses.
+     - Dispatches targeted GET probes and validates authentic JSON sourcemap structure (`version`, `sources`, `mappings`).
+     - Reports confirmed exposures as `status: 'potential_weakness'`, `category: 'INFORMATION_DISCLOSURE'`, `severity: 'medium'`.
+     - Cleanly abstains (`status: 'secure_target_abstained'`) on 404, 403, non-JSON error pages, or non-sourcemap payloads.
+  3. **Pipeline & Review UI Integration**:
+     - Integrated `runSourcemapExposureDetection` into `OrchestratedAssessmentApplicationService.ts` across discovered JavaScript assets.
+     - Added human-in-the-loop review promotion in `reviewEvidenceDraft()` promoting unreviewed drafts to formal `Finding` records.
+     - Enhanced `web/src/app/v2/review/page.tsx` to render exposed map URLs, source JavaScript bundles, exposed source file counts, and map file sizes.
+  4. **Verification & Hygiene**:
+     - Dedicated smoke test `worker/src/v2/smoke/milestoneP4_3_sourcemap_exposure_smoke.ts` passes 100% across all 5 assertions.
+     - `npm run typecheck:v2` exits with code 0.
+     - Full regression suite `npm run check:v2` (58/58 smoke suites) passes 100%.
      - `cd web && npm run build` compiles cleanly with zero errors.
      - 0 occurrences of `as any` across all production code.
 

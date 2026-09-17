@@ -55,6 +55,7 @@ import { runInformationDisclosureDetection } from '../detection/InformationDiscl
 import { runSubdomainTakeoverDetection } from '../detection/SubdomainTakeoverDetectionService.js';
 import { analyzeTlsConfiguration } from '../detection/TlsConfigurationAnalysisService.js';
 import { runAuthBypassDetection } from '../detection/AuthBypassDetectionService.js';
+import { runSourcemapExposureDetection } from '../detection/SourcemapExposureDetectionService.js';
 
 
 import { buildTargetProfile } from '../intelligence/TargetProfileBuilder.js';
@@ -1117,6 +1118,40 @@ export class OrchestratedAssessmentApplicationService {
             },
           },
         };
+      } else if (detKind === 'sourcemap_exposure') {
+        const exposedMapUrl = context?.exposedMapUrl ?? `https://${record.targetDomain}/bundle.js.map`;
+        const sourceJsUrl = context?.sourceJsUrl ?? `https://${record.targetDomain}/bundle.js`;
+        const sampleSourcesCount = context?.sampleSourcesCount;
+        const mapFileSizeBytes = context?.mapFileSizeBytes;
+        findingCreated = {
+          id: `fnd_smap_${draftId.replace(/^dft_/, '').replace(/^draft_/, '')}`,
+          type: 'INFORMATION_DISCLOSURE',
+          severity: 'medium',
+          title: `Approved Sourcemap Exposure on ${exposedMapUrl}`,
+          description: `Human operator verified that production JavaScript sourcemap is publicly exposed at '${exposedMapUrl}' (source: ${sourceJsUrl}). This exposes frontend source tree and internal API surface.`,
+          target: exposedMapUrl,
+          evidence: JSON.stringify({
+            draftId,
+            reviewerId,
+            reviewedAt,
+            notes,
+            differentialContext: context,
+          }),
+          confidence: 1.0,
+          metadata: {
+            kind: 'sourcemap_exposure_metadata',
+            category: 'INFORMATION_DISCLOSURE',
+            exposedMapUrl,
+            sourceJsUrl,
+            detectionSignal: 'sourcemapping_url_comment',
+            mapFileSizeBytes,
+            sampleSourcesCount,
+            observedAt: reviewedAt,
+            candidateId: `cnd_${draftId}`,
+            evidenceRecordId: `evd_${draftId}`,
+            lineage: `${record.assessmentId}:${record.scanId}:${reviewerId}:${reviewedAt}`,
+          },
+        };
       } else {
 
 
@@ -1816,6 +1851,75 @@ export class OrchestratedAssessmentApplicationService {
           }
         } catch {
           // Safe error containment
+        }
+      }
+
+      // Sourcemap Exposure Detection (Milestone P4-3)
+      if (!coordinator.isCircuitOpen(record.targetDomain)) {
+        const jsCandidateUrls = new Set<string>();
+
+        if (reconResult?.aggregatedObservations?.urls) {
+          for (const urlObs of reconResult.aggregatedObservations.urls) {
+            const cleanUrl = urlObs.url.split('?')[0];
+            if (cleanUrl.endsWith('.js')) {
+              jsCandidateUrls.add(urlObs.url);
+            }
+          }
+        }
+
+        if (reconResult?.aggregatedObservations?.webObservations) {
+          for (const webObs of reconResult.aggregatedObservations.webObservations) {
+            const cleanUrl = webObs.url.split('?')[0];
+            if (cleanUrl.endsWith('.js')) {
+              jsCandidateUrls.add(webObs.url);
+            }
+          }
+        }
+
+        if (jsCandidateUrls.size === 0) {
+          jsCandidateUrls.add(`https://${record.targetDomain}/bundle.js`);
+          jsCandidateUrls.add(`https://${record.targetDomain}/main.js`);
+        }
+
+        const candidateList = Array.from(jsCandidateUrls).slice(0, 5);
+        for (const jsUrl of candidateList) {
+          if (coordinator.isCircuitOpen(record.targetDomain)) break;
+          try {
+            const smapResult = await runSourcemapExposureDetection({
+              contractVersion: DETECTION_CONTRACT_VERSION,
+              kind: 'sourcemap_exposure_detection_request',
+              detectionId: `det_smap_${record.assessmentId.slice(-8)}_${jsUrl.replace(/[^a-zA-Z0-9]/g, '').slice(-8)}`,
+              assessmentId: lineage.assessmentId,
+              scanId: lineage.scanId,
+              authorizationGrantId: lineage.authorizationGrantId,
+              authorizationDecisionId: lineage.authorizationDecisionId,
+              actorId: lineage.actorId,
+              sourceJsUrl: jsUrl,
+              verifiedAuthorizationDecision: verifiedDecision,
+              scopeGrant,
+              transport: this.httpTransport,
+              dnsResolver: this.dnsResolver,
+            });
+
+            if (smapResult.status === 'potential_weakness' && smapResult.finding) {
+              findings.push(smapResult.finding);
+            } else if (smapResult.status === 'pending_human_review' && smapResult.evidenceDraft) {
+              const enrichedDraft: EnrichedEvidenceDraft = {
+                ...smapResult.evidenceDraft,
+                differentialContext: {
+                  endpointUrl: smapResult.exposedMapUrl ?? jsUrl,
+                  detectionKind: 'sourcemap_exposure',
+                  exposedMapUrl: smapResult.exposedMapUrl,
+                  sourceJsUrl: smapResult.sourceJsUrl,
+                  sampleSourcesCount: smapResult.sampleSourcesCount,
+                  mapFileSizeBytes: smapResult.mapFileSizeBytes,
+                },
+              };
+              pendingEvidenceDrafts.push(enrichedDraft);
+            }
+          } catch {
+            // Safe error containment
+          }
         }
       }
 
