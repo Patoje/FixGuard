@@ -694,6 +694,29 @@ function HumanReviewContent() {
                           <span className="text-rose-300 font-mono text-[11px]">{diffContext.jwtProbeMechanism.replace('_', ' ').toUpperCase()}</span>
                         </div>
                       )}
+
+                      {diffContext?.sessionCookieName && (
+                        <div className="rounded-lg bg-black/40 border border-zinc-800 p-2.5">
+                          <span className="text-zinc-500 text-[10px] block">Session Cookie Tested:</span>
+                          <span className="text-zinc-300 font-bold font-mono">{diffContext.sessionCookieName}</span>
+                        </div>
+                      )}
+
+                      {diffContext?.fixedSessionId && (
+                        <div className="rounded-lg bg-black/40 border border-rose-500/30 p-2.5">
+                          <span className="text-zinc-500 text-[10px] block">Fixed Identifier Excerpt:</span>
+                          <span className="text-rose-300 font-mono text-[11px] break-all">{diffContext.fixedSessionId}</span>
+                        </div>
+                      )}
+
+                      {diffContext?.serverRegeneratedSession !== undefined && (
+                        <div className="rounded-lg bg-black/40 border border-rose-500/30 p-2.5 col-span-2">
+                          <span className="text-zinc-500 text-[10px] block">Session Regeneration:</span>
+                          <span className={`font-bold ${diffContext.serverRegeneratedSession ? 'text-emerald-400' : 'text-rose-400'}`}>
+                            {diffContext.serverRegeneratedSession ? 'REGENERATED (Set-Cookie Issued)' : 'NOT REGENERATED (Caller-Supplied Cookie Accepted)'}
+                          </span>
+                        </div>
+                      )}
                     </div>
 
 

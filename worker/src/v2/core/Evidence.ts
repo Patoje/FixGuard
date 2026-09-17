@@ -212,6 +212,20 @@ export interface JwtAlgorithmConfusionMetadata {
   readonly lineage?: string | Record<string, unknown>;
 }
 
+export interface SessionFixationMetadata {
+  readonly kind: 'session_fixation_metadata';
+  readonly category: 'BROKEN_AUTHENTICATION';
+  readonly endpointUrl: string;
+  readonly httpMethod: string;
+  readonly sessionCookieName: string;
+  readonly fixedSessionId: string; // sanitized excerpt/prefix, max 32 chars
+  readonly serverRegeneratedSession: boolean;
+  readonly observedAt: string;
+  readonly candidateId?: string;
+  readonly evidenceRecordId?: string;
+  readonly lineage?: string | Record<string, unknown>;
+}
+
 export type FindingMetadata =
   | BrokenAccessControlMetadata
   | SecurityMisconfigurationMetadata
@@ -227,6 +241,7 @@ export type FindingMetadata =
   | SqlErrorOracleMetadata
   | GraphQLSurfaceMetadata
   | JwtAlgorithmConfusionMetadata
+  | SessionFixationMetadata
   | DiscoveryFindingMetadata;
 
 

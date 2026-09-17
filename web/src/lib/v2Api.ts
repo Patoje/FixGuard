@@ -159,6 +159,7 @@ export interface DifferentialEvidenceContextDto {
     | 'sql_error_oracle'
     | 'graphql_surface'
     | 'jwt_algorithm_confusion'
+    | 'session_fixation'
     | 'custom_difference';
   readonly baselineStatusCode?: number;
   readonly baselineBodyHash?: string;
@@ -211,6 +212,9 @@ export interface DifferentialEvidenceContextDto {
   readonly originalAlgorithm?: string;
   readonly manipulatedAlgorithm?: 'none' | 'None' | 'NONE';
   readonly jwtProbeMechanism?: 'signature_stripping' | 'alg_none_header';
+  readonly sessionCookieName?: string;
+  readonly fixedSessionId?: string;
+  readonly serverRegeneratedSession?: boolean;
 }
 
 

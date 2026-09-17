@@ -117,13 +117,16 @@
                                                                 │
                                                                 ▼
                                                         [PHASE 4: P4-7] COMPLETED (JWT Algorithm Confusion Probe)
+                                                                │
+                                                                ▼
+                                                        [PHASE 4: P4-8] COMPLETED (Session Fixation Detection Engine)
 ```
 
 ---
 
 ## 2. Completed Milestones (`CONFIRMED`)
 
-All completed milestones are verified via active TypeScript contracts and the regression test suite (`npm run check:v2` with 62 passing smoke suites, 100% pass rate).
+All completed milestones are verified via active TypeScript contracts and the regression test suite (`npm run check:v2` with 63 passing smoke suites, 100% pass rate).
 
 
 
@@ -1037,6 +1040,35 @@ All completed milestones are verified via active TypeScript contracts and the re
      - Dedicated smoke test `worker/src/v2/smoke/milestoneP4_7_jwt_confusion_smoke.ts` passes 100% across all 5 assertions.
      - `npm run typecheck:v2` exits with code 0.
      - Full regression suite `npm run check:v2` (62/62 smoke suites) passes 100%.
+     - `cd web && npm run build` compiles cleanly with zero errors.
+     - 0 occurrences of `as any` across all production code.
+
+---
+
+### Milestone P4-8: Session Fixation Detection Engine
+- **Status:** COMPLETED.
+- **Goal:** Implement the Session Fixation Detection Engine targeting session lifecycle management, testing whether target services accept caller-supplied session identifiers instead of generating fresh identifiers, exposing users to session hijacking.
+- **Key Deliverables:**
+  1. **Domain Contracts & Typed Metadata (`SessionFixationMetadata`)**:
+     - Defined `SessionFixationMetadata` in `worker/src/v2/core/Evidence.ts` under the `FindingMetadata` discriminated union (`kind: 'session_fixation_metadata'`, `category: 'BROKEN_AUTHENTICATION'`, `endpointUrl`, `httpMethod`, `sessionCookieName`, `fixedSessionId`, `serverRegeneratedSession: boolean`).
+     - Extended `DifferentialEvidenceContext` and `DifferentialEvidenceContextDto` with `detectionKind: 'session_fixation'`, `sessionCookieName`, `fixedSessionId`, and `serverRegeneratedSession`.
+  2. **Detection Service (`SessionFixationDetectionService.ts`)**:
+     - Implemented `runSessionFixationDetection()`.
+     - Identifies target session cookie (e.g. `PHPSESSID`, `JSESSIONID`, `session`, `connect.sid`, `sid`).
+     - Injects synthetic in-scope fixed session token (`fixguard_fix_<seed>`).
+     - Enforces 7-pass SSRF preflight protection blocking internal IP and metadata probing.
+     - Inspects `Set-Cookie` response headers:
+       - If server issues fresh `Set-Cookie` overriding the synthetic token, or rejects with 401/403: Cleanly abstains (`status: 'secure_target_abstained'`).
+       - If server accepts request (200 OK) without issuing a regenerating `Set-Cookie`: Flags session fixation flaw (`status: 'vulnerability_detected'`, `severity: 'medium'`, `category: 'BROKEN_AUTHENTICATION'`).
+     - Sanitizes evidence fragments and truncates fixed session excerpt to max 32 characters.
+  3. **Pipeline & Review UI Integration**:
+     - Wired `runSessionFixationDetection` into `executePipelineStages` in `OrchestratedAssessmentApplicationService.ts`.
+     - Added `reviewEvidenceDraft` handler for `'session_fixation'` promoting unreviewed drafts to formal `Finding` records with `SessionFixationMetadata`.
+     - Updated `web/src/app/v2/review/page.tsx` to render Session Fixation cards displaying session cookie name, fixed identifier excerpt, and regeneration status.
+  4. **Verification & Hygiene**:
+     - Dedicated smoke test `worker/src/v2/smoke/milestoneP4_8_session_fixation_smoke.ts` passes 100% across all 5 assertions.
+     - `npm run typecheck:v2` exits with code 0.
+     - Full regression suite `npm run check:v2` (63/63 smoke suites) passes 100%.
      - `cd web && npm run build` compiles cleanly with zero errors.
      - 0 occurrences of `as any` across all production code.
 

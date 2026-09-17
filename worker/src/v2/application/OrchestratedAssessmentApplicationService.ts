@@ -60,6 +60,7 @@ import { runWordPressSurfaceDetection } from '../detection/WordPressSurfaceDetec
 import { runSqlErrorOracleDetection } from '../detection/SqlErrorOracleDetectionService.js';
 import { runGraphQLSurfaceDetection } from '../detection/GraphQLSurfaceDetectionService.js';
 import { runJwtAlgorithmConfusionDetection } from '../detection/JwtAlgorithmConfusionDetectionService.js';
+import { runSessionFixationDetection } from '../detection/SessionFixationDetectionService.js';
 
 
 import { buildTargetProfile } from '../intelligence/TargetProfileBuilder.js';
@@ -1361,6 +1362,49 @@ export class OrchestratedAssessmentApplicationService {
             lineage: `${record.assessmentId}:${record.scanId}:${reviewerId}:${reviewedAt}`,
           },
         };
+      } else if (detKind === 'session_fixation') {
+        const endpointUrl = context?.endpointUrl ?? `https://${record.targetDomain}/`;
+        const httpMethod = context?.httpMethod ?? 'GET';
+        const sessionCookieName = context?.sessionCookieName ?? 'PHPSESSID';
+        const fixedSessionId = context?.fixedSessionId ?? 'fixguard_fix_token';
+        const serverRegeneratedSession = context?.serverRegeneratedSession ?? false;
+
+        let parsedPath = '/';
+        try {
+          parsedPath = new URL(endpointUrl).pathname;
+        } catch {
+          // fallback
+        }
+
+        findingCreated = {
+          id: `fnd_fix_${draftId.replace(/^dft_/, '').replace(/^draft_/, '')}`,
+          type: 'BROKEN_AUTHENTICATION',
+          severity: 'medium',
+          title: `Approved Session Fixation Vulnerability on ${parsedPath} (${sessionCookieName})`,
+          description: `Human operator verified that target application accepts caller-supplied session identifier '${sessionCookieName}' on ${endpointUrl} without issuing a regenerating Set-Cookie header.`,
+          target: endpointUrl,
+          evidence: JSON.stringify({
+            draftId,
+            reviewerId,
+            reviewedAt,
+            notes,
+            differentialContext: context,
+          }),
+          confidence: 1.0,
+          metadata: {
+            kind: 'session_fixation_metadata',
+            category: 'BROKEN_AUTHENTICATION',
+            endpointUrl,
+            httpMethod,
+            sessionCookieName,
+            fixedSessionId,
+            serverRegeneratedSession,
+            observedAt: reviewedAt,
+            candidateId: `cnd_${draftId}`,
+            evidenceRecordId: `evd_${draftId}`,
+            lineage: `${record.assessmentId}:${record.scanId}:${reviewerId}:${reviewedAt}`,
+          },
+        };
       } else {
 
 
@@ -2349,6 +2393,48 @@ export class OrchestratedAssessmentApplicationService {
                   jwtProbeMechanism: jwtResult.probeMechanism,
                   baselineStatusCode: jwtResult.baselineStatusCode,
                   validationStatusCode: jwtResult.forgedStatusCode,
+                },
+              };
+              pendingEvidenceDrafts.push(enrichedDraft);
+            }
+          } catch {
+            // Safe error containment
+          }
+        }
+
+        // Session Fixation Detection Probe
+        if (!coordinator.isCircuitOpen(record.targetDomain)) {
+          try {
+            const fixResult = await runSessionFixationDetection({
+              contractVersion: DETECTION_CONTRACT_VERSION,
+              kind: 'session_fixation_detection_request',
+              detectionId: `det_fix_${record.assessmentId.slice(-8)}`,
+              assessmentId: lineage.assessmentId,
+              scanId: lineage.scanId,
+              authorizationGrantId: lineage.authorizationGrantId,
+              authorizationDecisionId: lineage.authorizationDecisionId,
+              actorId: lineage.actorId,
+              endpointUrl: targetUrl,
+              httpMethod: 'GET',
+              verifiedAuthorizationDecision: verifiedDecision,
+              scopeGrant,
+              transport: this.httpTransport,
+              dnsResolver: this.dnsResolver,
+            });
+
+            if (fixResult.status === 'vulnerability_detected' && fixResult.finding) {
+              findings.push(fixResult.finding);
+            } else if (fixResult.status === 'pending_human_review' && fixResult.evidenceDraft) {
+              const enrichedDraft: EnrichedEvidenceDraft = {
+                ...fixResult.evidenceDraft,
+                differentialContext: {
+                  endpointUrl: fixResult.endpointUrl,
+                  detectionKind: 'session_fixation',
+                  httpMethod: fixResult.httpMethod,
+                  sessionCookieName: fixResult.sessionCookieName,
+                  fixedSessionId: fixResult.fixedSessionId,
+                  serverRegeneratedSession: fixResult.serverRegeneratedSession,
+                  baselineStatusCode: fixResult.responseStatusCode,
                 },
               };
               pendingEvidenceDrafts.push(enrichedDraft);
