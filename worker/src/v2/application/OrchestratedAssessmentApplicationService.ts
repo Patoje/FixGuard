@@ -63,6 +63,7 @@ import { runJwtAlgorithmConfusionDetection } from '../detection/JwtAlgorithmConf
 import { runSessionFixationDetection } from '../detection/SessionFixationDetectionService.js';
 import { runCredentialedCorsDetection } from '../detection/CredentialedCorsDetectionService.js';
 import { runCmsPluginVulnerabilityDetection } from '../detection/CmsPluginVulnerabilityDetectionService.js';
+import { correlateCorsIdorChains } from '../intelligence/correlation/CorsIdorChainCorrelator.js';
 
 
 import { buildTargetProfile } from '../intelligence/TargetProfileBuilder.js';
@@ -1491,9 +1492,45 @@ export class OrchestratedAssessmentApplicationService {
             lineage: `${record.assessmentId}:${record.scanId}:${reviewerId}:${reviewedAt}`,
           },
         };
+      } else if (detKind === 'cors_idor_compound') {
+        const endpointUrl = context?.endpointUrl ?? `https://${record.targetDomain}/`;
+        const primaryFindingId = context?.primaryFindingId ?? 'fnd_cors_001';
+        const secondaryFindingId = context?.secondaryFindingId ?? 'fnd_idor_001';
+        const sharedOrigin = context?.sharedOrigin ?? `https://${record.targetDomain}`;
+        const targetEndpointUrl = context?.targetEndpointUrl ?? endpointUrl;
+        const compoundImpactScore = context?.compoundImpactScore ?? 0.95;
+
+        findingCreated = {
+          id: `fnd_cmpnd_${draftId.replace(/^dft_/, '').replace(/^draft_/, '').replace(/^cmpnd_/, '').replace(/^chain_/, '')}`,
+          type: 'BROKEN_ACCESS_CONTROL',
+          severity: 'critical',
+          title: `Approved Critical Compound Exploit Chain: Credentialed CORS + IDOR on ${sharedOrigin}`,
+          description: `Human operator verified compound attack chain: Target reflects untrusted external origins with credentials (${primaryFindingId}) and is vulnerable to Differential IDOR (${secondaryFindingId}) on ${targetEndpointUrl}, proving authenticated cross-origin tenant data exfiltration.`,
+          target: targetEndpointUrl,
+          evidence: JSON.stringify({
+            draftId,
+            reviewerId,
+            reviewedAt,
+            notes,
+            differentialContext: context,
+          }),
+          confidence: 1.0,
+          metadata: {
+            kind: 'compound_chain_metadata',
+            category: 'BROKEN_ACCESS_CONTROL',
+            chainKind: 'cors_idor_compound',
+            primaryFindingId,
+            secondaryFindingId,
+            sharedOrigin,
+            targetEndpointUrl,
+            compoundImpactScore,
+            observedAt: reviewedAt,
+            candidateId: `cnd_${draftId}`,
+            evidenceRecordId: `evd_${draftId}`,
+            lineage: `${record.assessmentId}:${record.scanId}:${reviewerId}:${reviewedAt}`,
+          },
+        };
       } else {
-
-
 
         findingCreated = {
           id: `fnd_appr_${draftId.replace(/^dft_/, '')}`,
@@ -1526,10 +1563,23 @@ export class OrchestratedAssessmentApplicationService {
         };
       }
 
+      const updatedFindings = [...record.findings, findingCreated!];
+      const chainCorrelation = correlateCorsIdorChains({
+        assessmentId: record.assessmentId,
+        scanId: record.scanId,
+        actorId: reviewerId,
+        findings: updatedFindings,
+      });
+
+      const existingDraftIds = new Set(remainingDrafts.map((d) => d.draftId));
+      const newCompoundDrafts = chainCorrelation.compoundDrafts.filter(
+        (cd) => !existingDraftIds.has(cd.draftId)
+      );
+
       await this.repository.update(assessmentId, (prev) => ({
         ...prev,
-        findings: [...prev.findings, findingCreated!],
-        pendingEvidenceDrafts: remainingDrafts,
+        findings: updatedFindings,
+        pendingEvidenceDrafts: [...remainingDrafts, ...newCompoundDrafts],
       }));
     } else {
       // reject_evidence
@@ -2629,6 +2679,25 @@ export class OrchestratedAssessmentApplicationService {
               // Safe error containment
             }
           }
+        }
+
+        // Compound Chain Correlation (Milestone P5-1: CORS + IDOR Compound Exploit Chain)
+        try {
+          const chainResult = correlateCorsIdorChains({
+            assessmentId: lineage.assessmentId,
+            scanId: lineage.scanId,
+            actorId: lineage.actorId,
+            findings,
+          });
+
+          for (const compoundDraft of chainResult.compoundDrafts) {
+            pendingEvidenceDrafts.push(compoundDraft);
+          }
+          for (const compoundFinding of chainResult.compoundFindings) {
+            findings.push(compoundFinding);
+          }
+        } catch {
+          // Safe error containment
         }
       }
 

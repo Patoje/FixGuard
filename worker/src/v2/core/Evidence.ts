@@ -256,6 +256,21 @@ export interface CmsPluginVulnerabilityMetadata {
   readonly lineage?: string | Record<string, unknown>;
 }
 
+export interface CompoundChainMetadata {
+  readonly kind: 'compound_chain_metadata';
+  readonly category: 'BROKEN_ACCESS_CONTROL';
+  readonly chainKind: 'cors_idor_compound';
+  readonly primaryFindingId: string;   // Credentialed CORS Finding ID
+  readonly secondaryFindingId: string; // IDOR Finding ID
+  readonly sharedOrigin: string;
+  readonly targetEndpointUrl: string;
+  readonly compoundImpactScore: number; // 0.85 - 1.0 (Critical)
+  readonly observedAt: string;
+  readonly candidateId?: string;
+  readonly evidenceRecordId?: string;
+  readonly lineage?: string | Record<string, unknown>;
+}
+
 export type FindingMetadata =
   | BrokenAccessControlMetadata
   | SecurityMisconfigurationMetadata
@@ -274,6 +289,7 @@ export type FindingMetadata =
   | SessionFixationMetadata
   | CredentialedCorsMetadata
   | CmsPluginVulnerabilityMetadata
+  | CompoundChainMetadata
   | DiscoveryFindingMetadata;
 
 

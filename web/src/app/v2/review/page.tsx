@@ -776,6 +776,40 @@ function HumanReviewContent() {
                           </span>
                         </div>
                       )}
+
+                      {diffContext?.chainKind && (
+                        <div className="rounded-lg bg-black/40 border border-rose-500/40 p-2.5 col-span-2">
+                          <span className="text-rose-400 text-[10px] block font-bold uppercase tracking-wider mb-1">
+                            Exploit Chain: {diffContext.chainKind.replace(/_/g, ' ').toUpperCase()}
+                          </span>
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-[11px] font-mono mt-2">
+                            {diffContext.primaryFindingId && (
+                              <div className="rounded bg-black/60 p-2 border border-zinc-800">
+                                <span className="text-zinc-500 text-[10px] block">Primary Finding (CORS Vector):</span>
+                                <span className="text-amber-400 font-bold">{diffContext.primaryFindingId}</span>
+                              </div>
+                            )}
+                            {diffContext.secondaryFindingId && (
+                              <div className="rounded bg-black/60 p-2 border border-zinc-800">
+                                <span className="text-zinc-500 text-[10px] block">Secondary Finding (IDOR Exfiltration):</span>
+                                <span className="text-rose-400 font-bold">{diffContext.secondaryFindingId}</span>
+                              </div>
+                            )}
+                            {diffContext.sharedOrigin && (
+                              <div className="rounded bg-black/60 p-2 border border-zinc-800">
+                                <span className="text-zinc-500 text-[10px] block">Matching Target Origin:</span>
+                                <span className="text-blue-400">{diffContext.sharedOrigin}</span>
+                              </div>
+                            )}
+                            {diffContext.compoundImpactScore !== undefined && (
+                              <div className="rounded bg-black/60 p-2 border border-rose-500/30">
+                                <span className="text-zinc-500 text-[10px] block">Compound Impact Score:</span>
+                                <span className="text-rose-400 font-bold">{diffContext.compoundImpactScore.toFixed(2)} (CRITICAL)</span>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      )}
                     </div>
 
 

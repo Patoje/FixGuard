@@ -126,13 +126,16 @@
                                                                 │
                                                                 ▼
                                                         [PHASE 4: P4-10] COMPLETED (CMS Plugin Vulnerability Surface - Phase 4 Finale)
+                                                                │
+                                                                ▼
+                                                        [PHASE 5: P5-1] COMPLETED (CORS + IDOR Compound Chain Correlator)
 ```
 
 ---
 
 ## 2. Completed Milestones (`CONFIRMED`)
 
-All completed milestones are verified via active TypeScript contracts and the regression test suite (`npm run check:v2` with 65 passing smoke suites, 100% pass rate).
+All completed milestones are verified via active TypeScript contracts and the regression test suite (`npm run check:v2` with 66 passing smoke suites, 100% pass rate).
 
 
 
@@ -1134,6 +1137,31 @@ All completed milestones are verified via active TypeScript contracts and the re
      - Dedicated smoke test `worker/src/v2/smoke/milestoneP4_10_cms_plugin_surface_smoke.ts` passes 100% across all 5 assertions.
      - `npm run typecheck:v2` exits with code 0.
      - Full regression suite `npm run check:v2` (65/65 smoke suites) passes 100%.
+     - `cd web && npm run build` compiles cleanly with zero errors.
+     - 0 occurrences of `as any` across all production code.
+
+---
+
+### Milestone P5-1: CORS + IDOR Compound Chain Correlator (Phase 5 Launch)
+- **Status:** COMPLETED (Phase 5 Milestone 1 Complete).
+- **Goal:** Establish compound chain correlation by evaluating confirmed findings from P4-9 (Credentialed CORS) and P3-3 (Differential IDOR) sharing the same origin, generating Critical compound attack surface findings with zero additional network overhead.
+- **Key Deliverables:**
+  1. **Domain Contracts & Typed Metadata (`CompoundChainMetadata`)**:
+     - Defined `CompoundChainMetadata` in `worker/src/v2/core/Evidence.ts` under `FindingMetadata` (`kind: 'compound_chain_metadata'`, `category: 'BROKEN_ACCESS_CONTROL'`, `chainKind: 'cors_idor_compound'`, `primaryFindingId`, `secondaryFindingId`, `sharedOrigin`, `targetEndpointUrl`, `compoundImpactScore: number`).
+     - Extended `DifferentialEvidenceContext` in `OrchestratedAssessmentContracts.ts` and `DifferentialEvidenceContextDto` in `web/src/lib/v2Api.ts` with `detectionKind: 'cors_idor_compound'` and compound chain metadata fields.
+  2. **Pure Correlation Service (`CorsIdorChainCorrelator.ts`)**:
+     - Created `worker/src/v2/intelligence/correlation/CorsIdorChainCorrelator.ts`.
+     - Pure analytical logic: consumes confirmed `Finding` records, matches Credentialed CORS findings with Differential IDOR findings sharing identical origins (`scheme://host:port`).
+     - Zero network requests executed during correlation.
+     - Synthesizes `EnrichedEvidenceDraft` with `compoundImpactScore: 0.95` and status `pending_human_review`.
+  3. **Pipeline & Review UI Integration**:
+     - Wired `correlateCorsIdorChains` into `executePipelineStages` and `reviewEvidenceDraft` in `OrchestratedAssessmentApplicationService.ts`.
+     - Operator review and approval promotes compound drafts into top-tier Critical `Finding` records.
+     - Updated `web/src/app/v2/review/page.tsx` to render Compound Chain cards showing linked CORS finding ID, IDOR finding ID, shared origin, and compound impact score badge.
+  4. **Verification & Hygiene**:
+     - Dedicated smoke test `worker/src/v2/smoke/milestoneP5_1_cors_idor_chain_smoke.ts` passes 100% across all 5 assertions.
+     - `npm run typecheck:v2` exits with code 0.
+     - Full regression suite `npm run check:v2` (66/66 smoke suites) passes 100%.
      - `cd web && npm run build` compiles cleanly with zero errors.
      - 0 occurrences of `as any` across all production code.
 

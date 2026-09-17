@@ -162,6 +162,7 @@ export interface DifferentialEvidenceContextDto {
     | 'session_fixation'
     | 'credentialed_cors'
     | 'cms_plugin_vulnerability'
+    | 'cors_idor_compound'
     | 'custom_difference';
   readonly baselineStatusCode?: number;
   readonly baselineBodyHash?: string;
@@ -226,6 +227,12 @@ export interface DifferentialEvidenceContextDto {
   readonly minimumSafeVersion?: string;
   readonly isOutdated?: boolean;
   readonly evidenceSourceUrl?: string;
+  readonly chainKind?: 'cors_idor_compound';
+  readonly primaryFindingId?: string;
+  readonly secondaryFindingId?: string;
+  readonly sharedOrigin?: string;
+  readonly targetEndpointUrl?: string;
+  readonly compoundImpactScore?: number;
 }
 
 
