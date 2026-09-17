@@ -577,6 +577,43 @@ function HumanReviewContent() {
                           <span className="text-zinc-300 font-bold font-mono">{(diffContext.mapFileSizeBytes / 1024).toFixed(1)} KB</span>
                         </div>
                       )}
+
+                      {diffContext?.wpProbeKind && (
+                        <div className="rounded-lg bg-black/40 border border-blue-500/30 p-2.5">
+                          <span className="text-zinc-500 text-[10px] block">WordPress Surface Kind:</span>
+                          <span className="text-blue-400 font-bold uppercase">{diffContext.wpProbeKind.replace('_', ' ')}</span>
+                        </div>
+                      )}
+
+                      {diffContext?.multicallSupported !== undefined && (
+                        <div className="rounded-lg bg-black/40 border border-rose-500/30 p-2.5">
+                          <span className="text-zinc-500 text-[10px] block">system.multicall Amplification:</span>
+                          <span className={`font-bold ${diffContext.multicallSupported ? 'text-rose-400' : 'text-zinc-400'}`}>
+                            {diffContext.multicallSupported ? 'SUPPORTED (Amplification Risk)' : 'Not Present'}
+                          </span>
+                        </div>
+                      )}
+
+                      {diffContext?.xmlRpcMethodsExposed && diffContext.xmlRpcMethodsExposed.length > 0 && (
+                        <div className="rounded-lg bg-black/40 border border-zinc-800 p-2.5 col-span-2">
+                          <span className="text-zinc-500 text-[10px] block font-semibold mb-1">Exposed XML-RPC Methods ({diffContext.xmlRpcMethodsExposed.length}):</span>
+                          <span className="text-zinc-300 text-[11px] font-mono break-all">{diffContext.xmlRpcMethodsExposed.join(', ')}</span>
+                        </div>
+                      )}
+
+                      {diffContext?.exposedUsersCount !== undefined && (
+                        <div className="rounded-lg bg-black/40 border border-amber-500/30 p-2.5">
+                          <span className="text-zinc-500 text-[10px] block">Exposed Users Count:</span>
+                          <span className="text-amber-400 font-bold">{diffContext.exposedUsersCount} users</span>
+                        </div>
+                      )}
+
+                      {diffContext?.sampleUserSlugs && diffContext.sampleUserSlugs.length > 0 && (
+                        <div className="rounded-lg bg-black/40 border border-rose-500/30 p-2.5 col-span-2">
+                          <span className="text-rose-400 text-[10px] block font-semibold mb-1">Disclosed Author Usernames / Slugs:</span>
+                          <span className="text-rose-300 text-[11px] font-mono break-all font-bold">{diffContext.sampleUserSlugs.join(', ')}</span>
+                        </div>
+                      )}
                     </div>
 
 

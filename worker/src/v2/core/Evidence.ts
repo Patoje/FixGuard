@@ -154,6 +154,21 @@ export interface SourcemapExposureMetadata {
   readonly lineage?: string | Record<string, unknown>;
 }
 
+export interface WordPressSurfaceMetadata {
+  readonly kind: 'wordpress_surface_metadata';
+  readonly category: 'SECURITY_MISCONFIGURATION' | 'INFORMATION_DISCLOSURE';
+  readonly probeKind: 'xmlrpc_capabilities' | 'rest_user_enumeration';
+  readonly endpointUrl: string;
+  readonly xmlRpcMethodsExposed?: readonly string[];
+  readonly multicallSupported?: boolean;
+  readonly exposedUsersCount?: number;
+  readonly sampleUserSlugs?: readonly string[];
+  readonly observedAt: string;
+  readonly candidateId?: string;
+  readonly evidenceRecordId?: string;
+  readonly lineage?: string | Record<string, unknown>;
+}
+
 export type FindingMetadata =
   | BrokenAccessControlMetadata
   | SecurityMisconfigurationMetadata
@@ -165,6 +180,7 @@ export type FindingMetadata =
   | WeakTlsMetadata
   | AuthBypassMetadata
   | SourcemapExposureMetadata
+  | WordPressSurfaceMetadata
   | DiscoveryFindingMetadata;
 
 

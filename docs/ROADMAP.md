@@ -105,13 +105,16 @@
                                                                 │
                                                                 ▼
                                                         [PHASE 4: P4-3] COMPLETED (Sourcemap Exposure Detection Engine)
+                                                                │
+                                                                ▼
+                                                        [PHASE 4: P4-4] COMPLETED (WordPress XML-RPC and User Enumeration Probes)
 ```
 
 ---
 
 ## 2. Completed Milestones (`CONFIRMED`)
 
-All completed milestones are verified via active TypeScript contracts and the regression test suite (`npm run check:v2` with 58 passing smoke suites, 100% pass rate).
+All completed milestones are verified via active TypeScript contracts and the regression test suite (`npm run check:v2` with 59 passing smoke suites, 100% pass rate).
 
 
 
@@ -915,7 +918,34 @@ All completed milestones are verified via active TypeScript contracts and the re
   4. **Verification & Hygiene**:
      - Dedicated smoke test `worker/src/v2/smoke/milestoneP4_3_sourcemap_exposure_smoke.ts` passes 100% across all 5 assertions.
      - `npm run typecheck:v2` exits with code 0.
-     - Full regression suite `npm run check:v2` (58/58 smoke suites) passes 100%.
+     - Full regression suite `npm run check:v2` (59/59 smoke suites) passes 100%.
+     - `cd web && npm run build` compiles cleanly with zero errors.
+     - 0 occurrences of `as any` across all production code.
+
+---
+
+### Milestone P4-4: WordPress XML-RPC and User Enumeration Probes
+- **Status:** COMPLETED.
+- **Goal:** Implement non-brute-force CMS detection for WordPress surfaces: XML-RPC capability probing (`system.listMethods` and `system.multicall` amplification support) and REST API user identity enumeration (`/wp-json/wp/v2/users`).
+- **Key Deliverables:**
+  1. **Domain Contracts & Typed Metadata (`WordPressSurfaceMetadata`)**:
+     - Defined `WordPressSurfaceMetadata` in `worker/src/v2/core/Evidence.ts` under the `FindingMetadata` discriminated union (`kind: 'wordpress_surface_metadata'`, `category: 'SECURITY_MISCONFIGURATION' | 'INFORMATION_DISCLOSURE'`, `probeKind: 'xmlrpc_capabilities' | 'rest_user_enumeration'`).
+     - Extended `DifferentialEvidenceContext` and `DifferentialEvidenceContextDto` with `detectionKind: 'wordpress_surface'`, `wpProbeKind`, `xmlRpcMethodsExposed`, `multicallSupported`, `exposedUsersCount`, and `sampleUserSlugs`.
+     - Extended `HttpProbeRequest` in `DetectionContracts.ts` to support `POST` and body payloads.
+  2. **Detection Service (`WordPressSurfaceDetectionService.ts`)**:
+     - Implemented `runWordPressSurfaceDetection()`.
+     - **Probe 1 (XML-RPC)**: Safely dispatches `POST /xmlrpc.php` with `system.listMethods` payload. Parses returned method list and checks for `system.multicall` presence. Classifies as `SECURITY_MISCONFIGURATION` (`medium` severity with multicall amplification, `low` without).
+     - **Probe 2 (REST Users)**: Dispatches `GET /wp-json/wp/v2/users`. Parses JSON user objects, extracting author slugs and public user counts. Classifies as `INFORMATION_DISCLOSURE` (`medium` severity).
+     - **Strict Non-Brute-Force & Abstention Discipline**: Never tests credentials or sends high-volume traffic. Cleanly returns `status: 'secure_target_abstained'` on 401, 403, 404, or `rest_cannot_view` responses.
+     - **SSRF Safety**: 7-pass preflight protection blocks internal IP and metadata probing.
+  3. **Pipeline & Review UI Integration**:
+     - Wired `runWordPressSurfaceDetection` into `executePipelineStages` in `OrchestratedAssessmentApplicationService.ts`.
+     - Added `reviewEvidenceDraft` handler for `'wordpress_surface'` promoting unreviewed drafts to formal `Finding` records.
+     - Updated `web/src/app/v2/review/page.tsx` to render WordPress surface cards displaying probe kind, `system.multicall` risk badges, callable XML-RPC method lists, exposed user counts, and disclosed author usernames.
+  4. **Verification & Hygiene**:
+     - Dedicated smoke test `worker/src/v2/smoke/milestoneP4_4_wordpress_surface_smoke.ts` passes 100% across all 5 assertions.
+     - `npm run typecheck:v2` exits with code 0.
+     - Full regression suite `npm run check:v2` (59/59 smoke suites) passes 100%.
      - `cd web && npm run build` compiles cleanly with zero errors.
      - 0 occurrences of `as any` across all production code.
 

@@ -56,6 +56,7 @@ import { runSubdomainTakeoverDetection } from '../detection/SubdomainTakeoverDet
 import { analyzeTlsConfiguration } from '../detection/TlsConfigurationAnalysisService.js';
 import { runAuthBypassDetection } from '../detection/AuthBypassDetectionService.js';
 import { runSourcemapExposureDetection } from '../detection/SourcemapExposureDetectionService.js';
+import { runWordPressSurfaceDetection } from '../detection/WordPressSurfaceDetectionService.js';
 
 
 import { buildTargetProfile } from '../intelligence/TargetProfileBuilder.js';
@@ -1152,6 +1153,73 @@ export class OrchestratedAssessmentApplicationService {
             lineage: `${record.assessmentId}:${record.scanId}:${reviewerId}:${reviewedAt}`,
           },
         };
+      } else if (detKind === 'wordpress_surface') {
+        const wpProbeKind = context?.wpProbeKind ?? 'xmlrpc_capabilities';
+        const endpointUrl = context?.endpointUrl ?? `https://${record.targetDomain}/xmlrpc.php`;
+        const multicallSupported = context?.multicallSupported;
+        const xmlRpcMethodsExposed = context?.xmlRpcMethodsExposed;
+        const exposedUsersCount = context?.exposedUsersCount;
+        const sampleUserSlugs = context?.sampleUserSlugs;
+
+        if (wpProbeKind === 'xmlrpc_capabilities') {
+          findingCreated = {
+            id: `fnd_wpxml_${draftId.replace(/^dft_/, '').replace(/^draft_/, '')}`,
+            type: 'SECURITY_MISCONFIGURATION',
+            severity: multicallSupported ? 'medium' : 'low',
+            title: `Approved WordPress XML-RPC API Exposure on ${endpointUrl}`,
+            description: `Human operator verified that WordPress XML-RPC endpoint '${endpointUrl}' is publicly active${multicallSupported ? ' with system.multicall amplification support' : ''}.`,
+            target: endpointUrl,
+            evidence: JSON.stringify({
+              draftId,
+              reviewerId,
+              reviewedAt,
+              notes,
+              differentialContext: context,
+            }),
+            confidence: 1.0,
+            metadata: {
+              kind: 'wordpress_surface_metadata',
+              category: 'SECURITY_MISCONFIGURATION',
+              probeKind: 'xmlrpc_capabilities',
+              endpointUrl,
+              xmlRpcMethodsExposed,
+              multicallSupported,
+              observedAt: reviewedAt,
+              candidateId: `cnd_${draftId}`,
+              evidenceRecordId: `evd_${draftId}`,
+              lineage: `${record.assessmentId}:${record.scanId}:${reviewerId}:${reviewedAt}`,
+            },
+          };
+        } else {
+          findingCreated = {
+            id: `fnd_wpusr_${draftId.replace(/^dft_/, '').replace(/^draft_/, '')}`,
+            type: 'INFORMATION_DISCLOSURE',
+            severity: 'medium',
+            title: `Approved WordPress REST User Enumeration on ${endpointUrl}`,
+            description: `Human operator verified that WordPress user identities are publicly disclosed at '${endpointUrl}' (${exposedUsersCount ?? 0} users, slugs: ${sampleUserSlugs?.join(', ') ?? 'n/a'}).`,
+            target: endpointUrl,
+            evidence: JSON.stringify({
+              draftId,
+              reviewerId,
+              reviewedAt,
+              notes,
+              differentialContext: context,
+            }),
+            confidence: 1.0,
+            metadata: {
+              kind: 'wordpress_surface_metadata',
+              category: 'INFORMATION_DISCLOSURE',
+              probeKind: 'rest_user_enumeration',
+              endpointUrl,
+              exposedUsersCount,
+              sampleUserSlugs,
+              observedAt: reviewedAt,
+              candidateId: `cnd_${draftId}`,
+              evidenceRecordId: `evd_${draftId}`,
+              lineage: `${record.assessmentId}:${record.scanId}:${reviewerId}:${reviewedAt}`,
+            },
+          };
+        }
       } else {
 
 
@@ -1913,6 +1981,59 @@ export class OrchestratedAssessmentApplicationService {
                   sourceJsUrl: smapResult.sourceJsUrl,
                   sampleSourcesCount: smapResult.sampleSourcesCount,
                   mapFileSizeBytes: smapResult.mapFileSizeBytes,
+                },
+              };
+              pendingEvidenceDrafts.push(enrichedDraft);
+            }
+          } catch {
+            // Safe error containment
+          }
+        }
+      }
+
+      // WordPress Surface Detection (Milestone P4-4: XML-RPC & REST Users)
+      if (!coordinator.isCircuitOpen(record.targetDomain)) {
+        const wpProbes: ('xmlrpc_capabilities' | 'rest_user_enumeration')[] = [
+          'xmlrpc_capabilities',
+          'rest_user_enumeration',
+        ];
+
+        for (const wpProbe of wpProbes) {
+          if (coordinator.isCircuitOpen(record.targetDomain)) break;
+          try {
+            const wpResult = await runWordPressSurfaceDetection({
+              contractVersion: DETECTION_CONTRACT_VERSION,
+              kind: 'wordpress_surface_detection_request',
+              detectionId: `det_wp_${record.assessmentId.slice(-8)}_${wpProbe === 'xmlrpc_capabilities' ? 'xml' : 'usr'}`,
+              assessmentId: lineage.assessmentId,
+              scanId: lineage.scanId,
+              authorizationGrantId: lineage.authorizationGrantId,
+              authorizationDecisionId: lineage.authorizationDecisionId,
+              actorId: lineage.actorId,
+              targetBaseUrl: targetUrl,
+              probeKind: wpProbe,
+              verifiedAuthorizationDecision: verifiedDecision,
+              scopeGrant,
+              transport: this.httpTransport,
+              dnsResolver: this.dnsResolver,
+            });
+
+            if (
+              (wpResult.status === 'potential_weakness' || wpResult.status === 'information_disclosure') &&
+              wpResult.finding
+            ) {
+              findings.push(wpResult.finding);
+            } else if (wpResult.status === 'pending_human_review' && wpResult.evidenceDraft) {
+              const enrichedDraft: EnrichedEvidenceDraft = {
+                ...wpResult.evidenceDraft,
+                differentialContext: {
+                  endpointUrl: wpResult.endpointUrl ?? targetUrl,
+                  detectionKind: 'wordpress_surface',
+                  wpProbeKind: wpProbe,
+                  xmlRpcMethodsExposed: wpResult.xmlRpcMethodsExposed,
+                  multicallSupported: wpResult.multicallSupported,
+                  exposedUsersCount: wpResult.exposedUsersCount,
+                  sampleUserSlugs: wpResult.sampleUserSlugs,
                 },
               };
               pendingEvidenceDrafts.push(enrichedDraft);

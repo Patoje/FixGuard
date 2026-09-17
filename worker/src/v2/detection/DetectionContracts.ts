@@ -58,8 +58,9 @@ export interface ByotSessionIdentityBundle {
 
 export interface HttpProbeRequest {
   readonly url: string;
-  readonly method: 'GET' | 'HEAD';
+  readonly method: 'GET' | 'HEAD' | 'POST';
   readonly headers: Readonly<Record<string, string>>;
+  readonly body?: string;
   readonly timeoutMs?: number;
 }
 
@@ -684,6 +685,68 @@ export interface SourcemapExposureDetectionResult {
   readonly detectionSignal?: 'sourcemapping_url_comment' | 'sourcemap_header' | 'deterministic_path_probe';
   readonly mapFileSizeBytes?: number;
   readonly sampleSourcesCount?: number;
+  readonly evidenceDraft?: EvidenceDraftEnvelope;
+  readonly evidenceRecord?: EvidenceRecord;
+  readonly promotedEvidenceResult?: HumanReviewedEvidencePromotionResult;
+  readonly findingCandidate?: ReviewedEvidenceFormalFindingCandidate;
+  readonly finding?: Finding;
+  readonly error?: {
+    readonly code: string;
+    readonly safeMessage: string;
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Milestone P4-4 — WordPress Surface Detection Contracts (XML-RPC & Users)
+// ---------------------------------------------------------------------------
+
+export type WordPressSurfaceDetectionStatus =
+  | 'potential_weakness'
+  | 'information_disclosure'
+  | 'pending_human_review'
+  | 'secure_target_abstained'
+  | 'preflight_denied'
+  | 'unexpected_failure';
+
+export interface WordPressSurfaceDetectionRequest {
+  readonly contractVersion: DetectionContractVersion;
+  readonly kind: 'wordpress_surface_detection_request';
+  readonly detectionId: string;
+  readonly assessmentId: string;
+  readonly scanId: string;
+  readonly authorizationGrantId: string;
+  readonly authorizationDecisionId: string;
+  readonly actorId: string;
+  readonly verifiedAuthorizationDecision: VerifiedAuthorizationDecision;
+  readonly scopeGrant: AuthorizedScopeGrant;
+  readonly targetBaseUrl: string;
+  readonly probeKind?: 'all' | 'xmlrpc_capabilities' | 'rest_user_enumeration';
+  readonly reviewerPolicy?: ReviewerPolicy;
+  readonly humanReviewDecision?: HumanReviewDecision;
+  readonly triageDecision?: ReviewedEvidenceFindingCandidateTriageDecision;
+  readonly transport?: IdorHttpProbeTransport;
+  readonly dnsResolver?: PreSpawnDnsResolver;
+}
+
+export interface WordPressSurfaceDetectionResult {
+  readonly contractVersion: DetectionContractVersion;
+  readonly kind: 'wordpress_surface_detection_result';
+  readonly detectionId: string;
+  readonly scanId: string;
+  readonly assessmentId: string;
+  readonly authorizationGrantId: string;
+  readonly authorizationDecisionId: string;
+  readonly actorId: string;
+  readonly status: WordPressSurfaceDetectionStatus;
+  readonly reasonCode: string;
+  readonly lineage: AuthorizedExecutionLineageTuple;
+  readonly targetBaseUrl: string;
+  readonly probeKind?: 'xmlrpc_capabilities' | 'rest_user_enumeration';
+  readonly endpointUrl?: string;
+  readonly xmlRpcMethodsExposed?: readonly string[];
+  readonly multicallSupported?: boolean;
+  readonly exposedUsersCount?: number;
+  readonly sampleUserSlugs?: readonly string[];
   readonly evidenceDraft?: EvidenceDraftEnvelope;
   readonly evidenceRecord?: EvidenceRecord;
   readonly promotedEvidenceResult?: HumanReviewedEvidencePromotionResult;

@@ -172,6 +172,7 @@ export const defaultHttpProbeTransport: IdorHttpProbeTransport = async (
     const res = await fetch(req.url, {
       method: req.method,
       headers: req.headers,
+      body: req.method === 'POST' ? req.body : undefined,
       signal: controller.signal
     });
     const bodyText = await res.text();

@@ -155,6 +155,7 @@ export interface DifferentialEvidenceContextDto {
     | 'weak_tls_configuration'
     | 'auth_bypass'
     | 'sourcemap_exposure'
+    | 'wordpress_surface'
     | 'custom_difference';
   readonly baselineStatusCode?: number;
   readonly baselineBodyHash?: string;
@@ -191,6 +192,11 @@ export interface DifferentialEvidenceContextDto {
   readonly sourceJsUrl?: string;
   readonly sampleSourcesCount?: number;
   readonly mapFileSizeBytes?: number;
+  readonly wpProbeKind?: 'xmlrpc_capabilities' | 'rest_user_enumeration';
+  readonly xmlRpcMethodsExposed?: readonly string[];
+  readonly multicallSupported?: boolean;
+  readonly exposedUsersCount?: number;
+  readonly sampleUserSlugs?: readonly string[];
 }
 
 
