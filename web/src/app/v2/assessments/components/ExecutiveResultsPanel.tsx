@@ -178,12 +178,59 @@ export function ExecutiveResultsPanel({ summary }: ExecutiveResultsPanelProps) {
         <div className="space-y-6">
           {/* Target Metadata & Technologies */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <div className="rounded-xl border border-zinc-900 bg-zinc-900/40 p-4 space-y-1 md:col-span-2">
-              <span className="text-[11px] font-mono text-zinc-500 uppercase tracking-wider block">
-                Discovered Technologies &amp; Edge Infrastructure
-              </span>
+            <div className="rounded-xl border border-zinc-900 bg-zinc-900/40 p-4 space-y-2 md:col-span-2">
+              <div className="flex items-center justify-between">
+                <span className="text-[11px] font-mono text-zinc-500 uppercase tracking-wider block">
+                  Discovered Technologies &amp; Edge Infrastructure
+                </span>
+                {profile.ecosystemProfile && (
+                  <div className="flex flex-wrap gap-1.5 text-[10px] font-mono">
+                    {profile.ecosystemProfile.hasSpa && (
+                      <span className="rounded bg-cyan-500/10 border border-cyan-500/30 text-cyan-300 px-1.5 py-0.5">
+                        SPA ({profile.ecosystemProfile.spaFramework ?? 'SPA'})
+                      </span>
+                    )}
+                    {profile.ecosystemProfile.hasCms && (
+                      <span className="rounded bg-amber-500/10 border border-amber-500/30 text-amber-300 px-1.5 py-0.5">
+                        CMS ({profile.ecosystemProfile.cmsType ?? 'CMS'})
+                      </span>
+                    )}
+                    {profile.ecosystemProfile.hasGraphQL && (
+                      <span className="rounded bg-pink-500/10 border border-pink-500/30 text-pink-300 px-1.5 py-0.5">
+                        GraphQL
+                      </span>
+                    )}
+                    {profile.ecosystemProfile.hasPhpLegacy && (
+                      <span className="rounded bg-rose-500/10 border border-rose-500/30 text-rose-300 px-1.5 py-0.5">
+                        Legacy PHP
+                      </span>
+                    )}
+                    {profile.ecosystemProfile.hasExposedSourcemaps && (
+                      <span className="rounded bg-amber-500/10 border border-amber-500/30 text-amber-300 px-1.5 py-0.5">
+                        Sourcemaps
+                      </span>
+                    )}
+                  </div>
+                )}
+              </div>
+
               <div className="flex flex-wrap items-center gap-2 pt-1">
-                {profile.technologies.length > 0 ? (
+                {profile.detectedTechnologies && profile.detectedTechnologies.length > 0 ? (
+                  profile.detectedTechnologies.map((tech) => (
+                    <span
+                      key={`${tech.name}-${tech.version ?? 'any'}`}
+                      className="rounded-lg border border-purple-500/30 bg-purple-500/10 px-2.5 py-1 text-xs font-mono font-medium text-purple-300 flex items-center gap-1.5"
+                      title={tech.detectionSignal}
+                    >
+                      <span>{tech.name}</span>
+                      {tech.version && (
+                        <span className="rounded bg-purple-950 border border-purple-500/40 px-1 py-0.2 text-[10px] text-purple-200 font-bold">
+                          v{tech.version}
+                        </span>
+                      )}
+                    </span>
+                  ))
+                ) : profile.technologies.length > 0 ? (
                   profile.technologies.map((tech) => (
                     <span
                       key={tech}

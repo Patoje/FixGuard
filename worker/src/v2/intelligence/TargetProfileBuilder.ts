@@ -16,6 +16,7 @@ import type {
 } from './IntelligenceContracts.js';
 import { INTELLIGENCE_CONTRACT_VERSION } from './IntelligenceContracts.js';
 import type { Finding } from '../core/Evidence.js';
+import { TechnologyFingerprintService } from '../recon/analysis/TechnologyFingerprintService.js';
 
 function sha256(content: string): string {
   return createHash('sha256').update(content).digest('hex');
@@ -59,8 +60,17 @@ export function buildTargetProfile(input: TargetProfileBuilderInput): TargetProf
   const findings: readonly Finding[] = input.findings ?? [];
   const rawObservations: readonly unknown[] = input.observations ?? [];
 
-  // 1. Extract and deduplicate technologies
+  // 1. Analytical Technology Fingerprinting
+  const fingerprintService = new TechnologyFingerprintService();
+  const fingerprintResult = fingerprintService.analyze({
+    url: input.normalizedOrigin,
+    rawObservations,
+  });
+
   const technologySet = new Set<string>();
+  for (const t of fingerprintResult.technologies) {
+    technologySet.add(t.name);
+  }
 
   for (const obs of rawObservations) {
     if (typeof obs === 'object' && obs !== null) {
@@ -176,6 +186,8 @@ export function buildTargetProfile(input: TargetProfileBuilderInput): TargetProf
     normalizedOrigin: input.normalizedOrigin,
     updatedAt: nowIso,
     technologies: sortedTechnologies,
+    detectedTechnologies: fingerprintResult.technologies,
+    ecosystemProfile: fingerprintResult.ecosystemProfile,
     endpoints,
     knownFindings: [...findings],
     rawObservations: [...rawObservations],

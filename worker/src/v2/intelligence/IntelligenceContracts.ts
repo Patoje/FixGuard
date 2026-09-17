@@ -9,6 +9,7 @@
 import type { AuthorizedExecutionLineageTuple } from '../detection/DetectionContracts.js';
 import type { Finding } from '../core/Evidence.js';
 import type { RequiredPermission } from '../scope/AuthorizedScopeContracts.js';
+import type { DetectedTechnology, TechEcosystemProfile } from '../core/TechnologyContracts.js';
 
 export type IntelligenceContractVersion = 'fixguard-intelligence/v0';
 export const INTELLIGENCE_CONTRACT_VERSION: IntelligenceContractVersion = 'fixguard-intelligence/v0';
@@ -38,6 +39,8 @@ export interface TargetProfile {
   readonly normalizedOrigin?: string;
   readonly updatedAt: string;
   readonly technologies: readonly string[];
+  readonly detectedTechnologies?: readonly DetectedTechnology[];
+  readonly ecosystemProfile?: TechEcosystemProfile;
   readonly endpoints: readonly TargetProfileEndpoint[];
   readonly knownFindings: readonly Finding[];
   readonly rawObservations?: readonly unknown[];

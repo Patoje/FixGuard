@@ -62,11 +62,32 @@ export interface FlawContextDto {
   readonly severity: string;
 }
 
+export interface DetectedTechnologyDto {
+  readonly name: string;
+  readonly version?: string;
+  readonly category: string;
+  readonly confidence: 'high' | 'medium' | 'low';
+  readonly detectionSignal: string;
+  readonly cpeIdentifier?: string;
+}
+
+export interface TechEcosystemProfileDto {
+  readonly hasSpa: boolean;
+  readonly spaFramework?: 'react' | 'vue' | 'angular' | 'nextjs' | 'nuxtjs' | 'unknown';
+  readonly hasCms: boolean;
+  readonly cmsType?: 'wordpress' | 'joomla' | 'drupal' | 'unknown';
+  readonly hasGraphQL: boolean;
+  readonly hasPhpLegacy: boolean;
+  readonly hasExposedSourcemaps: boolean;
+}
+
 export interface TargetProfileDto {
   readonly targetHost: string;
   readonly normalizedOrigin: string;
   readonly updatedAt: string;
   readonly technologies: readonly string[];
+  readonly detectedTechnologies?: readonly DetectedTechnologyDto[];
+  readonly ecosystemProfile?: TechEcosystemProfileDto;
   readonly endpoints: readonly ProfileEndpointDto[];
   readonly findings: readonly FindingDto[];
   readonly flawContexts: readonly FlawContextDto[];

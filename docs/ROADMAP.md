@@ -99,13 +99,16 @@
                                                                 │
                                                                 ▼
                                                         [PHASE 4: P4-1] COMPLETED (Authentication Bypass Detection Engine)
+                                                                │
+                                                                ▼
+                                                        [PHASE 4: P4-2] COMPLETED (Technology Fingerprint Engine)
 ```
 
 ---
 
 ## 2. Completed Milestones (`CONFIRMED`)
 
-All completed milestones are verified via active TypeScript contracts and the regression test suite (`npm run check:v2` with 56 passing smoke suites, 100% pass rate).
+All completed milestones are verified via active TypeScript contracts and the regression test suite (`npm run check:v2` with 57 passing smoke suites, 100% pass rate).
 
 
 
@@ -851,6 +854,38 @@ All completed milestones are verified via active TypeScript contracts and the re
      - Dedicated smoke test `worker/src/v2/smoke/milestoneP4_1_auth_bypass_smoke.ts` passes 100% (4/4 assertions).
      - `npm run typecheck:v2` exits with code 0.
      - Full regression suite `npm run check:v2` (56/56 smoke suites) passes 100%.
+     - `cd web && npm run build` compiles cleanly with zero errors.
+     - 0 occurrences of `as any` across all production code.
+
+---
+
+### Milestone P4-2: Technology Fingerprint Engine (COMPLETED)
+- **Status:** COMPLETED.
+- **Goal:** Implement the deterministic, passive Technology Fingerprint Engine extracting typed technology profiles (with exact versions, categories, confidence, and signals) and synthesizing a `TechEcosystemProfile` without generating redundant network traffic.
+- **Key Deliverables:**
+  1. **Domain Contracts & Technology Types (`worker/src/v2/core/TechnologyContracts.ts`)**:
+     - Defined `TechnologyCategory` union (`'cms' | 'framework' | 'frontend' | 'runtime' | 'server' | 'cdn' | 'database' | 'security' | 'unknown'`).
+     - Defined `DetectedTechnology` model (`name`, `version`, `category`, `confidence`, `detectionSignal`, `cpeIdentifier`).
+     - Defined `TechEcosystemProfile` (`hasSpa`, `spaFramework`, `hasCms`, `cmsType`, `hasGraphQL`, `hasPhpLegacy`, `hasExposedSourcemaps`).
+  2. **Analytical Fingerprinting Service (`worker/src/v2/recon/analysis/TechnologyFingerprintService.ts`)**:
+     - Consumes already captured HTTP responses (headers + HTML body) and reconnaissance observations.
+     - Purely analytical (zero additional network calls).
+     - Exhaustive signal extraction:
+       - Server/Powered-By headers: Nginx, Apache, IIS, Gunicorn, Werkzeug, PHP, Express, Next.js, ASP.NET, Cloudflare, Vercel.
+       - Session cookies: `PHPSESSID` (PHP), `laravel_session` (Laravel), `ASP.NET_SessionId` (ASP.NET), `JSESSIONID` (Java), `csrftoken` (Django), `connect.sid` (Express).
+       - HTML Meta generators: WordPress, Drupal, Joomla, Gatsby, Hugo.
+       - Asset & Plugin paths: WordPress core (`/wp-includes/`) and plugins (`/wp-content/plugins/<slug>/...?ver=X.Y.Z`), Drupal (`/sites/default/files/`, `/core/misc/`).
+       - DOM & SPA markers: Next.js (`__NEXT_DATA__`, `/_next/static/`), Nuxt.js (`window.__nuxt__`), React (`data-reactroot`), Angular (`ng-version`), Vue (`id="__vue-app"`, `data-v-`), SvelteKit (`__sveltekit`).
+       - Frontend libraries: jQuery, Bootstrap, Tailwind CSS.
+       - Structural ecosystem signals: GraphQL detection, Legacy PHP (v5.x/v7.x), Exposed Sourcemaps (`sourceMappingURL=`).
+  3. **Intelligence Layer & Presentation Integration**:
+     - Updated `TargetProfileBuilder.ts` to enrich `TargetProfile` with `detectedTechnologies` and `ecosystemProfile` while preserving backward-compatible `technologies: string[]`.
+     - Extended `web/src/lib/v2Api.ts` (`DetectedTechnologyDto`, `TechEcosystemProfileDto`).
+     - Enhanced `ExecutiveResultsPanel.tsx` in Next.js UI to render technology version badges, category badges, and ecosystem tags.
+  4. **Verification & Hygiene**:
+     - Dedicated smoke test `worker/src/v2/smoke/milestoneP4_2_tech_fingerprint_smoke.ts` passes 100% (4/4 assertions).
+     - `npm run typecheck:v2` exits with code 0.
+     - Full regression suite `npm run check:v2` (57/57 smoke suites) passes 100%.
      - `cd web && npm run build` compiles cleanly with zero errors.
      - 0 occurrences of `as any` across all production code.
 
