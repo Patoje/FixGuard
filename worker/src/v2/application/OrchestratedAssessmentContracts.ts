@@ -68,6 +68,7 @@ export interface DifferentialEvidenceContext {
     | 'cms_plugin_vulnerability'
     | 'cors_idor_compound'
     | 'api_versioning_sprawl'
+    | 'http_method_manipulation'
     | 'custom_difference';
   readonly baselineStatusCode?: number;
   readonly baselineBodyHash?: string;
@@ -144,6 +145,11 @@ export interface DifferentialEvidenceContext {
   readonly legacyStatusCode?: number;
   readonly detectedVersions?: readonly string[];
   readonly unauthenticatedExposure?: boolean;
+  readonly targetOperation?: string;
+  readonly baselineMethod?: string;
+  readonly bypassMethodOrHeader?: string;
+  readonly manipulatedStatusCode?: number;
+  readonly bypassType?: 'method_override_header' | 'query_param_override' | 'trace_enabled';
 }
 
 

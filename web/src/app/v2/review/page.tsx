@@ -848,6 +848,42 @@ function HumanReviewContent() {
                           </div>
                         </div>
                       )}
+
+                      {diffContext?.detectionKind === 'http_method_manipulation' && (
+                        <div className="rounded-lg bg-black/40 border border-purple-500/40 p-2.5 col-span-2">
+                          <span className="text-purple-400 text-[10px] block font-bold uppercase tracking-wider mb-1">
+                            HTTP Method Manipulation &amp; Verb Tampering
+                          </span>
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-[11px] font-mono mt-2">
+                            {diffContext.baselineMethod && (
+                              <div className="rounded bg-black/60 p-2 border border-zinc-800">
+                                <span className="text-zinc-500 text-[10px] block">Baseline Method &amp; Action:</span>
+                                <span className="text-zinc-300 font-bold">{diffContext.baselineMethod} ({diffContext.targetOperation ?? 'action'})</span>
+                                <span className="text-zinc-400 text-[10px] block mt-0.5">Baseline Status: HTTP {diffContext.baselineStatusCode ?? 403}</span>
+                              </div>
+                            )}
+                            {diffContext.bypassMethodOrHeader && (
+                              <div className="rounded bg-black/60 p-2 border border-zinc-800">
+                                <span className="text-zinc-500 text-[10px] block">Bypass Technique &amp; Override:</span>
+                                <span className="text-purple-400 font-bold break-all">{diffContext.bypassMethodOrHeader}</span>
+                                <span className="text-emerald-400 text-[10px] block mt-0.5">Manipulated Status: HTTP {diffContext.manipulatedStatusCode ?? 200} OK</span>
+                              </div>
+                            )}
+                            {diffContext.bypassType && (
+                              <div className="rounded bg-black/60 p-2 border border-zinc-800">
+                                <span className="text-zinc-500 text-[10px] block">Tampering Mechanism:</span>
+                                <span className="text-amber-300 font-bold uppercase">{diffContext.bypassType.replace(/_/g, ' ')}</span>
+                              </div>
+                            )}
+                            {diffContext.endpointUrl && (
+                              <div className="rounded bg-black/60 p-2 border border-purple-500/30">
+                                <span className="text-zinc-500 text-[10px] block">Target Endpoint:</span>
+                                <span className="text-purple-300 font-mono break-all">{diffContext.endpointUrl}</span>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      )}
                     </div>
 
 

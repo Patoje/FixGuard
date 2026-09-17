@@ -58,7 +58,7 @@ export interface ByotSessionIdentityBundle {
 
 export interface HttpProbeRequest {
   readonly url: string;
-  readonly method: 'GET' | 'HEAD' | 'POST';
+  readonly method: 'GET' | 'HEAD' | 'POST' | 'PUT' | 'DELETE' | 'PATCH' | 'OPTIONS' | 'TRACE';
   readonly headers: Readonly<Record<string, string>>;
   readonly body?: string;
   readonly timeoutMs?: number;
@@ -1176,6 +1176,70 @@ export interface ApiVersioningSprawlDetectionResult {
   readonly legacyStatusCode: number;
   readonly detectedVersions: readonly string[];
   readonly unauthenticatedExposure: boolean;
+  readonly evidenceDraft?: EvidenceDraftEnvelope;
+  readonly evidenceRecord?: EvidenceRecord;
+  readonly promotedEvidenceResult?: HumanReviewedEvidencePromotionResult;
+  readonly findingCandidate?: ReviewedEvidenceFormalFindingCandidate;
+  readonly finding?: Finding;
+  readonly error?: {
+    readonly code: string;
+    readonly safeMessage: string;
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Milestone P5-3 — HTTP Method Manipulation Detection Contracts
+// ---------------------------------------------------------------------------
+
+export type HttpMethodManipulationStatus =
+  | 'vulnerability_detected'
+  | 'potential_weakness'
+  | 'secure_target_abstained'
+  | 'pending_human_review'
+  | 'preflight_denied'
+  | 'unexpected_failure';
+
+export interface HttpMethodManipulationDetectionRequest {
+  readonly contractVersion: DetectionContractVersion;
+  readonly kind: 'http_method_manipulation_detection_request';
+  readonly detectionId: string;
+  readonly assessmentId: string;
+  readonly scanId: string;
+  readonly authorizationGrantId: string;
+  readonly authorizationDecisionId: string;
+  readonly actorId: string;
+  readonly verifiedAuthorizationDecision: VerifiedAuthorizationDecision;
+  readonly scopeGrant: AuthorizedScopeGrant;
+  readonly endpointUrl: string;
+  readonly targetOperation?: string;
+  readonly baselineMethod?: string;
+  readonly identityAContext?: ProbeAuthContext;
+  readonly reviewerPolicy?: ReviewerPolicy;
+  readonly humanReviewDecision?: HumanReviewDecision;
+  readonly triageDecision?: ReviewedEvidenceFindingCandidateTriageDecision;
+  readonly transport?: IdorHttpProbeTransport;
+  readonly dnsResolver?: PreSpawnDnsResolver;
+}
+
+export interface HttpMethodManipulationDetectionResult {
+  readonly contractVersion: DetectionContractVersion;
+  readonly kind: 'http_method_manipulation_detection_result';
+  readonly detectionId: string;
+  readonly scanId: string;
+  readonly assessmentId: string;
+  readonly authorizationGrantId: string;
+  readonly authorizationDecisionId: string;
+  readonly actorId: string;
+  readonly status: HttpMethodManipulationStatus;
+  readonly reasonCode: string;
+  readonly lineage: AuthorizedExecutionLineageTuple;
+  readonly endpointUrl: string;
+  readonly targetOperation: string;
+  readonly baselineMethod: string;
+  readonly bypassMethodOrHeader: string;
+  readonly baselineStatusCode: number;
+  readonly manipulatedStatusCode: number;
+  readonly bypassType: 'method_override_header' | 'query_param_override' | 'trace_enabled';
   readonly evidenceDraft?: EvidenceDraftEnvelope;
   readonly evidenceRecord?: EvidenceRecord;
   readonly promotedEvidenceResult?: HumanReviewedEvidencePromotionResult;

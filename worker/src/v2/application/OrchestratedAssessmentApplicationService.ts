@@ -64,6 +64,7 @@ import { runSessionFixationDetection } from '../detection/SessionFixationDetecti
 import { runCredentialedCorsDetection } from '../detection/CredentialedCorsDetectionService.js';
 import { runCmsPluginVulnerabilityDetection } from '../detection/CmsPluginVulnerabilityDetectionService.js';
 import { runApiVersioningSprawlDetection } from '../detection/ApiVersioningSprawlDetectionService.js';
+import { runHttpMethodManipulationDetection } from '../detection/HttpMethodManipulationDetectionService.js';
 import { correlateCorsIdorChains } from '../intelligence/correlation/CorsIdorChainCorrelator.js';
 
 
@@ -1574,6 +1575,52 @@ export class OrchestratedAssessmentApplicationService {
             lineage: `${record.assessmentId}:${record.scanId}:${reviewerId}:${reviewedAt}`,
           },
         };
+      } else if (detKind === 'http_method_manipulation') {
+        const endpointUrl = context?.endpointUrl ?? `https://${record.targetDomain}/api/admin`;
+        const targetOperation = context?.targetOperation ?? 'restricted_endpoint';
+        const baselineMethod = context?.baselineMethod ?? 'DELETE';
+        const bypassMethodOrHeader = context?.bypassMethodOrHeader ?? 'X-HTTP-Method-Override';
+        const baselineStatusCode = context?.baselineStatusCode ?? 403;
+        const manipulatedStatusCode = context?.manipulatedStatusCode ?? 200;
+        const bypassType = context?.bypassType ?? 'method_override_header';
+        const category = bypassType === 'trace_enabled' ? 'SECURITY_MISCONFIGURATION' : 'BROKEN_ACCESS_CONTROL';
+        const severity = bypassType === 'trace_enabled' ? 'medium' : 'high';
+
+        findingCreated = {
+          id: `fnd_hmeth_${draftId.replace(/^dft_/, '').replace(/^draft_/, '').replace(/^hmeth_/, '')}`,
+          type: category,
+          severity,
+          title: bypassType === 'trace_enabled'
+            ? `Approved TRACE Method Enabled with Reflected Canary on ${endpointUrl}`
+            : `Approved HTTP Method Override Authorization Bypass (${bypassMethodOrHeader}) on ${endpointUrl}`,
+          description: bypassType === 'trace_enabled'
+            ? `Human operator verified TRACE method exposure on '${endpointUrl}'. The server responds with HTTP 200 reflecting client request headers (Cross-Site Tracing risk).`
+            : `Human operator verified HTTP method manipulation bypass on '${endpointUrl}'. Restricted operation '${targetOperation}' blocked under ${baselineMethod} (HTTP ${baselineStatusCode}) was executed using ${bypassMethodOrHeader} (HTTP ${manipulatedStatusCode}).`,
+          target: endpointUrl,
+          evidence: JSON.stringify({
+            draftId,
+            reviewerId,
+            reviewedAt,
+            notes,
+            differentialContext: context,
+          }),
+          confidence: 1.0,
+          metadata: {
+            kind: 'http_method_manipulation_metadata',
+            category,
+            endpointUrl,
+            targetOperation,
+            baselineMethod,
+            bypassMethodOrHeader,
+            baselineStatusCode,
+            manipulatedStatusCode,
+            bypassType,
+            observedAt: reviewedAt,
+            candidateId: `cnd_${draftId}`,
+            evidenceRecordId: `evd_${draftId}`,
+            lineage: `${record.assessmentId}:${record.scanId}:${reviewerId}:${reviewedAt}`,
+          },
+        };
       } else {
 
         findingCreated = {
@@ -2773,6 +2820,65 @@ export class OrchestratedAssessmentApplicationService {
                     unauthenticatedExposure: sprawlResult.unauthenticatedExposure,
                     baselineStatusCode: sprawlResult.currentStatusCode,
                     validationStatusCode: sprawlResult.legacyStatusCode,
+                  },
+                };
+                pendingEvidenceDrafts.push(enrichedDraft);
+              }
+            } catch {
+              // Safe error containment
+            }
+          }
+        }
+
+        // HTTP Method Manipulation Detection (Milestone P5-3: Verb Tampering & Override Controls)
+        if (targetUrl) {
+          const endpointsToTest = [
+            targetUrl,
+            `${targetUrl.replace(/\/+$/, '')}/api/admin`,
+            `${targetUrl.replace(/\/+$/, '')}/api/users`,
+            `${targetUrl.replace(/\/+$/, '')}/api/v1/users`,
+          ];
+
+          for (const ep of endpointsToTest) {
+            if (coordinator.isCircuitOpen(record.targetDomain)) break;
+            try {
+              const manipulationResult = await runHttpMethodManipulationDetection({
+                contractVersion: DETECTION_CONTRACT_VERSION,
+                kind: 'http_method_manipulation_detection_request',
+                detectionId: `det_hmeth_${record.assessmentId.slice(-8)}`,
+                assessmentId: lineage.assessmentId,
+                scanId: lineage.scanId,
+                authorizationGrantId: lineage.authorizationGrantId,
+                authorizationDecisionId: lineage.authorizationDecisionId,
+                actorId: lineage.actorId,
+                endpointUrl: ep,
+                targetOperation: 'restricted_endpoint_action',
+                baselineMethod: 'DELETE',
+                identityAContext,
+                verifiedAuthorizationDecision: verifiedDecision,
+                scopeGrant,
+                transport: this.httpTransport,
+                dnsResolver: this.dnsResolver,
+              });
+
+              if (
+                (manipulationResult.status === 'vulnerability_detected' || manipulationResult.status === 'potential_weakness') &&
+                manipulationResult.finding
+              ) {
+                findings.push(manipulationResult.finding);
+              } else if (manipulationResult.status === 'pending_human_review' && manipulationResult.evidenceDraft) {
+                const enrichedDraft: EnrichedEvidenceDraft = {
+                  ...manipulationResult.evidenceDraft,
+                  differentialContext: {
+                    endpointUrl: manipulationResult.endpointUrl,
+                    detectionKind: 'http_method_manipulation',
+                    targetOperation: manipulationResult.targetOperation,
+                    baselineMethod: manipulationResult.baselineMethod,
+                    bypassMethodOrHeader: manipulationResult.bypassMethodOrHeader,
+                    baselineStatusCode: manipulationResult.baselineStatusCode,
+                    manipulatedStatusCode: manipulationResult.manipulatedStatusCode,
+                    bypassType: manipulationResult.bypassType,
+                    validationStatusCode: manipulationResult.manipulatedStatusCode,
                   },
                 };
                 pendingEvidenceDrafts.push(enrichedDraft);

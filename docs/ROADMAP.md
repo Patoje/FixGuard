@@ -1197,6 +1197,34 @@ All completed milestones are verified via active TypeScript contracts and the re
 
 ---
 
+### Milestone P5-3: HTTP Method Manipulation Detection Engine
+- **Status:** COMPLETED (Phase 5 Milestone 3 Complete).
+- **Goal:** Safe verification of verb overrides and debugging methods. The engine probes whether endpoints with authorization gates accept alternative HTTP verbs or override headers (`X-HTTP-Method-Override`, `_method`, `TRACE`) to bypass restrictions.
+- **Key Deliverables:**
+  1. **Domain Contracts & Typed Metadata (`HttpMethodManipulationMetadata`)**:
+     - Defined `HttpMethodManipulationMetadata` in `worker/src/v2/core/Evidence.ts` under `FindingMetadata` (`kind: 'http_method_manipulation_metadata'`, `category: 'BROKEN_ACCESS_CONTROL' | 'SECURITY_MISCONFIGURATION'`, `endpointUrl`, `targetOperation`, `baselineMethod`, `bypassMethodOrHeader`, `baselineStatusCode`, `manipulatedStatusCode`, `bypassType: 'method_override_header' | 'query_param_override' | 'trace_enabled'`, `observedAt`, `candidateId`, `evidenceRecordId`, `lineage`).
+     - Extended `HttpProbeRequest.method` in `worker/src/v2/detection/DetectionContracts.ts` to include `'TRACE'`.
+     - Extended `DifferentialEvidenceContext` in `OrchestratedAssessmentContracts.ts` and `DifferentialEvidenceContextDto` in `web/src/lib/v2Api.ts` with `detectionKind: 'http_method_manipulation'` and typed method override fields.
+  2. **Detection Service (`HttpMethodManipulationDetectionService.ts`)**:
+     - Implemented `runHttpMethodManipulationDetection()`.
+     - 7-pass SSRF preflight protection blocking internal IP and metadata probing.
+     - Probe 1 (Override Headers & Query): Probes restricted baseline endpoints (e.g. 401/403 on DELETE) with `X-HTTP-Method-Override: <verb>` or `?_method=<verb>` via POST. Flags `vulnerability_detected` (`BROKEN_ACCESS_CONTROL`, high severity) when manipulated request succeeds (200 OK).
+     - Probe 2 (TRACE Method / XST): Probes `TRACE` with custom canary header `X-Fixguard-Canary: <uuid>`. Flags `potential_weakness` (`SECURITY_MISCONFIGURATION`, medium severity) when canary header is reflected in response body.
+     - Clean abstention (`secure_target_abstained`) when target returns 405 Method Not Allowed or consistently denies overrides.
+     - Evidence sanitization via `sanitizeEvidenceFragment()`.
+  3. **Pipeline & Review UI Integration**:
+     - Wired `runHttpMethodManipulationDetection` into `executePipelineStages` in `OrchestratedAssessmentApplicationService.ts`.
+     - Handled draft promotion for `'http_method_manipulation'` in `reviewEvidenceDraft` promoting drafts to formal `Finding` records.
+     - Updated `web/src/app/v2/review/page.tsx` with HTTP Method Manipulation cards displaying baseline verb vs override, status codes, and bypass mechanism.
+  4. **Verification & Hygiene**:
+     - Dedicated smoke test `worker/src/v2/smoke/milestoneP5_3_http_method_manipulation_smoke.ts` passes 100% across all 5 assertions.
+     - `npm run typecheck:v2` exits with code 0.
+     - Full regression suite `npm run check:v2` (68/68 smoke suites) passes 100%.
+     - `cd web && npm run build` compiles cleanly with zero errors.
+     - 0 occurrences of `as any` across all production code.
+
+---
+
 ## 5. Architectural Proposals (`PROPOSED` — NOT YET DECIDED)
 
 > [!NOTE]

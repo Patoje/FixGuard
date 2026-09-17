@@ -286,6 +286,22 @@ export interface ApiVersioningSprawlMetadata {
   readonly lineage?: string | Record<string, unknown>;
 }
 
+export interface HttpMethodManipulationMetadata {
+  readonly kind: 'http_method_manipulation_metadata';
+  readonly category: 'BROKEN_ACCESS_CONTROL' | 'SECURITY_MISCONFIGURATION';
+  readonly endpointUrl: string;
+  readonly targetOperation: string;
+  readonly baselineMethod: string;
+  readonly bypassMethodOrHeader: string;
+  readonly baselineStatusCode: number;
+  readonly manipulatedStatusCode: number;
+  readonly bypassType: 'method_override_header' | 'query_param_override' | 'trace_enabled';
+  readonly observedAt: string;
+  readonly candidateId?: string;
+  readonly evidenceRecordId?: string;
+  readonly lineage?: string | Record<string, unknown>;
+}
+
 export type FindingMetadata =
   | BrokenAccessControlMetadata
   | SecurityMisconfigurationMetadata
@@ -306,6 +322,7 @@ export type FindingMetadata =
   | CmsPluginVulnerabilityMetadata
   | CompoundChainMetadata
   | ApiVersioningSprawlMetadata
+  | HttpMethodManipulationMetadata
   | DiscoveryFindingMetadata;
 
 
