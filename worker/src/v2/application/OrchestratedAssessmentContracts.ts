@@ -57,6 +57,7 @@ export interface DifferentialEvidenceContext {
     | 'information_disclosure'
     | 'subdomain_takeover'
     | 'weak_tls_configuration'
+    | 'auth_bypass'
     | 'custom_difference';
   readonly baselineStatusCode?: number;
   readonly baselineBodyHash?: string;
@@ -86,6 +87,9 @@ export interface DifferentialEvidenceContext {
   readonly weakCiphers?: readonly string[];
   readonly certificateIssues?: readonly ('expired' | 'self_signed' | 'invalid_san')[];
   readonly supportedTlsVersions?: readonly string[];
+  readonly bypassMechanism?: 'header_stripping' | 'cookie_omission' | 'verb_tampering';
+  readonly bodySimilarityRatio?: number;
+  readonly httpMethod?: string;
 }
 
 

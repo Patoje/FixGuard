@@ -520,6 +520,20 @@ function HumanReviewContent() {
                         </div>
                       )}
 
+                      {diffContext?.bypassMechanism && (
+                        <div className="rounded-lg bg-black/40 border border-rose-500/30 p-2.5">
+                          <span className="text-zinc-500 text-[10px] block">Bypass Mechanism:</span>
+                          <span className="text-rose-400 font-bold uppercase">{diffContext.bypassMechanism.replace('_', ' ')}</span>
+                        </div>
+                      )}
+
+                      {diffContext?.bodySimilarityRatio !== undefined && (
+                        <div className="rounded-lg bg-black/40 border border-amber-500/30 p-2.5">
+                          <span className="text-zinc-500 text-[10px] block">Body Match Similarity:</span>
+                          <span className="text-amber-400 font-bold">{Math.round(diffContext.bodySimilarityRatio * 100)}%</span>
+                        </div>
+                      )}
+
                       {diffContext?.supportedTlsVersions && diffContext.supportedTlsVersions.length > 0 && (
                         <div className="rounded-lg bg-black/40 border border-zinc-800 p-2.5">
                           <span className="text-zinc-500 text-[10px] block">Supported TLS Versions:</span>

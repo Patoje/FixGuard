@@ -54,6 +54,7 @@ import { runOpenRedirectDetection } from '../detection/OpenRedirectDetectionServ
 import { runInformationDisclosureDetection } from '../detection/InformationDisclosureDetectionService.js';
 import { runSubdomainTakeoverDetection } from '../detection/SubdomainTakeoverDetectionService.js';
 import { analyzeTlsConfiguration } from '../detection/TlsConfigurationAnalysisService.js';
+import { runAuthBypassDetection } from '../detection/AuthBypassDetectionService.js';
 
 
 import { buildTargetProfile } from '../intelligence/TargetProfileBuilder.js';
@@ -863,6 +864,41 @@ export class OrchestratedAssessmentApplicationService {
             baselineResourceId: context?.baselineResourceId,
           },
         };
+      } else if (detKind === 'auth_bypass') {
+        const mechanism = context?.bypassMechanism ?? 'header_stripping';
+        const similarity = context?.bodySimilarityRatio ?? 1.0;
+        const endpoint = context?.endpointUrl ?? `https://${record.targetDomain}/`;
+        const method = context?.httpMethod ?? 'GET';
+        findingCreated = {
+          id: `fnd_ab_${draftId.replace(/^dft_/, '').replace(/^draft_/, '')}`,
+          type: 'BROKEN_AUTHENTICATION',
+          severity: 'high',
+          title: `Approved Authentication Bypass on ${endpoint}`,
+          description: `Human operator verified that protected endpoint '${endpoint}' is accessible anonymously via ${mechanism} with ${Math.round(similarity * 100)}% response body match.`,
+          target: endpoint,
+          evidence: JSON.stringify({
+            draftId,
+            reviewerId,
+            reviewedAt,
+            notes,
+            differentialContext: context,
+          }),
+          confidence: 0.95,
+          metadata: {
+            kind: 'auth_bypass_metadata',
+            category: 'BROKEN_AUTHENTICATION',
+            endpointUrl: endpoint,
+            httpMethod: method,
+            authenticatedStatusCode: context?.baselineStatusCode ?? 200,
+            anonymousStatusCode: context?.validationStatusCode ?? 200,
+            bypassMechanism: mechanism,
+            bodySimilarityRatio: similarity,
+            observedAt: reviewedAt,
+            candidateId: `cnd_${draftId}`,
+            evidenceRecordId: `evd_${draftId}`,
+            lineage: `${record.assessmentId}:${record.scanId}:${reviewerId}:${reviewedAt}`,
+          },
+        };
       } else if (detKind === 'missing_security_headers') {
         const missing = context?.missingHeaders ?? [];
         const present = context?.presentHeaders ?? [];
@@ -1519,6 +1555,55 @@ export class OrchestratedAssessmentApplicationService {
             }
           } catch {
             // Safe error containment
+          }
+        }
+
+        // Authentication Bypass Detection with BYOT (Milestone P4-1)
+        if (!coordinator.isCircuitOpen(record.targetDomain) && sessionIdentities?.identityA) {
+          for (const candidate of candidateEndpoints.slice(0, 3)) {
+            if (coordinator.isCircuitOpen(record.targetDomain)) break;
+            try {
+              const authBypassResult = await runAuthBypassDetection({
+                contractVersion: DETECTION_CONTRACT_VERSION,
+                kind: 'auth_bypass_detection_request',
+                detectionId: `det_ab_${record.assessmentId.slice(-8)}_${candidate.resourceParamName.replace(/[^a-zA-Z0-9]/g, '')}`,
+                assessmentId: lineage.assessmentId,
+                scanId: lineage.scanId,
+                authorizationGrantId: lineage.authorizationGrantId,
+                authorizationDecisionId: lineage.authorizationDecisionId,
+                actorId: lineage.actorId,
+                endpointUrl: candidate.endpointUrl,
+                method: 'GET',
+                identityA: identityAContext,
+                bypassMechanism: 'header_stripping',
+                verifiedAuthorizationDecision: verifiedDecision,
+                scopeGrant,
+                transport: this.httpTransport,
+                dnsResolver: this.dnsResolver,
+              });
+
+              if (authBypassResult.status === 'vulnerability_detected' && authBypassResult.finding) {
+                findings.push(authBypassResult.finding);
+              } else if (authBypassResult.status === 'pending_human_review' && authBypassResult.evidenceDraft) {
+                const enrichedDraft: EnrichedEvidenceDraft = {
+                  ...authBypassResult.evidenceDraft,
+                  differentialContext: {
+                    endpointUrl: candidate.endpointUrl,
+                    detectionKind: 'auth_bypass',
+                    baselineStatusCode: authBypassResult.baselineSnapshot?.statusCode,
+                    baselineBodyHash: authBypassResult.baselineSnapshot?.bodyHash,
+                    validationStatusCode: authBypassResult.validationSnapshot?.statusCode,
+                    validationBodyHash: authBypassResult.validationSnapshot?.bodyHash,
+                    bypassMechanism: 'header_stripping',
+                    bodySimilarityRatio: authBypassResult.similarityRatio ?? 1.0,
+                    httpMethod: 'GET',
+                  },
+                };
+                pendingEvidenceDrafts.push(enrichedDraft);
+              }
+            } catch {
+              // Safe error containment
+            }
           }
         }
       }

@@ -125,6 +125,21 @@ export interface DiscoveryFindingMetadata {
   readonly details?: string;
 }
 
+export interface AuthBypassMetadata {
+  readonly kind: 'auth_bypass_metadata';
+  readonly category: 'BROKEN_AUTHENTICATION';
+  readonly endpointUrl: string;
+  readonly httpMethod: string;
+  readonly authenticatedStatusCode: number;
+  readonly anonymousStatusCode: number;
+  readonly bypassMechanism: 'header_stripping' | 'cookie_omission' | 'verb_tampering';
+  readonly bodySimilarityRatio: number;
+  readonly observedAt: string;
+  readonly candidateId?: string;
+  readonly evidenceRecordId?: string;
+  readonly lineage?: string | Record<string, unknown>;
+}
+
 export type FindingMetadata =
   | BrokenAccessControlMetadata
   | SecurityMisconfigurationMetadata
@@ -134,6 +149,7 @@ export type FindingMetadata =
   | InformationDisclosureMetadata
   | SubdomainTakeoverMetadata
   | WeakTlsMetadata
+  | AuthBypassMetadata
   | DiscoveryFindingMetadata;
 
 

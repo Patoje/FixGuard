@@ -93,13 +93,19 @@
                                                                 │
                                                                 ▼
                                                         [PHASE 3: P3-1] COMPLETED (BYOT Session Injection & Anti-Leak Boundary)
+                                                                │
+                                                                ▼
+                                                        [PHASE 3: P3-3] COMPLETED (Multi-Identity Differential IDOR with BYOT)
+                                                                │
+                                                                ▼
+                                                        [PHASE 4: P4-1] COMPLETED (Authentication Bypass Detection Engine)
 ```
 
 ---
 
 ## 2. Completed Milestones (`CONFIRMED`)
 
-All completed milestones are verified via active TypeScript contracts and the regression test suite (`npm run check:v2` with 54 passing smoke suites, 100% pass rate).
+All completed milestones are verified via active TypeScript contracts and the regression test suite (`npm run check:v2` with 56 passing smoke suites, 100% pass rate).
 
 
 
@@ -823,6 +829,32 @@ All completed milestones are verified via active TypeScript contracts and the re
 
 ---
 
+### Milestone P4-1: Authentication Bypass Detection Engine (COMPLETED)
+- **Status:** COMPLETED.
+- **Goal:** Implement the defensive Authentication Bypass Detection Engine testing whether protected endpoints accessible with credentials (Identity A) can be accessed anonymously without credentials (`header_stripping`, `cookie_omission`, `verb_tampering`) leaking identical or sensitive data ($\ge 0.85$ structural body similarity).
+- **Key Deliverables:**
+  1. **Domain Contracts & Finding Metadata (`worker/src/v2/core/Evidence.ts`)**:
+     - Added `AuthBypassMetadata` to the `FindingMetadata` discriminated union (`kind: 'auth_bypass_metadata'`, `category: 'BROKEN_AUTHENTICATION'`, `bypassMechanism`, `bodySimilarityRatio`, `authenticatedStatusCode`, `anonymousStatusCode`).
+     - Extended `DifferentialEvidenceContext` in `OrchestratedAssessmentContracts.ts` and `DifferentialEvidenceContextDto` in `web/src/lib/v2Api.ts` supporting `'auth_bypass'`.
+  2. **Detection Engine (`worker/src/v2/detection/AuthBypassDetectionService.ts`)**:
+     - 7-pass atomic preflight check validating targets, scope, runtime brands, and SSRF containment.
+     - Dual-probe HTTP dispatch: Baseline probe with Identity A credentials vs Anonymous probe with all authentication headers and cookies completely stripped.
+     - Target abstention: When unauthenticated response returns 401, 403, or 302 login redirect, cleanly abstains with `status: 'secure_target_abstained'`.
+     - Structural similarity analysis: Flags authentication bypass when anonymous probe returns 200 OK and matches baseline ($\ge 0.85$ similarity ratio).
+     - Full custody and promotion flow (M47, M49, M50, M51, M52, M53, M54).
+  3. **Orchestrated Assessment Pipeline & Review UI**:
+     - Wired into `OrchestratedAssessmentApplicationService.ts` when `sessionIdentities?.identityA` is provided.
+     - Unattended runs route to `pendingEvidenceDrafts` for HITL review.
+     - Operator review promotes draft to formal canonical `Finding` (`type: 'BROKEN_AUTHENTICATION'`, `severity: 'high'`).
+     - Review dashboard (`web/src/app/v2/review/page.tsx`) renders Auth Bypass diff cards with bypass mechanism and similarity scores.
+  4. **Verification & Hygiene**:
+     - Dedicated smoke test `worker/src/v2/smoke/milestoneP4_1_auth_bypass_smoke.ts` passes 100% (4/4 assertions).
+     - `npm run typecheck:v2` exits with code 0.
+     - Full regression suite `npm run check:v2` (56/56 smoke suites) passes 100%.
+     - `cd web && npm run build` compiles cleanly with zero errors.
+     - 0 occurrences of `as any` across all production code.
+
+---
 
 ## 5. Architectural Proposals (`PROPOSED` — NOT YET DECIDED)
 

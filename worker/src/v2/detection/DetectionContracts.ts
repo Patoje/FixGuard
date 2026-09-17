@@ -569,6 +569,71 @@ export interface TlsConfigurationAnalysisResult {
   };
 }
 
+// ---------------------------------------------------------------------------
+// Milestone P4-1 — Authentication Bypass Detection Contracts
+// ---------------------------------------------------------------------------
+
+export type AuthBypassDetectionStatus =
+  | 'vulnerability_detected'
+  | 'pending_human_review'
+  | 'secure_target_abstained'
+  | 'preflight_denied'
+  | 'comparison_failed'
+  | 'promotion_blocked'
+  | 'unexpected_failure';
+
+export interface AuthBypassDetectionRequest {
+  readonly contractVersion: DetectionContractVersion;
+  readonly kind: 'auth_bypass_detection_request';
+  readonly detectionId: string;
+  readonly assessmentId: string;
+  readonly scanId: string;
+  readonly authorizationGrantId: string;
+  readonly authorizationDecisionId: string;
+  readonly actorId: string;
+  readonly verifiedAuthorizationDecision: VerifiedAuthorizationDecision;
+  readonly scopeGrant: AuthorizedScopeGrant;
+  readonly endpointUrl: string;
+  readonly method?: 'GET' | 'HEAD';
+  readonly identityA: ProbeAuthContext;
+  readonly bypassMechanism?: 'header_stripping' | 'cookie_omission' | 'verb_tampering';
+  readonly reviewerPolicy?: ReviewerPolicy;
+  readonly humanReviewDecision?: HumanReviewDecision;
+  readonly triageDecision?: ReviewedEvidenceFindingCandidateTriageDecision;
+  readonly transport?: IdorHttpProbeTransport;
+  readonly dnsResolver?: PreSpawnDnsResolver;
+}
+
+export interface AuthBypassDetectionResult {
+  readonly contractVersion: DetectionContractVersion;
+  readonly kind: 'auth_bypass_detection_result';
+  readonly detectionId: string;
+  readonly scanId: string;
+  readonly assessmentId: string;
+  readonly authorizationGrantId: string;
+  readonly authorizationDecisionId: string;
+  readonly actorId: string;
+  readonly status: AuthBypassDetectionStatus;
+  readonly reasonCode: string;
+  readonly lineage: AuthorizedExecutionLineageTuple;
+  readonly endpointUrl: string;
+  readonly bypassMechanism: 'header_stripping' | 'cookie_omission' | 'verb_tampering';
+  readonly similarityRatio?: number;
+  readonly baselineSnapshot?: SafeResponseSnapshot;
+  readonly validationSnapshot?: SafeResponseSnapshot;
+  readonly comparisonResult?: ResponseComparisonResult;
+  readonly validationResult?: AuthorizedComparisonValidationResult;
+  readonly evidenceDraft?: EvidenceDraftEnvelope;
+  readonly evidenceRecord?: EvidenceRecord;
+  readonly promotedEvidenceResult?: HumanReviewedEvidencePromotionResult;
+  readonly findingCandidate?: ReviewedEvidenceFormalFindingCandidate;
+  readonly finding?: Finding;
+  readonly error?: {
+    readonly code: string;
+    readonly safeMessage: string;
+  };
+}
+
 
 
 
