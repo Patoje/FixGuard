@@ -1,0 +1,18 @@
+{
+  "woocommerce": "8.5.0",
+  "elementor": "3.18.0",
+  "contact-form-7": "5.8.5",
+  "wpforms-lite": "1.8.6",
+  "all-in-one-seo-pack": "4.5.3",
+  "wordpress-seo": "21.7",
+  "yoast-seo": "21.7",
+  "wordfence": "7.11.1",
+  "wp-file-manager": "7.2.1",
+  "duplicator": "1.5.8",
+  "updraftplus": "1.23.12",
+  "essential-addons-for-elementor-lite": "5.9.6",
+  "wp-smushit": "3.15.3",
+  "really-simple-ssl": "7.2.0",
+  "jetpack": "13.0",
+  "ninja-forms": "3.8.0"
+}

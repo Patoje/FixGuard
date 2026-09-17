@@ -1068,6 +1068,64 @@ export interface CredentialedCorsDetectionResult {
   };
 }
 
+export type CmsPluginStatus =
+  | 'potential_weakness'
+  | 'secure_target_abstained'
+  | 'pending_human_review'
+  | 'preflight_denied'
+  | 'unexpected_failure';
+
+export interface CmsPluginVulnerabilityDetectionRequest {
+  readonly contractVersion: DetectionContractVersion;
+  readonly kind: 'cms_plugin_vulnerability_detection_request';
+  readonly detectionId: string;
+  readonly assessmentId: string;
+  readonly scanId: string;
+  readonly authorizationGrantId: string;
+  readonly authorizationDecisionId: string;
+  readonly actorId: string;
+  readonly verifiedAuthorizationDecision: VerifiedAuthorizationDecision;
+  readonly scopeGrant: AuthorizedScopeGrant;
+  readonly targetBaseUrl: string;
+  readonly pluginSlug: string;
+  readonly cmsType?: 'wordpress' | 'joomla' | 'drupal';
+  readonly reviewerPolicy?: ReviewerPolicy;
+  readonly humanReviewDecision?: HumanReviewDecision;
+  readonly triageDecision?: ReviewedEvidenceFindingCandidateTriageDecision;
+  readonly transport?: IdorHttpProbeTransport;
+  readonly dnsResolver?: PreSpawnDnsResolver;
+}
+
+export interface CmsPluginVulnerabilityDetectionResult {
+  readonly contractVersion: DetectionContractVersion;
+  readonly kind: 'cms_plugin_vulnerability_detection_result';
+  readonly detectionId: string;
+  readonly scanId: string;
+  readonly assessmentId: string;
+  readonly authorizationGrantId: string;
+  readonly authorizationDecisionId: string;
+  readonly actorId: string;
+  readonly status: CmsPluginStatus;
+  readonly reasonCode: string;
+  readonly lineage: AuthorizedExecutionLineageTuple;
+  readonly cmsType: 'wordpress' | 'joomla' | 'drupal';
+  readonly pluginSlug: string;
+  readonly detectedVersion: string;
+  readonly minimumSafeVersion: string;
+  readonly isOutdated: boolean;
+  readonly evidenceSourceUrl: string;
+  readonly responseStatusCode?: number;
+  readonly evidenceDraft?: EvidenceDraftEnvelope;
+  readonly evidenceRecord?: EvidenceRecord;
+  readonly promotedEvidenceResult?: HumanReviewedEvidencePromotionResult;
+  readonly findingCandidate?: ReviewedEvidenceFormalFindingCandidate;
+  readonly finding?: Finding;
+  readonly error?: {
+    readonly code: string;
+    readonly safeMessage: string;
+  };
+}
+
 
 
 

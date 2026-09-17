@@ -65,6 +65,7 @@ export interface DifferentialEvidenceContext {
     | 'jwt_algorithm_confusion'
     | 'session_fixation'
     | 'credentialed_cors'
+    | 'cms_plugin_vulnerability'
     | 'custom_difference';
   readonly baselineStatusCode?: number;
   readonly baselineBodyHash?: string;
@@ -123,6 +124,12 @@ export interface DifferentialEvidenceContext {
   readonly suppliedOrigin?: string;
   readonly allowCredentialsHeader?: boolean;
   readonly acaoHeader?: string;
+  readonly cmsType?: 'wordpress' | 'joomla' | 'drupal';
+  readonly pluginSlug?: string;
+  readonly detectedVersion?: string;
+  readonly minimumSafeVersion?: string;
+  readonly isOutdated?: boolean;
+  readonly evidenceSourceUrl?: string;
 }
 
 

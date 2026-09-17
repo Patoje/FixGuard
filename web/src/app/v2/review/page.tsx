@@ -740,6 +740,42 @@ function HumanReviewContent() {
                           <span className="text-rose-300 font-mono text-[11px] break-all font-bold">{diffContext.acaoHeader}</span>
                         </div>
                       )}
+
+                      {diffContext?.pluginSlug && (
+                        <div className="rounded-lg bg-black/40 border border-amber-500/30 p-2.5">
+                          <span className="text-zinc-500 text-[10px] block">CMS Plugin Target:</span>
+                          <span className="text-amber-400 font-bold font-mono text-[11px] uppercase">
+                            {diffContext.cmsType ?? 'WordPress'}: {diffContext.pluginSlug}
+                          </span>
+                        </div>
+                      )}
+
+                      {diffContext?.detectedVersion && (
+                        <div className="rounded-lg bg-black/40 border border-rose-500/30 p-2.5">
+                          <span className="text-zinc-500 text-[10px] block">Detected Plugin Version:</span>
+                          <span className="text-rose-400 font-bold font-mono text-[11px]">
+                            v{diffContext.detectedVersion}
+                          </span>
+                        </div>
+                      )}
+
+                      {diffContext?.minimumSafeVersion && (
+                        <div className="rounded-lg bg-black/40 border border-emerald-500/30 p-2.5">
+                          <span className="text-zinc-500 text-[10px] block">Minimum Safe Baseline:</span>
+                          <span className="text-emerald-400 font-bold font-mono text-[11px]">
+                            v{diffContext.minimumSafeVersion}
+                          </span>
+                        </div>
+                      )}
+
+                      {diffContext?.isOutdated !== undefined && (
+                        <div className="rounded-lg bg-black/40 border border-rose-500/30 p-2.5">
+                          <span className="text-zinc-500 text-[10px] block">Version Status:</span>
+                          <span className={`font-bold ${diffContext.isOutdated ? 'text-rose-400' : 'text-emerald-400'}`}>
+                            {diffContext.isOutdated ? 'OUTDATED (Vulnerable Surface)' : 'CURRENT / SAFE'}
+                          </span>
+                        </div>
+                      )}
                     </div>
 
 

@@ -62,6 +62,7 @@ import { runGraphQLSurfaceDetection } from '../detection/GraphQLSurfaceDetection
 import { runJwtAlgorithmConfusionDetection } from '../detection/JwtAlgorithmConfusionDetectionService.js';
 import { runSessionFixationDetection } from '../detection/SessionFixationDetectionService.js';
 import { runCredentialedCorsDetection } from '../detection/CredentialedCorsDetectionService.js';
+import { runCmsPluginVulnerabilityDetection } from '../detection/CmsPluginVulnerabilityDetectionService.js';
 
 
 import { buildTargetProfile } from '../intelligence/TargetProfileBuilder.js';
@@ -1451,6 +1452,45 @@ export class OrchestratedAssessmentApplicationService {
             lineage: `${record.assessmentId}:${record.scanId}:${reviewerId}:${reviewedAt}`,
           },
         };
+      } else if (detKind === 'cms_plugin_vulnerability') {
+        const endpointUrl = context?.endpointUrl ?? `https://${record.targetDomain}/`;
+        const cmsType = context?.cmsType ?? 'wordpress';
+        const pluginSlug = context?.pluginSlug ?? 'plugin';
+        const detectedVersion = context?.detectedVersion ?? '1.0.0';
+        const minimumSafeVersion = context?.minimumSafeVersion ?? '2.0.0';
+        const isOutdated = context?.isOutdated ?? true;
+        const evidenceSourceUrl = context?.evidenceSourceUrl ?? endpointUrl;
+
+        findingCreated = {
+          id: `fnd_cms_${draftId.replace(/^dft_/, '').replace(/^draft_/, '')}`,
+          type: 'SECURITY_MISCONFIGURATION',
+          severity: 'medium',
+          title: `Approved Outdated CMS Plugin on ${record.targetDomain}: ${pluginSlug} (v${detectedVersion} < v${minimumSafeVersion})`,
+          description: `Human operator verified that target application exposes outdated ${cmsType} plugin '${pluginSlug}' version ${detectedVersion} on ${evidenceSourceUrl}. Minimum safe version: ${minimumSafeVersion}.`,
+          target: evidenceSourceUrl,
+          evidence: JSON.stringify({
+            draftId,
+            reviewerId,
+            reviewedAt,
+            notes,
+            differentialContext: context,
+          }),
+          confidence: 1.0,
+          metadata: {
+            kind: 'cms_plugin_vulnerability_metadata',
+            category: 'SECURITY_MISCONFIGURATION',
+            cmsType,
+            pluginSlug,
+            detectedVersion,
+            minimumSafeVersion,
+            isOutdated,
+            evidenceSourceUrl,
+            observedAt: reviewedAt,
+            candidateId: `cnd_${draftId}`,
+            evidenceRecordId: `evd_${draftId}`,
+            lineage: `${record.assessmentId}:${record.scanId}:${reviewerId}:${reviewedAt}`,
+          },
+        };
       } else {
 
 
@@ -2532,6 +2572,62 @@ export class OrchestratedAssessmentApplicationService {
             }
           } catch {
             // Safe error containment
+          }
+        }
+
+        // CMS Plugin Vulnerability Probing (Milestone P4-10: Phase 4 Finale)
+        if (!coordinator.isCircuitOpen(record.targetDomain)) {
+          const commonPlugins = [
+            'woocommerce',
+            'elementor',
+            'contact-form-7',
+            'wpforms-lite',
+            'wp-file-manager',
+          ];
+
+          for (const pluginSlug of commonPlugins) {
+            if (coordinator.isCircuitOpen(record.targetDomain)) break;
+            try {
+              const cmsResult = await runCmsPluginVulnerabilityDetection({
+                contractVersion: DETECTION_CONTRACT_VERSION,
+                kind: 'cms_plugin_vulnerability_detection_request',
+                detectionId: `det_cms_${record.assessmentId.slice(-8)}_${pluginSlug.replace(/[^a-zA-Z0-9]/g, '')}`,
+                assessmentId: lineage.assessmentId,
+                scanId: lineage.scanId,
+                authorizationGrantId: lineage.authorizationGrantId,
+                authorizationDecisionId: lineage.authorizationDecisionId,
+                actorId: lineage.actorId,
+                targetBaseUrl: targetUrl,
+                pluginSlug,
+                cmsType: 'wordpress',
+                verifiedAuthorizationDecision: verifiedDecision,
+                scopeGrant,
+                transport: this.httpTransport,
+                dnsResolver: this.dnsResolver,
+              });
+
+              if (cmsResult.status === 'potential_weakness' && cmsResult.finding) {
+                findings.push(cmsResult.finding);
+              } else if (cmsResult.status === 'pending_human_review' && cmsResult.evidenceDraft) {
+                const enrichedDraft: EnrichedEvidenceDraft = {
+                  ...cmsResult.evidenceDraft,
+                  differentialContext: {
+                    endpointUrl: cmsResult.evidenceSourceUrl,
+                    detectionKind: 'cms_plugin_vulnerability',
+                    cmsType: cmsResult.cmsType,
+                    pluginSlug: cmsResult.pluginSlug,
+                    detectedVersion: cmsResult.detectedVersion,
+                    minimumSafeVersion: cmsResult.minimumSafeVersion,
+                    isOutdated: cmsResult.isOutdated,
+                    evidenceSourceUrl: cmsResult.evidenceSourceUrl,
+                    baselineStatusCode: cmsResult.responseStatusCode,
+                  },
+                };
+                pendingEvidenceDrafts.push(enrichedDraft);
+              }
+            } catch {
+              // Safe error containment
+            }
           }
         }
       }

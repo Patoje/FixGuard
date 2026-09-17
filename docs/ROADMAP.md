@@ -123,13 +123,16 @@
                                                                 │
                                                                 ▼
                                                         [PHASE 4: P4-9] COMPLETED (Credentialed CORS Detection Upgrade)
+                                                                │
+                                                                ▼
+                                                        [PHASE 4: P4-10] COMPLETED (CMS Plugin Vulnerability Surface - Phase 4 Finale)
 ```
 
 ---
 
 ## 2. Completed Milestones (`CONFIRMED`)
 
-All completed milestones are verified via active TypeScript contracts and the regression test suite (`npm run check:v2` with 64 passing smoke suites, 100% pass rate).
+All completed milestones are verified via active TypeScript contracts and the regression test suite (`npm run check:v2` with 65 passing smoke suites, 100% pass rate).
 
 
 
@@ -1100,7 +1103,37 @@ All completed milestones are verified via active TypeScript contracts and the re
   4. **Verification & Hygiene**:
      - Dedicated smoke test `worker/src/v2/smoke/milestoneP4_9_credentialed_cors_smoke.ts` passes 100% across all 4 assertions.
      - `npm run typecheck:v2` exits with code 0.
-     - Full regression suite `npm run check:v2` (64/64 smoke suites) passes 100%.
+     - Full regression suite `npm run check:v2` (65/65 smoke suites) passes 100%.
+     - `cd web && npm run build` compiles cleanly with zero errors.
+     - 0 occurrences of `as any` across all production code.
+
+---
+
+### Milestone P4-10: CMS Plugin Vulnerability Surface (Phase 4 Finale)
+- **Status:** COMPLETED (Phase 4 100% Complete).
+- **Goal:** Detect outdated or vulnerable CMS plugins by extracting version identifiers from publicly exposed `readme.txt` or asset headers and matching them against a deterministic known-version reference dataset.
+- **Key Deliverables:**
+  1. **Static Reference Dataset (`wordpress_plugin_versions.json`)**:
+     - Created `worker/src/v2/detection/data/wordpress_plugin_versions.json` containing minimum safe versions for high-volume WordPress plugins (`woocommerce`, `elementor`, `contact-form-7`, `wpforms-lite`, `wordfence`, `wp-file-manager`, `duplicator`, `updraftplus`, etc.).
+  2. **Domain Contracts & Typed Metadata (`CmsPluginVulnerabilityMetadata`)**:
+     - Defined `CmsPluginVulnerabilityMetadata` in `worker/src/v2/core/Evidence.ts` under the `FindingMetadata` discriminated union (`kind: 'cms_plugin_vulnerability_metadata'`, `category: 'SECURITY_MISCONFIGURATION'`, `cmsType`, `pluginSlug`, `detectedVersion`, `minimumSafeVersion`, `isOutdated: boolean`, `evidenceSourceUrl`).
+     - Extended `DifferentialEvidenceContext` and `DifferentialEvidenceContextDto` with `detectionKind: 'cms_plugin_vulnerability'`, `cmsType`, `pluginSlug`, `detectedVersion`, `minimumSafeVersion`, and `isOutdated`.
+  3. **Detection Service (`CmsPluginVulnerabilityDetectionService.ts`)**:
+     - Implemented `runCmsPluginVulnerabilityDetection()`.
+     - 7-pass SSRF preflight protection.
+     - Read-only bounded GET request (first 4KB of `/wp-content/plugins/<slug>/readme.txt`).
+     - Regex version extraction from `Stable tag:` and changelog headers.
+     - Deterministic dotted semver comparison against local JSON reference.
+     - Clean abstention (`secure_target_abstained`) when plugin is current, safe, or `readme.txt` is 404/403.
+     - Evidence sanitization via `sanitizeEvidenceFragment()`.
+  4. **Pipeline & Review UI Integration**:
+     - Wired `runCmsPluginVulnerabilityDetection` into `executePipelineStages` in `OrchestratedAssessmentApplicationService.ts`.
+     - Added `reviewEvidenceDraft` handler for `'cms_plugin_vulnerability'` promoting unreviewed drafts to formal `Finding` records.
+     - Updated `web/src/app/v2/review/page.tsx` to render CMS Plugin cards displaying plugin slug, detected version, minimum safe version, and status badge.
+  5. **Verification & Hygiene**:
+     - Dedicated smoke test `worker/src/v2/smoke/milestoneP4_10_cms_plugin_surface_smoke.ts` passes 100% across all 5 assertions.
+     - `npm run typecheck:v2` exits with code 0.
+     - Full regression suite `npm run check:v2` (65/65 smoke suites) passes 100%.
      - `cd web && npm run build` compiles cleanly with zero errors.
      - 0 occurrences of `as any` across all production code.
 
