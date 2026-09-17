@@ -160,6 +160,7 @@ export interface DifferentialEvidenceContextDto {
     | 'graphql_surface'
     | 'jwt_algorithm_confusion'
     | 'session_fixation'
+    | 'credentialed_cors'
     | 'custom_difference';
   readonly baselineStatusCode?: number;
   readonly baselineBodyHash?: string;
@@ -215,6 +216,9 @@ export interface DifferentialEvidenceContextDto {
   readonly sessionCookieName?: string;
   readonly fixedSessionId?: string;
   readonly serverRegeneratedSession?: boolean;
+  readonly suppliedOrigin?: string;
+  readonly allowCredentialsHeader?: boolean;
+  readonly acaoHeader?: string;
 }
 
 

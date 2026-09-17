@@ -61,6 +61,7 @@ import { runSqlErrorOracleDetection } from '../detection/SqlErrorOracleDetection
 import { runGraphQLSurfaceDetection } from '../detection/GraphQLSurfaceDetectionService.js';
 import { runJwtAlgorithmConfusionDetection } from '../detection/JwtAlgorithmConfusionDetectionService.js';
 import { runSessionFixationDetection } from '../detection/SessionFixationDetectionService.js';
+import { runCredentialedCorsDetection } from '../detection/CredentialedCorsDetectionService.js';
 
 
 import { buildTargetProfile } from '../intelligence/TargetProfileBuilder.js';
@@ -1405,6 +1406,51 @@ export class OrchestratedAssessmentApplicationService {
             lineage: `${record.assessmentId}:${record.scanId}:${reviewerId}:${reviewedAt}`,
           },
         };
+      } else if (detKind === 'credentialed_cors') {
+        const endpointUrl = context?.endpointUrl ?? `https://${record.targetDomain}/`;
+        const httpMethod = context?.httpMethod ?? 'GET';
+        const suppliedOrigin = context?.suppliedOrigin ?? 'https://canary.fixguard.internal';
+        const reflectedOrigin = context?.reflectedOrigin ?? suppliedOrigin;
+        const allowCredentialsHeader = context?.allowCredentialsHeader ?? true;
+        const acaoHeader = context?.acaoHeader ?? suppliedOrigin;
+
+        let parsedPath = '/';
+        try {
+          parsedPath = new URL(endpointUrl).pathname;
+        } catch {
+          // fallback
+        }
+
+        findingCreated = {
+          id: `fnd_cors_${draftId.replace(/^dft_/, '').replace(/^draft_/, '')}`,
+          type: 'SECURITY_MISCONFIGURATION',
+          severity: 'high',
+          title: `Approved Credentialed Arbitrary CORS Origin Reflection on ${parsedPath}`,
+          description: `Human operator verified that target application reflects untrusted origin '${suppliedOrigin}' in Access-Control-Allow-Origin while setting Access-Control-Allow-Credentials: true on ${endpointUrl}.`,
+          target: endpointUrl,
+          evidence: JSON.stringify({
+            draftId,
+            reviewerId,
+            reviewedAt,
+            notes,
+            differentialContext: context,
+          }),
+          confidence: 1.0,
+          metadata: {
+            kind: 'credentialed_cors_metadata',
+            category: 'SECURITY_MISCONFIGURATION',
+            endpointUrl,
+            httpMethod,
+            suppliedOrigin,
+            reflectedOrigin,
+            allowCredentialsHeader,
+            acaoHeader,
+            observedAt: reviewedAt,
+            candidateId: `cnd_${draftId}`,
+            evidenceRecordId: `evd_${draftId}`,
+            lineage: `${record.assessmentId}:${record.scanId}:${reviewerId}:${reviewedAt}`,
+          },
+        };
       } else {
 
 
@@ -2435,6 +2481,51 @@ export class OrchestratedAssessmentApplicationService {
                   fixedSessionId: fixResult.fixedSessionId,
                   serverRegeneratedSession: fixResult.serverRegeneratedSession,
                   baselineStatusCode: fixResult.responseStatusCode,
+                },
+              };
+              pendingEvidenceDrafts.push(enrichedDraft);
+            }
+          } catch {
+            // Safe error containment
+          }
+        }
+
+        // Credentialed CORS Detection Probe
+        if (!coordinator.isCircuitOpen(record.targetDomain)) {
+          try {
+            const corsResult = await runCredentialedCorsDetection({
+              contractVersion: DETECTION_CONTRACT_VERSION,
+              kind: 'credentialed_cors_detection_request',
+              detectionId: `det_cors_${record.assessmentId.slice(-8)}`,
+              assessmentId: lineage.assessmentId,
+              scanId: lineage.scanId,
+              authorizationGrantId: lineage.authorizationGrantId,
+              authorizationDecisionId: lineage.authorizationDecisionId,
+              actorId: lineage.actorId,
+              endpointUrl: targetUrl,
+              httpMethod: 'GET',
+              suppliedOrigin: 'https://canary.fixguard.internal',
+              identityAContext,
+              verifiedAuthorizationDecision: verifiedDecision,
+              scopeGrant,
+              transport: this.httpTransport,
+              dnsResolver: this.dnsResolver,
+            });
+
+            if (corsResult.status === 'vulnerability_detected' && corsResult.finding) {
+              findings.push(corsResult.finding);
+            } else if (corsResult.status === 'pending_human_review' && corsResult.evidenceDraft) {
+              const enrichedDraft: EnrichedEvidenceDraft = {
+                ...corsResult.evidenceDraft,
+                differentialContext: {
+                  endpointUrl: corsResult.endpointUrl,
+                  detectionKind: 'credentialed_cors',
+                  httpMethod: corsResult.httpMethod,
+                  suppliedOrigin: corsResult.suppliedOrigin,
+                  reflectedOrigin: corsResult.reflectedOrigin,
+                  allowCredentialsHeader: corsResult.allowCredentialsHeader,
+                  acaoHeader: corsResult.acaoHeader,
+                  baselineStatusCode: corsResult.responseStatusCode,
                 },
               };
               pendingEvidenceDrafts.push(enrichedDraft);

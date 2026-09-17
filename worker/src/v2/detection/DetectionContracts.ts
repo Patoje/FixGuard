@@ -1005,6 +1005,70 @@ export interface SessionFixationDetectionResult {
   };
 }
 
+// ---------------------------------------------------------------------------
+// Milestone P4-9 — Credentialed CORS Detection Upgrade Contracts
+// ---------------------------------------------------------------------------
+
+export type CredentialedCorsStatus =
+  | 'vulnerability_detected'
+  | 'pending_human_review'
+  | 'secure_target_abstained'
+  | 'preflight_denied'
+  | 'unexpected_failure';
+
+export interface CredentialedCorsDetectionRequest {
+  readonly contractVersion: DetectionContractVersion;
+  readonly kind: 'credentialed_cors_detection_request';
+  readonly detectionId: string;
+  readonly assessmentId: string;
+  readonly scanId: string;
+  readonly authorizationGrantId: string;
+  readonly authorizationDecisionId: string;
+  readonly actorId: string;
+  readonly verifiedAuthorizationDecision: VerifiedAuthorizationDecision;
+  readonly scopeGrant: AuthorizedScopeGrant;
+  readonly endpointUrl: string;
+  readonly httpMethod?: 'GET' | 'POST' | 'HEAD';
+  readonly suppliedOrigin?: string;
+  readonly identityAContext?: ProbeAuthContext;
+  readonly reviewerPolicy?: ReviewerPolicy;
+  readonly humanReviewDecision?: HumanReviewDecision;
+  readonly triageDecision?: ReviewedEvidenceFindingCandidateTriageDecision;
+  readonly transport?: IdorHttpProbeTransport;
+  readonly dnsResolver?: PreSpawnDnsResolver;
+}
+
+export interface CredentialedCorsDetectionResult {
+  readonly contractVersion: DetectionContractVersion;
+  readonly kind: 'credentialed_cors_detection_result';
+  readonly detectionId: string;
+  readonly scanId: string;
+  readonly assessmentId: string;
+  readonly authorizationGrantId: string;
+  readonly authorizationDecisionId: string;
+  readonly actorId: string;
+  readonly status: CredentialedCorsStatus;
+  readonly reasonCode: string;
+  readonly lineage: AuthorizedExecutionLineageTuple;
+  readonly endpointUrl: string;
+  readonly httpMethod: string;
+  readonly suppliedOrigin: string;
+  readonly reflectedOrigin: string;
+  readonly allowCredentialsHeader: boolean;
+  readonly acaoHeader: string;
+  readonly responseStatusCode?: number;
+  readonly evidenceDraft?: EvidenceDraftEnvelope;
+  readonly evidenceRecord?: EvidenceRecord;
+  readonly promotedEvidenceResult?: HumanReviewedEvidencePromotionResult;
+  readonly findingCandidate?: ReviewedEvidenceFormalFindingCandidate;
+  readonly finding?: Finding;
+  readonly error?: {
+    readonly code: string;
+    readonly safeMessage: string;
+  };
+}
+
+
 
 
 

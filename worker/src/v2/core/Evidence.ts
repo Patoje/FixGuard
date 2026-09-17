@@ -226,6 +226,21 @@ export interface SessionFixationMetadata {
   readonly lineage?: string | Record<string, unknown>;
 }
 
+export interface CredentialedCorsMetadata {
+  readonly kind: 'credentialed_cors_metadata';
+  readonly category: 'SECURITY_MISCONFIGURATION';
+  readonly endpointUrl: string;
+  readonly httpMethod: string;
+  readonly suppliedOrigin: string;
+  readonly reflectedOrigin: string;
+  readonly allowCredentialsHeader: boolean;
+  readonly acaoHeader: string;
+  readonly observedAt: string;
+  readonly candidateId?: string;
+  readonly evidenceRecordId?: string;
+  readonly lineage?: string | Record<string, unknown>;
+}
+
 export type FindingMetadata =
   | BrokenAccessControlMetadata
   | SecurityMisconfigurationMetadata
@@ -242,6 +257,7 @@ export type FindingMetadata =
   | GraphQLSurfaceMetadata
   | JwtAlgorithmConfusionMetadata
   | SessionFixationMetadata
+  | CredentialedCorsMetadata
   | DiscoveryFindingMetadata;
 
 

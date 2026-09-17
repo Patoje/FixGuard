@@ -120,13 +120,16 @@
                                                                 │
                                                                 ▼
                                                         [PHASE 4: P4-8] COMPLETED (Session Fixation Detection Engine)
+                                                                │
+                                                                ▼
+                                                        [PHASE 4: P4-9] COMPLETED (Credentialed CORS Detection Upgrade)
 ```
 
 ---
 
 ## 2. Completed Milestones (`CONFIRMED`)
 
-All completed milestones are verified via active TypeScript contracts and the regression test suite (`npm run check:v2` with 63 passing smoke suites, 100% pass rate).
+All completed milestones are verified via active TypeScript contracts and the regression test suite (`npm run check:v2` with 64 passing smoke suites, 100% pass rate).
 
 
 
@@ -1068,7 +1071,36 @@ All completed milestones are verified via active TypeScript contracts and the re
   4. **Verification & Hygiene**:
      - Dedicated smoke test `worker/src/v2/smoke/milestoneP4_8_session_fixation_smoke.ts` passes 100% across all 5 assertions.
      - `npm run typecheck:v2` exits with code 0.
-     - Full regression suite `npm run check:v2` (63/63 smoke suites) passes 100%.
+     - Full regression suite `npm run check:v2` (64/64 smoke suites) passes 100%.
+     - `cd web && npm run build` compiles cleanly with zero errors.
+     - 0 occurrences of `as any` across all production code.
+
+---
+
+### Milestone P4-9: Credentialed CORS Detection Upgrade
+- **Status:** COMPLETED.
+- **Goal:** Upgrade cross-origin evaluation by implementing the Credentialed CORS Detection Engine, testing whether target endpoints reflect untrusted arbitrary origins while simultaneously setting `Access-Control-Allow-Credentials: true` under authenticated context (Identity A).
+- **Key Deliverables:**
+  1. **Domain Contracts & Typed Metadata (`CredentialedCorsMetadata`)**:
+     - Defined `CredentialedCorsMetadata` in `worker/src/v2/core/Evidence.ts` under the `FindingMetadata` discriminated union (`kind: 'credentialed_cors_metadata'`, `category: 'SECURITY_MISCONFIGURATION'`, `endpointUrl`, `httpMethod`, `suppliedOrigin`, `reflectedOrigin`, `allowCredentialsHeader: boolean`, `acaoHeader`).
+     - Extended `DifferentialEvidenceContext` and `DifferentialEvidenceContextDto` with `detectionKind: 'credentialed_cors'`, `suppliedOrigin`, `reflectedOrigin`, `allowCredentialsHeader`, and `acaoHeader`.
+  2. **Detection Service (`CredentialedCorsDetectionService.ts`)**:
+     - Implemented `runCredentialedCorsDetection()`.
+     - Injects custom untrusted test origin (`Origin: https://canary.fixguard.internal`).
+     - Leverages `identityAContext` headers/cookies if provided.
+     - Enforces 7-pass SSRF preflight protection blocking internal IP and metadata probing.
+     - Inspects response headers `Access-Control-Allow-Origin` (ACAO) and `Access-Control-Allow-Credentials` (ACAC):
+       - If ACAO reflects the untrusted canary origin (or `*`) AND ACAC is `'true'`: Flags confirmed credentialed cross-origin leak (`status: 'vulnerability_detected'`, `severity: 'high'`, `category: 'SECURITY_MISCONFIGURATION'`).
+       - If origin is not reflected, or ACAC is missing/false: Cleanly abstains (`status: 'secure_target_abstained'`).
+     - Sanitizes evidence fragments and response headers via `sanitizeEvidenceFragment()`.
+  3. **Pipeline & Review UI Integration**:
+     - Wired `runCredentialedCorsDetection` into `executePipelineStages` in `OrchestratedAssessmentApplicationService.ts`.
+     - Added `reviewEvidenceDraft` handler for `'credentialed_cors'` promoting unreviewed drafts to formal `Finding` records with `CredentialedCorsMetadata`.
+     - Updated `web/src/app/v2/review/page.tsx` to render Credentialed CORS cards displaying supplied origin, reflected origin, and credentials status.
+  4. **Verification & Hygiene**:
+     - Dedicated smoke test `worker/src/v2/smoke/milestoneP4_9_credentialed_cors_smoke.ts` passes 100% across all 4 assertions.
+     - `npm run typecheck:v2` exits with code 0.
+     - Full regression suite `npm run check:v2` (64/64 smoke suites) passes 100%.
      - `cd web && npm run build` compiles cleanly with zero errors.
      - 0 occurrences of `as any` across all production code.
 

@@ -717,6 +717,29 @@ function HumanReviewContent() {
                           </span>
                         </div>
                       )}
+
+                      {diffContext?.suppliedOrigin && (
+                        <div className="rounded-lg bg-black/40 border border-zinc-800 p-2.5">
+                          <span className="text-zinc-500 text-[10px] block">Supplied Untrusted Origin:</span>
+                          <span className="text-blue-400 font-bold font-mono text-[11px] break-all">{diffContext.suppliedOrigin}</span>
+                        </div>
+                      )}
+
+                      {diffContext?.allowCredentialsHeader !== undefined && (
+                        <div className="rounded-lg bg-black/40 border border-rose-500/30 p-2.5">
+                          <span className="text-zinc-500 text-[10px] block">Allow-Credentials Header (ACAC):</span>
+                          <span className={`font-bold ${diffContext.allowCredentialsHeader ? 'text-rose-400' : 'text-zinc-400'}`}>
+                            {diffContext.allowCredentialsHeader ? 'TRUE (Credentialed)' : 'FALSE / Missing'}
+                          </span>
+                        </div>
+                      )}
+
+                      {diffContext?.acaoHeader && (
+                        <div className="rounded-lg bg-black/40 border border-rose-500/30 p-2.5 col-span-2">
+                          <span className="text-zinc-500 text-[10px] block">Reflected Access-Control-Allow-Origin:</span>
+                          <span className="text-rose-300 font-mono text-[11px] break-all font-bold">{diffContext.acaoHeader}</span>
+                        </div>
+                      )}
                     </div>
 
 
