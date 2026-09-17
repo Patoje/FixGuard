@@ -884,6 +884,48 @@ function HumanReviewContent() {
                           </div>
                         </div>
                       )}
+
+                      {diffContext?.detectionKind === 'dependency_confusion' && (
+                        <div className="rounded-lg bg-black/40 border border-red-500/40 p-2.5 col-span-2">
+                          <span className="text-red-400 text-[10px] block font-bold uppercase tracking-wider mb-1">
+                            Dependency Confusion &amp; Unclaimed Package Supply Chain Risk
+                          </span>
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-[11px] font-mono mt-2">
+                            {diffContext.packageName && (
+                              <div className="rounded bg-black/60 p-2 border border-zinc-800">
+                                <span className="text-zinc-500 text-[10px] block">Internal Package Name:</span>
+                                <span className="text-red-400 font-bold break-all">{diffContext.packageName}</span>
+                                {diffContext.detectedVersion && (
+                                  <span className="text-zinc-400 text-[10px] block mt-0.5">Declared Version: {diffContext.detectedVersion}</span>
+                                )}
+                              </div>
+                            )}
+                            {diffContext.publicRegistryUrl && (
+                              <div className="rounded bg-black/60 p-2 border border-zinc-800">
+                                <span className="text-zinc-500 text-[10px] block">Public Registry Check:</span>
+                                <span className="text-blue-400 break-all">{diffContext.publicRegistryUrl}</span>
+                                <span className="text-rose-400 text-[10px] block mt-0.5 font-bold">
+                                  Status: HTTP {diffContext.registryStatusCode ?? 404} (Unclaimed / Not Found)
+                                </span>
+                              </div>
+                            )}
+                            {diffContext.sourceManifestUrl && (
+                              <div className="rounded bg-black/60 p-2 border border-zinc-800">
+                                <span className="text-zinc-500 text-[10px] block">Exposed Source Manifest:</span>
+                                <span className="text-zinc-300 font-mono break-all">{diffContext.sourceManifestUrl}</span>
+                              </div>
+                            )}
+                            {diffContext.isUnclaimedPublicly !== undefined && (
+                              <div className="rounded bg-black/60 p-2 border border-red-500/30">
+                                <span className="text-zinc-500 text-[10px] block">Namespace Registration:</span>
+                                <span className={`font-bold ${diffContext.isUnclaimedPublicly ? 'text-red-400' : 'text-emerald-400'}`}>
+                                  {diffContext.isUnclaimedPublicly ? 'CRITICAL: Unclaimed Public Namespace (Substitution Risk)' : 'CLAIMED: Registered in Public Registry'}
+                                </span>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      )}
                     </div>
 
 

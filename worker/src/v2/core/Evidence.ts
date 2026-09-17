@@ -302,6 +302,21 @@ export interface HttpMethodManipulationMetadata {
   readonly lineage?: string | Record<string, unknown>;
 }
 
+export interface DependencyConfusionMetadata {
+  readonly kind: 'dependency_confusion_metadata';
+  readonly category: 'SUPPLY_CHAIN_RISK';
+  readonly packageName: string;
+  readonly detectedVersion?: string;
+  readonly sourceManifestUrl: string;
+  readonly publicRegistryUrl: string;
+  readonly registryStatusCode: number;
+  readonly isUnclaimedPublicly: boolean;
+  readonly observedAt: string;
+  readonly candidateId?: string;
+  readonly evidenceRecordId?: string;
+  readonly lineage?: string | Record<string, unknown>;
+}
+
 export type FindingMetadata =
   | BrokenAccessControlMetadata
   | SecurityMisconfigurationMetadata
@@ -323,6 +338,7 @@ export type FindingMetadata =
   | CompoundChainMetadata
   | ApiVersioningSprawlMetadata
   | HttpMethodManipulationMetadata
+  | DependencyConfusionMetadata
   | DiscoveryFindingMetadata;
 
 

@@ -65,6 +65,10 @@ import { runCredentialedCorsDetection } from '../detection/CredentialedCorsDetec
 import { runCmsPluginVulnerabilityDetection } from '../detection/CmsPluginVulnerabilityDetectionService.js';
 import { runApiVersioningSprawlDetection } from '../detection/ApiVersioningSprawlDetectionService.js';
 import { runHttpMethodManipulationDetection } from '../detection/HttpMethodManipulationDetectionService.js';
+import {
+  runDependencyConfusionDetection,
+  extractPackageCandidatesFromManifest,
+} from '../detection/DependencyConfusionDetectionService.js';
 import { correlateCorsIdorChains } from '../intelligence/correlation/CorsIdorChainCorrelator.js';
 
 
@@ -1621,6 +1625,44 @@ export class OrchestratedAssessmentApplicationService {
             lineage: `${record.assessmentId}:${record.scanId}:${reviewerId}:${reviewedAt}`,
           },
         };
+      } else if (detKind === 'dependency_confusion') {
+        const packageName = context?.packageName ?? '@company/internal-pkg';
+        const sourceManifestUrl = context?.sourceManifestUrl ?? (context?.endpointUrl ?? `https://${record.targetDomain}/package.json`);
+        const publicRegistryUrl = context?.publicRegistryUrl ?? `https://registry.npmjs.org/${encodeURIComponent(packageName)}`;
+        const registryStatusCode = context?.registryStatusCode ?? 404;
+        const isUnclaimedPublicly = context?.isUnclaimedPublicly ?? true;
+        const detectedVersion = context?.detectedVersion;
+
+        findingCreated = {
+          id: `fnd_depconf_${draftId.replace(/^dft_/, '').replace(/^draft_/, '').replace(/^depconf_/, '')}`,
+          type: 'SUPPLY_CHAIN_RISK',
+          severity: 'high',
+          title: `Approved Unclaimed Private Package Namespace (${packageName})`,
+          description: `Human operator verified dependency confusion risk. The internal package '${packageName}' declared in '${sourceManifestUrl}' is unclaimed on the public npm registry (${publicRegistryUrl} returns HTTP ${registryStatusCode}).`,
+          target: packageName,
+          evidence: JSON.stringify({
+            draftId,
+            reviewerId,
+            reviewedAt,
+            notes,
+            differentialContext: context,
+          }),
+          confidence: 1.0,
+          metadata: {
+            kind: 'dependency_confusion_metadata',
+            category: 'SUPPLY_CHAIN_RISK',
+            packageName,
+            detectedVersion,
+            sourceManifestUrl,
+            publicRegistryUrl,
+            registryStatusCode,
+            isUnclaimedPublicly,
+            observedAt: reviewedAt,
+            candidateId: `cnd_${draftId}`,
+            evidenceRecordId: `evd_${draftId}`,
+            lineage: `${record.assessmentId}:${record.scanId}:${reviewerId}:${reviewedAt}`,
+          },
+        };
       } else {
 
         findingCreated = {
@@ -2882,6 +2924,76 @@ export class OrchestratedAssessmentApplicationService {
                   },
                 };
                 pendingEvidenceDrafts.push(enrichedDraft);
+              }
+            } catch {
+              // Safe error containment
+            }
+          }
+        }
+
+        // Dependency Confusion Detection (Milestone P5-4: Unclaimed Private Package Namespaces)
+        if (targetUrl) {
+          const manifestPaths = [
+            `${targetUrl.replace(/\/+$/, '')}/package.json`,
+            `${targetUrl.replace(/\/+$/, '')}/app/package.json`,
+          ];
+
+          for (const manifestUrl of manifestPaths) {
+            if (coordinator.isCircuitOpen(record.targetDomain)) break;
+            try {
+              const probeResp = await this.httpTransport({
+                url: manifestUrl,
+                method: 'GET',
+                headers: { Accept: 'application/json' },
+                timeoutMs: 5000,
+              });
+
+              if (probeResp.statusCode === 200 && probeResp.bodyText) {
+                const candidates = extractPackageCandidatesFromManifest(probeResp.bodyText);
+                for (const cand of candidates.slice(0, 10)) {
+                  if (coordinator.isCircuitOpen(record.targetDomain)) break;
+                  const depResult = await runDependencyConfusionDetection({
+                    contractVersion: DETECTION_CONTRACT_VERSION,
+                    kind: 'dependency_confusion_detection_request',
+                    detectionId: `det_depconf_${record.assessmentId.slice(-8)}`,
+                    assessmentId: lineage.assessmentId,
+                    scanId: lineage.scanId,
+                    authorizationGrantId: lineage.authorizationGrantId,
+                    authorizationDecisionId: lineage.authorizationDecisionId,
+                    actorId: lineage.actorId,
+                    sourceManifestUrl: manifestUrl,
+                    packageName: cand.packageName,
+                    detectedVersion: cand.version,
+                    identityAContext,
+                    verifiedAuthorizationDecision: verifiedDecision,
+                    scopeGrant,
+                    transport: this.httpTransport,
+                    dnsResolver: this.dnsResolver,
+                  });
+
+                  if (
+                    (depResult.status === 'vulnerability_detected' || depResult.status === 'potential_weakness') &&
+                    depResult.finding
+                  ) {
+                    findings.push(depResult.finding);
+                  } else if (depResult.status === 'pending_human_review' && depResult.evidenceDraft) {
+                    const enrichedDraft: EnrichedEvidenceDraft = {
+                      ...depResult.evidenceDraft,
+                      differentialContext: {
+                        endpointUrl: manifestUrl,
+                        detectionKind: 'dependency_confusion',
+                        packageName: depResult.packageName,
+                        detectedVersion: depResult.detectedVersion,
+                        sourceManifestUrl: depResult.sourceManifestUrl,
+                        publicRegistryUrl: depResult.publicRegistryUrl,
+                        registryStatusCode: depResult.registryStatusCode,
+                        isUnclaimedPublicly: depResult.isUnclaimedPublicly,
+                        validationStatusCode: depResult.registryStatusCode,
+                      },
+                    };
+                    pendingEvidenceDrafts.push(enrichedDraft);
+                  }
+                }
               }
             } catch {
               // Safe error containment

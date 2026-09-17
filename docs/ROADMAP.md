@@ -1225,6 +1225,35 @@ All completed milestones are verified via active TypeScript contracts and the re
 
 ---
 
+### Milestone P5-4: Dependency Confusion Detection Engine
+- **Status:** COMPLETED (Phase 5 Milestone 4 Complete).
+- **Goal:** Safe verification of unclaimed private package namespaces. The engine inspects dependencies identified in exposed manifests or client-side bundles and queries the public npm registry to verify whether internal namespaces are unclaimed.
+- **Key Deliverables:**
+  1. **Domain Contracts & Typed Metadata (`DependencyConfusionMetadata`)**:
+     - Defined `DependencyConfusionMetadata` in `worker/src/v2/core/Evidence.ts` under `FindingMetadata` (`kind: 'dependency_confusion_metadata'`, `category: 'SUPPLY_CHAIN_RISK'`, `packageName`, `detectedVersion`, `sourceManifestUrl`, `publicRegistryUrl`, `registryStatusCode`, `isUnclaimedPublicly: boolean`, `observedAt`, `candidateId`, `evidenceRecordId`, `lineage`).
+     - Added `DependencyConfusionStatus`, `DependencyConfusionDetectionRequest`, and `DependencyConfusionDetectionResult` to `worker/src/v2/detection/DetectionContracts.ts`.
+     - Extended `DifferentialEvidenceContext` in `OrchestratedAssessmentContracts.ts` and `DifferentialEvidenceContextDto` in `web/src/lib/v2Api.ts` with `detectionKind: 'dependency_confusion'` and typed supply chain fields (`packageName`, `sourceManifestUrl`, `publicRegistryUrl`, `registryStatusCode`, `isUnclaimedPublicly`).
+  2. **Detection Service (`DependencyConfusionDetectionService.ts`)**:
+     - Implemented `runDependencyConfusionDetection()` and `extractPackageCandidatesFromManifest()`.
+     - 7-pass SSRF preflight protection blocking internal IP and metadata probing on manifest URLs.
+     - Parses manifests/bundles and filters for scoped packages (`@company/pkg`) or internal packages.
+     - Queries public npm registry (`https://registry.npmjs.org/<encodedPkg>`).
+     - Flags `potential_weakness` / `vulnerability_detected` (`SUPPLY_CHAIN_RISK`, high severity) when public registry returns HTTP 404 (unclaimed namespace exposed to dependency substitution).
+     - Clean abstention (`secure_target_abstained`) when package is claimed/published (HTTP 200 OK on public registry).
+     - Evidence sanitization via `sanitizeEvidenceFragment()`.
+  3. **Pipeline & Review UI Integration**:
+     - Wired `runDependencyConfusionDetection` into `executePipelineStages` in `OrchestratedAssessmentApplicationService.ts`.
+     - Handled draft promotion for `'dependency_confusion'` in `reviewEvidenceDraft` promoting drafts to formal `Finding` records.
+     - Updated `web/src/app/v2/review/page.tsx` with Dependency Confusion cards displaying package name, source manifest, public registry URL, and unclaimed badge.
+  4. **Verification & Hygiene**:
+     - Dedicated smoke test `worker/src/v2/smoke/milestoneP5_4_dependency_confusion_smoke.ts` passes 100% across all 5 assertions.
+     - `npm run typecheck:v2` exits with code 0.
+     - Full regression suite `npm run check:v2` (69/69 smoke suites) passes 100%.
+     - `cd web && npm run build` compiles cleanly with zero errors.
+     - 0 occurrences of `as any` across all production code.
+
+---
+
 ## 5. Architectural Proposals (`PROPOSED` — NOT YET DECIDED)
 
 > [!NOTE]

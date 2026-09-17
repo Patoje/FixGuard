@@ -165,6 +165,7 @@ export interface DifferentialEvidenceContextDto {
     | 'cors_idor_compound'
     | 'api_versioning_sprawl'
     | 'http_method_manipulation'
+    | 'dependency_confusion'
     | 'custom_difference';
   readonly baselineStatusCode?: number;
   readonly baselineBodyHash?: string;
@@ -246,6 +247,11 @@ export interface DifferentialEvidenceContextDto {
   readonly bypassMethodOrHeader?: string;
   readonly manipulatedStatusCode?: number;
   readonly bypassType?: 'method_override_header' | 'query_param_override' | 'trace_enabled';
+  readonly packageName?: string;
+  readonly sourceManifestUrl?: string;
+  readonly publicRegistryUrl?: string;
+  readonly registryStatusCode?: number;
+  readonly isUnclaimedPublicly?: boolean;
 }
 
 
