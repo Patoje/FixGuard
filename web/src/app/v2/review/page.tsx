@@ -810,6 +810,44 @@ function HumanReviewContent() {
                           </div>
                         </div>
                       )}
+
+                      {diffContext?.detectionKind === 'api_versioning_sprawl' && (
+                        <div className="rounded-lg bg-black/40 border border-amber-500/40 p-2.5 col-span-2">
+                          <span className="text-amber-400 text-[10px] block font-bold uppercase tracking-wider mb-1">
+                            API Versioning Sprawl &amp; Shadow Endpoint Exposure
+                          </span>
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-[11px] font-mono mt-2">
+                            {diffContext.currentEndpointUrl && (
+                              <div className="rounded bg-black/60 p-2 border border-zinc-800">
+                                <span className="text-zinc-500 text-[10px] block">Current Version Endpoint:</span>
+                                <span className="text-blue-400 break-all">{diffContext.currentEndpointUrl}</span>
+                                <span className="text-zinc-400 text-[10px] block mt-0.5">HTTP Status: {diffContext.currentStatusCode ?? 'Auth Required'}</span>
+                              </div>
+                            )}
+                            {diffContext.legacyEndpointUrl && (
+                              <div className="rounded bg-black/60 p-2 border border-zinc-800">
+                                <span className="text-zinc-500 text-[10px] block">Legacy Version Endpoint:</span>
+                                <span className="text-rose-400 font-bold break-all">{diffContext.legacyEndpointUrl}</span>
+                                <span className="text-zinc-400 text-[10px] block mt-0.5">HTTP Status: {diffContext.legacyStatusCode ?? 200} OK</span>
+                              </div>
+                            )}
+                            {diffContext.detectedVersions && diffContext.detectedVersions.length > 0 && (
+                              <div className="rounded bg-black/60 p-2 border border-zinc-800">
+                                <span className="text-zinc-500 text-[10px] block">Detected Version Tags:</span>
+                                <span className="text-amber-300 font-bold">{diffContext.detectedVersions.join(' vs ')}</span>
+                              </div>
+                            )}
+                            {diffContext.unauthenticatedExposure !== undefined && (
+                              <div className="rounded bg-black/60 p-2 border border-rose-500/30">
+                                <span className="text-zinc-500 text-[10px] block">Exposure Classification:</span>
+                                <span className={`font-bold ${diffContext.unauthenticatedExposure ? 'text-rose-400' : 'text-amber-400'}`}>
+                                  {diffContext.unauthenticatedExposure ? 'CRITICAL: Unauthenticated Data Leak' : 'LOW: Deprecated Endpoint Accessible'}
+                                </span>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      )}
                     </div>
 
 

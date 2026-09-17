@@ -129,13 +129,16 @@
                                                                 │
                                                                 ▼
                                                         [PHASE 5: P5-1] COMPLETED (CORS + IDOR Compound Chain Correlator)
+                                                                │
+                                                                ▼
+                                                        [PHASE 5: P5-2] COMPLETED (API Versioning Sprawl Detection Engine)
 ```
 
 ---
 
 ## 2. Completed Milestones (`CONFIRMED`)
 
-All completed milestones are verified via active TypeScript contracts and the regression test suite (`npm run check:v2` with 66 passing smoke suites, 100% pass rate).
+All completed milestones are verified via active TypeScript contracts and the regression test suite (`npm run check:v2` with 67 passing smoke suites, 100% pass rate).
 
 
 
@@ -1162,6 +1165,33 @@ All completed milestones are verified via active TypeScript contracts and the re
      - Dedicated smoke test `worker/src/v2/smoke/milestoneP5_1_cors_idor_chain_smoke.ts` passes 100% across all 5 assertions.
      - `npm run typecheck:v2` exits with code 0.
      - Full regression suite `npm run check:v2` (66/66 smoke suites) passes 100%.
+     - `cd web && npm run build` compiles cleanly with zero errors.
+     - 0 occurrences of `as any` across all production code.
+
+---
+
+### Milestone P5-2: API Versioning Sprawl Detection Engine
+- **Status:** COMPLETED (Phase 5 Milestone 2 Complete).
+- **Goal:** Probe whether older, unmaintained API versions (/v1 vs /v2) remain publicly accessible without authorization controls enforced on current endpoints.
+- **Key Deliverables:**
+  1. **Domain Contracts & Typed Metadata (`ApiVersioningSprawlMetadata`)**:
+     - Defined `ApiVersioningSprawlMetadata` in `worker/src/v2/core/Evidence.ts` under `FindingMetadata` (`kind: 'api_versioning_sprawl_metadata'`, `category: 'BROKEN_AUTHENTICATION' | 'SECURITY_MISCONFIGURATION'`, `currentEndpointUrl`, `legacyEndpointUrl`, `currentStatusCode`, `legacyStatusCode`, `detectedVersions`, `unauthenticatedExposure: boolean`).
+     - Extended `DifferentialEvidenceContext` in `OrchestratedAssessmentContracts.ts` and `DifferentialEvidenceContextDto` in `web/src/lib/v2Api.ts` with `detectionKind: 'api_versioning_sprawl'` and typed sprawl fields.
+  2. **Detection Service (`ApiVersioningSprawlDetectionService.ts`)**:
+     - Implemented `runApiVersioningSprawlDetection()` and `generateLegacyVersionCandidates()`.
+     - 7-pass SSRF preflight protection blocking internal IP and metadata probing.
+     - Comparative probing between current and down-versioned legacy endpoints.
+     - Differentiates unauthenticated data exposure (`BROKEN_AUTHENTICATION`, high severity) from deprecated version sprawl (`SECURITY_MISCONFIGURATION`, low severity).
+     - Clean abstention (`secure_target_abstained`) when legacy endpoints return 404 or enforce identical authorization.
+     - Evidence sanitization via `sanitizeEvidenceFragment()`.
+  3. **Pipeline & Review UI Integration**:
+     - Wired `runApiVersioningSprawlDetection` into `executePipelineStages` in `OrchestratedAssessmentApplicationService.ts`.
+     - Handled draft promotion for `'api_versioning_sprawl'` in `reviewEvidenceDraft` promoting drafts to formal `Finding` records.
+     - Updated `web/src/app/v2/review/page.tsx` with API Versioning Sprawl cards displaying current URL, legacy URL, status code differential, detected versions, and exposure level.
+  4. **Verification & Hygiene**:
+     - Dedicated smoke test `worker/src/v2/smoke/milestoneP5_2_api_versioning_sprawl_smoke.ts` passes 100% across all 5 assertions.
+     - `npm run typecheck:v2` exits with code 0.
+     - Full regression suite `npm run check:v2` (67/67 smoke suites) passes 100%.
      - `cd web && npm run build` compiles cleanly with zero errors.
      - 0 occurrences of `as any` across all production code.
 

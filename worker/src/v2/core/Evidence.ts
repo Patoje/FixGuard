@@ -271,6 +271,21 @@ export interface CompoundChainMetadata {
   readonly lineage?: string | Record<string, unknown>;
 }
 
+export interface ApiVersioningSprawlMetadata {
+  readonly kind: 'api_versioning_sprawl_metadata';
+  readonly category: 'BROKEN_AUTHENTICATION' | 'SECURITY_MISCONFIGURATION';
+  readonly currentEndpointUrl: string;
+  readonly legacyEndpointUrl: string;
+  readonly currentStatusCode: number;
+  readonly legacyStatusCode: number;
+  readonly detectedVersions: readonly string[]; // e.g. ['v1', 'v2']
+  readonly unauthenticatedExposure: boolean;
+  readonly observedAt: string;
+  readonly candidateId?: string;
+  readonly evidenceRecordId?: string;
+  readonly lineage?: string | Record<string, unknown>;
+}
+
 export type FindingMetadata =
   | BrokenAccessControlMetadata
   | SecurityMisconfigurationMetadata
@@ -290,6 +305,7 @@ export type FindingMetadata =
   | CredentialedCorsMetadata
   | CmsPluginVulnerabilityMetadata
   | CompoundChainMetadata
+  | ApiVersioningSprawlMetadata
   | DiscoveryFindingMetadata;
 
 

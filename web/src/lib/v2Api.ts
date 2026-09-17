@@ -163,6 +163,7 @@ export interface DifferentialEvidenceContextDto {
     | 'credentialed_cors'
     | 'cms_plugin_vulnerability'
     | 'cors_idor_compound'
+    | 'api_versioning_sprawl'
     | 'custom_difference';
   readonly baselineStatusCode?: number;
   readonly baselineBodyHash?: string;
@@ -233,6 +234,12 @@ export interface DifferentialEvidenceContextDto {
   readonly sharedOrigin?: string;
   readonly targetEndpointUrl?: string;
   readonly compoundImpactScore?: number;
+  readonly currentEndpointUrl?: string;
+  readonly legacyEndpointUrl?: string;
+  readonly currentStatusCode?: number;
+  readonly legacyStatusCode?: number;
+  readonly detectedVersions?: readonly string[];
+  readonly unauthenticatedExposure?: boolean;
 }
 
 

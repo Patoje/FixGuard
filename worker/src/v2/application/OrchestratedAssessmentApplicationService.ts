@@ -63,6 +63,7 @@ import { runJwtAlgorithmConfusionDetection } from '../detection/JwtAlgorithmConf
 import { runSessionFixationDetection } from '../detection/SessionFixationDetectionService.js';
 import { runCredentialedCorsDetection } from '../detection/CredentialedCorsDetectionService.js';
 import { runCmsPluginVulnerabilityDetection } from '../detection/CmsPluginVulnerabilityDetectionService.js';
+import { runApiVersioningSprawlDetection } from '../detection/ApiVersioningSprawlDetectionService.js';
 import { correlateCorsIdorChains } from '../intelligence/correlation/CorsIdorChainCorrelator.js';
 
 
@@ -1530,6 +1531,49 @@ export class OrchestratedAssessmentApplicationService {
             lineage: `${record.assessmentId}:${record.scanId}:${reviewerId}:${reviewedAt}`,
           },
         };
+      } else if (detKind === 'api_versioning_sprawl') {
+        const endpointUrl = context?.endpointUrl ?? `https://${record.targetDomain}/api/v2`;
+        const currentEndpointUrl = context?.currentEndpointUrl ?? endpointUrl;
+        const legacyEndpointUrl = context?.legacyEndpointUrl ?? endpointUrl;
+        const currentStatusCode = context?.currentStatusCode ?? 401;
+        const legacyStatusCode = context?.legacyStatusCode ?? 200;
+        const detectedVersions = context?.detectedVersions ?? ['v1', 'v2'];
+        const unauthenticatedExposure = context?.unauthenticatedExposure ?? true;
+        const category = unauthenticatedExposure ? 'BROKEN_AUTHENTICATION' : 'SECURITY_MISCONFIGURATION';
+        const severity = unauthenticatedExposure ? 'high' : 'low';
+
+        findingCreated = {
+          id: `fnd_vsprawl_${draftId.replace(/^dft_/, '').replace(/^draft_/, '').replace(/^vsprawl_/, '')}`,
+          type: category,
+          severity,
+          title: unauthenticatedExposure
+            ? `Approved Unauthenticated Legacy API Version Exposure on ${legacyEndpointUrl}`
+            : `Approved Deprecated API Versioning Sprawl on ${legacyEndpointUrl}`,
+          description: `Human operator verified API versioning sprawl. Legacy endpoint '${legacyEndpointUrl}' responds with HTTP ${legacyStatusCode} without required auth while current version '${currentEndpointUrl}' enforces HTTP ${currentStatusCode}.`,
+          target: legacyEndpointUrl,
+          evidence: JSON.stringify({
+            draftId,
+            reviewerId,
+            reviewedAt,
+            notes,
+            differentialContext: context,
+          }),
+          confidence: 1.0,
+          metadata: {
+            kind: 'api_versioning_sprawl_metadata',
+            category,
+            currentEndpointUrl,
+            legacyEndpointUrl,
+            currentStatusCode,
+            legacyStatusCode,
+            detectedVersions,
+            unauthenticatedExposure,
+            observedAt: reviewedAt,
+            candidateId: `cnd_${draftId}`,
+            evidenceRecordId: `evd_${draftId}`,
+            lineage: `${record.assessmentId}:${record.scanId}:${reviewerId}:${reviewedAt}`,
+          },
+        };
       } else {
 
         findingCreated = {
@@ -2671,6 +2715,64 @@ export class OrchestratedAssessmentApplicationService {
                     isOutdated: cmsResult.isOutdated,
                     evidenceSourceUrl: cmsResult.evidenceSourceUrl,
                     baselineStatusCode: cmsResult.responseStatusCode,
+                  },
+                };
+                pendingEvidenceDrafts.push(enrichedDraft);
+              }
+            } catch {
+              // Safe error containment
+            }
+          }
+        }
+
+        // API Versioning Sprawl Probing (Milestone P5-2: API Versioning Sprawl Engine)
+        if (!coordinator.isCircuitOpen(record.targetDomain)) {
+          const endpointsToTest = [
+            targetUrl,
+            `${targetUrl.replace(/\/+$/, '')}/api/v2/users`,
+            `${targetUrl.replace(/\/+$/, '')}/api/v2`,
+            `${targetUrl.replace(/\/+$/, '')}/v2`,
+          ];
+
+          for (const ep of endpointsToTest) {
+            if (coordinator.isCircuitOpen(record.targetDomain)) break;
+            try {
+              const sprawlResult = await runApiVersioningSprawlDetection({
+                contractVersion: DETECTION_CONTRACT_VERSION,
+                kind: 'api_versioning_sprawl_detection_request',
+                detectionId: `det_vsprawl_${record.assessmentId.slice(-8)}`,
+                assessmentId: lineage.assessmentId,
+                scanId: lineage.scanId,
+                authorizationGrantId: lineage.authorizationGrantId,
+                authorizationDecisionId: lineage.authorizationDecisionId,
+                actorId: lineage.actorId,
+                currentEndpointUrl: ep,
+                identityAContext,
+                verifiedAuthorizationDecision: verifiedDecision,
+                scopeGrant,
+                transport: this.httpTransport,
+                dnsResolver: this.dnsResolver,
+              });
+
+              if (
+                (sprawlResult.status === 'vulnerability_detected' || sprawlResult.status === 'potential_weakness') &&
+                sprawlResult.finding
+              ) {
+                findings.push(sprawlResult.finding);
+              } else if (sprawlResult.status === 'pending_human_review' && sprawlResult.evidenceDraft) {
+                const enrichedDraft: EnrichedEvidenceDraft = {
+                  ...sprawlResult.evidenceDraft,
+                  differentialContext: {
+                    endpointUrl: sprawlResult.legacyEndpointUrl,
+                    detectionKind: 'api_versioning_sprawl',
+                    currentEndpointUrl: sprawlResult.currentEndpointUrl,
+                    legacyEndpointUrl: sprawlResult.legacyEndpointUrl,
+                    currentStatusCode: sprawlResult.currentStatusCode,
+                    legacyStatusCode: sprawlResult.legacyStatusCode,
+                    detectedVersions: sprawlResult.detectedVersions,
+                    unauthenticatedExposure: sprawlResult.unauthenticatedExposure,
+                    baselineStatusCode: sprawlResult.currentStatusCode,
+                    validationStatusCode: sprawlResult.legacyStatusCode,
                   },
                 };
                 pendingEvidenceDrafts.push(enrichedDraft);
