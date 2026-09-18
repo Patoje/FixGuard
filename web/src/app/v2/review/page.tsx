@@ -1259,6 +1259,40 @@ function HumanReviewContent() {
                           </div>
                         </div>
                       )}
+
+                      {diffContext?.detectionKind === 'static_route_extraction' && (
+                        <div className="rounded-lg bg-black/40 border border-sky-500/50 p-2.5 col-span-2">
+                          <span className="text-sky-400 text-[10px] block font-bold uppercase tracking-wider mb-1">
+                            SAST White-Box — Discovered Static Route & Controller
+                          </span>
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-[11px] font-mono mt-2">
+                            {diffContext.extractedRoutePattern && (
+                              <div className="rounded bg-black/60 p-2 border border-zinc-800">
+                                <span className="text-zinc-500 text-[10px] block">Extracted Route Pattern:</span>
+                                <span className="text-sky-300 font-bold break-all">{diffContext.extractedRoutePattern}</span>
+                              </div>
+                            )}
+                            {diffContext.frameworkType && (
+                              <div className="rounded bg-black/60 p-2 border border-zinc-800">
+                                <span className="text-zinc-500 text-[10px] block">Framework & Route Type:</span>
+                                <span className="text-emerald-400 font-bold uppercase">{diffContext.frameworkType} {diffContext.isInternalOnly ? '(Internal/Privileged)' : '(Public)'}</span>
+                              </div>
+                            )}
+                            {diffContext.sourceFilePath && (
+                              <div className="rounded bg-black/60 p-2 border border-zinc-800">
+                                <span className="text-zinc-500 text-[10px] block">Source File:</span>
+                                <span className="text-zinc-300 font-mono text-[10px] break-all">{diffContext.sourceFilePath}</span>
+                              </div>
+                            )}
+                            {diffContext.supportedMethods && (
+                              <div className="rounded bg-black/60 p-2 border border-zinc-800">
+                                <span className="text-zinc-500 text-[10px] block">Supported Verbs:</span>
+                                <span className="text-amber-400 font-bold">{diffContext.supportedMethods.join(', ')}</span>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      )}
                     </div>
 
 

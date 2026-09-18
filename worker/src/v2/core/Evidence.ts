@@ -431,6 +431,20 @@ export interface DependencyVulnerabilityMetadata {
   readonly lineage?: string | Record<string, unknown>;
 }
 
+export interface StaticRouteExtractionMetadata {
+  readonly kind: 'static_route_extraction_metadata';
+  readonly category: 'SECURITY_MISCONFIGURATION';
+  readonly frameworkType: 'express' | 'nextjs' | 'fastapi' | 'spring' | 'generic';
+  readonly sourceFilePath: string;
+  readonly extractedRoutePattern: string;
+  readonly supportedMethods: readonly string[];
+  readonly isInternalOnly: boolean;
+  readonly observedAt: string;
+  readonly candidateId?: string;
+  readonly evidenceRecordId?: string;
+  readonly lineage?: string | Record<string, unknown>;
+}
+
 export type FindingMetadata =
   | BrokenAccessControlMetadata
   | SecurityMisconfigurationMetadata
@@ -461,6 +475,7 @@ export type FindingMetadata =
   | CrossFindingChainMetadata
   | StaticSecretExposureMetadata
   | DependencyVulnerabilityMetadata
+  | StaticRouteExtractionMetadata
   | DiscoveryFindingMetadata;
 
 

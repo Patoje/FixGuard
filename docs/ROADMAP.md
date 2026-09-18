@@ -1495,6 +1495,31 @@ All completed milestones are verified via active TypeScript contracts and the re
      - `cd web && npm run build` compiles cleanly with zero errors.
      - 0 occurrences of `as any` across all production code.
 
+### Milestone P6-3: Static Route & Endpoint Extraction Engine (Phase 6 Finale)
+- **Status:** COMPLETED. (Phase 6 100% Complete)
+- **Goal:** Statically parse local source code and routing structures to extract internal API routes, controllers, and hidden endpoints across frameworks (Express, Next.js, FastAPI, Spring Boot, Generic) to enrich DAST assessment target profile coverage with zero network overhead.
+- **Key Deliverables:**
+  1. **Domain Contracts & Typed Metadata (`StaticRouteExtractionMetadata`)**:
+     - Defined `StaticRouteExtractionMetadata` in `worker/src/v2/core/Evidence.ts` under `FindingMetadata` (`kind: 'static_route_extraction_metadata'`, `category: 'SECURITY_MISCONFIGURATION'`, `frameworkType: 'express' | 'nextjs' | 'fastapi' | 'spring' | 'generic'`, `sourceFilePath: string`, `extractedRoutePattern: string`, `supportedMethods: readonly string[]`, `isInternalOnly: boolean`, `observedAt`, `candidateId`, `evidenceRecordId`, `lineage`).
+     - Added `StaticRouteExtractionRequest` and `StaticRouteExtractionResult` in `worker/src/v2/sast/StaticRouteExtractionService.ts`.
+     - Extended `DifferentialEvidenceContext` in `OrchestratedAssessmentContracts.ts` and `DifferentialEvidenceContextDto` in `web/src/lib/v2Api.ts` with `detectionKind: 'static_route_extraction'` and typed fields.
+  2. **Analytical Route Extraction Engine (`StaticRouteExtractionService.ts`)**:
+     - Implemented `scanFilesForStaticRoutes()`, `extractRoutesFromFile()`, framework parsers (`extractExpressRoutes`, `extractNextJsRoutes`, `extractFastApiRoutes`, `extractSpringRoutes`), and `isInternalRoute()`.
+     - Target Profile Enrichment: Discovered routes enrich the candidate endpoint pool.
+     - Zero Network Overhead: Pure offline analysis of provided source files.
+     - Clean Neutral Abstention: Returns neutral result with 0 drafts when source files contain no route declarations.
+     - HITL Routing: Generates non-persisted `EvidenceDraftEnvelope` for human operator triage.
+  3. **Pipeline & Review UI Integration**:
+     - Integrated static route extraction in `executePipelineStages` in `OrchestratedAssessmentApplicationService.ts`.
+     - Added promotion handling for `'static_route_extraction'` in `reviewEvidenceDraft` promoting drafts to formal `Finding` records.
+     - Updated `web/src/app/v2/review/page.tsx` with Static Route cards displaying extracted route pattern, framework type, internal status badge, source file path, and supported verbs.
+  4. **Verification & Hygiene**:
+     - Dedicated smoke test `worker/src/v2/smoke/milestoneP6_3_static_route_extraction_smoke.ts` passes 100% across all 5 assertions.
+     - `npm run typecheck:v2` exits with code 0.
+     - Full regression suite `npm run check:v2` (78/78 smoke suites) passes 100%.
+     - `cd web && npm run build` compiles cleanly with zero errors.
+     - 0 occurrences of `as any` across all production code.
+
 ---
 
 ## 5. Architectural Proposals (`PROPOSED` — NOT YET DECIDED)

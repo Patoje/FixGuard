@@ -92,6 +92,7 @@ import { correlateTargetProfile } from '../intelligence/TargetRecommendationEngi
 import { analyzeAttackSurfaceDelta } from '../intelligence/analysis/AttackSurfaceDeltaAnalysisService.js';
 import { scanSourceFilesForSecrets } from '../sast/StaticSecretScanningService.js';
 import { scanManifestsForVulnerabilities } from '../sast/DependencyVulnerabilityScanService.js';
+import { scanFilesForStaticRoutes } from '../sast/StaticRouteExtractionService.js';
 import type { Finding } from '../core/Evidence.js';
 import type { EvidenceDraftEnvelope } from '../evidence-mapping/ComparisonEvidenceMappingContracts.js';
 
@@ -1996,6 +1997,47 @@ export class OrchestratedAssessmentApplicationService {
             lineage: `${record.assessmentId}:${record.scanId}:${reviewerId}:${reviewedAt}`,
           },
         };
+      } else if (detKind === 'static_route_extraction') {
+        const frameworkType = context?.frameworkType ?? 'generic';
+        const sourceFilePath = context?.sourceFilePath ?? 'source.ts';
+        const extractedRoutePattern = context?.extractedRoutePattern ?? '/api';
+        const supportedMethods = context?.supportedMethods ?? ['GET'];
+        const isInternalOnly = context?.isInternalOnly ?? false;
+
+        findingCreated = {
+          id: `fnd_stroute_${draftId.replace(/^dft_/, '').replace(/^draft_/, '').replace(/^stroute_/, '')}`,
+          type: 'SECURITY_MISCONFIGURATION',
+          severity: isInternalOnly ? 'medium' : 'low',
+          title: `Approved Discovered Static Route: ${extractedRoutePattern}`,
+          description: `Human operator verified statically extracted route ${extractedRoutePattern} (${frameworkType}) from ${sourceFilePath}. Supported verbs: ${supportedMethods.join(', ')}.`,
+          target: context?.endpointUrl ?? `https://${record.targetDomain}${extractedRoutePattern}`,
+          evidence: JSON.stringify({
+            draftId,
+            reviewerId,
+            reviewedAt,
+            notes,
+            frameworkType,
+            sourceFilePath,
+            extractedRoutePattern,
+            supportedMethods,
+            isInternalOnly,
+            differentialContext: context,
+          }),
+          confidence: 1.0,
+          metadata: {
+            kind: 'static_route_extraction_metadata',
+            category: 'SECURITY_MISCONFIGURATION',
+            frameworkType,
+            sourceFilePath,
+            extractedRoutePattern,
+            supportedMethods,
+            isInternalOnly,
+            observedAt: reviewedAt,
+            candidateId: `cnd_${draftId}`,
+            evidenceRecordId: `evd_${draftId}`,
+            lineage: `${record.assessmentId}:${record.scanId}:${reviewerId}:${reviewedAt}`,
+          },
+        };
       } else {
 
         findingCreated = {
@@ -3691,6 +3733,67 @@ export class OrchestratedAssessmentApplicationService {
               }
             }
             for (const finding of scaResult.findings) {
+              findings.push(finding);
+            }
+          }
+        } catch {
+          // Safe error containment
+        }
+
+        // Static Route Extraction Scan (Milestone P6-3: Static Route & Endpoint Extraction Engine)
+        try {
+          const sourceFilesToScan: { filePath: string; content: string }[] = [];
+          for (const webObs of reconResult.aggregatedObservations.webObservations) {
+            if (webObs.url && (webObs.url.endsWith('.js') || webObs.url.endsWith('.ts') || webObs.url.endsWith('.py') || webObs.url.endsWith('.java'))) {
+              try {
+                const parsedUrl = new URL(webObs.url);
+                const resp = await this.httpTransport({
+                  url: webObs.url,
+                  method: 'GET',
+                  headers: { 'User-Agent': 'FixGuard-DAST/2.0 (Defensive)' },
+                });
+                if (resp.statusCode === 200 && resp.bodyText && resp.bodyText.length > 0) {
+                  sourceFilesToScan.push({
+                    filePath: parsedUrl.pathname.replace(/^\//, '') || 'source.js',
+                    content: resp.bodyText,
+                  });
+                }
+              } catch {
+                // Ignore fetch error
+              }
+            }
+          }
+
+          if (sourceFilesToScan.length > 0) {
+            const routeResult = scanFilesForStaticRoutes({
+              assessmentId: lineage.assessmentId,
+              scanId: lineage.scanId,
+              actorId: lineage.actorId,
+              targetDomain: record.targetDomain,
+              sourceFiles: sourceFilesToScan,
+            });
+
+            for (let i = 0; i < routeResult.evidenceDrafts.length; i++) {
+              const draft = routeResult.evidenceDrafts[i];
+              const route = routeResult.extractedRoutes[i];
+              if (draft && route) {
+                const enrichedDraft: EnrichedEvidenceDraft = {
+                  ...draft,
+                  differentialContext: {
+                    endpointUrl: `https://${record.targetDomain}${route.extractedRoutePattern}`,
+                    detectionKind: 'static_route_extraction',
+                    frameworkType: route.frameworkType,
+                    sourceFilePath: route.sourceFilePath,
+                    extractedRoutePattern: route.extractedRoutePattern,
+                    supportedMethods: route.supportedMethods,
+                    isInternalOnly: route.isInternalOnly,
+                    validationStatusCode: 200,
+                  },
+                };
+                pendingEvidenceDrafts.push(enrichedDraft);
+              }
+            }
+            for (const finding of routeResult.findings) {
               findings.push(finding);
             }
           }

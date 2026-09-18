@@ -78,6 +78,7 @@ export interface DifferentialEvidenceContext {
     | 'cross_finding_chain'
     | 'static_secret_exposure'
     | 'dependency_vulnerability'
+    | 'static_route_extraction'
     | 'custom_difference';
   readonly baselineStatusCode?: number;
   readonly baselineBodyHash?: string;
@@ -195,6 +196,11 @@ export interface DifferentialEvidenceContext {
   readonly vulnerableRange?: string;
   readonly advisoryId?: string;
   readonly sourceManifestPath?: string;
+  readonly frameworkType?: 'express' | 'nextjs' | 'fastapi' | 'spring' | 'generic';
+  readonly sourceFilePath?: string;
+  readonly extractedRoutePattern?: string;
+  readonly supportedMethods?: readonly string[];
+  readonly isInternalOnly?: boolean;
 }
 
 
