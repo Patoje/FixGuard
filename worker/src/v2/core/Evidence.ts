@@ -359,6 +359,19 @@ export interface ObjectMappingAnomalyMetadata {
   readonly lineage?: string | Record<string, unknown>;
 }
 
+export interface StateTransitionAnomalyMetadata {
+  readonly kind: 'state_transition_anomaly_metadata';
+  readonly category: 'BUSINESS_LOGIC_BYPASS';
+  readonly endpointUrl: string;
+  readonly expectedPrerequisiteSteps: readonly string[];
+  readonly bypassedSuccessfully: boolean;
+  readonly responseExcerpt?: string; // max 128 chars
+  readonly observedAt: string;
+  readonly candidateId?: string;
+  readonly evidenceRecordId?: string;
+  readonly lineage?: string | Record<string, unknown>;
+}
+
 export type FindingMetadata =
   | BrokenAccessControlMetadata
   | SecurityMisconfigurationMetadata
@@ -384,6 +397,7 @@ export type FindingMetadata =
   | ManifestExposureMetadata
   | ParameterIntegrityMetadata
   | ObjectMappingAnomalyMetadata
+  | StateTransitionAnomalyMetadata
   | DiscoveryFindingMetadata;
 
 

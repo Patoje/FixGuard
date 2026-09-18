@@ -79,6 +79,10 @@ import {
   INERT_PROBE_PATTERNS,
 } from '../detection/ParameterIntegrityDetectionService.js';
 import { runObjectMappingAnomalyDetection } from '../detection/ObjectMappingAnomalyDetectionService.js';
+import {
+  runStateTransitionAnomalyDetection,
+  isStateTransitionCandidateEndpoint,
+} from '../detection/StateTransitionAnomalyDetectionService.js';
 import { correlateCorsIdorChains } from '../intelligence/correlation/CorsIdorChainCorrelator.js';
 
 
@@ -1786,6 +1790,41 @@ export class OrchestratedAssessmentApplicationService {
             lineage: `${record.assessmentId}:${record.scanId}:${reviewerId}:${reviewedAt}`,
           },
         };
+      } else if (detKind === 'state_transition_anomaly') {
+        const endpointUrl = context?.endpointUrl ?? `https://${record.targetDomain}/`;
+        const httpMethod = context?.httpMethod ?? 'POST';
+        const expectedPrerequisiteSteps = context?.expectedPrerequisiteSteps ?? ['cart_validation', 'payment_authorization'];
+        const bypassedSuccessfully = context?.bypassedSuccessfully ?? true;
+        const responseExcerpt = context?.responseExcerpt ?? '';
+
+        findingCreated = {
+          id: `fnd_statetr_${draftId.replace(/^dft_/, '').replace(/^draft_/, '').replace(/^statetr_/, '')}`,
+          type: 'BUSINESS_LOGIC_BYPASS',
+          severity: 'high',
+          title: `Approved Business Logic State Transition Bypass on ${endpointUrl}`,
+          description: `Human operator verified business workflow bypass. Terminal action request (${httpMethod}) executed successfully without mandatory prerequisite steps (${expectedPrerequisiteSteps.join(', ')}). Sanitized confirmation: ${responseExcerpt}`,
+          target: endpointUrl,
+          evidence: JSON.stringify({
+            draftId,
+            reviewerId,
+            reviewedAt,
+            notes,
+            differentialContext: context,
+          }),
+          confidence: 1.0,
+          metadata: {
+            kind: 'state_transition_anomaly_metadata',
+            category: 'BUSINESS_LOGIC_BYPASS',
+            endpointUrl,
+            expectedPrerequisiteSteps,
+            bypassedSuccessfully,
+            responseExcerpt,
+            observedAt: reviewedAt,
+            candidateId: `cnd_${draftId}`,
+            evidenceRecordId: `evd_${draftId}`,
+            lineage: `${record.assessmentId}:${record.scanId}:${reviewerId}:${reviewedAt}`,
+          },
+        };
       } else {
 
         findingCreated = {
@@ -3259,6 +3298,51 @@ export class OrchestratedAssessmentApplicationService {
                     injectedProperties: objResult.injectedProperties,
                     bindingAccepted: objResult.bindingAccepted,
                     sanitizedEchoResponse: objResult.sanitizedEchoResponse,
+                    validationStatusCode: 200,
+                  },
+                };
+                pendingEvidenceDrafts.push(enrichedDraft);
+              }
+            } catch {
+              // Safe error containment
+            }
+          }
+        }
+
+        // State Transition Anomaly Detection (Milestone P5-8)
+        if (targetUrl) {
+          if (!coordinator.isCircuitOpen(record.targetDomain)) {
+            try {
+              const stateResult = await runStateTransitionAnomalyDetection({
+                contractVersion: DETECTION_CONTRACT_VERSION,
+                kind: 'state_transition_anomaly_detection_request',
+                detectionId: `det_statetr_${record.assessmentId.slice(-8)}`,
+                assessmentId: lineage.assessmentId,
+                scanId: lineage.scanId,
+                authorizationGrantId: lineage.authorizationGrantId,
+                authorizationDecisionId: lineage.authorizationDecisionId,
+                actorId: lineage.actorId,
+                endpointUrl: targetUrl,
+                httpMethod: 'POST',
+                identityAContext,
+                verifiedAuthorizationDecision: verifiedDecision,
+                scopeGrant,
+                transport: this.httpTransport,
+                dnsResolver: this.dnsResolver,
+              });
+
+              if (stateResult.status === 'vulnerability_detected' && stateResult.finding) {
+                findings.push(stateResult.finding);
+              } else if (stateResult.status === 'pending_human_review' && stateResult.evidenceDraft) {
+                const enrichedDraft: EnrichedEvidenceDraft = {
+                  ...stateResult.evidenceDraft,
+                  differentialContext: {
+                    endpointUrl: stateResult.endpointUrl,
+                    detectionKind: 'state_transition_anomaly',
+                    httpMethod: stateResult.httpMethod,
+                    expectedPrerequisiteSteps: stateResult.expectedPrerequisiteSteps,
+                    bypassedSuccessfully: stateResult.bypassedSuccessfully,
+                    responseExcerpt: stateResult.responseExcerpt,
                     validationStatusCode: 200,
                   },
                 };

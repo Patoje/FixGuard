@@ -169,6 +169,7 @@ export interface DifferentialEvidenceContextDto {
     | 'manifest_exposure'
     | 'parameter_integrity'
     | 'object_mapping_anomaly'
+    | 'state_transition_anomaly'
     | 'custom_difference';
   readonly baselineStatusCode?: number;
   readonly baselineBodyHash?: string;
@@ -265,6 +266,9 @@ export interface DifferentialEvidenceContextDto {
   readonly injectedProperties?: readonly string[];
   readonly bindingAccepted?: boolean;
   readonly sanitizedEchoResponse?: string;
+  readonly expectedPrerequisiteSteps?: readonly string[];
+  readonly bypassedSuccessfully?: boolean;
+  readonly responseExcerpt?: string;
 }
 
 

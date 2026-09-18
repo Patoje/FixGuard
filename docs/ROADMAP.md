@@ -1342,6 +1342,35 @@ All completed milestones are verified via active TypeScript contracts and the re
 
 ---
 
+### Milestone P5-8: State Transition Anomaly Engine (Business Logic Workflow Integrity)
+- **Status:** COMPLETED (Phase 5 Milestone 8 Complete).
+- **Goal:** Safe, deterministic verification of business workflow integrity. Probes multi-step and transaction endpoints (`/checkout`, `/finalize`, `/complete`, `/order/confirm`, `/workflow/approve`) to test whether prerequisite state machines can be bypassed to execute restricted actions without mandatory predecessor steps.
+- **Key Deliverables:**
+  1. **Domain Contracts & Typed Metadata (`StateTransitionAnomalyMetadata`)**:
+     - Defined `StateTransitionAnomalyMetadata` in `worker/src/v2/core/Evidence.ts` under `FindingMetadata` (`kind: 'state_transition_anomaly_metadata'`, `category: 'BUSINESS_LOGIC_BYPASS'`, `endpointUrl`, `expectedPrerequisiteSteps: readonly string[]`, `bypassedSuccessfully: boolean`, `responseExcerpt?: string`, `observedAt`, `candidateId`, `evidenceRecordId`, `lineage`).
+     - Added `StateTransitionAnomalyStatus`, `StateTransitionAnomalyDetectionRequest`, and `StateTransitionAnomalyDetectionResult` to `worker/src/v2/detection/DetectionContracts.ts`.
+     - Extended `DifferentialEvidenceContext` in `OrchestratedAssessmentContracts.ts` and `DifferentialEvidenceContextDto` in `web/src/lib/v2Api.ts` with `detectionKind: 'state_transition_anomaly'` and typed workflow validation fields (`expectedPrerequisiteSteps`, `bypassedSuccessfully`, `responseExcerpt`).
+  2. **Detection Service (`StateTransitionAnomalyDetectionService.ts`)**:
+     - Implemented `runStateTransitionAnomalyDetection()`, `evaluateStateBypass()`, and `isStateTransitionCandidateEndpoint()`.
+     - 7-pass SSRF preflight protection blocking internal IP and metadata probing.
+     - Dispatches bounded direct transaction requests lacking prior session state or mandatory predecessor parameters.
+     - Evaluates whether the server accepts the terminal action and returns success (200, 201) with transaction confirmation (order ID, confirmation number, status completed).
+     - Flags `vulnerability_detected` (high severity, `BUSINESS_LOGIC_BYPASS`) or `potential_weakness` in draft mode when workflow bypass is confirmed.
+     - Clean abstention (`secure_target_abstained`) when target validates prerequisite state strictly (400, 422, 403, 409, 412, 404).
+     - Evidence sanitization via `sanitizeEvidenceFragment()`.
+  3. **Pipeline & Review UI Integration**:
+     - Wired `runStateTransitionAnomalyDetection` into `executePipelineStages` in `OrchestratedAssessmentApplicationService.ts`.
+     - Handled draft promotion for `'state_transition_anomaly'` in `reviewEvidenceDraft` promoting drafts to formal `Finding` records.
+     - Updated `web/src/app/v2/review/page.tsx` with State Transition detail cards displaying endpoint URL, HTTP method, expected prerequisite steps, state machine enforcement badge, and sanitized transaction response excerpt.
+  4. **Verification & Hygiene**:
+     - Dedicated smoke test `worker/src/v2/smoke/milestoneP5_8_state_transition_smoke.ts` passes 100% across all 5 assertions.
+     - `npm run typecheck:v2` exits with code 0.
+     - Full regression suite `npm run check:v2` (73/73 smoke suites) passes 100%.
+     - `cd web && npm run build` compiles cleanly with zero errors.
+     - 0 occurrences of `as any` across all production code.
+
+---
+
 ## 5. Architectural Proposals (`PROPOSED` — NOT YET DECIDED)
 
 > [!NOTE]
