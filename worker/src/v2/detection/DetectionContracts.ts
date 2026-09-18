@@ -1563,6 +1563,75 @@ export interface StateTransitionAnomalyDetectionResult {
   };
 }
 
+// ---------------------------------------------------------------------------
+// Milestone P7-2 — Blind SSRF Detection Contracts
+// ---------------------------------------------------------------------------
+
+export type BlindSsrfStatus =
+  | 'vulnerability_detected'
+  | 'potential_weakness'
+  | 'secure_target_abstained'
+  | 'pending_human_review'
+  | 'preflight_denied'
+  | 'unexpected_failure';
+
+export interface BlindSsrfCandidate {
+  readonly endpointUrl: string;
+  readonly parameterName: string;
+  readonly method?: 'GET' | 'POST';
+}
+
+export interface BlindSsrfDetectionRequest {
+  readonly contractVersion: DetectionContractVersion;
+  readonly kind: 'blind_ssrf_detection_request';
+  readonly detectionId: string;
+  readonly assessmentId: string;
+  readonly scanId: string;
+  readonly authorizationGrantId: string;
+  readonly authorizationDecisionId: string;
+  readonly actorId: string;
+  readonly verifiedAuthorizationDecision: VerifiedAuthorizationDecision;
+  readonly scopeGrant: AuthorizedScopeGrant;
+  readonly endpointUrl: string;
+  readonly parameterName: string;
+  readonly method?: 'GET' | 'POST';
+  readonly identityAContext?: ProbeAuthContext;
+  readonly reviewerPolicy?: ReviewerPolicy;
+  readonly humanReviewDecision?: HumanReviewDecision;
+  readonly triageDecision?: ReviewedEvidenceFindingCandidateTriageDecision;
+  readonly transport?: IdorHttpProbeTransport;
+  readonly dnsResolver?: PreSpawnDnsResolver;
+}
+
+export interface BlindSsrfDetectionResult {
+  readonly contractVersion: DetectionContractVersion;
+  readonly kind: 'blind_ssrf_detection_result';
+  readonly detectionId: string;
+  readonly scanId: string;
+  readonly assessmentId: string;
+  readonly authorizationGrantId: string;
+  readonly authorizationDecisionId: string;
+  readonly actorId: string;
+  readonly status: BlindSsrfStatus;
+  readonly reasonCode: string;
+  readonly lineage: AuthorizedExecutionLineageTuple;
+  readonly endpointUrl: string;
+  readonly parameterName: string;
+  readonly injectedCanaryUrl: string;
+  readonly canaryToken: string;
+  readonly interactionConfirmed: boolean;
+  readonly remoteAddress?: string;
+  readonly evidenceDraft?: EvidenceDraftEnvelope;
+  readonly evidenceRecord?: EvidenceRecord;
+  readonly promotedEvidenceResult?: HumanReviewedEvidencePromotionResult;
+  readonly findingCandidate?: ReviewedEvidenceFormalFindingCandidate;
+  readonly finding?: Finding;
+  readonly error?: {
+    readonly code: string;
+    readonly safeMessage: string;
+  };
+}
+
 
 
 

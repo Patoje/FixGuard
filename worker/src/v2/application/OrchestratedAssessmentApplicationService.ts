@@ -94,6 +94,7 @@ import { scanSourceFilesForSecrets } from '../sast/StaticSecretScanningService.j
 import { scanManifestsForVulnerabilities } from '../sast/DependencyVulnerabilityScanService.js';
 import { scanFilesForStaticRoutes } from '../sast/StaticRouteExtractionService.js';
 import { defaultOobCanaryManager } from '../oob/OobCanaryManager.js';
+import { runBlindSsrfDetection, isSsrfCandidateParameter } from '../detection/BlindSsrfDetectionService.js';
 import type { Finding } from '../core/Evidence.js';
 import type { EvidenceDraftEnvelope } from '../evidence-mapping/ComparisonEvidenceMappingContracts.js';
 
@@ -2083,6 +2084,49 @@ export class OrchestratedAssessmentApplicationService {
             lineage: `${record.assessmentId}:${record.scanId}:${reviewerId}:${reviewedAt}`,
           },
         };
+      } else if (detKind === 'blind_ssrf') {
+        const endpointUrl = context?.endpointUrl ?? `https://${record.targetDomain}/`;
+        const parameterName = context?.parameterName ?? 'url';
+        const injectedCanaryUrl = context?.injectedCanaryUrl ?? 'https://oob.fixguard.internal/callback';
+        const canaryToken = context?.canaryToken ?? 'fgc_unknown';
+        const remoteAddress = context?.remoteAddress;
+
+        findingCreated = {
+          id: `fnd_bssrf_${draftId.replace(/^dft_/, '').replace(/^draft_/, '').replace(/^bssrf_/, '')}`,
+          type: 'SERVER_SIDE_REQUEST_FORGERY',
+          severity: 'critical',
+          title: `Approved Blind SSRF via Parameter '${parameterName}'`,
+          description: `Human operator verified blind SSRF vulnerability at ${endpointUrl} via parameter '${parameterName}'. Target executed asynchronous out-of-band request to ${injectedCanaryUrl} (remote IP: ${remoteAddress ?? 'unknown'}).`,
+          target: endpointUrl,
+          evidence: JSON.stringify({
+            draftId,
+            reviewerId,
+            reviewedAt,
+            notes,
+            endpointUrl,
+            parameterName,
+            injectedCanaryUrl,
+            canaryToken,
+            remoteAddress,
+            differentialContext: context,
+          }),
+          confidence: 1.0,
+          metadata: {
+            kind: 'blind_ssrf_detection_metadata',
+            category: 'SERVER_SIDE_REQUEST_FORGERY',
+            endpointUrl,
+            parameterName,
+            injectedCanaryUrl,
+            canaryToken,
+            interactionConfirmed: true,
+            remoteAddress,
+            exposureSeverity: 'critical',
+            observedAt: reviewedAt,
+            candidateId: `cnd_${draftId}`,
+            evidenceRecordId: `evd_${draftId}`,
+            lineage: `${record.assessmentId}:${record.scanId}:${reviewerId}:${reviewedAt}`,
+          },
+        };
       } else {
 
         findingCreated = {
@@ -3601,6 +3645,56 @@ export class OrchestratedAssessmentApplicationService {
                     expectedPrerequisiteSteps: stateResult.expectedPrerequisiteSteps,
                     bypassedSuccessfully: stateResult.bypassedSuccessfully,
                     responseExcerpt: stateResult.responseExcerpt,
+                    validationStatusCode: 200,
+                  },
+                };
+                pendingEvidenceDrafts.push(enrichedDraft);
+              }
+            } catch {
+              // Safe error containment
+            }
+          }
+        }
+
+        // Blind SSRF Detection (Milestone P7-2: Blind SSRF Detection Probe)
+        if (targetUrl) {
+          const ssrfCandidateParams = ['url', 'feed', 'webhook', 'src', 'link', 'endpoint', 'target', 'dest', 'callback'];
+          for (const param of ssrfCandidateParams) {
+            if (coordinator.isCircuitOpen(record.targetDomain)) break;
+            try {
+              const ssrfResult = await runBlindSsrfDetection({
+                contractVersion: DETECTION_CONTRACT_VERSION,
+                kind: 'blind_ssrf_detection_request',
+                detectionId: `det_bssrf_${record.assessmentId.slice(-8)}_${param}`,
+                assessmentId: lineage.assessmentId,
+                scanId: lineage.scanId,
+                authorizationGrantId: lineage.authorizationGrantId,
+                authorizationDecisionId: lineage.authorizationDecisionId,
+                actorId: lineage.actorId,
+                endpointUrl: targetUrl,
+                parameterName: param,
+                method: 'GET',
+                identityAContext,
+                verifiedAuthorizationDecision: verifiedDecision,
+                scopeGrant,
+                transport: this.httpTransport,
+                dnsResolver: this.dnsResolver,
+              });
+
+              if (ssrfResult.status === 'vulnerability_detected' && ssrfResult.finding) {
+                findings.push(ssrfResult.finding);
+              } else if (ssrfResult.status === 'pending_human_review' && ssrfResult.evidenceDraft) {
+                const enrichedDraft: EnrichedEvidenceDraft = {
+                  ...ssrfResult.evidenceDraft,
+                  differentialContext: {
+                    endpointUrl: ssrfResult.endpointUrl,
+                    detectionKind: 'blind_ssrf',
+                    parameterName: ssrfResult.parameterName,
+                    injectedCanaryUrl: ssrfResult.injectedCanaryUrl,
+                    canaryToken: ssrfResult.canaryToken,
+                    interactionConfirmed: ssrfResult.interactionConfirmed,
+                    remoteAddress: ssrfResult.remoteAddress,
+                    exposureSeverity: 'critical',
                     validationStatusCode: 200,
                   },
                 };

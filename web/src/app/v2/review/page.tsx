@@ -1341,6 +1341,52 @@ function HumanReviewContent() {
                           </div>
                         </div>
                       )}
+
+                      {diffContext?.detectionKind === 'blind_ssrf' && (
+                        <div className="rounded-lg bg-black/40 border border-rose-500/50 p-2.5 col-span-2">
+                          <span className="text-rose-400 text-[10px] block font-bold uppercase tracking-wider mb-1">
+                            Blind Server-Side Request Forgery (SSRF) — Confirmed OOB Interaction
+                          </span>
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-[11px] font-mono mt-2">
+                            {diffContext.parameterName && (
+                              <div className="rounded bg-black/60 p-2 border border-zinc-800">
+                                <span className="text-zinc-500 text-[10px] block">Vulnerable Parameter:</span>
+                                <span className="text-rose-300 font-bold">{diffContext.parameterName}</span>
+                              </div>
+                            )}
+                            {diffContext.injectedCanaryUrl && (
+                              <div className="rounded bg-black/60 p-2 border border-zinc-800">
+                                <span className="text-zinc-500 text-[10px] block">Injected Canary URL:</span>
+                                <span className="text-zinc-300 font-mono text-[10px] break-all">{diffContext.injectedCanaryUrl}</span>
+                              </div>
+                            )}
+                            {diffContext.canaryToken && (
+                              <div className="rounded bg-black/60 p-2 border border-zinc-800">
+                                <span className="text-zinc-500 text-[10px] block">Canary Token:</span>
+                                <span className="text-violet-300 font-bold break-all">{diffContext.canaryToken}</span>
+                              </div>
+                            )}
+                            {diffContext.interactionConfirmed !== undefined && (
+                              <div className="rounded bg-black/60 p-2 border border-zinc-800">
+                                <span className="text-zinc-500 text-[10px] block">Callback Confirmed:</span>
+                                <span className={`font-bold uppercase ${diffContext.interactionConfirmed ? 'text-emerald-400' : 'text-zinc-500'}`}>
+                                  {diffContext.interactionConfirmed ? 'YES (OOB Validated)' : 'NO'}
+                                </span>
+                              </div>
+                            )}
+                            {diffContext.remoteAddress && (
+                              <div className="rounded bg-black/60 p-2 border border-zinc-800">
+                                <span className="text-zinc-500 text-[10px] block">Remote Origin IP:</span>
+                                <span className="text-amber-300 font-bold">{diffContext.remoteAddress}</span>
+                              </div>
+                            )}
+                            <div className="rounded bg-black/60 p-2 border border-zinc-800">
+                              <span className="text-zinc-500 text-[10px] block">Impact Severity:</span>
+                              <span className="text-rose-400 font-bold uppercase">CRITICAL</span>
+                            </div>
+                          </div>
+                        </div>
+                      )}
                     </div>
 
 

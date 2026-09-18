@@ -460,6 +460,22 @@ export interface OobCanaryMetadata {
   readonly lineage?: string | Record<string, unknown>;
 }
 
+export interface BlindSsrfDetectionMetadata {
+  readonly kind: 'blind_ssrf_detection_metadata';
+  readonly category: 'SERVER_SIDE_REQUEST_FORGERY';
+  readonly endpointUrl: string;
+  readonly parameterName: string;
+  readonly injectedCanaryUrl: string;
+  readonly canaryToken: string;
+  readonly interactionConfirmed: boolean;
+  readonly remoteAddress?: string;
+  readonly exposureSeverity: 'critical';
+  readonly observedAt: string;
+  readonly candidateId?: string;
+  readonly evidenceRecordId?: string;
+  readonly lineage?: string | Record<string, unknown>;
+}
+
 export type FindingMetadata =
   | BrokenAccessControlMetadata
   | SecurityMisconfigurationMetadata
@@ -492,6 +508,7 @@ export type FindingMetadata =
   | DependencyVulnerabilityMetadata
   | StaticRouteExtractionMetadata
   | OobCanaryMetadata
+  | BlindSsrfDetectionMetadata
   | DiscoveryFindingMetadata;
 
 

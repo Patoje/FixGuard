@@ -80,6 +80,7 @@ export interface DifferentialEvidenceContext {
     | 'dependency_vulnerability'
     | 'static_route_extraction'
     | 'oob_canary_interaction'
+    | 'blind_ssrf'
     | 'custom_difference';
   readonly baselineStatusCode?: number;
   readonly baselineBodyHash?: string;
@@ -207,6 +208,8 @@ export interface DifferentialEvidenceContext {
   readonly interactionType?: 'http_callback' | 'dns_query';
   readonly remoteAddress?: string;
   readonly interactionTimestamp?: string;
+  readonly injectedCanaryUrl?: string;
+  readonly interactionConfirmed?: boolean;
 }
 
 

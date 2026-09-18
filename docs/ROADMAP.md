@@ -1549,6 +1549,33 @@ All completed milestones are verified via active TypeScript contracts and the re
      - `cd web && npm run build` compiles cleanly with zero errors.
      - 0 occurrences of `as any` across all production code.
 
+### Milestone P7-2: Blind SSRF Detection Probe (Out-Of-Band Verification Engine)
+- **Status:** COMPLETED.
+- **Goal:** Safe, definitive detection of Blind Server-Side Request Forgery (SSRF) vulnerabilities on candidate parameters (`url`, `feed`, `webhook`, `src`, `link`, `endpoint`, `target`, `dest`, `callback`) by injecting high-entropy OOB canary URLs and confirming out-of-band network interaction.
+- **Key Deliverables:**
+  1. **Domain Contracts & Typed Metadata (`BlindSsrfMetadata`)**:
+     - Defined `BlindSsrfMetadata` in `worker/src/v2/core/Evidence.ts` under `FindingMetadata` (`kind: 'blind_ssrf_metadata'`, `category: 'SERVER_SIDE_REQUEST_FORGERY'`, `endpointUrl: string`, `parameterName: string`, `injectedCanaryUrl: string`, `canaryToken: string`, `interactionConfirmed: boolean`, `remoteAddress?: string`, `observedAt: string`, `candidateId?: string`, `evidenceRecordId?: string`, `lineage?: string | Record<string, unknown>`).
+     - Added `BlindSsrfStatus`, `BlindSsrfDetectionRequest`, and `BlindSsrfDetectionResult` in `worker/src/v2/detection/DetectionContracts.ts`.
+     - Extended `DifferentialEvidenceContext` in `OrchestratedAssessmentContracts.ts` and `DifferentialEvidenceContextDto` in `web/src/lib/v2Api.ts` with `detectionKind: 'blind_ssrf'` and typed fields (`parameterName`, `injectedCanaryUrl`, `canaryToken`, `interactionConfirmed`, `remoteAddress`).
+  2. **Detection Service (`BlindSsrfDetectionService.ts`)**:
+     - Implemented `runBlindSsrfDetection()` and `isSsrfCandidateParameter()`.
+     - 7-pass SSRF preflight protection blocking loopback, internal IPs, and metadata targets.
+     - Automatically issues unique cryptographic canary token (`fgc_<hex>`) via `OobCanaryManager`.
+     - Dispatches bounded injection probe request containing the canary callback URL.
+     - Confirms asynchronous out-of-band callbacks without making destructive requests.
+     - Clean abstention (`secure_target_abstained`) when no interaction is observed.
+     - HITL Routing: Generates non-persisted `EvidenceDraftEnvelope` for human operator review.
+  3. **Pipeline & Review UI Integration**:
+     - Integrated Blind SSRF probing across suspicious candidate parameters in `executePipelineStages` in `OrchestratedAssessmentApplicationService.ts`.
+     - Added promotion handling for `'blind_ssrf'` in `reviewEvidenceDraft` promoting drafts to formal `Finding` records (`type: 'SERVER_SIDE_REQUEST_FORGERY'`, `severity: 'critical'`).
+     - Updated `web/src/app/v2/review/page.tsx` with Blind SSRF review cards displaying vulnerable parameter, injected canary URL, canary token, callback status badge, remote origin IP, and critical severity tier.
+  4. **Verification & Hygiene**:
+     - Dedicated smoke test `worker/src/v2/smoke/milestoneP7_2_blind_ssrf_smoke.ts` passes 100% across all 5 assertions.
+     - `npm run typecheck:v2` exits with code 0.
+     - Full regression suite `npm run check:v2` (80/80 smoke suites) passes 100%.
+     - `cd web && npm run build` compiles cleanly with zero errors.
+     - 0 occurrences of `as any` across all production code.
+
 ---
 
 ## 5. Architectural Proposals (`PROPOSED` — NOT YET DECIDED)
