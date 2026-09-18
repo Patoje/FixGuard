@@ -170,6 +170,7 @@ export interface DifferentialEvidenceContextDto {
     | 'parameter_integrity'
     | 'object_mapping_anomaly'
     | 'state_transition_anomaly'
+    | 'attack_surface_delta'
     | 'custom_difference';
   readonly baselineStatusCode?: number;
   readonly baselineBodyHash?: string;
@@ -269,6 +270,12 @@ export interface DifferentialEvidenceContextDto {
   readonly expectedPrerequisiteSteps?: readonly string[];
   readonly bypassedSuccessfully?: boolean;
   readonly responseExcerpt?: string;
+  readonly baselineAssessmentId?: string;
+  readonly newEndpointsCount?: number;
+  readonly removedEndpointsCount?: number;
+  readonly newlyExposedPaths?: readonly string[];
+  readonly technologyDriftDetected?: boolean;
+  readonly deltaSeverity?: 'high' | 'medium' | 'low';
 }
 
 

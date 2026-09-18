@@ -31,6 +31,10 @@ export class InMemoryOrchestratedAssessmentRepository
     return this.clone(record);
   }
 
+  public async list(): Promise<readonly OrchestratedAssessmentRecord[]> {
+    return Array.from(this.records.values()).map((r) => this.clone(r));
+  }
+
   public async update(
     assessmentId: string,
     updater: (prev: OrchestratedAssessmentRecord) => OrchestratedAssessmentRecord

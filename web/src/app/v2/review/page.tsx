@@ -1091,6 +1091,58 @@ function HumanReviewContent() {
                           </div>
                         </div>
                       )}
+
+                      {diffContext?.detectionKind === 'attack_surface_delta' && (
+                        <div className="rounded-lg bg-black/40 border border-teal-500/40 p-2.5 col-span-2">
+                          <span className="text-teal-400 text-[10px] block font-bold uppercase tracking-wider mb-1">
+                            Longitudinal Attack Surface Delta &amp; Surface Drift
+                          </span>
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-[11px] font-mono mt-2">
+                            {diffContext.baselineAssessmentId && (
+                              <div className="rounded bg-black/60 p-2 border border-zinc-800">
+                                <span className="text-zinc-500 text-[10px] block">Historical Baseline ID:</span>
+                                <span className="text-zinc-300 font-bold break-all">{diffContext.baselineAssessmentId}</span>
+                              </div>
+                            )}
+                            {diffContext.deltaSeverity && (
+                              <div className="rounded bg-black/60 p-2 border border-zinc-800">
+                                <span className="text-zinc-500 text-[10px] block">Delta Risk Classification:</span>
+                                <span className={`font-bold uppercase ${
+                                  diffContext.deltaSeverity === 'high'
+                                    ? 'text-rose-400'
+                                    : diffContext.deltaSeverity === 'medium'
+                                    ? 'text-amber-400'
+                                    : 'text-teal-400'
+                                }`}>
+                                  {diffContext.deltaSeverity} Exposure Drift
+                                </span>
+                              </div>
+                            )}
+                            {diffContext.newEndpointsCount !== undefined && (
+                              <div className="rounded bg-black/60 p-2 border border-zinc-800">
+                                <span className="text-zinc-500 text-[10px] block">Newly Discovered Endpoints:</span>
+                                <span className="text-teal-300 font-bold">+{diffContext.newEndpointsCount} endpoints</span>
+                              </div>
+                            )}
+                            {diffContext.technologyDriftDetected !== undefined && (
+                              <div className="rounded bg-black/60 p-2 border border-zinc-800">
+                                <span className="text-zinc-500 text-[10px] block">Technology Stack Drift:</span>
+                                <span className={`font-bold ${diffContext.technologyDriftDetected ? 'text-amber-400' : 'text-zinc-400'}`}>
+                                  {diffContext.technologyDriftDetected ? 'DRIFT: New / Modified Tech' : 'STABLE: Unchanged Stack'}
+                                </span>
+                              </div>
+                            )}
+                            {diffContext.newlyExposedPaths && diffContext.newlyExposedPaths.length > 0 && (
+                              <div className="rounded bg-black/60 p-2 border border-teal-500/30 col-span-2">
+                                <span className="text-zinc-500 text-[10px] block">Sample Newly Exposed Paths (Max 15):</span>
+                                <span className="text-teal-300 font-mono text-[10px] break-all block mt-0.5">
+                                  {diffContext.newlyExposedPaths.join(', ')}
+                                </span>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      )}
                     </div>
 
 

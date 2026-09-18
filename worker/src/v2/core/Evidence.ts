@@ -372,6 +372,21 @@ export interface StateTransitionAnomalyMetadata {
   readonly lineage?: string | Record<string, unknown>;
 }
 
+export interface AttackSurfaceDeltaMetadata {
+  readonly kind: 'attack_surface_delta_metadata';
+  readonly category: 'SECURITY_MISCONFIGURATION';
+  readonly baselineAssessmentId?: string;
+  readonly newEndpointsCount: number;
+  readonly removedEndpointsCount: number;
+  readonly newlyExposedPaths: readonly string[]; // max 15 paths
+  readonly technologyDriftDetected: boolean;
+  readonly deltaSeverity: 'high' | 'medium' | 'low';
+  readonly observedAt: string;
+  readonly candidateId?: string;
+  readonly evidenceRecordId?: string;
+  readonly lineage?: string | Record<string, unknown>;
+}
+
 export type FindingMetadata =
   | BrokenAccessControlMetadata
   | SecurityMisconfigurationMetadata
@@ -398,6 +413,7 @@ export type FindingMetadata =
   | ParameterIntegrityMetadata
   | ObjectMappingAnomalyMetadata
   | StateTransitionAnomalyMetadata
+  | AttackSurfaceDeltaMetadata
   | DiscoveryFindingMetadata;
 
 

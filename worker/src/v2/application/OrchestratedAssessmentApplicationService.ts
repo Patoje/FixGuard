@@ -88,6 +88,7 @@ import { correlateCorsIdorChains } from '../intelligence/correlation/CorsIdorCha
 
 import { buildTargetProfile } from '../intelligence/TargetProfileBuilder.js';
 import { correlateTargetProfile } from '../intelligence/TargetRecommendationEngine.js';
+import { analyzeAttackSurfaceDelta } from '../intelligence/analysis/AttackSurfaceDeltaAnalysisService.js';
 import type { Finding } from '../core/Evidence.js';
 import type { EvidenceDraftEnvelope } from '../evidence-mapping/ComparisonEvidenceMappingContracts.js';
 
@@ -1825,6 +1826,44 @@ export class OrchestratedAssessmentApplicationService {
             lineage: `${record.assessmentId}:${record.scanId}:${reviewerId}:${reviewedAt}`,
           },
         };
+      } else if (detKind === 'attack_surface_delta') {
+        const baselineAssessmentId = context?.baselineAssessmentId ?? 'baseline';
+        const newEndpointsCount = context?.newEndpointsCount ?? 1;
+        const removedEndpointsCount = context?.removedEndpointsCount ?? 0;
+        const newlyExposedPaths = context?.newlyExposedPaths ?? ['/'];
+        const technologyDriftDetected = context?.technologyDriftDetected ?? false;
+        const deltaSeverity = context?.deltaSeverity ?? 'medium';
+
+        findingCreated = {
+          id: `fnd_asdelta_${draftId.replace(/^dft_/, '').replace(/^draft_/, '').replace(/^asdelta_/, '')}`,
+          type: 'SECURITY_MISCONFIGURATION',
+          severity: deltaSeverity,
+          title: `Approved Attack Surface Delta & Expansion on ${record.targetDomain}`,
+          description: `Human operator verified longitudinal attack surface expansion against baseline ${baselineAssessmentId}. Discovered ${newEndpointsCount} new endpoints (${newlyExposedPaths.slice(0, 5).join(', ')})${technologyDriftDetected ? ' and detected technology stack drift' : ''}.`,
+          target: `https://${record.targetDomain}/`,
+          evidence: JSON.stringify({
+            draftId,
+            reviewerId,
+            reviewedAt,
+            notes,
+            differentialContext: context,
+          }),
+          confidence: 1.0,
+          metadata: {
+            kind: 'attack_surface_delta_metadata',
+            category: 'SECURITY_MISCONFIGURATION',
+            baselineAssessmentId,
+            newEndpointsCount,
+            removedEndpointsCount,
+            newlyExposedPaths,
+            technologyDriftDetected,
+            deltaSeverity,
+            observedAt: reviewedAt,
+            candidateId: `cnd_${draftId}`,
+            evidenceRecordId: `evd_${draftId}`,
+            lineage: `${record.assessmentId}:${record.scanId}:${reviewerId}:${reviewedAt}`,
+          },
+        };
       } else {
 
         findingCreated = {
@@ -3391,6 +3430,52 @@ export class OrchestratedAssessmentApplicationService {
         observations: rawObservations,
         lineage,
       });
+
+      // Longitudinal Attack Surface Delta Analysis (Milestone P5-9)
+      try {
+        if (this.repository.list) {
+          const historicalAssessments = await this.repository.list();
+          const baselineRecord = historicalAssessments.find(
+            (a: OrchestratedAssessmentRecord) =>
+              a.assessmentId !== record.assessmentId &&
+              a.targetDomain.toLowerCase() === record.targetDomain.toLowerCase() &&
+              a.status === 'completed' &&
+              Boolean(a.profile)
+          );
+
+          if (baselineRecord?.profile) {
+          const deltaResult = analyzeAttackSurfaceDelta({
+            currentAssessmentId: lineage.assessmentId,
+            scanId: lineage.scanId,
+            actorId: lineage.actorId,
+            targetDomain: record.targetDomain,
+            currentProfile: profile,
+            baselineProfile: baselineRecord.profile,
+            baselineAssessmentId: baselineRecord.assessmentId,
+          });
+
+          if (deltaResult.hasDelta && deltaResult.evidenceDraft) {
+            const enrichedDraft: EnrichedEvidenceDraft = {
+              ...deltaResult.evidenceDraft,
+              differentialContext: {
+                endpointUrl: `https://${record.targetDomain}/`,
+                detectionKind: 'attack_surface_delta',
+                baselineAssessmentId: deltaResult.baselineAssessmentId,
+                newEndpointsCount: deltaResult.newEndpointsCount,
+                removedEndpointsCount: deltaResult.removedEndpointsCount,
+                newlyExposedPaths: deltaResult.newlyExposedPaths,
+                technologyDriftDetected: deltaResult.technologyDriftDetected,
+                deltaSeverity: deltaResult.deltaSeverity,
+                validationStatusCode: 200,
+              },
+            };
+            pendingEvidenceDrafts.push(enrichedDraft);
+          }
+        }
+      }
+    } catch {
+      // Safe error containment
+    }
 
       const recommendationResult = correlateTargetProfile(profile);
 

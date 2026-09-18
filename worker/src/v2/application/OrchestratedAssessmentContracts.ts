@@ -74,6 +74,7 @@ export interface DifferentialEvidenceContext {
     | 'parameter_integrity'
     | 'object_mapping_anomaly'
     | 'state_transition_anomaly'
+    | 'attack_surface_delta'
     | 'custom_difference';
   readonly baselineStatusCode?: number;
   readonly baselineBodyHash?: string;
@@ -173,6 +174,12 @@ export interface DifferentialEvidenceContext {
   readonly expectedPrerequisiteSteps?: readonly string[];
   readonly bypassedSuccessfully?: boolean;
   readonly responseExcerpt?: string;
+  readonly baselineAssessmentId?: string;
+  readonly newEndpointsCount?: number;
+  readonly removedEndpointsCount?: number;
+  readonly newlyExposedPaths?: readonly string[];
+  readonly technologyDriftDetected?: boolean;
+  readonly deltaSeverity?: 'high' | 'medium' | 'low';
 }
 
 
@@ -260,6 +267,7 @@ export interface GetEvidenceDraftsResult {
 export interface OrchestratedAssessmentRepository {
   save(record: OrchestratedAssessmentRecord): Promise<void>;
   findById(assessmentId: string): Promise<OrchestratedAssessmentRecord | null>;
+  list?(): Promise<readonly OrchestratedAssessmentRecord[]>;
   update(
     assessmentId: string,
     updater: (prev: OrchestratedAssessmentRecord) => OrchestratedAssessmentRecord

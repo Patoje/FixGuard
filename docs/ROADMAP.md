@@ -1371,6 +1371,34 @@ All completed milestones are verified via active TypeScript contracts and the re
 
 ---
 
+### Milestone P5-9: Attack Surface Delta Analysis (Longitudinal Surface Tracking)
+- **Status:** COMPLETED (Phase 5 Milestone 9 Complete).
+- **Goal:** Purely analytical comparison of discovered endpoints, technologies, and findings against a historical target baseline profile, generating delta insights with zero additional network overhead.
+- **Key Deliverables:**
+  1. **Domain Contracts & Typed Metadata (`AttackSurfaceDeltaMetadata`)**:
+     - Defined `AttackSurfaceDeltaMetadata` in `worker/src/v2/core/Evidence.ts` under `FindingMetadata` (`kind: 'attack_surface_delta_metadata'`, `category: 'SECURITY_MISCONFIGURATION'`, `baselineAssessmentId?: string`, `newEndpointsCount: number`, `removedEndpointsCount: number`, `newlyExposedPaths: readonly string[]`, `technologyDriftDetected: boolean`, `deltaSeverity: 'high' | 'medium' | 'low'`, `observedAt`, `candidateId`, `evidenceRecordId`, `lineage`).
+     - Added `AttackSurfaceDeltaAnalysisRequest` and `AttackSurfaceDeltaAnalysisResult` to `worker/src/v2/intelligence/analysis/AttackSurfaceDeltaAnalysisService.ts`.
+     - Extended `DifferentialEvidenceContext` in `OrchestratedAssessmentContracts.ts` and `DifferentialEvidenceContextDto` in `web/src/lib/v2Api.ts` with `detectionKind: 'attack_surface_delta'` and typed delta fields (`baselineAssessmentId`, `newEndpointsCount`, `removedEndpointsCount`, `newlyExposedPaths`, `technologyDriftDetected`, `deltaSeverity`).
+  2. **Analytical Service (`AttackSurfaceDeltaAnalysisService.ts`)**:
+     - Implemented `analyzeAttackSurfaceDelta()`, `computeEndpointDifference()`, `detectTechDrift()`, and `isSensitivePath()`.
+     - Pure in-memory set comparison with zero network overhead.
+     - Detects newly exposed paths (capped at 15 items) and flags sensitive paths (`admin`, `internal`, `debug`, `graphql`, `actuator`, `.env`).
+     - Detects technology stack drift (added/removed/modified technology components).
+     - Neutral abstention when no baseline exists or attack surface is identical.
+     - Unattended runs route non-persisted `EvidenceDraftEnvelope` to `pendingEvidenceDrafts`.
+  3. **Pipeline & Review UI Integration**:
+     - Integrated `analyzeAttackSurfaceDelta` in `executePipelineStages` in `OrchestratedAssessmentApplicationService.ts` after `TargetProfile` generation.
+     - Added promotion handling for `'attack_surface_delta'` in `reviewEvidenceDraft` promoting drafts to formal `Finding` records.
+     - Updated `web/src/app/v2/review/page.tsx` with Attack Surface Delta detail cards displaying baseline assessment ID, delta risk classification, new endpoint counts, technology drift alerts, and newly exposed paths.
+  4. **Verification & Hygiene**:
+     - Dedicated smoke test `worker/src/v2/smoke/milestoneP5_9_attack_surface_delta_smoke.ts` passes 100% across all 5 assertions.
+     - `npm run typecheck:v2` exits with code 0.
+     - Full regression suite `npm run check:v2` (74/74 smoke suites) passes 100%.
+     - `cd web && npm run build` compiles cleanly with zero errors.
+     - 0 occurrences of `as any` across all production code.
+
+---
+
 ## 5. Architectural Proposals (`PROPOSED` — NOT YET DECIDED)
 
 > [!NOTE]
