@@ -387,6 +387,20 @@ export interface AttackSurfaceDeltaMetadata {
   readonly lineage?: string | Record<string, unknown>;
 }
 
+export interface CrossFindingChainMetadata {
+  readonly kind: 'cross_finding_chain_metadata';
+  readonly category: 'BROKEN_ACCESS_CONTROL' | 'SECURITY_MISCONFIGURATION';
+  readonly chainTitle: string;
+  readonly constituentFindingIds: readonly string[]; // linking 2+ findings
+  readonly primaryVector: string;
+  readonly secondaryVector: string;
+  readonly compoundImpactScore: number; // 0.90 - 1.0
+  readonly observedAt: string;
+  readonly candidateId?: string;
+  readonly evidenceRecordId?: string;
+  readonly lineage?: string | Record<string, unknown>;
+}
+
 export type FindingMetadata =
   | BrokenAccessControlMetadata
   | SecurityMisconfigurationMetadata
@@ -414,6 +428,7 @@ export type FindingMetadata =
   | ObjectMappingAnomalyMetadata
   | StateTransitionAnomalyMetadata
   | AttackSurfaceDeltaMetadata
+  | CrossFindingChainMetadata
   | DiscoveryFindingMetadata;
 
 

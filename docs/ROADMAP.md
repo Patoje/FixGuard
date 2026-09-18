@@ -1399,6 +1399,48 @@ All completed milestones are verified via active TypeScript contracts and the re
 
 ---
 
+### Milestone P5-10: Cross-Finding Chain Correlation (Phase 5 Finale)
+- **Status:** COMPLETED (Phase 5 100% Complete & Certified).
+- **Goal:** Cross-correlate multiple independent findings across different detection engines to synthesize multi-step compound attack paths and elevate systemic risk assessment.
+- **Key Deliverables:**
+  1. **Domain Contracts & Typed Metadata (`CrossFindingChainMetadata`)**:
+     - Defined `CrossFindingChainMetadata` in `worker/src/v2/core/Evidence.ts` under `FindingMetadata` (`kind: 'cross_finding_chain_metadata'`, `category: 'BROKEN_ACCESS_CONTROL' | 'SECURITY_MISCONFIGURATION'`, `chainTitle: string`, `constituentFindingIds: readonly string[]`, `primaryVector: string`, `secondaryVector: string`, `compoundImpactScore: number`, `observedAt`, `candidateId`, `evidenceRecordId`, `lineage`).
+     - Added `CrossFindingChainCorrelatorRequest` and `CrossFindingChainCorrelatorResult` to `worker/src/v2/intelligence/correlation/CrossFindingChainCorrelator.ts`.
+     - Extended `DifferentialEvidenceContext` in `OrchestratedAssessmentContracts.ts` and `DifferentialEvidenceContextDto` in `web/src/lib/v2Api.ts` with `detectionKind: 'cross_finding_chain'`, `chainKind: 'cross_finding_compound'`, and typed fields (`chainTitle`, `constituentFindingIds`, `primaryVector`, `secondaryVector`, `compoundImpactScore`).
+  2. **Analytical Service (`CrossFindingChainCorrelator.ts`)**:
+     - Implemented `correlateCrossFindingChains()`, `isPrimaryAccessVector()`, and `isSecondaryDisclosureVector()`.
+     - Pure in-memory correlation pairing primary access flaws (IDOR, Auth Bypass, Method Manipulation, Object Mapping, State Transition, SQL Error Oracle, Session Fixation, JWT Confusion, Credentialed CORS) with secondary exposure vectors (Information Disclosure, Manifests, Sourcemaps, Dependency Confusion, Parameter Integrity, Security Misconfiguration, Open Redirect, GraphQL Introspection).
+     - Caps synthesized chains per assessment to prevent combinatorial explosion.
+     - Clean neutral abstention when correlation requirements are unmet.
+     - Unattended runs route non-persisted `EvidenceDraftEnvelope` to `pendingEvidenceDrafts` for human triage.
+  3. **Pipeline & Review UI Integration**:
+     - Integrated `correlateCrossFindingChains` in `executePipelineStages` in `OrchestratedAssessmentApplicationService.ts` following active detection execution.
+     - Added promotion handling for `'cross_finding_chain'` in `reviewEvidenceDraft` promoting drafts to formal Critical `Finding` records.
+     - Updated `web/src/app/v2/review/page.tsx` with Cross-Finding Compound Exploit Chain detail cards rendering compound attack path title, primary access vector, secondary disclosure vector, compound impact score (0.95 Critical Elevation), and linked constituent finding IDs.
+  4. **Verification & Hygiene**:
+     - Dedicated smoke test `worker/src/v2/smoke/milestoneP5_10_cross_finding_chain_smoke.ts` passes 100% across all 5 assertions.
+     - `npm run typecheck:v2` exits with code 0.
+     - Full regression suite `npm run check:v2` (75/75 smoke suites) passes 100%.
+     - `cd web && npm run build` compiles cleanly with zero errors.
+     - 0 occurrences of `as any` across all production code.
+
+---
+
+> [!IMPORTANT]
+> **PHASE 5 CANONICAL STATUS: 100% COMPLETED (All 10 Milestones Certified & Verified across 75 Smoke Suites)**
+> 1. P5-1: CORS + IDOR Compound Exploit Chain Engine
+> 2. P5-2: API Versioning Sprawl Detection Engine
+> 3. P5-3: HTTP Method Manipulation Detection Engine
+> 4. P5-4: Dependency Confusion Detection Engine
+> 5. P5-5: Frontend Manifest and Environment Exposure Engine
+> 6. P5-6: Application Parameter Integrity Engine
+> 7. P5-7: Object Mapping Anomaly Probe
+> 8. P5-8: State Transition Anomaly Engine
+> 9. P5-9: Attack Surface Delta Analysis Engine
+> 10. P5-10: Cross-Finding Chain Correlation Engine
+
+---
+
 ## 5. Architectural Proposals (`PROPOSED` — NOT YET DECIDED)
 
 > [!NOTE]

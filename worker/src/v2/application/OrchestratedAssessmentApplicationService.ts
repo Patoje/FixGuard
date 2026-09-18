@@ -84,6 +84,7 @@ import {
   isStateTransitionCandidateEndpoint,
 } from '../detection/StateTransitionAnomalyDetectionService.js';
 import { correlateCorsIdorChains } from '../intelligence/correlation/CorsIdorChainCorrelator.js';
+import { correlateCrossFindingChains } from '../intelligence/correlation/CrossFindingChainCorrelator.js';
 
 
 import { buildTargetProfile } from '../intelligence/TargetProfileBuilder.js';
@@ -1864,6 +1865,47 @@ export class OrchestratedAssessmentApplicationService {
             lineage: `${record.assessmentId}:${record.scanId}:${reviewerId}:${reviewedAt}`,
           },
         };
+      } else if (detKind === 'cross_finding_chain') {
+        const chainTitle = context?.chainTitle ?? `Cross-Finding Compound Chain on ${record.targetDomain}`;
+        const constituentFindingIds = context?.constituentFindingIds ?? [];
+        const primaryVector = context?.primaryVector ?? 'Access Flaw';
+        const secondaryVector = context?.secondaryVector ?? 'Information Disclosure';
+        const compoundImpactScore = context?.compoundImpactScore ?? 0.95;
+
+        findingCreated = {
+          id: `fnd_xfchain_${draftId.replace(/^dft_/, '').replace(/^draft_/, '').replace(/^xfchain_/, '')}`,
+          type: 'BROKEN_ACCESS_CONTROL',
+          severity: 'critical',
+          title: `Approved Cross-Finding Attack Path: ${primaryVector} & ${secondaryVector}`,
+          description: `Human operator authorized multi-step compound attack path combining primary vector (${primaryVector}) and secondary vector (${secondaryVector}). Elevates systemic exposure to Critical.`,
+          target: context?.endpointUrl ?? `https://${record.targetDomain}/`,
+          evidence: JSON.stringify({
+            draftId,
+            reviewerId,
+            reviewedAt,
+            notes,
+            chainTitle,
+            constituentFindingIds,
+            primaryVector,
+            secondaryVector,
+            compoundImpactScore,
+            differentialContext: context,
+          }),
+          confidence: 1.0,
+          metadata: {
+            kind: 'cross_finding_chain_metadata',
+            category: 'BROKEN_ACCESS_CONTROL',
+            chainTitle,
+            constituentFindingIds,
+            primaryVector,
+            secondaryVector,
+            compoundImpactScore,
+            observedAt: reviewedAt,
+            candidateId: `cnd_${draftId}`,
+            evidenceRecordId: `evd_${draftId}`,
+            lineage: `${record.assessmentId}:${record.scanId}:${reviewerId}:${reviewedAt}`,
+          },
+        };
       } else {
 
         findingCreated = {
@@ -3407,6 +3449,36 @@ export class OrchestratedAssessmentApplicationService {
           }
           for (const compoundFinding of chainResult.compoundFindings) {
             findings.push(compoundFinding);
+          }
+        } catch {
+          // Safe error containment
+        }
+
+        // Cross-Finding Chain Correlation (Milestone P5-10: Cross-Finding Chain Correlation - Phase 5 Finale)
+        try {
+          const crossChainResult = correlateCrossFindingChains({
+            assessmentId: lineage.assessmentId,
+            scanId: lineage.scanId,
+            actorId: lineage.actorId,
+            findings,
+          });
+
+          for (const xDraft of crossChainResult.compoundDrafts) {
+            const enrichedDraft: EnrichedEvidenceDraft = {
+              ...xDraft,
+              differentialContext: {
+                endpointUrl: `https://${record.targetDomain}/`,
+                detectionKind: 'cross_finding_chain',
+                chainKind: 'cross_finding_compound',
+                chainTitle: xDraft.safeRationale,
+                compoundImpactScore: 0.95,
+                validationStatusCode: 200,
+              },
+            };
+            pendingEvidenceDrafts.push(enrichedDraft);
+          }
+          for (const xFinding of crossChainResult.compoundFindings) {
+            findings.push(xFinding);
           }
         } catch {
           // Safe error containment

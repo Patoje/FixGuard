@@ -75,6 +75,7 @@ export interface DifferentialEvidenceContext {
     | 'object_mapping_anomaly'
     | 'state_transition_anomaly'
     | 'attack_surface_delta'
+    | 'cross_finding_chain'
     | 'custom_difference';
   readonly baselineStatusCode?: number;
   readonly baselineBodyHash?: string;
@@ -139,12 +140,16 @@ export interface DifferentialEvidenceContext {
   readonly minimumSafeVersion?: string;
   readonly isOutdated?: boolean;
   readonly evidenceSourceUrl?: string;
-  readonly chainKind?: 'cors_idor_compound';
+  readonly chainKind?: 'cors_idor_compound' | 'cross_finding_compound';
   readonly primaryFindingId?: string;
   readonly secondaryFindingId?: string;
   readonly sharedOrigin?: string;
   readonly targetEndpointUrl?: string;
   readonly compoundImpactScore?: number;
+  readonly chainTitle?: string;
+  readonly constituentFindingIds?: readonly string[];
+  readonly primaryVector?: string;
+  readonly secondaryVector?: string;
   readonly currentEndpointUrl?: string;
   readonly legacyEndpointUrl?: string;
   readonly currentStatusCode?: number;

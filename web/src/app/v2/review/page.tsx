@@ -1143,6 +1143,48 @@ function HumanReviewContent() {
                           </div>
                         </div>
                       )}
+
+                      {diffContext?.detectionKind === 'cross_finding_chain' && (
+                        <div className="rounded-lg bg-black/40 border border-rose-500/50 p-2.5 col-span-2">
+                          <span className="text-rose-400 text-[10px] block font-bold uppercase tracking-wider mb-1">
+                            Cross-Finding Compound Exploit Chain (Systemic Risk Elevation)
+                          </span>
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-[11px] font-mono mt-2">
+                            {diffContext.chainTitle && (
+                              <div className="rounded bg-black/60 p-2 border border-zinc-800 col-span-2">
+                                <span className="text-zinc-500 text-[10px] block">Compound Attack Path:</span>
+                                <span className="text-rose-300 font-bold break-all">{diffContext.chainTitle}</span>
+                              </div>
+                            )}
+                            {diffContext.primaryVector && (
+                              <div className="rounded bg-black/60 p-2 border border-zinc-800">
+                                <span className="text-zinc-500 text-[10px] block">Primary Access Vector:</span>
+                                <span className="text-amber-400 font-bold break-all">{diffContext.primaryVector}</span>
+                              </div>
+                            )}
+                            {diffContext.secondaryVector && (
+                              <div className="rounded bg-black/60 p-2 border border-zinc-800">
+                                <span className="text-zinc-500 text-[10px] block">Secondary Recon / Disclosure Vector:</span>
+                                <span className="text-blue-400 font-bold break-all">{diffContext.secondaryVector}</span>
+                              </div>
+                            )}
+                            {diffContext.compoundImpactScore !== undefined && (
+                              <div className="rounded bg-black/60 p-2 border border-rose-500/30">
+                                <span className="text-zinc-500 text-[10px] block">Compound Impact Score:</span>
+                                <span className="text-rose-400 font-bold">{diffContext.compoundImpactScore.toFixed(2)} / 1.00 (CRITICAL ELEVATION)</span>
+                              </div>
+                            )}
+                            {diffContext.constituentFindingIds && diffContext.constituentFindingIds.length > 0 && (
+                              <div className="rounded bg-black/60 p-2 border border-zinc-800">
+                                <span className="text-zinc-500 text-[10px] block">Linked Constituent Finding IDs:</span>
+                                <span className="text-zinc-300 font-mono text-[10px] break-all block mt-0.5">
+                                  {diffContext.constituentFindingIds.join(', ')}
+                                </span>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      )}
                     </div>
 
 
