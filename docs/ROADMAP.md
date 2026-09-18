@@ -1522,6 +1522,35 @@ All completed milestones are verified via active TypeScript contracts and the re
 
 ---
 
+## Phase 7: Out-Of-Band (OOB) Interaction Infrastructure & Asynchronous Validation
+
+### Milestone P7-1: OOB Canary Token & Ephemeral Callback Server Architecture
+- **Status:** COMPLETED.
+- **Goal:** Provide secure, isolated generation and validation of unique canary tokens for asynchronous out-of-band detection (blind SSRF, DNS rebinding, blind XSS, OOB RCE) with zero persistent credential storage.
+- **Key Deliverables:**
+  1. **Domain Contracts & Typed Metadata (`OobCanaryMetadata`)**:
+     - Defined `OobCanaryMetadata` in `worker/src/v2/core/Evidence.ts` under `FindingMetadata` (`kind: 'oob_canary_metadata'`, `category: 'SERVER_SIDE_REQUEST_FORGERY' | 'SECURITY_MISCONFIGURATION'`, `canaryToken: string`, `callbackDomain: string`, `interactionType: 'http_callback' | 'dns_query'`, `remoteAddress?: string`, `interactionTimestamp: string`, `exposureSeverity: 'critical' | 'high'`, `observedAt: string`, `candidateId?: string`, `evidenceRecordId?: string`, `lineage?: string | Record<string, unknown>`).
+     - Extended `DifferentialEvidenceContext` in `OrchestratedAssessmentContracts.ts` and `DifferentialEvidenceContextDto` in `web/src/lib/v2Api.ts` with `detectionKind: 'oob_canary_interaction'` and typed fields (`canaryToken`, `callbackDomain`, `interactionType`, `remoteAddress`, `interactionTimestamp`).
+  2. **OOB Canary Infrastructure Manager (`OobCanaryManager.ts`)**:
+     - Created `worker/src/v2/oob/OobCanaryManager.ts` managing volatile in-memory tokens and inbound interaction tracking.
+     - High-entropy cryptographic token generation (`crypto.randomBytes(12)` -> `fgc_<hex>`) with TTL expiration.
+     - Inbound callback recorder supporting HTTP and DNS callbacks with remote IP, timestamp, headers, and HTTP method.
+     - Pure in-memory lifecycle with `clearAssessment()` avoiding sensitive database persistence.
+     - Clean Neutral Abstention: Returns neutral result with 0 drafts when uncontacted.
+     - HITL Routing: Generates non-persisted `EvidenceDraftEnvelope` for human operator triage.
+  3. **Pipeline & Review UI Integration**:
+     - Integrated OOB canary evaluation in `executePipelineStages` in `OrchestratedAssessmentApplicationService.ts`.
+     - Added promotion handling for `'oob_canary_interaction'` in `reviewEvidenceDraft` promoting drafts to formal `Finding` records.
+     - Updated `web/src/app/v2/review/page.tsx` with OOB Interaction cards displaying canary token, callback domain, interaction protocol badge, remote origin IP, and interaction timestamp.
+  4. **Verification & Hygiene**:
+     - Dedicated smoke test `worker/src/v2/smoke/milestoneP7_1_oob_canary_smoke.ts` passes 100% across all 5 assertions.
+     - `npm run typecheck:v2` exits with code 0.
+     - Full regression suite `npm run check:v2` (79/79 smoke suites) passes 100%.
+     - `cd web && npm run build` compiles cleanly with zero errors.
+     - 0 occurrences of `as any` across all production code.
+
+---
+
 ## 5. Architectural Proposals (`PROPOSED` — NOT YET DECIDED)
 
 > [!NOTE]

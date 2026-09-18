@@ -93,6 +93,7 @@ import { analyzeAttackSurfaceDelta } from '../intelligence/analysis/AttackSurfac
 import { scanSourceFilesForSecrets } from '../sast/StaticSecretScanningService.js';
 import { scanManifestsForVulnerabilities } from '../sast/DependencyVulnerabilityScanService.js';
 import { scanFilesForStaticRoutes } from '../sast/StaticRouteExtractionService.js';
+import { defaultOobCanaryManager } from '../oob/OobCanaryManager.js';
 import type { Finding } from '../core/Evidence.js';
 import type { EvidenceDraftEnvelope } from '../evidence-mapping/ComparisonEvidenceMappingContracts.js';
 
@@ -2038,6 +2039,50 @@ export class OrchestratedAssessmentApplicationService {
             lineage: `${record.assessmentId}:${record.scanId}:${reviewerId}:${reviewedAt}`,
           },
         };
+      } else if (detKind === 'oob_canary_interaction') {
+        const canaryToken = context?.canaryToken ?? 'fgc_unknown';
+        const callbackDomain = context?.callbackDomain ?? 'oob.fixguard.internal';
+        const interactionType = context?.interactionType ?? 'http_callback';
+        const remoteAddress = context?.remoteAddress;
+        const interactionTimestamp = context?.interactionTimestamp ?? reviewedAt;
+        const exposureSeverity = context?.exposureSeverity === 'high' ? 'high' : 'critical';
+
+        findingCreated = {
+          id: `fnd_oobcan_${draftId.replace(/^dft_/, '').replace(/^draft_/, '').replace(/^oobcan_/, '')}`,
+          type: 'SERVER_SIDE_REQUEST_FORGERY',
+          severity: exposureSeverity,
+          title: `Approved Out-Of-Band (OOB) Interaction: ${interactionType.toUpperCase()} (${canaryToken})`,
+          description: `Human operator verified asynchronous OOB interaction triggered by target ${record.targetDomain} using canary token ${canaryToken} (${interactionType}). Remote source: ${remoteAddress ?? 'unknown'}.`,
+          target: context?.endpointUrl ?? `https://${record.targetDomain}/`,
+          evidence: JSON.stringify({
+            draftId,
+            reviewerId,
+            reviewedAt,
+            notes,
+            canaryToken,
+            callbackDomain,
+            interactionType,
+            remoteAddress,
+            interactionTimestamp,
+            exposureSeverity,
+            differentialContext: context,
+          }),
+          confidence: 1.0,
+          metadata: {
+            kind: 'oob_canary_metadata',
+            category: 'SERVER_SIDE_REQUEST_FORGERY',
+            canaryToken,
+            callbackDomain,
+            interactionType,
+            remoteAddress,
+            interactionTimestamp,
+            exposureSeverity,
+            observedAt: reviewedAt,
+            candidateId: `cnd_${draftId}`,
+            evidenceRecordId: `evd_${draftId}`,
+            lineage: `${record.assessmentId}:${record.scanId}:${reviewerId}:${reviewedAt}`,
+          },
+        };
       } else {
 
         findingCreated = {
@@ -3794,6 +3839,45 @@ export class OrchestratedAssessmentApplicationService {
               }
             }
             for (const finding of routeResult.findings) {
+              findings.push(finding);
+            }
+          }
+        } catch {
+          // Safe error containment
+        }
+
+        // Out-Of-Band (OOB) Canary Evaluation (Milestone P7-1: OOB Canary Token & Ephemeral Callback Server Architecture)
+        try {
+          const oobResult = defaultOobCanaryManager.evaluateOobInteractions({
+            assessmentId: lineage.assessmentId,
+            scanId: lineage.scanId,
+            actorId: lineage.actorId,
+            targetDomain: record.targetDomain,
+          });
+
+          if (oobResult.hasInteractions) {
+            for (let i = 0; i < oobResult.evidenceDrafts.length; i++) {
+              const draft = oobResult.evidenceDrafts[i];
+              const interactionItem = oobResult.confirmedInteractions[i];
+              if (draft && interactionItem) {
+                const enrichedDraft: EnrichedEvidenceDraft = {
+                  ...draft,
+                  differentialContext: {
+                    endpointUrl: interactionItem.tokenDescriptor.targetEndpoint ?? `https://${record.targetDomain}/`,
+                    detectionKind: 'oob_canary_interaction',
+                    canaryToken: interactionItem.tokenDescriptor.canaryToken,
+                    callbackDomain: interactionItem.tokenDescriptor.callbackDomain,
+                    interactionType: interactionItem.interaction.interactionType,
+                    remoteAddress: interactionItem.interaction.remoteAddress,
+                    interactionTimestamp: interactionItem.interaction.receivedAt,
+                    exposureSeverity: interactionItem.tokenDescriptor.purpose === 'blind_ssrf' || interactionItem.tokenDescriptor.purpose === 'oob_rce' ? 'critical' : 'high',
+                    validationStatusCode: 200,
+                  },
+                };
+                pendingEvidenceDrafts.push(enrichedDraft);
+              }
+            }
+            for (const finding of oobResult.findings) {
               findings.push(finding);
             }
           }

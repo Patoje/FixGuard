@@ -175,6 +175,7 @@ export interface DifferentialEvidenceContextDto {
     | 'static_secret_exposure'
     | 'dependency_vulnerability'
     | 'static_route_extraction'
+    | 'oob_canary_interaction'
     | 'custom_difference';
   readonly baselineStatusCode?: number;
   readonly baselineBodyHash?: string;
@@ -297,6 +298,11 @@ export interface DifferentialEvidenceContextDto {
   readonly extractedRoutePattern?: string;
   readonly supportedMethods?: readonly string[];
   readonly isInternalOnly?: boolean;
+  readonly canaryToken?: string;
+  readonly callbackDomain?: string;
+  readonly interactionType?: 'http_callback' | 'dns_query';
+  readonly remoteAddress?: string;
+  readonly interactionTimestamp?: string;
 }
 
 

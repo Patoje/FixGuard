@@ -445,6 +445,21 @@ export interface StaticRouteExtractionMetadata {
   readonly lineage?: string | Record<string, unknown>;
 }
 
+export interface OobCanaryMetadata {
+  readonly kind: 'oob_canary_metadata';
+  readonly category: 'SERVER_SIDE_REQUEST_FORGERY' | 'SECURITY_MISCONFIGURATION';
+  readonly canaryToken: string;
+  readonly callbackDomain: string;
+  readonly interactionType: 'http_callback' | 'dns_query';
+  readonly remoteAddress?: string;
+  readonly interactionTimestamp: string;
+  readonly exposureSeverity: 'critical' | 'high';
+  readonly observedAt: string;
+  readonly candidateId?: string;
+  readonly evidenceRecordId?: string;
+  readonly lineage?: string | Record<string, unknown>;
+}
+
 export type FindingMetadata =
   | BrokenAccessControlMetadata
   | SecurityMisconfigurationMetadata
@@ -476,6 +491,7 @@ export type FindingMetadata =
   | StaticSecretExposureMetadata
   | DependencyVulnerabilityMetadata
   | StaticRouteExtractionMetadata
+  | OobCanaryMetadata
   | DiscoveryFindingMetadata;
 
 

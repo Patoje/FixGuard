@@ -1293,6 +1293,54 @@ function HumanReviewContent() {
                           </div>
                         </div>
                       )}
+
+                      {diffContext?.detectionKind === 'oob_canary_interaction' && (
+                        <div className="rounded-lg bg-black/40 border border-violet-500/50 p-2.5 col-span-2">
+                          <span className="text-violet-400 text-[10px] block font-bold uppercase tracking-wider mb-1">
+                            OOB Out-Of-Band Infrastructure — Confirmed Asynchronous Callback
+                          </span>
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-[11px] font-mono mt-2">
+                            {diffContext.canaryToken && (
+                              <div className="rounded bg-black/60 p-2 border border-zinc-800">
+                                <span className="text-zinc-500 text-[10px] block">Canary Token:</span>
+                                <span className="text-violet-300 font-bold break-all">{diffContext.canaryToken}</span>
+                              </div>
+                            )}
+                            {diffContext.interactionType && (
+                              <div className="rounded bg-black/60 p-2 border border-zinc-800">
+                                <span className="text-zinc-500 text-[10px] block">Interaction Protocol:</span>
+                                <span className="text-emerald-400 font-bold uppercase">{diffContext.interactionType}</span>
+                              </div>
+                            )}
+                            {diffContext.callbackDomain && (
+                              <div className="rounded bg-black/60 p-2 border border-zinc-800">
+                                <span className="text-zinc-500 text-[10px] block">Callback Domain:</span>
+                                <span className="text-zinc-300 font-mono text-[10px] break-all">{diffContext.callbackDomain}</span>
+                              </div>
+                            )}
+                            {diffContext.remoteAddress && (
+                              <div className="rounded bg-black/60 p-2 border border-zinc-800">
+                                <span className="text-zinc-500 text-[10px] block">Remote Origin IP:</span>
+                                <span className="text-amber-300 font-bold">{diffContext.remoteAddress}</span>
+                              </div>
+                            )}
+                            {diffContext.interactionTimestamp && (
+                              <div className="rounded bg-black/60 p-2 border border-zinc-800">
+                                <span className="text-zinc-500 text-[10px] block">Interaction Timestamp:</span>
+                                <span className="text-zinc-300 font-mono text-[10px]">{diffContext.interactionTimestamp}</span>
+                              </div>
+                            )}
+                            {diffContext.exposureSeverity && (
+                              <div className="rounded bg-black/60 p-2 border border-zinc-800">
+                                <span className="text-zinc-500 text-[10px] block">Severity Tier:</span>
+                                <span className={`font-bold uppercase ${diffContext.exposureSeverity === 'critical' ? 'text-rose-400' : 'text-amber-400'}`}>
+                                  {diffContext.exposureSeverity}
+                                </span>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      )}
                     </div>
 
 
