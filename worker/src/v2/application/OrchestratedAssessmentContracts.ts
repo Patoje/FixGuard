@@ -77,6 +77,7 @@ export interface DifferentialEvidenceContext {
     | 'attack_surface_delta'
     | 'cross_finding_chain'
     | 'static_secret_exposure'
+    | 'dependency_vulnerability'
     | 'custom_difference';
   readonly baselineStatusCode?: number;
   readonly baselineBodyHash?: string;
@@ -189,6 +190,11 @@ export interface DifferentialEvidenceContext {
   readonly filePath?: string;
   readonly lineNumber?: number;
   readonly secretKind?: 'aws_key' | 'private_key' | 'generic_api_key' | 'database_uri' | 'jwt_secret';
+  readonly ecosystem?: 'npm' | 'pip' | 'composer';
+  readonly installedVersion?: string;
+  readonly vulnerableRange?: string;
+  readonly advisoryId?: string;
+  readonly sourceManifestPath?: string;
 }
 
 

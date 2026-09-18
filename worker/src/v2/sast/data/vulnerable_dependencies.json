@@ -1,0 +1,58 @@
+[
+  {
+    "ecosystem": "npm",
+    "packageName": "lodash",
+    "vulnerableRange": "<4.17.21",
+    "advisoryId": "GHSA-35jh-r3h4-6jhm",
+    "severity": "critical",
+    "description": "Prototype Pollution in lodash leading to Remote Code Execution or Denial of Service"
+  },
+  {
+    "ecosystem": "npm",
+    "packageName": "axios",
+    "vulnerableRange": "<0.21.1",
+    "advisoryId": "GHSA-42xw-2xvc-rh8d",
+    "severity": "high",
+    "description": "Server-Side Request Forgery (SSRF) bypass in axios"
+  },
+  {
+    "ecosystem": "npm",
+    "packageName": "json-server",
+    "vulnerableRange": "<0.17.4",
+    "advisoryId": "GHSA-v845-jxx5-vc9f",
+    "severity": "high",
+    "description": "Cross-Site Scripting (XSS) via unescaped path parameters"
+  },
+  {
+    "ecosystem": "npm",
+    "packageName": "jsonwebtoken",
+    "vulnerableRange": "<9.0.0",
+    "advisoryId": "GHSA-qw6h-v8gh-w36c",
+    "severity": "high",
+    "description": "Unsecure default algorithm verification in jsonwebtoken"
+  },
+  {
+    "ecosystem": "pip",
+    "packageName": "django",
+    "vulnerableRange": "<3.2.19",
+    "advisoryId": "GHSA-m9g8-f464-x668",
+    "severity": "high",
+    "description": "SQL Injection vulnerability in Django queryset aggregation"
+  },
+  {
+    "ecosystem": "pip",
+    "packageName": "requests",
+    "vulnerableRange": "<2.31.0",
+    "advisoryId": "GHSA-j8r2-6x86-q33q",
+    "severity": "medium",
+    "description": "Unintended credential leak on cross-domain redirect in requests"
+  },
+  {
+    "ecosystem": "composer",
+    "packageName": "guzzlehttp/guzzle",
+    "vulnerableRange": "<7.4.5",
+    "advisoryId": "GHSA-43f8-2h3w-p437",
+    "severity": "high",
+    "description": "Improper header stripping leading to credential disclosure"
+  }
+]

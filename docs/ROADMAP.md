@@ -1469,6 +1469,32 @@ All completed milestones are verified via active TypeScript contracts and the re
      - `cd web && npm run build` compiles cleanly with zero errors.
      - 0 occurrences of `as any` across all production code.
 
+### Milestone P6-2: Local Dependency Vulnerability SCA Engine
+- **Status:** COMPLETED.
+- **Goal:** Purely analytical local manifest auditing. Parses dependency manifests (`package.json`, `requirements.txt`, `composer.json`) and cross-references them against an offline, versioned local database of vulnerable library versions with zero network overhead.
+- **Key Deliverables:**
+  1. **Static Advisory Dataset (`worker/src/v2/sast/data/vulnerable_dependencies.json`)**:
+     - Offline JSON database mapping ecosystem, package names, vulnerable semver ranges, advisory IDs, severities, and descriptions.
+  2. **Domain Contracts & Typed Metadata (`DependencyVulnerabilityMetadata`)**:
+     - Defined `DependencyVulnerabilityMetadata` in `worker/src/v2/core/Evidence.ts` under `FindingMetadata` (`kind: 'dependency_vulnerability_metadata'`, `category: 'SUPPLY_CHAIN_RISK'`, `ecosystem: 'npm' | 'pip' | 'composer'`, `packageName: string`, `installedVersion: string`, `vulnerableRange: string`, `advisoryId: string`, `exposureSeverity: 'critical' | 'high' | 'medium'`, `sourceManifestPath: string`, `observedAt`, `candidateId`, `evidenceRecordId`, `lineage`).
+     - Added `DependencyVulnerabilityScanRequest` and `DependencyVulnerabilityScanResult` in `worker/src/v2/sast/DependencyVulnerabilityScanService.ts`.
+     - Extended `DifferentialEvidenceContext` in `OrchestratedAssessmentContracts.ts` and `DifferentialEvidenceContextDto` in `web/src/lib/v2Api.ts` with `detectionKind: 'dependency_vulnerability'` and typed fields.
+  3. **Analytical SCA Service (`DependencyVulnerabilityScanService.ts`)**:
+     - Implemented `scanManifestsForVulnerabilities()`, `parseManifestDependencies()`, `parseSemver()`, and `isVersionVulnerable()`.
+     - Pure in-memory offline matching against `vulnerable_dependencies.json`.
+     - Clean Neutral Abstention: Returns neutral result with 0 drafts on secure manifests.
+     - HITL Routing: Generates non-persisted `EvidenceDraftEnvelope` for human operator triage.
+  4. **Pipeline & Review UI Integration**:
+     - Integrated SCA manifest scanning in `executePipelineStages` in `OrchestratedAssessmentApplicationService.ts`.
+     - Added promotion handling for `'dependency_vulnerability'` in `reviewEvidenceDraft` promoting drafts to formal `Finding` records.
+     - Updated `web/src/app/v2/review/page.tsx` with SCA Dependency Vulnerability cards displaying ecosystem, package name, installed version, advisory ID, severity badge, and manifest path.
+  5. **Verification & Hygiene**:
+     - Dedicated smoke test `worker/src/v2/smoke/milestoneP6_2_dependency_vulnerability_smoke.ts` passes 100% across all 5 assertions.
+     - `npm run typecheck:v2` exits with code 0.
+     - Full regression suite `npm run check:v2` (77/77 smoke suites) passes 100%.
+     - `cd web && npm run build` compiles cleanly with zero errors.
+     - 0 occurrences of `as any` across all production code.
+
 ---
 
 ## 5. Architectural Proposals (`PROPOSED` — NOT YET DECIDED)

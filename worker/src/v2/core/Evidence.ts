@@ -415,6 +415,22 @@ export interface StaticSecretExposureMetadata {
   readonly lineage?: string | Record<string, unknown>;
 }
 
+export interface DependencyVulnerabilityMetadata {
+  readonly kind: 'dependency_vulnerability_metadata';
+  readonly category: 'SUPPLY_CHAIN_RISK';
+  readonly ecosystem: 'npm' | 'pip' | 'composer';
+  readonly packageName: string;
+  readonly installedVersion: string;
+  readonly vulnerableRange: string;
+  readonly advisoryId: string;
+  readonly exposureSeverity: 'critical' | 'high' | 'medium';
+  readonly sourceManifestPath: string;
+  readonly observedAt: string;
+  readonly candidateId?: string;
+  readonly evidenceRecordId?: string;
+  readonly lineage?: string | Record<string, unknown>;
+}
+
 export type FindingMetadata =
   | BrokenAccessControlMetadata
   | SecurityMisconfigurationMetadata
@@ -444,6 +460,7 @@ export type FindingMetadata =
   | AttackSurfaceDeltaMetadata
   | CrossFindingChainMetadata
   | StaticSecretExposureMetadata
+  | DependencyVulnerabilityMetadata
   | DiscoveryFindingMetadata;
 
 

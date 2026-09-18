@@ -6,6 +6,7 @@
     "strict": true,
     "skipLibCheck": true,
     "types": ["node"],
+    "resolveJsonModule": true,
     "noEmit": true
   },
   "include": ["src/v2/**/*.ts"]

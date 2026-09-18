@@ -1223,6 +1223,42 @@ function HumanReviewContent() {
                           </div>
                         </div>
                       )}
+
+                      {diffContext?.detectionKind === 'dependency_vulnerability' && (
+                        <div className="rounded-lg bg-black/40 border border-rose-500/50 p-2.5 col-span-2">
+                          <span className="text-rose-400 text-[10px] block font-bold uppercase tracking-wider mb-1">
+                            SCA Software Composition Analysis — Vulnerable Dependency
+                          </span>
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-[11px] font-mono mt-2">
+                            {diffContext.packageName && (
+                              <div className="rounded bg-black/60 p-2 border border-zinc-800">
+                                <span className="text-zinc-500 text-[10px] block">Vulnerable Package ({diffContext.ecosystem ?? 'npm'}):</span>
+                                <span className="text-rose-400 font-bold break-all">{diffContext.packageName} @ {diffContext.installedVersion ?? 'unknown'}</span>
+                              </div>
+                            )}
+                            {diffContext.advisoryId && (
+                              <div className="rounded bg-black/60 p-2 border border-zinc-800">
+                                <span className="text-zinc-500 text-[10px] block">Advisory & Vulnerable Range:</span>
+                                <span className="text-amber-300 font-bold">{diffContext.advisoryId} ({diffContext.vulnerableRange})</span>
+                              </div>
+                            )}
+                            {diffContext.sourceManifestPath && (
+                              <div className="rounded bg-black/60 p-2 border border-zinc-800">
+                                <span className="text-zinc-500 text-[10px] block">Manifest Location:</span>
+                                <span className="text-zinc-300 font-mono text-[10px] break-all">{diffContext.sourceManifestPath}</span>
+                              </div>
+                            )}
+                            {diffContext.exposureSeverity && (
+                              <div className="rounded bg-black/60 p-2 border border-zinc-800">
+                                <span className="text-zinc-500 text-[10px] block">Severity Tier:</span>
+                                <span className={`font-bold uppercase ${diffContext.exposureSeverity === 'critical' ? 'text-rose-400' : 'text-amber-400'}`}>
+                                  {diffContext.exposureSeverity}
+                                </span>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      )}
                     </div>
 
 

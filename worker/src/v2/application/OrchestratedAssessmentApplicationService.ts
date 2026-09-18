@@ -91,6 +91,7 @@ import { buildTargetProfile } from '../intelligence/TargetProfileBuilder.js';
 import { correlateTargetProfile } from '../intelligence/TargetRecommendationEngine.js';
 import { analyzeAttackSurfaceDelta } from '../intelligence/analysis/AttackSurfaceDeltaAnalysisService.js';
 import { scanSourceFilesForSecrets } from '../sast/StaticSecretScanningService.js';
+import { scanManifestsForVulnerabilities } from '../sast/DependencyVulnerabilityScanService.js';
 import type { Finding } from '../core/Evidence.js';
 import type { EvidenceDraftEnvelope } from '../evidence-mapping/ComparisonEvidenceMappingContracts.js';
 
@@ -1948,6 +1949,53 @@ export class OrchestratedAssessmentApplicationService {
             lineage: `${record.assessmentId}:${record.scanId}:${reviewerId}:${reviewedAt}`,
           },
         };
+      } else if (detKind === 'dependency_vulnerability') {
+        const ecosystem = context?.ecosystem ?? 'npm';
+        const packageName = context?.packageName ?? 'unknown-package';
+        const installedVersion = context?.installedVersion ?? '0.0.0';
+        const vulnerableRange = context?.vulnerableRange ?? '*';
+        const advisoryId = context?.advisoryId ?? 'UNKNOWN-ADVISORY';
+        const exposureSeverity = context?.exposureSeverity ?? 'high';
+        const sourceManifestPath = context?.sourceManifestPath ?? 'package.json';
+
+        findingCreated = {
+          id: `fnd_depvuln_${draftId.replace(/^dft_/, '').replace(/^draft_/, '').replace(/^depvuln_/, '')}`,
+          type: 'SUPPLY_CHAIN_RISK',
+          severity: exposureSeverity,
+          title: `Approved Vulnerable Dependency: ${packageName}@${installedVersion}`,
+          description: `Human operator verified vulnerable dependency ${packageName}@${installedVersion} in ${sourceManifestPath} (${advisoryId}, vulnerable: ${vulnerableRange}).`,
+          target: context?.endpointUrl ?? `https://${record.targetDomain}/${sourceManifestPath}`,
+          evidence: JSON.stringify({
+            draftId,
+            reviewerId,
+            reviewedAt,
+            notes,
+            ecosystem,
+            packageName,
+            installedVersion,
+            vulnerableRange,
+            advisoryId,
+            exposureSeverity,
+            sourceManifestPath,
+            differentialContext: context,
+          }),
+          confidence: 1.0,
+          metadata: {
+            kind: 'dependency_vulnerability_metadata',
+            category: 'SUPPLY_CHAIN_RISK',
+            ecosystem,
+            packageName,
+            installedVersion,
+            vulnerableRange,
+            advisoryId,
+            exposureSeverity,
+            sourceManifestPath,
+            observedAt: reviewedAt,
+            candidateId: `cnd_${draftId}`,
+            evidenceRecordId: `evd_${draftId}`,
+            lineage: `${record.assessmentId}:${record.scanId}:${reviewerId}:${reviewedAt}`,
+          },
+        };
       } else {
 
         findingCreated = {
@@ -3580,6 +3628,69 @@ export class OrchestratedAssessmentApplicationService {
               }
             }
             for (const finding of sastResult.findings) {
+              findings.push(finding);
+            }
+          }
+        } catch {
+          // Safe error containment
+        }
+
+        // Local Dependency Vulnerability SCA Scan (Milestone P6-2: Local Dependency Vulnerability SCA Engine)
+        try {
+          const manifestsToScan: { manifestPath: string; content: string }[] = [];
+          for (const webObs of reconResult.aggregatedObservations.webObservations) {
+            if (webObs.url && (webObs.url.endsWith('package.json') || webObs.url.endsWith('requirements.txt') || webObs.url.endsWith('composer.json'))) {
+              try {
+                const parsedUrl = new URL(webObs.url);
+                const resp = await this.httpTransport({
+                  url: webObs.url,
+                  method: 'GET',
+                  headers: { 'User-Agent': 'FixGuard-DAST/2.0 (Defensive)' },
+                });
+                if (resp.statusCode === 200 && resp.bodyText && resp.bodyText.length > 0) {
+                  manifestsToScan.push({
+                    manifestPath: parsedUrl.pathname.replace(/^\//, '') || 'package.json',
+                    content: resp.bodyText,
+                  });
+                }
+              } catch {
+                // Ignore fetch error
+              }
+            }
+          }
+
+          if (manifestsToScan.length > 0) {
+            const scaResult = scanManifestsForVulnerabilities({
+              assessmentId: lineage.assessmentId,
+              scanId: lineage.scanId,
+              actorId: lineage.actorId,
+              targetDomain: record.targetDomain,
+              manifests: manifestsToScan,
+            });
+
+            for (let i = 0; i < scaResult.evidenceDrafts.length; i++) {
+              const draft = scaResult.evidenceDrafts[i];
+              const vuln = scaResult.detectedVulnerabilities[i];
+              if (draft && vuln) {
+                const enrichedDraft: EnrichedEvidenceDraft = {
+                  ...draft,
+                  differentialContext: {
+                    endpointUrl: `https://${record.targetDomain}/${vuln.sourceManifestPath}`,
+                    detectionKind: 'dependency_vulnerability',
+                    ecosystem: vuln.ecosystem,
+                    packageName: vuln.packageName,
+                    installedVersion: vuln.installedVersion,
+                    vulnerableRange: vuln.vulnerableRange,
+                    advisoryId: vuln.advisoryId,
+                    exposureSeverity: vuln.exposureSeverity,
+                    sourceManifestPath: vuln.sourceManifestPath,
+                    validationStatusCode: 200,
+                  },
+                };
+                pendingEvidenceDrafts.push(enrichedDraft);
+              }
+            }
+            for (const finding of scaResult.findings) {
               findings.push(finding);
             }
           }
