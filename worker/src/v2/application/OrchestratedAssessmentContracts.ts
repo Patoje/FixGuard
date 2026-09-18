@@ -70,6 +70,7 @@ export interface DifferentialEvidenceContext {
     | 'api_versioning_sprawl'
     | 'http_method_manipulation'
     | 'dependency_confusion'
+    | 'manifest_exposure'
     | 'custom_difference';
   readonly baselineStatusCode?: number;
   readonly baselineBodyHash?: string;
@@ -156,6 +157,10 @@ export interface DifferentialEvidenceContext {
   readonly publicRegistryUrl?: string;
   readonly registryStatusCode?: number;
   readonly isUnclaimedPublicly?: boolean;
+  readonly exposedFilePath?: string;
+  readonly fileKind?: 'env_file' | 'git_config' | 'package_manifest' | 'dependency_lockfile';
+  readonly exposureSeverity?: 'critical' | 'high' | 'medium';
+  readonly sanitizedSnippet?: string;
 }
 
 

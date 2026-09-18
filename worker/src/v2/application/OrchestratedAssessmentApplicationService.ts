@@ -69,6 +69,10 @@ import {
   runDependencyConfusionDetection,
   extractPackageCandidatesFromManifest,
 } from '../detection/DependencyConfusionDetectionService.js';
+import {
+  runManifestExposureDetection,
+  STANDARD_MANIFEST_PATHS,
+} from '../detection/ManifestExposureDetectionService.js';
 import { correlateCorsIdorChains } from '../intelligence/correlation/CorsIdorChainCorrelator.js';
 
 
@@ -1663,6 +1667,47 @@ export class OrchestratedAssessmentApplicationService {
             lineage: `${record.assessmentId}:${record.scanId}:${reviewerId}:${reviewedAt}`,
           },
         };
+      } else if (detKind === 'manifest_exposure') {
+        const exposedFilePath = context?.exposedFilePath ?? '/.env';
+        const endpointUrl = context?.endpointUrl ?? `https://${record.targetDomain}${exposedFilePath}`;
+        const fileKind = context?.fileKind ?? 'env_file';
+        const exposureSeverity = context?.exposureSeverity ?? 'critical';
+        const sanitizedSnippet = context?.sanitizedSnippet ?? '';
+        const isCritical = exposureSeverity === 'critical';
+
+        findingCreated = {
+          id: `fnd_manif_${draftId.replace(/^dft_/, '').replace(/^draft_/, '').replace(/^manif_/, '')}`,
+          type: 'INFORMATION_DISCLOSURE',
+          severity: exposureSeverity,
+          title: isCritical
+            ? `Approved Critical Environment File Exposure (${exposedFilePath})`
+            : `Approved Build/Dependency Manifest Exposure (${exposedFilePath})`,
+          description: isCritical
+            ? `Human operator verified sensitive environment/configuration file exposed on '${endpointUrl}'. The endpoint returns valid configuration content. Secret values have been redacted.`
+            : `Human operator verified public exposure of manifest file on '${endpointUrl}'. The file exposes dependency topologies and package structure.`,
+          target: endpointUrl,
+          evidence: JSON.stringify({
+            draftId,
+            reviewerId,
+            reviewedAt,
+            notes,
+            differentialContext: context,
+          }),
+          confidence: 1.0,
+          metadata: {
+            kind: 'manifest_exposure_metadata',
+            category: 'INFORMATION_DISCLOSURE',
+            exposedFilePath,
+            endpointUrl,
+            fileKind,
+            exposureSeverity,
+            sanitizedSnippet,
+            observedAt: reviewedAt,
+            candidateId: `cnd_${draftId}`,
+            evidenceRecordId: `evd_${draftId}`,
+            lineage: `${record.assessmentId}:${record.scanId}:${reviewerId}:${reviewedAt}`,
+          },
+        };
       } else {
 
         findingCreated = {
@@ -2994,6 +3039,55 @@ export class OrchestratedAssessmentApplicationService {
                     pendingEvidenceDrafts.push(enrichedDraft);
                   }
                 }
+              }
+            } catch {
+              // Safe error containment
+            }
+          }
+        }
+
+        // Frontend Manifest and Environment Exposure Detection (Milestone P5-5)
+        if (targetUrl) {
+          for (const exposedPath of STANDARD_MANIFEST_PATHS) {
+            if (coordinator.isCircuitOpen(record.targetDomain)) break;
+            try {
+              const manifestResult = await runManifestExposureDetection({
+                contractVersion: DETECTION_CONTRACT_VERSION,
+                kind: 'manifest_exposure_detection_request',
+                detectionId: `det_manif_${record.assessmentId.slice(-8)}`,
+                assessmentId: lineage.assessmentId,
+                scanId: lineage.scanId,
+                authorizationGrantId: lineage.authorizationGrantId,
+                authorizationDecisionId: lineage.authorizationDecisionId,
+                actorId: lineage.actorId,
+                targetBaseUrl: targetUrl,
+                exposedFilePath: exposedPath,
+                identityAContext,
+                verifiedAuthorizationDecision: verifiedDecision,
+                scopeGrant,
+                transport: this.httpTransport,
+                dnsResolver: this.dnsResolver,
+              });
+
+              if (
+                (manifestResult.status === 'vulnerability_detected' || manifestResult.status === 'potential_weakness') &&
+                manifestResult.finding
+              ) {
+                findings.push(manifestResult.finding);
+              } else if (manifestResult.status === 'pending_human_review' && manifestResult.evidenceDraft) {
+                const enrichedDraft: EnrichedEvidenceDraft = {
+                  ...manifestResult.evidenceDraft,
+                  differentialContext: {
+                    endpointUrl: manifestResult.endpointUrl,
+                    detectionKind: 'manifest_exposure',
+                    exposedFilePath: manifestResult.exposedFilePath,
+                    fileKind: manifestResult.fileKind,
+                    exposureSeverity: manifestResult.exposureSeverity,
+                    sanitizedSnippet: manifestResult.sanitizedSnippet,
+                    validationStatusCode: 200,
+                  },
+                };
+                pendingEvidenceDrafts.push(enrichedDraft);
               }
             } catch {
               // Safe error containment

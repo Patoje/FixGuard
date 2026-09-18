@@ -1315,6 +1315,68 @@ export interface DependencyConfusionDetectionResult {
   };
 }
 
+// ---------------------------------------------------------------------------
+// Milestone P5-5 — Frontend Manifest and Environment Exposure Contracts
+// ---------------------------------------------------------------------------
+
+export type ManifestExposureStatus =
+  | 'vulnerability_detected'
+  | 'potential_weakness'
+  | 'secure_target_abstained'
+  | 'pending_human_review'
+  | 'preflight_denied'
+  | 'unexpected_failure';
+
+export interface ManifestExposureDetectionRequest {
+  readonly contractVersion: DetectionContractVersion;
+  readonly kind: 'manifest_exposure_detection_request';
+  readonly detectionId: string;
+  readonly assessmentId: string;
+  readonly scanId: string;
+  readonly authorizationGrantId: string;
+  readonly authorizationDecisionId: string;
+  readonly actorId: string;
+  readonly verifiedAuthorizationDecision: VerifiedAuthorizationDecision;
+  readonly scopeGrant: AuthorizedScopeGrant;
+  readonly targetBaseUrl: string;
+  readonly exposedFilePath?: string;
+  readonly identityAContext?: ProbeAuthContext;
+  readonly reviewerPolicy?: ReviewerPolicy;
+  readonly humanReviewDecision?: HumanReviewDecision;
+  readonly triageDecision?: ReviewedEvidenceFindingCandidateTriageDecision;
+  readonly transport?: IdorHttpProbeTransport;
+  readonly dnsResolver?: PreSpawnDnsResolver;
+}
+
+export interface ManifestExposureDetectionResult {
+  readonly contractVersion: DetectionContractVersion;
+  readonly kind: 'manifest_exposure_detection_result';
+  readonly detectionId: string;
+  readonly scanId: string;
+  readonly assessmentId: string;
+  readonly authorizationGrantId: string;
+  readonly authorizationDecisionId: string;
+  readonly actorId: string;
+  readonly status: ManifestExposureStatus;
+  readonly reasonCode: string;
+  readonly lineage: AuthorizedExecutionLineageTuple;
+  readonly exposedFilePath: string;
+  readonly endpointUrl: string;
+  readonly fileKind: 'env_file' | 'git_config' | 'package_manifest' | 'dependency_lockfile';
+  readonly exposureSeverity: 'critical' | 'high' | 'medium';
+  readonly sanitizedSnippet: string;
+  readonly evidenceDraft?: EvidenceDraftEnvelope;
+  readonly evidenceRecord?: EvidenceRecord;
+  readonly promotedEvidenceResult?: HumanReviewedEvidencePromotionResult;
+  readonly findingCandidate?: ReviewedEvidenceFormalFindingCandidate;
+  readonly finding?: Finding;
+  readonly error?: {
+    readonly code: string;
+    readonly safeMessage: string;
+  };
+}
+
+
 
 
 

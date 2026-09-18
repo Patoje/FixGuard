@@ -317,6 +317,20 @@ export interface DependencyConfusionMetadata {
   readonly lineage?: string | Record<string, unknown>;
 }
 
+export interface ManifestExposureMetadata {
+  readonly kind: 'manifest_exposure_metadata';
+  readonly category: 'INFORMATION_DISCLOSURE';
+  readonly exposedFilePath: string; // e.g. '/.env', '/.git/config', '/package.json'
+  readonly endpointUrl: string;
+  readonly fileKind: 'env_file' | 'git_config' | 'package_manifest' | 'dependency_lockfile';
+  readonly exposureSeverity: 'critical' | 'high' | 'medium';
+  readonly sanitizedSnippet: string; // max 128 chars, all credentials redacted
+  readonly observedAt: string;
+  readonly candidateId?: string;
+  readonly evidenceRecordId?: string;
+  readonly lineage?: string | Record<string, unknown>;
+}
+
 export type FindingMetadata =
   | BrokenAccessControlMetadata
   | SecurityMisconfigurationMetadata
@@ -339,6 +353,7 @@ export type FindingMetadata =
   | ApiVersioningSprawlMetadata
   | HttpMethodManipulationMetadata
   | DependencyConfusionMetadata
+  | ManifestExposureMetadata
   | DiscoveryFindingMetadata;
 
 

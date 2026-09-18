@@ -1254,6 +1254,36 @@ All completed milestones are verified via active TypeScript contracts and the re
 
 ---
 
+### Milestone P5-5: Frontend Manifest and Environment Exposure Engine
+- **Status:** COMPLETED (Phase 5 Milestone 5 Complete).
+- **Goal:** Safe, deterministic verification of exposed environment files (`.env`), repository configuration (`.git/config`, `.git/HEAD`), and dependency manifests. Strict anti-leak sanitization redacts raw secret values from evidence excerpts.
+- **Key Deliverables:**
+  1. **Domain Contracts & Typed Metadata (`ManifestExposureMetadata`)**:
+     - Defined `ManifestExposureMetadata` in `worker/src/v2/core/Evidence.ts` under `FindingMetadata` (`kind: 'manifest_exposure_metadata'`, `category: 'INFORMATION_DISCLOSURE'`, `exposedFilePath`, `endpointUrl`, `fileKind: 'env_file' | 'git_config' | 'package_manifest' | 'dependency_lockfile'`, `exposureSeverity: 'critical' | 'high' | 'medium'`, `sanitizedSnippet`, `observedAt`, `candidateId`, `evidenceRecordId`, `lineage`).
+     - Added `ManifestExposureStatus`, `ManifestExposureDetectionRequest`, and `ManifestExposureDetectionResult` to `worker/src/v2/detection/DetectionContracts.ts`.
+     - Extended `DifferentialEvidenceContext` in `OrchestratedAssessmentContracts.ts` and `DifferentialEvidenceContextDto` in `web/src/lib/v2Api.ts` with `detectionKind: 'manifest_exposure'` and typed exposure fields (`exposedFilePath`, `fileKind`, `exposureSeverity`, `sanitizedSnippet`).
+  2. **Detection Service (`ManifestExposureDetectionService.ts`)**:
+     - Implemented `runManifestExposureDetection()`, `validateContentSignature()`, and `classifyExposedFile()`.
+     - 7-pass SSRF preflight protection blocking internal IP and metadata probing on manifest URLs.
+     - Probes standardized paths: Critical (`/.env`, `/.env.local`, `/.git/config`, `/.git/HEAD`) and Manifests (`/package.json`, `/package-lock.json`, `/composer.json`, `/requirements.txt`).
+     - Soft-404 / HTML Fallback Prevention: Automatically discards responses with `text/html` or `<!DOCTYPE html>` SPA router catch-alls to prevent false positives.
+     - Deterministic content signature validation (`.env` must match `KEY=VALUE`, `.git/config` must contain `[core]` or `repositoryformatversion`, manifests must parse as JSON).
+     - Secret Redaction: All `KEY=VALUE` variables in `.env` sanitized to `KEY=[REDACTED]` before inclusion in evidence snippet (capped at 128 chars).
+     - Clean abstention (`secure_target_abstained`) on 404, 403, or invalid content signatures.
+     - Evidence sanitization via `sanitizeEvidenceFragment()`.
+  3. **Pipeline & Review UI Integration**:
+     - Wired `runManifestExposureDetection` into `executePipelineStages` in `OrchestratedAssessmentApplicationService.ts`.
+     - Handled draft promotion for `'manifest_exposure'` in `reviewEvidenceDraft` promoting drafts to formal `Finding` records.
+     - Updated `web/src/app/v2/review/page.tsx` with Manifest Exposure cards displaying exposed path, file kind, severity badge, and sanitized snippet.
+  4. **Verification & Hygiene**:
+     - Dedicated smoke test `worker/src/v2/smoke/milestoneP5_5_manifest_exposure_smoke.ts` passes 100% across all 5 assertions.
+     - `npm run typecheck:v2` exits with code 0.
+     - Full regression suite `npm run check:v2` (70/70 smoke suites) passes 100%.
+     - `cd web && npm run build` compiles cleanly with zero errors.
+     - 0 occurrences of `as any` across all production code.
+
+---
+
 ## 5. Architectural Proposals (`PROPOSED` — NOT YET DECIDED)
 
 > [!NOTE]
