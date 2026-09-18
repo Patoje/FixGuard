@@ -1284,6 +1284,35 @@ All completed milestones are verified via active TypeScript contracts and the re
 
 ---
 
+### Milestone P5-6: Application Parameter Integrity Engine
+- **Status:** COMPLETED (Phase 5 Milestone 6 Complete).
+- **Goal:** Safe, deterministic verification of resource boundary enforcement. The engine probes endpoints processing resource or file parameters with inert normalization tests to confirm whether boundary sanitization prevents unauthorized file or context access.
+- **Key Deliverables:**
+  1. **Domain Contracts & Typed Metadata (`ParameterIntegrityMetadata`)**:
+     - Defined `ParameterIntegrityMetadata` in `worker/src/v2/core/Evidence.ts` under `FindingMetadata` (`kind: 'parameter_integrity_metadata'`, `category: 'INFORMATION_DISCLOSURE' | 'BROKEN_ACCESS_CONTROL'`, `endpointUrl`, `parameterName`, `injectedProbePattern`, `boundaryEnforced: boolean`, `sanitizedExcerpt?: string`, `observedAt`, `candidateId`, `evidenceRecordId`, `lineage`).
+     - Added `ParameterIntegrityStatus`, `ParameterIntegrityDetectionRequest`, and `ParameterIntegrityDetectionResult` to `worker/src/v2/detection/DetectionContracts.ts`.
+     - Extended `DifferentialEvidenceContext` in `OrchestratedAssessmentContracts.ts` and `DifferentialEvidenceContextDto` in `web/src/lib/v2Api.ts` with `detectionKind: 'parameter_integrity'` and typed boundary validation fields (`injectedProbePattern`, `boundaryEnforced`, `sanitizedExcerpt`).
+  2. **Detection Service (`ParameterIntegrityDetectionService.ts`)**:
+     - Implemented `runParameterIntegrityDetection()`, `detectStructuralLeak()`, and `isResourceParameterCandidate()`.
+     - 7-pass SSRF preflight protection blocking internal IP and metadata probing.
+     - Candidate parameter filtering for resource indicators (`file`, `path`, `doc`, `template`, `page`, `load`, `include`, `view`, `read`, `filename`, `document`).
+     - Structural leakage detection for sensitive system signatures (`root:x:0:0:`, `[boot loader]`, `[extensions]`, `127.0.0.1 localhost`, `<web-app>`).
+     - Flags `vulnerability_detected` (high severity) or `potential_weakness` in draft mode when parameter traversal yields structural system leaks.
+     - Clean abstention (`secure_target_abstained`) when target enforces boundaries (400, 403, 404, or clean sanitized responses without structural leakage).
+     - Evidence sanitization via `sanitizeEvidenceFragment()`.
+  3. **Pipeline & Review UI Integration**:
+     - Wired `runParameterIntegrityDetection` into `executePipelineStages` in `OrchestratedAssessmentApplicationService.ts`.
+     - Handled draft promotion for `'parameter_integrity'` in `reviewEvidenceDraft` promoting drafts to formal `Finding` records.
+     - Updated `web/src/app/v2/review/page.tsx` with Parameter Integrity cards displaying endpoint URL, vulnerable parameter, injected probe, boundary enforcement badge, and leaked structural excerpt.
+  4. **Verification & Hygiene**:
+     - Dedicated smoke test `worker/src/v2/smoke/milestoneP5_6_parameter_integrity_smoke.ts` passes 100% across all 5 assertions.
+     - `npm run typecheck:v2` exits with code 0.
+     - Full regression suite `npm run check:v2` (71/71 smoke suites) passes 100%.
+     - `cd web && npm run build` compiles cleanly with zero errors.
+     - 0 occurrences of `as any` across all production code.
+
+---
+
 ## 5. Architectural Proposals (`PROPOSED` — NOT YET DECIDED)
 
 > [!NOTE]

@@ -331,6 +331,20 @@ export interface ManifestExposureMetadata {
   readonly lineage?: string | Record<string, unknown>;
 }
 
+export interface ParameterIntegrityMetadata {
+  readonly kind: 'parameter_integrity_metadata';
+  readonly category: 'INFORMATION_DISCLOSURE' | 'BROKEN_ACCESS_CONTROL';
+  readonly endpointUrl: string;
+  readonly parameterName: string;
+  readonly injectedProbePattern: string;
+  readonly boundaryEnforced: boolean;
+  readonly sanitizedExcerpt?: string; // max 128 chars
+  readonly observedAt: string;
+  readonly candidateId?: string;
+  readonly evidenceRecordId?: string;
+  readonly lineage?: string | Record<string, unknown>;
+}
+
 export type FindingMetadata =
   | BrokenAccessControlMetadata
   | SecurityMisconfigurationMetadata
@@ -354,6 +368,7 @@ export type FindingMetadata =
   | HttpMethodManipulationMetadata
   | DependencyConfusionMetadata
   | ManifestExposureMetadata
+  | ParameterIntegrityMetadata
   | DiscoveryFindingMetadata;
 
 

@@ -73,6 +73,11 @@ import {
   runManifestExposureDetection,
   STANDARD_MANIFEST_PATHS,
 } from '../detection/ManifestExposureDetectionService.js';
+import {
+  runParameterIntegrityDetection,
+  isResourceParameterCandidate,
+  INERT_PROBE_PATTERNS,
+} from '../detection/ParameterIntegrityDetectionService.js';
 import { correlateCorsIdorChains } from '../intelligence/correlation/CorsIdorChainCorrelator.js';
 
 
@@ -1708,6 +1713,42 @@ export class OrchestratedAssessmentApplicationService {
             lineage: `${record.assessmentId}:${record.scanId}:${reviewerId}:${reviewedAt}`,
           },
         };
+      } else if (detKind === 'parameter_integrity') {
+        const endpointUrl = context?.endpointUrl ?? `https://${record.targetDomain}/`;
+        const parameterName = context?.parameterName ?? 'file';
+        const injectedProbePattern = context?.injectedProbePattern ?? '../../../../etc/passwd';
+        const boundaryEnforced = context?.boundaryEnforced ?? false;
+        const sanitizedExcerpt = context?.sanitizedExcerpt ?? '';
+
+        findingCreated = {
+          id: `fnd_pinteg_${draftId.replace(/^dft_/, '').replace(/^draft_/, '').replace(/^pinteg_/, '')}`,
+          type: 'INFORMATION_DISCLOSURE',
+          severity: 'high',
+          title: `Approved Application Parameter Boundary Violation (${parameterName} on ${endpointUrl})`,
+          description: `Human operator verified parameter boundary violation. Traversal sequence '${injectedProbePattern}' on parameter '${parameterName}' leaked system file signatures. Sanitized excerpt: ${sanitizedExcerpt}`,
+          target: endpointUrl,
+          evidence: JSON.stringify({
+            draftId,
+            reviewerId,
+            reviewedAt,
+            notes,
+            differentialContext: context,
+          }),
+          confidence: 1.0,
+          metadata: {
+            kind: 'parameter_integrity_metadata',
+            category: 'INFORMATION_DISCLOSURE',
+            endpointUrl,
+            parameterName,
+            injectedProbePattern,
+            boundaryEnforced,
+            sanitizedExcerpt,
+            observedAt: reviewedAt,
+            candidateId: `cnd_${draftId}`,
+            evidenceRecordId: `evd_${draftId}`,
+            lineage: `${record.assessmentId}:${record.scanId}:${reviewerId}:${reviewedAt}`,
+          },
+        };
       } else {
 
         findingCreated = {
@@ -3091,6 +3132,57 @@ export class OrchestratedAssessmentApplicationService {
               }
             } catch {
               // Safe error containment
+            }
+          }
+        }
+
+        // Application Parameter Integrity Detection (Milestone P5-6)
+        if (targetUrl) {
+          const candidateParams = ['file', 'path', 'page', 'doc', 'template', 'view'];
+          for (const param of candidateParams) {
+            if (coordinator.isCircuitOpen(record.targetDomain)) break;
+            for (const probePattern of INERT_PROBE_PATTERNS.slice(0, 2)) {
+              if (coordinator.isCircuitOpen(record.targetDomain)) break;
+              try {
+                const paramResult = await runParameterIntegrityDetection({
+                  contractVersion: DETECTION_CONTRACT_VERSION,
+                  kind: 'parameter_integrity_detection_request',
+                  detectionId: `det_pinteg_${record.assessmentId.slice(-8)}`,
+                  assessmentId: lineage.assessmentId,
+                  scanId: lineage.scanId,
+                  authorizationGrantId: lineage.authorizationGrantId,
+                  authorizationDecisionId: lineage.authorizationDecisionId,
+                  actorId: lineage.actorId,
+                  endpointUrl: targetUrl,
+                  parameterName: param,
+                  probePattern,
+                  identityAContext,
+                  verifiedAuthorizationDecision: verifiedDecision,
+                  scopeGrant,
+                  transport: this.httpTransport,
+                  dnsResolver: this.dnsResolver,
+                });
+
+                if (paramResult.status === 'vulnerability_detected' && paramResult.finding) {
+                  findings.push(paramResult.finding);
+                } else if (paramResult.status === 'pending_human_review' && paramResult.evidenceDraft) {
+                  const enrichedDraft: EnrichedEvidenceDraft = {
+                    ...paramResult.evidenceDraft,
+                    differentialContext: {
+                      endpointUrl: paramResult.endpointUrl,
+                      detectionKind: 'parameter_integrity',
+                      parameterName: paramResult.parameterName,
+                      injectedProbePattern: paramResult.injectedProbePattern,
+                      boundaryEnforced: paramResult.boundaryEnforced,
+                      sanitizedExcerpt: paramResult.sanitizedExcerpt,
+                      validationStatusCode: 200,
+                    },
+                  };
+                  pendingEvidenceDrafts.push(enrichedDraft);
+                }
+              } catch {
+                // Safe error containment
+              }
             }
           }
         }

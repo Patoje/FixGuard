@@ -71,6 +71,7 @@ export interface DifferentialEvidenceContext {
     | 'http_method_manipulation'
     | 'dependency_confusion'
     | 'manifest_exposure'
+    | 'parameter_integrity'
     | 'custom_difference';
   readonly baselineStatusCode?: number;
   readonly baselineBodyHash?: string;
@@ -161,6 +162,9 @@ export interface DifferentialEvidenceContext {
   readonly fileKind?: 'env_file' | 'git_config' | 'package_manifest' | 'dependency_lockfile';
   readonly exposureSeverity?: 'critical' | 'high' | 'medium';
   readonly sanitizedSnippet?: string;
+  readonly injectedProbePattern?: string;
+  readonly boundaryEnforced?: boolean;
+  readonly sanitizedExcerpt?: string;
 }
 
 

@@ -965,6 +965,48 @@ function HumanReviewContent() {
                           </div>
                         </div>
                       )}
+
+                      {diffContext?.detectionKind === 'parameter_integrity' && (
+                        <div className="rounded-lg bg-black/40 border border-rose-500/40 p-2.5 col-span-2">
+                          <span className="text-rose-400 text-[10px] block font-bold uppercase tracking-wider mb-1">
+                            Application Parameter Integrity &amp; Boundary Validation
+                          </span>
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-[11px] font-mono mt-2">
+                            {diffContext.parameterName && (
+                              <div className="rounded bg-black/60 p-2 border border-zinc-800">
+                                <span className="text-zinc-500 text-[10px] block">Vulnerable Parameter:</span>
+                                <span className="text-rose-400 font-bold break-all">{diffContext.parameterName}</span>
+                              </div>
+                            )}
+                            {diffContext.injectedProbePattern && (
+                              <div className="rounded bg-black/60 p-2 border border-zinc-800">
+                                <span className="text-zinc-500 text-[10px] block">Inert Traversal Probe:</span>
+                                <span className="text-amber-300 font-mono break-all">{diffContext.injectedProbePattern}</span>
+                              </div>
+                            )}
+                            {diffContext.boundaryEnforced !== undefined && (
+                              <div className="rounded bg-black/60 p-2 border border-zinc-800">
+                                <span className="text-zinc-500 text-[10px] block">Boundary Enforcement:</span>
+                                <span className={`font-bold ${diffContext.boundaryEnforced ? 'text-emerald-400' : 'text-rose-400'}`}>
+                                  {diffContext.boundaryEnforced ? 'ENFORCED: Sanitized / Rejected' : 'VIOLATION: Unsanitized Resource Traversal'}
+                                </span>
+                              </div>
+                            )}
+                            {diffContext.endpointUrl && (
+                              <div className="rounded bg-black/60 p-2 border border-zinc-800">
+                                <span className="text-zinc-500 text-[10px] block">Target Endpoint:</span>
+                                <span className="text-blue-400 font-mono break-all">{diffContext.endpointUrl}</span>
+                              </div>
+                            )}
+                            {diffContext.sanitizedExcerpt && (
+                              <div className="rounded bg-black/60 p-2 border border-rose-500/30 col-span-2">
+                                <span className="text-zinc-500 text-[10px] block">Leaked Structural System Excerpt:</span>
+                                <span className="text-zinc-300 font-mono text-[10px] break-all block mt-0.5">{diffContext.sanitizedExcerpt}</span>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      )}
                     </div>
 
 

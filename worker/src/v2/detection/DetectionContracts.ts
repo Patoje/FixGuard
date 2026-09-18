@@ -1376,6 +1376,69 @@ export interface ManifestExposureDetectionResult {
   };
 }
 
+// ---------------------------------------------------------------------------
+// Milestone P5-6 — Application Parameter Integrity Contracts
+// ---------------------------------------------------------------------------
+
+export type ParameterIntegrityStatus =
+  | 'vulnerability_detected'
+  | 'potential_weakness'
+  | 'secure_target_abstained'
+  | 'pending_human_review'
+  | 'preflight_denied'
+  | 'unexpected_failure';
+
+export interface ParameterIntegrityDetectionRequest {
+  readonly contractVersion: DetectionContractVersion;
+  readonly kind: 'parameter_integrity_detection_request';
+  readonly detectionId: string;
+  readonly assessmentId: string;
+  readonly scanId: string;
+  readonly authorizationGrantId: string;
+  readonly authorizationDecisionId: string;
+  readonly actorId: string;
+  readonly verifiedAuthorizationDecision: VerifiedAuthorizationDecision;
+  readonly scopeGrant: AuthorizedScopeGrant;
+  readonly endpointUrl: string;
+  readonly parameterName: string;
+  readonly probePattern?: string;
+  readonly identityAContext?: ProbeAuthContext;
+  readonly reviewerPolicy?: ReviewerPolicy;
+  readonly humanReviewDecision?: HumanReviewDecision;
+  readonly triageDecision?: ReviewedEvidenceFindingCandidateTriageDecision;
+  readonly transport?: IdorHttpProbeTransport;
+  readonly dnsResolver?: PreSpawnDnsResolver;
+}
+
+export interface ParameterIntegrityDetectionResult {
+  readonly contractVersion: DetectionContractVersion;
+  readonly kind: 'parameter_integrity_detection_result';
+  readonly detectionId: string;
+  readonly scanId: string;
+  readonly assessmentId: string;
+  readonly authorizationGrantId: string;
+  readonly authorizationDecisionId: string;
+  readonly actorId: string;
+  readonly status: ParameterIntegrityStatus;
+  readonly reasonCode: string;
+  readonly lineage: AuthorizedExecutionLineageTuple;
+  readonly endpointUrl: string;
+  readonly parameterName: string;
+  readonly injectedProbePattern: string;
+  readonly boundaryEnforced: boolean;
+  readonly sanitizedExcerpt?: string;
+  readonly evidenceDraft?: EvidenceDraftEnvelope;
+  readonly evidenceRecord?: EvidenceRecord;
+  readonly promotedEvidenceResult?: HumanReviewedEvidencePromotionResult;
+  readonly findingCandidate?: ReviewedEvidenceFormalFindingCandidate;
+  readonly finding?: Finding;
+  readonly error?: {
+    readonly code: string;
+    readonly safeMessage: string;
+  };
+}
+
+
 
 
 
