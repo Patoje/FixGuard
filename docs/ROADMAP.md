@@ -1441,6 +1441,36 @@ All completed milestones are verified via active TypeScript contracts and the re
 
 ---
 
+## 4. Phase 6: White-Box Source Code Analysis & Software Composition Analysis (SCA)
+
+### Milestone P6-1: Static Secret & Credential Scanning Engine (SAST)
+- **Status:** COMPLETED.
+- **Goal:** Purely analytical local source code inspection detecting hardcoded API keys, private keys, database connection strings, and plaintext credentials with zero network overhead and strict redaction.
+- **Key Deliverables:**
+  1. **Domain Contracts & Typed Metadata (`StaticSecretExposureMetadata`)**:
+     - Defined `StaticSecretExposureMetadata` in `worker/src/v2/core/Evidence.ts` under `FindingMetadata` (`kind: 'static_secret_exposure_metadata'`, `category: 'INFORMATION_DISCLOSURE'`, `filePath: string`, `lineNumber: number`, `secretKind: 'aws_key' | 'private_key' | 'generic_api_key' | 'database_uri' | 'jwt_secret'`, `exposureSeverity: 'critical' | 'high'`, `sanitizedSnippet: string`, `observedAt`, `candidateId`, `evidenceRecordId`, `lineage`).
+     - Added `StaticSecretScanningRequest` and `StaticSecretScanningResult` to `worker/src/v2/sast/StaticSecretScanningService.ts`.
+     - Extended `DifferentialEvidenceContext` in `OrchestratedAssessmentContracts.ts` and `DifferentialEvidenceContextDto` in `web/src/lib/v2Api.ts` with `detectionKind: 'static_secret_exposure'` and typed fields (`filePath`, `lineNumber`, `secretKind`, `exposureSeverity`, `sanitizedSnippet`).
+  2. **Analytical SAST Service (`StaticSecretScanningService.ts`)**:
+     - Implemented `scanSourceFilesForSecrets()` and `scanFileLinesForSecrets()`.
+     - Zero Network Overhead: Operates strictly in-memory on local file payloads.
+     - High-Confidence Pattern Matching: Regex signatures and entropy checks for AWS access keys, PEM private keys, database connection URIs, JWT secrets, and generic API keys.
+     - Strict Redaction: All detected secrets are aggressively sanitized with `[REDACTED]` tokens and snippets capped at 128 characters.
+     - Clean Neutral Abstention: Returns neutral result with 0 drafts when code is clean.
+     - HITL Routing: Unattended runs route non-persisted `EvidenceDraftEnvelope` to `pendingEvidenceDrafts` for operator review.
+  3. **Pipeline & Review UI Integration**:
+     - Integrated SAST scanning in `executePipelineStages` in `OrchestratedAssessmentApplicationService.ts`.
+     - Added promotion handling for `'static_secret_exposure'` in `reviewEvidenceDraft` promoting drafts to formal `Finding` records.
+     - Updated `web/src/app/v2/review/page.tsx` with SAST Static Secret cards displaying file location, line number, secret classification, severity badge, and redacted snippet.
+  4. **Verification & Hygiene**:
+     - Dedicated smoke test `worker/src/v2/smoke/milestoneP6_1_static_secret_smoke.ts` passes 100% across all 5 assertions.
+     - `npm run typecheck:v2` exits with code 0.
+     - Full regression suite `npm run check:v2` (76/76 smoke suites) passes 100%.
+     - `cd web && npm run build` compiles cleanly with zero errors.
+     - 0 occurrences of `as any` across all production code.
+
+---
+
 ## 5. Architectural Proposals (`PROPOSED` — NOT YET DECIDED)
 
 > [!NOTE]

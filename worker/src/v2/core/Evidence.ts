@@ -401,6 +401,20 @@ export interface CrossFindingChainMetadata {
   readonly lineage?: string | Record<string, unknown>;
 }
 
+export interface StaticSecretExposureMetadata {
+  readonly kind: 'static_secret_exposure_metadata';
+  readonly category: 'INFORMATION_DISCLOSURE';
+  readonly filePath: string;
+  readonly lineNumber: number;
+  readonly secretKind: 'aws_key' | 'private_key' | 'generic_api_key' | 'database_uri' | 'jwt_secret';
+  readonly exposureSeverity: 'critical' | 'high';
+  readonly sanitizedSnippet: string; // max 128 chars, secret redacted
+  readonly observedAt: string;
+  readonly candidateId?: string;
+  readonly evidenceRecordId?: string;
+  readonly lineage?: string | Record<string, unknown>;
+}
+
 export type FindingMetadata =
   | BrokenAccessControlMetadata
   | SecurityMisconfigurationMetadata
@@ -429,6 +443,7 @@ export type FindingMetadata =
   | StateTransitionAnomalyMetadata
   | AttackSurfaceDeltaMetadata
   | CrossFindingChainMetadata
+  | StaticSecretExposureMetadata
   | DiscoveryFindingMetadata;
 
 

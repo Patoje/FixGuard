@@ -1185,6 +1185,44 @@ function HumanReviewContent() {
                           </div>
                         </div>
                       )}
+
+                      {diffContext?.detectionKind === 'static_secret_exposure' && (
+                        <div className="rounded-lg bg-black/40 border border-amber-500/50 p-2.5 col-span-2">
+                          <span className="text-amber-400 text-[10px] block font-bold uppercase tracking-wider mb-1">
+                            SAST Static Secret & Credential Exposure Detection
+                          </span>
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-[11px] font-mono mt-2">
+                            {diffContext.filePath && (
+                              <div className="rounded bg-black/60 p-2 border border-zinc-800">
+                                <span className="text-zinc-500 text-[10px] block">Source File Location:</span>
+                                <span className="text-amber-300 font-bold break-all">{diffContext.filePath}:{diffContext.lineNumber ?? 1}</span>
+                              </div>
+                            )}
+                            {diffContext.secretKind && (
+                              <div className="rounded bg-black/60 p-2 border border-zinc-800">
+                                <span className="text-zinc-500 text-[10px] block">Secret Classification:</span>
+                                <span className="text-rose-400 font-bold uppercase">{diffContext.secretKind.replace('_', ' ')}</span>
+                              </div>
+                            )}
+                            {diffContext.exposureSeverity && (
+                              <div className="rounded bg-black/60 p-2 border border-zinc-800">
+                                <span className="text-zinc-500 text-[10px] block">Severity Tier:</span>
+                                <span className={`font-bold uppercase ${diffContext.exposureSeverity === 'critical' ? 'text-rose-400' : 'text-amber-400'}`}>
+                                  {diffContext.exposureSeverity}
+                                </span>
+                              </div>
+                            )}
+                            {diffContext.sanitizedSnippet && (
+                              <div className="rounded bg-black/60 p-2 border border-amber-500/30 col-span-2">
+                                <span className="text-zinc-500 text-[10px] block">Redacted Code Excerpt (Max 128 chars):</span>
+                                <span className="text-zinc-300 font-mono text-[10px] break-all block mt-0.5 bg-black/80 p-1.5 rounded border border-zinc-800">
+                                  {diffContext.sanitizedSnippet}
+                                </span>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      )}
                     </div>
 
 

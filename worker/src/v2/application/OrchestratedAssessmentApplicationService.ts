@@ -90,6 +90,7 @@ import { correlateCrossFindingChains } from '../intelligence/correlation/CrossFi
 import { buildTargetProfile } from '../intelligence/TargetProfileBuilder.js';
 import { correlateTargetProfile } from '../intelligence/TargetRecommendationEngine.js';
 import { analyzeAttackSurfaceDelta } from '../intelligence/analysis/AttackSurfaceDeltaAnalysisService.js';
+import { scanSourceFilesForSecrets } from '../sast/StaticSecretScanningService.js';
 import type { Finding } from '../core/Evidence.js';
 import type { EvidenceDraftEnvelope } from '../evidence-mapping/ComparisonEvidenceMappingContracts.js';
 
@@ -1906,6 +1907,47 @@ export class OrchestratedAssessmentApplicationService {
             lineage: `${record.assessmentId}:${record.scanId}:${reviewerId}:${reviewedAt}`,
           },
         };
+      } else if (detKind === 'static_secret_exposure') {
+        const filePath = context?.filePath ?? 'unknown_file';
+        const lineNumber = context?.lineNumber ?? 1;
+        const secretKind = context?.secretKind ?? 'generic_api_key';
+        const exposureSeverity = (context?.exposureSeverity === 'critical' || secretKind === 'aws_key' || secretKind === 'private_key' || secretKind === 'database_uri') ? 'critical' : 'high';
+        const sanitizedSnippet = context?.sanitizedSnippet ?? '[REDACTED]';
+
+        findingCreated = {
+          id: `fnd_ssec_${draftId.replace(/^dft_/, '').replace(/^draft_/, '').replace(/^ssec_/, '')}`,
+          type: 'INFORMATION_DISCLOSURE',
+          severity: exposureSeverity,
+          title: `Approved Hardcoded Secret Exposure (${secretKind}) in ${filePath}`,
+          description: `Human operator verified static secret exposure at line ${lineNumber} of ${filePath}. Redacted code snippet: ${sanitizedSnippet}.`,
+          target: context?.endpointUrl ?? `https://${record.targetDomain}/${filePath}`,
+          evidence: JSON.stringify({
+            draftId,
+            reviewerId,
+            reviewedAt,
+            notes,
+            filePath,
+            lineNumber,
+            secretKind,
+            exposureSeverity,
+            sanitizedSnippet,
+            differentialContext: context,
+          }),
+          confidence: 1.0,
+          metadata: {
+            kind: 'static_secret_exposure_metadata',
+            category: 'INFORMATION_DISCLOSURE',
+            filePath,
+            lineNumber,
+            secretKind,
+            exposureSeverity,
+            sanitizedSnippet,
+            observedAt: reviewedAt,
+            candidateId: `cnd_${draftId}`,
+            evidenceRecordId: `evd_${draftId}`,
+            lineage: `${record.assessmentId}:${record.scanId}:${reviewerId}:${reviewedAt}`,
+          },
+        };
       } else {
 
         findingCreated = {
@@ -3479,6 +3521,67 @@ export class OrchestratedAssessmentApplicationService {
           }
           for (const xFinding of crossChainResult.compoundFindings) {
             findings.push(xFinding);
+          }
+        } catch {
+          // Safe error containment
+        }
+
+        // SAST Static Secret Scanning (Milestone P6-1: Static Secret & Credential Scanning Engine)
+        try {
+          const filesToScan: { filePath: string; content: string }[] = [];
+          for (const webObs of reconResult.aggregatedObservations.webObservations) {
+            if (webObs.url && (webObs.url.endsWith('.js') || webObs.url.endsWith('.json') || webObs.url.endsWith('.env'))) {
+              try {
+                const parsedUrl = new URL(webObs.url);
+                const resp = await this.httpTransport({
+                  url: webObs.url,
+                  method: 'GET',
+                  headers: { 'User-Agent': 'FixGuard-DAST/2.0 (Defensive)' },
+                });
+                if (resp.statusCode === 200 && resp.bodyText && resp.bodyText.length > 0) {
+                  filesToScan.push({
+                    filePath: parsedUrl.pathname.replace(/^\//, '') || 'bundle.js',
+                    content: resp.bodyText,
+                  });
+                }
+              } catch {
+                // Ignore fetch error
+              }
+            }
+          }
+
+          if (filesToScan.length > 0) {
+            const sastResult = scanSourceFilesForSecrets({
+              assessmentId: lineage.assessmentId,
+              scanId: lineage.scanId,
+              actorId: lineage.actorId,
+              targetDomain: record.targetDomain,
+              files: filesToScan,
+            });
+
+            for (let i = 0; i < sastResult.evidenceDrafts.length; i++) {
+              const draft = sastResult.evidenceDrafts[i];
+              const sec = sastResult.detectedSecrets[i];
+              if (draft && sec) {
+                const enrichedDraft: EnrichedEvidenceDraft = {
+                  ...draft,
+                  differentialContext: {
+                    endpointUrl: `https://${record.targetDomain}/${sec.filePath}`,
+                    detectionKind: 'static_secret_exposure',
+                    filePath: sec.filePath,
+                    lineNumber: sec.lineNumber,
+                    secretKind: sec.secretKind,
+                    exposureSeverity: sec.exposureSeverity,
+                    sanitizedSnippet: sec.sanitizedSnippet,
+                    validationStatusCode: 200,
+                  },
+                };
+                pendingEvidenceDrafts.push(enrichedDraft);
+              }
+            }
+            for (const finding of sastResult.findings) {
+              findings.push(finding);
+            }
           }
         } catch {
           // Safe error containment

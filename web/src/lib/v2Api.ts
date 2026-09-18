@@ -172,6 +172,7 @@ export interface DifferentialEvidenceContextDto {
     | 'state_transition_anomaly'
     | 'attack_surface_delta'
     | 'cross_finding_chain'
+    | 'static_secret_exposure'
     | 'custom_difference';
   readonly baselineStatusCode?: number;
   readonly baselineBodyHash?: string;
@@ -281,6 +282,9 @@ export interface DifferentialEvidenceContextDto {
   readonly newlyExposedPaths?: readonly string[];
   readonly technologyDriftDetected?: boolean;
   readonly deltaSeverity?: 'high' | 'medium' | 'low';
+  readonly filePath?: string;
+  readonly lineNumber?: number;
+  readonly secretKind?: 'aws_key' | 'private_key' | 'generic_api_key' | 'database_uri' | 'jwt_secret';
 }
 
 
