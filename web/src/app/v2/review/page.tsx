@@ -1007,6 +1007,48 @@ function HumanReviewContent() {
                           </div>
                         </div>
                       )}
+
+                      {diffContext?.detectionKind === 'object_mapping_anomaly' && (
+                        <div className="rounded-lg bg-black/40 border border-purple-500/40 p-2.5 col-span-2">
+                          <span className="text-purple-400 text-[10px] block font-bold uppercase tracking-wider mb-1">
+                            Object Mapping &amp; Mass Assignment Privilege Escalation
+                          </span>
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-[11px] font-mono mt-2">
+                            {diffContext.injectedProperties && (
+                              <div className="rounded bg-black/60 p-2 border border-zinc-800">
+                                <span className="text-zinc-500 text-[10px] block">Injected Privilege Properties:</span>
+                                <span className="text-purple-300 font-bold break-all">{diffContext.injectedProperties.join(', ')}</span>
+                              </div>
+                            )}
+                            {diffContext.httpMethod && (
+                              <div className="rounded bg-black/60 p-2 border border-zinc-800">
+                                <span className="text-zinc-500 text-[10px] block">Mutation HTTP Method:</span>
+                                <span className="text-amber-400 font-bold">{diffContext.httpMethod}</span>
+                              </div>
+                            )}
+                            {diffContext.bindingAccepted !== undefined && (
+                              <div className="rounded bg-black/60 p-2 border border-zinc-800">
+                                <span className="text-zinc-500 text-[10px] block">Binding Control Status:</span>
+                                <span className={`font-bold ${diffContext.bindingAccepted ? 'text-rose-400' : 'text-emerald-400'}`}>
+                                  {diffContext.bindingAccepted ? 'ANOMALY: Unconstrained Binding Accepted' : 'PROTECTED: Properties Stripped / Rejected'}
+                                </span>
+                              </div>
+                            )}
+                            {diffContext.endpointUrl && (
+                              <div className="rounded bg-black/60 p-2 border border-zinc-800">
+                                <span className="text-zinc-500 text-[10px] block">Target Endpoint:</span>
+                                <span className="text-blue-400 font-mono break-all">{diffContext.endpointUrl}</span>
+                              </div>
+                            )}
+                            {diffContext.sanitizedEchoResponse && (
+                              <div className="rounded bg-black/60 p-2 border border-purple-500/30 col-span-2">
+                                <span className="text-zinc-500 text-[10px] block">Echoed Elevated Property Response:</span>
+                                <span className="text-zinc-300 font-mono text-[10px] break-all block mt-0.5">{diffContext.sanitizedEchoResponse}</span>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      )}
                     </div>
 
 

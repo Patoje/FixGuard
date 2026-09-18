@@ -168,6 +168,7 @@ export interface DifferentialEvidenceContextDto {
     | 'dependency_confusion'
     | 'manifest_exposure'
     | 'parameter_integrity'
+    | 'object_mapping_anomaly'
     | 'custom_difference';
   readonly baselineStatusCode?: number;
   readonly baselineBodyHash?: string;
@@ -261,6 +262,9 @@ export interface DifferentialEvidenceContextDto {
   readonly injectedProbePattern?: string;
   readonly boundaryEnforced?: boolean;
   readonly sanitizedExcerpt?: string;
+  readonly injectedProperties?: readonly string[];
+  readonly bindingAccepted?: boolean;
+  readonly sanitizedEchoResponse?: string;
 }
 
 

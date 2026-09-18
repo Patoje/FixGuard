@@ -1438,6 +1438,69 @@ export interface ParameterIntegrityDetectionResult {
   };
 }
 
+// ---------------------------------------------------------------------------
+// Milestone P5-7 — Object Mapping Anomaly Contracts
+// ---------------------------------------------------------------------------
+
+export type ObjectMappingAnomalyStatus =
+  | 'vulnerability_detected'
+  | 'potential_weakness'
+  | 'secure_target_abstained'
+  | 'pending_human_review'
+  | 'preflight_denied'
+  | 'unexpected_failure';
+
+export interface ObjectMappingAnomalyDetectionRequest {
+  readonly contractVersion: DetectionContractVersion;
+  readonly kind: 'object_mapping_anomaly_detection_request';
+  readonly detectionId: string;
+  readonly assessmentId: string;
+  readonly scanId: string;
+  readonly authorizationGrantId: string;
+  readonly authorizationDecisionId: string;
+  readonly actorId: string;
+  readonly verifiedAuthorizationDecision: VerifiedAuthorizationDecision;
+  readonly scopeGrant: AuthorizedScopeGrant;
+  readonly endpointUrl: string;
+  readonly httpMethod?: 'POST' | 'PUT' | 'PATCH';
+  readonly injectedProperties?: Record<string, unknown>;
+  readonly identityAContext?: ProbeAuthContext;
+  readonly reviewerPolicy?: ReviewerPolicy;
+  readonly humanReviewDecision?: HumanReviewDecision;
+  readonly triageDecision?: ReviewedEvidenceFindingCandidateTriageDecision;
+  readonly transport?: IdorHttpProbeTransport;
+  readonly dnsResolver?: PreSpawnDnsResolver;
+}
+
+export interface ObjectMappingAnomalyDetectionResult {
+  readonly contractVersion: DetectionContractVersion;
+  readonly kind: 'object_mapping_anomaly_detection_result';
+  readonly detectionId: string;
+  readonly scanId: string;
+  readonly assessmentId: string;
+  readonly authorizationGrantId: string;
+  readonly authorizationDecisionId: string;
+  readonly actorId: string;
+  readonly status: ObjectMappingAnomalyStatus;
+  readonly reasonCode: string;
+  readonly lineage: AuthorizedExecutionLineageTuple;
+  readonly endpointUrl: string;
+  readonly httpMethod: string;
+  readonly injectedProperties: readonly string[];
+  readonly bindingAccepted: boolean;
+  readonly sanitizedEchoResponse?: string;
+  readonly evidenceDraft?: EvidenceDraftEnvelope;
+  readonly evidenceRecord?: EvidenceRecord;
+  readonly promotedEvidenceResult?: HumanReviewedEvidencePromotionResult;
+  readonly findingCandidate?: ReviewedEvidenceFormalFindingCandidate;
+  readonly finding?: Finding;
+  readonly error?: {
+    readonly code: string;
+    readonly safeMessage: string;
+  };
+}
+
+
 
 
 

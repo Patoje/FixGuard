@@ -345,6 +345,20 @@ export interface ParameterIntegrityMetadata {
   readonly lineage?: string | Record<string, unknown>;
 }
 
+export interface ObjectMappingAnomalyMetadata {
+  readonly kind: 'object_mapping_anomaly_metadata';
+  readonly category: 'BROKEN_ACCESS_CONTROL';
+  readonly endpointUrl: string;
+  readonly httpMethod: string;
+  readonly injectedProperties: readonly string[]; // e.g. ['isAdmin', 'role']
+  readonly bindingAccepted: boolean;
+  readonly sanitizedEchoResponse?: string; // max 128 chars
+  readonly observedAt: string;
+  readonly candidateId?: string;
+  readonly evidenceRecordId?: string;
+  readonly lineage?: string | Record<string, unknown>;
+}
+
 export type FindingMetadata =
   | BrokenAccessControlMetadata
   | SecurityMisconfigurationMetadata
@@ -369,6 +383,7 @@ export type FindingMetadata =
   | DependencyConfusionMetadata
   | ManifestExposureMetadata
   | ParameterIntegrityMetadata
+  | ObjectMappingAnomalyMetadata
   | DiscoveryFindingMetadata;
 
 

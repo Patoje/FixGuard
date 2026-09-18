@@ -78,6 +78,7 @@ import {
   isResourceParameterCandidate,
   INERT_PROBE_PATTERNS,
 } from '../detection/ParameterIntegrityDetectionService.js';
+import { runObjectMappingAnomalyDetection } from '../detection/ObjectMappingAnomalyDetectionService.js';
 import { correlateCorsIdorChains } from '../intelligence/correlation/CorsIdorChainCorrelator.js';
 
 
@@ -1749,6 +1750,42 @@ export class OrchestratedAssessmentApplicationService {
             lineage: `${record.assessmentId}:${record.scanId}:${reviewerId}:${reviewedAt}`,
           },
         };
+      } else if (detKind === 'object_mapping_anomaly') {
+        const endpointUrl = context?.endpointUrl ?? `https://${record.targetDomain}/`;
+        const httpMethod = context?.httpMethod ?? 'POST';
+        const injectedProperties = context?.injectedProperties ?? ['isAdmin', 'role'];
+        const bindingAccepted = context?.bindingAccepted ?? true;
+        const sanitizedEchoResponse = context?.sanitizedEchoResponse ?? '';
+
+        findingCreated = {
+          id: `fnd_objmap_${draftId.replace(/^dft_/, '').replace(/^draft_/, '').replace(/^objmap_/, '')}`,
+          type: 'BROKEN_ACCESS_CONTROL',
+          severity: 'high',
+          title: `Approved Object Mapping Mass Assignment (${injectedProperties.join(', ')} on ${endpointUrl})`,
+          description: `Human operator verified unconstrained object mapping / mass assignment vulnerability. Mutation request (${httpMethod}) accepted and reflected elevated administrative properties (${injectedProperties.join(', ')}). Sanitized response: ${sanitizedEchoResponse}`,
+          target: endpointUrl,
+          evidence: JSON.stringify({
+            draftId,
+            reviewerId,
+            reviewedAt,
+            notes,
+            differentialContext: context,
+          }),
+          confidence: 1.0,
+          metadata: {
+            kind: 'object_mapping_anomaly_metadata',
+            category: 'BROKEN_ACCESS_CONTROL',
+            endpointUrl,
+            httpMethod,
+            injectedProperties,
+            bindingAccepted,
+            sanitizedEchoResponse,
+            observedAt: reviewedAt,
+            candidateId: `cnd_${draftId}`,
+            evidenceRecordId: `evd_${draftId}`,
+            lineage: `${record.assessmentId}:${record.scanId}:${reviewerId}:${reviewedAt}`,
+          },
+        };
       } else {
 
         findingCreated = {
@@ -3183,6 +3220,52 @@ export class OrchestratedAssessmentApplicationService {
               } catch {
                 // Safe error containment
               }
+            }
+          }
+        }
+
+        // Object Mapping Anomaly Detection (Milestone P5-7)
+        if (targetUrl) {
+          for (const mMethod of ['POST', 'PUT', 'PATCH'] as const) {
+            if (coordinator.isCircuitOpen(record.targetDomain)) break;
+            try {
+              const objResult = await runObjectMappingAnomalyDetection({
+                contractVersion: DETECTION_CONTRACT_VERSION,
+                kind: 'object_mapping_anomaly_detection_request',
+                detectionId: `det_objmap_${record.assessmentId.slice(-8)}`,
+                assessmentId: lineage.assessmentId,
+                scanId: lineage.scanId,
+                authorizationGrantId: lineage.authorizationGrantId,
+                authorizationDecisionId: lineage.authorizationDecisionId,
+                actorId: lineage.actorId,
+                endpointUrl: targetUrl,
+                httpMethod: mMethod,
+                identityAContext,
+                verifiedAuthorizationDecision: verifiedDecision,
+                scopeGrant,
+                transport: this.httpTransport,
+                dnsResolver: this.dnsResolver,
+              });
+
+              if (objResult.status === 'vulnerability_detected' && objResult.finding) {
+                findings.push(objResult.finding);
+              } else if (objResult.status === 'pending_human_review' && objResult.evidenceDraft) {
+                const enrichedDraft: EnrichedEvidenceDraft = {
+                  ...objResult.evidenceDraft,
+                  differentialContext: {
+                    endpointUrl: objResult.endpointUrl,
+                    detectionKind: 'object_mapping_anomaly',
+                    httpMethod: objResult.httpMethod,
+                    injectedProperties: objResult.injectedProperties,
+                    bindingAccepted: objResult.bindingAccepted,
+                    sanitizedEchoResponse: objResult.sanitizedEchoResponse,
+                    validationStatusCode: 200,
+                  },
+                };
+                pendingEvidenceDrafts.push(enrichedDraft);
+              }
+            } catch {
+              // Safe error containment
             }
           }
         }

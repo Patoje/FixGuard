@@ -1313,6 +1313,35 @@ All completed milestones are verified via active TypeScript contracts and the re
 
 ---
 
+### Milestone P5-7: Object Mapping Anomaly Probe (Mass Assignment / Unconstrained Object Binding)
+- **Status:** COMPLETED (Phase 5 Milestone 7 Complete).
+- **Goal:** Safe, deterministic verification of object mapping and mass assignment controls. Probes mutation endpoints (`POST`, `PUT`, `PATCH`) with injected administrative properties (`isAdmin`, `role`, `permissions`, `isSuperuser`) to test whether unconstrained binding permits privilege escalation.
+- **Key Deliverables:**
+  1. **Domain Contracts & Typed Metadata (`ObjectMappingAnomalyMetadata`)**:
+     - Defined `ObjectMappingAnomalyMetadata` in `worker/src/v2/core/Evidence.ts` under `FindingMetadata` (`kind: 'object_mapping_anomaly_metadata'`, `category: 'BROKEN_ACCESS_CONTROL'`, `endpointUrl`, `httpMethod`, `injectedProperties: readonly string[]`, `bindingAccepted: boolean`, `sanitizedEchoResponse?: string`, `observedAt`, `candidateId`, `evidenceRecordId`, `lineage`).
+     - Added `ObjectMappingAnomalyStatus`, `ObjectMappingAnomalyDetectionRequest`, and `ObjectMappingAnomalyDetectionResult` to `worker/src/v2/detection/DetectionContracts.ts`.
+     - Extended `DifferentialEvidenceContext` in `OrchestratedAssessmentContracts.ts` and `DifferentialEvidenceContextDto` in `web/src/lib/v2Api.ts` with `detectionKind: 'object_mapping_anomaly'` and typed binding validation fields (`injectedProperties`, `bindingAccepted`, `sanitizedEchoResponse`).
+  2. **Detection Service (`ObjectMappingAnomalyDetectionService.ts`)**:
+     - Implemented `runObjectMappingAnomalyDetection()` and `evaluateBindingEcho()`.
+     - 7-pass SSRF preflight protection blocking internal IP and metadata probing.
+     - Dispatches bounded JSON mutation requests incorporating elevated administrative flags (`isAdmin: true`, `role: 'admin'`, `permissions: ['all']`, `isSuperuser: true`).
+     - Evaluates whether the server response echoes or confirms elevated properties without validation rejection.
+     - Flags `vulnerability_detected` (high severity, `BROKEN_ACCESS_CONTROL`) or `potential_weakness` in draft mode when mass assignment is accepted.
+     - Clean abstention (`secure_target_abstained`) when target validates strictly (400, 422, 403, 404, 405) or strips unbound keys from responses.
+     - Evidence sanitization via `sanitizeEvidenceFragment()`.
+  3. **Pipeline & Review UI Integration**:
+     - Wired `runObjectMappingAnomalyDetection` into `executePipelineStages` in `OrchestratedAssessmentApplicationService.ts`.
+     - Handled draft promotion for `'object_mapping_anomaly'` in `reviewEvidenceDraft` promoting drafts to formal `Finding` records.
+     - Updated `web/src/app/v2/review/page.tsx` with Object Mapping detail cards displaying endpoint URL, HTTP method, injected properties, binding status badge, and sanitized echoed response.
+  4. **Verification & Hygiene**:
+     - Dedicated smoke test `worker/src/v2/smoke/milestoneP5_7_object_mapping_smoke.ts` passes 100% across all 5 assertions.
+     - `npm run typecheck:v2` exits with code 0.
+     - Full regression suite `npm run check:v2` (72/72 smoke suites) passes 100%.
+     - `cd web && npm run build` compiles cleanly with zero errors.
+     - 0 occurrences of `as any` across all production code.
+
+---
+
 ## 5. Architectural Proposals (`PROPOSED` — NOT YET DECIDED)
 
 > [!NOTE]
