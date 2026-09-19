@@ -476,6 +476,22 @@ export interface BlindSsrfDetectionMetadata {
   readonly lineage?: string | Record<string, unknown>;
 }
 
+export interface BlindXssDetectionMetadata {
+  readonly kind: 'blind_xss_detection_metadata';
+  readonly category: 'CROSS_SITE_SCRIPTING';
+  readonly endpointUrl: string;
+  readonly parameterName: string;
+  readonly injectedPayloadSnippet: string;
+  readonly canaryToken: string;
+  readonly interactionConfirmed: boolean;
+  readonly remoteAddress?: string;
+  readonly exposureSeverity: 'high' | 'critical';
+  readonly observedAt: string;
+  readonly candidateId?: string;
+  readonly evidenceRecordId?: string;
+  readonly lineage?: string | Record<string, unknown>;
+}
+
 export type FindingMetadata =
   | BrokenAccessControlMetadata
   | SecurityMisconfigurationMetadata
@@ -509,6 +525,7 @@ export type FindingMetadata =
   | StaticRouteExtractionMetadata
   | OobCanaryMetadata
   | BlindSsrfDetectionMetadata
+  | BlindXssDetectionMetadata
   | DiscoveryFindingMetadata;
 
 

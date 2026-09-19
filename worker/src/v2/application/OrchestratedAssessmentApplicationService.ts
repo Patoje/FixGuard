@@ -95,6 +95,7 @@ import { scanManifestsForVulnerabilities } from '../sast/DependencyVulnerability
 import { scanFilesForStaticRoutes } from '../sast/StaticRouteExtractionService.js';
 import { defaultOobCanaryManager } from '../oob/OobCanaryManager.js';
 import { runBlindSsrfDetection, isSsrfCandidateParameter } from '../detection/BlindSsrfDetectionService.js';
+import { runBlindXssDetection, isXssCandidateParameter } from '../detection/BlindXssDetectionService.js';
 import type { Finding } from '../core/Evidence.js';
 import type { EvidenceDraftEnvelope } from '../evidence-mapping/ComparisonEvidenceMappingContracts.js';
 
@@ -2127,6 +2128,49 @@ export class OrchestratedAssessmentApplicationService {
             lineage: `${record.assessmentId}:${record.scanId}:${reviewerId}:${reviewedAt}`,
           },
         };
+      } else if (detKind === 'blind_xss') {
+        const endpointUrl = context?.endpointUrl ?? `https://${record.targetDomain}/`;
+        const parameterName = context?.parameterName ?? 'comment';
+        const injectedPayloadSnippet = context?.injectedPayloadSnippet ?? '"><script src="https://oob.fixguard.internal/callback"></script>';
+        const canaryToken = context?.canaryToken ?? 'fgc_unknown';
+        const remoteAddress = context?.remoteAddress;
+
+        findingCreated = {
+          id: `fnd_bxss_${draftId.replace(/^dft_/, '').replace(/^draft_/, '').replace(/^bxss_/, '')}`,
+          type: 'CROSS_SITE_SCRIPTING',
+          severity: 'critical',
+          title: `Approved Blind Cross-Site Scripting (XSS) via Parameter '${parameterName}'`,
+          description: `Human operator verified blind XSS vulnerability at ${endpointUrl} via parameter '${parameterName}'. Stored payload executed in target context triggering callback to canary ${canaryToken} (remote IP: ${remoteAddress ?? 'unknown'}).`,
+          target: endpointUrl,
+          evidence: JSON.stringify({
+            draftId,
+            reviewerId,
+            reviewedAt,
+            notes,
+            endpointUrl,
+            parameterName,
+            injectedPayloadSnippet,
+            canaryToken,
+            remoteAddress,
+            differentialContext: context,
+          }),
+          confidence: 1.0,
+          metadata: {
+            kind: 'blind_xss_detection_metadata',
+            category: 'CROSS_SITE_SCRIPTING',
+            endpointUrl,
+            parameterName,
+            injectedPayloadSnippet,
+            canaryToken,
+            interactionConfirmed: true,
+            remoteAddress,
+            exposureSeverity: 'critical',
+            observedAt: reviewedAt,
+            candidateId: `cnd_${draftId}`,
+            evidenceRecordId: `evd_${draftId}`,
+            lineage: `${record.assessmentId}:${record.scanId}:${reviewerId}:${reviewedAt}`,
+          },
+        };
       } else {
 
         findingCreated = {
@@ -3694,6 +3738,56 @@ export class OrchestratedAssessmentApplicationService {
                     canaryToken: ssrfResult.canaryToken,
                     interactionConfirmed: ssrfResult.interactionConfirmed,
                     remoteAddress: ssrfResult.remoteAddress,
+                    exposureSeverity: 'critical',
+                    validationStatusCode: 200,
+                  },
+                };
+                pendingEvidenceDrafts.push(enrichedDraft);
+              }
+            } catch {
+              // Safe error containment
+            }
+          }
+        }
+
+        // Blind XSS Detection (Milestone P7-3: Blind XSS Interaction Probe - Phase 7 Finale)
+        if (targetUrl) {
+          const xssCandidateParams = ['comment', 'message', 'feedback', 'description', 'title', 'username', 'email', 'body'];
+          for (const param of xssCandidateParams) {
+            if (coordinator.isCircuitOpen(record.targetDomain)) break;
+            try {
+              const xssResult = await runBlindXssDetection({
+                contractVersion: DETECTION_CONTRACT_VERSION,
+                kind: 'blind_xss_detection_request',
+                detectionId: `det_bxss_${record.assessmentId.slice(-8)}_${param}`,
+                assessmentId: lineage.assessmentId,
+                scanId: lineage.scanId,
+                authorizationGrantId: lineage.authorizationGrantId,
+                authorizationDecisionId: lineage.authorizationDecisionId,
+                actorId: lineage.actorId,
+                endpointUrl: targetUrl,
+                parameterName: param,
+                method: 'POST',
+                identityAContext,
+                verifiedAuthorizationDecision: verifiedDecision,
+                scopeGrant,
+                transport: this.httpTransport,
+                dnsResolver: this.dnsResolver,
+              });
+
+              if (xssResult.status === 'vulnerability_detected' && xssResult.finding) {
+                findings.push(xssResult.finding);
+              } else if (xssResult.status === 'pending_human_review' && xssResult.evidenceDraft) {
+                const enrichedDraft: EnrichedEvidenceDraft = {
+                  ...xssResult.evidenceDraft,
+                  differentialContext: {
+                    endpointUrl: xssResult.endpointUrl,
+                    detectionKind: 'blind_xss',
+                    parameterName: xssResult.parameterName,
+                    injectedPayloadSnippet: xssResult.injectedPayloadSnippet,
+                    canaryToken: xssResult.canaryToken,
+                    interactionConfirmed: xssResult.interactionConfirmed,
+                    remoteAddress: xssResult.remoteAddress,
                     exposureSeverity: 'critical',
                     validationStatusCode: 200,
                   },

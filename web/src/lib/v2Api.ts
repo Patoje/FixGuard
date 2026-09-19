@@ -177,6 +177,7 @@ export interface DifferentialEvidenceContextDto {
     | 'static_route_extraction'
     | 'oob_canary_interaction'
     | 'blind_ssrf'
+    | 'blind_xss'
     | 'custom_difference';
   readonly baselineStatusCode?: number;
   readonly baselineBodyHash?: string;
@@ -306,6 +307,7 @@ export interface DifferentialEvidenceContextDto {
   readonly interactionTimestamp?: string;
   readonly injectedCanaryUrl?: string;
   readonly interactionConfirmed?: boolean;
+  readonly injectedPayloadSnippet?: string;
 }
 
 

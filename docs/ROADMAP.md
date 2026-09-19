@@ -1576,6 +1576,33 @@ All completed milestones are verified via active TypeScript contracts and the re
      - `cd web && npm run build` compiles cleanly with zero errors.
      - 0 occurrences of `as any` across all production code.
 
+### Milestone P7-3: Blind XSS Interaction Probe (Phase 7 Finale — Out-Of-Band Script Execution Engine)
+- **Status:** COMPLETED.
+- **Goal:** Safe, definitive detection of Blind Cross-Site Scripting (XSS) vulnerabilities on candidate parameters (`comment`, `message`, `feedback`, `description`, `title`, `username`, `email`, `body`) by injecting cryptographic OOB canary-backed script payloads and verifying asynchronous execution callbacks via `OobCanaryManager`.
+- **Key Deliverables:**
+  1. **Domain Contracts & Typed Metadata (`BlindXssDetectionMetadata`)**:
+     - Defined `BlindXssDetectionMetadata` in `worker/src/v2/core/Evidence.ts` under `FindingMetadata` (`kind: 'blind_xss_detection_metadata'`, `category: 'CROSS_SITE_SCRIPTING'`, `endpointUrl: string`, `parameterName: string`, `injectedPayloadSnippet: string`, `canaryToken: string`, `interactionConfirmed: boolean`, `remoteAddress?: string`, `exposureSeverity: 'critical' | 'high'`, `observedAt: string`, `candidateId?: string`, `evidenceRecordId?: string`, `lineage?: string | Record<string, unknown>`).
+     - Added `BlindXssStatus`, `BlindXssCandidateProbeInput`, `BlindXssDetectionRequest`, and `BlindXssDetectionResult` in `worker/src/v2/detection/DetectionContracts.ts`.
+     - Extended `DifferentialEvidenceContext` in `OrchestratedAssessmentContracts.ts` and `DifferentialEvidenceContextDto` in `web/src/lib/v2Api.ts` with `detectionKind: 'blind_xss'` and typed fields (`parameterName`, `injectedPayloadSnippet`, `canaryToken`, `interactionConfirmed`, `remoteAddress`).
+  2. **Detection Service (`BlindXssDetectionService.ts`)**:
+     - Implemented `runBlindXssDetection()` and `isXssCandidateParameter()`.
+     - 7-pass SSRF preflight protection blocking loopback, internal IPs, and metadata targets.
+     - Automatically issues unique cryptographic canary token (`fgc_<hex>`) via `OobCanaryManager` and constructs script payload (`"><script src="https://oob.../c/fgc_..."></script>`).
+     - Dispatches bounded injection probe request into candidate storage/logging parameters.
+     - Confirms asynchronous script execution callbacks from target context without making destructive requests.
+     - Clean abstention (`secure_target_abstained`) when no interaction callback is recorded.
+     - HITL Routing: Generates non-persisted `EvidenceDraftEnvelope` for human operator review.
+  3. **Pipeline & Review UI Integration**:
+     - Integrated Blind XSS probing across candidate storage/logging parameters in `executePipelineStages` in `OrchestratedAssessmentApplicationService.ts`.
+     - Added promotion handling for `'blind_xss'` in `reviewEvidenceDraft` promoting drafts to formal `Finding` records (`type: 'CROSS_SITE_SCRIPTING'`, `severity: 'critical'`).
+     - Updated `web/src/app/v2/review/page.tsx` with Blind XSS review cards displaying vulnerable parameter, injected script payload, canary token, execution callback status badge, remote origin IP, and critical severity tier.
+  4. **Verification & Hygiene**:
+     - Dedicated smoke test `worker/src/v2/smoke/milestoneP7_3_blind_xss_smoke.ts` passes 100% across all 5 assertions.
+     - `npm run typecheck:v2` exits with code 0.
+     - Full regression suite `npm run check:v2` (81/81 smoke suites) passes 100%.
+     - `cd web && npm run build` compiles cleanly with zero errors.
+     - 0 occurrences of `as any` across all production code.
+
 ---
 
 ## 5. Architectural Proposals (`PROPOSED` — NOT YET DECIDED)
