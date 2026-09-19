@@ -44,6 +44,7 @@ export class HttpxJsonParser implements Parser {
             target: record.url,
             evidence: JSON.stringify(record),
             confidence: 0.95,
+            verificationState: 'observed_anomaly',
             metadata: {
               kind: 'discovery_finding_metadata',
               host: record.host,

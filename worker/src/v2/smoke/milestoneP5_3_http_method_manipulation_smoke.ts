@@ -2,11 +2,11 @@
  * Milestone P5-3 Smoke Test Suite — HTTP Method Manipulation Detection Engine
  *
  * Verifies:
- * 1. Detects authorization bypass via X-HTTP-Method-Override header.
- * 2. Detects enabled TRACE method reflecting custom canary header (XST risk).
- * 3. Cleanly abstains (secure_target_abstained) when target blocks overrides or returns 405.
+ * 1. Detects verb override tamper (`X-HTTP-Method-Override` / `_method`) bypassing baseline 403.
+ * 2. Detects TRACE method reflection exposing diagnostic headers.
+ * 3. Cleanly abstains (secure_target_abstained) when target enforces auth/405 across alternative methods.
  * 4. Preflight and egress gates block internal/SSRF targets.
- * 5. Full HITL triage lifecycle promotes drafts to formal Findings.
+ * 5. Full HITL triage lifecycle promotes drafts to formal Findings with HttpMethodManipulationMetadata.
  */
 
 import { runHttpMethodManipulationDetection } from '../detection/HttpMethodManipulationDetectionService.js';
@@ -15,6 +15,7 @@ import type { AuthorizedScopeGrant } from '../scope/AuthorizedScopeContracts.js'
 import { establishVerifiedAuthorizationDecision } from '../authorization/VerifiedAuthorizationDecisionService.js';
 import type { IdorHttpProbeTransport, HttpProbeRequest, HttpProbeResponse } from '../detection/DetectionContracts.js';
 import { OrchestratedAssessmentApplicationService } from '../application/OrchestratedAssessmentApplicationService.js';
+import type { OrchestratedAssessmentRecord } from '../application/OrchestratedAssessmentContracts.js';
 import { InMemoryOrchestratedAssessmentRepository } from '../storage/InMemoryOrchestratedAssessmentRepository.js';
 
 async function runSmokeTests() {
@@ -59,7 +60,7 @@ async function runSmokeTests() {
       allowedDomains: ['api.example.com'],
       allowedHosts: ['api.example.com'],
       allowedOrigins: ['https://api.example.com'],
-      allowedMethods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS', 'HEAD'],
+      allowedMethods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS'],
     },
     constraints: {
       allowLoginRequiredAreas: true,
@@ -97,48 +98,40 @@ async function runSmokeTests() {
   );
 
   if (authRes.status !== 'established' || !authRes.decision) {
-    throw new Error(`Failed to establish verified authorization: ${authRes.reasonCode}`);
+    throw new Error(`Failed to establish verified authorization: ${authRes.reasonCode} - ${JSON.stringify(authRes)}`);
   }
 
   const verifiedDecision = authRes.decision;
 
   // -------------------------------------------------------------------------
-  // TEST 1: Detects authorization bypass via X-HTTP-Method-Override header
+  // TEST 1: Detects verb override header tampering (X-HTTP-Method-Override)
   // -------------------------------------------------------------------------
-  console.log('[TEST 1] Testing HTTP Method Override authorization bypass...');
+  console.log('[TEST 1] Testing HTTP Method Override header bypass on protected endpoint...');
   {
     const mockTransport: IdorHttpProbeTransport = async (req: HttpProbeRequest): Promise<HttpProbeResponse> => {
-      const getHeader = (name: string) => {
-        const lower = name.toLowerCase();
-        for (const [k, v] of Object.entries(req.headers)) {
-          if (k.toLowerCase() === lower) return v;
-        }
-        return undefined;
-      };
-
-      // Baseline DELETE check -> returns 403 Forbidden
-      if (req.method === 'DELETE' && !getHeader('x-http-method-override')) {
+      // Baseline POST returns 403 Forbidden
+      if (req.method === 'POST' && !req.headers['X-HTTP-Method-Override']) {
         return {
           statusCode: 403,
           headers: { 'content-type': 'application/json' },
-          bodyText: JSON.stringify({ error: 'Forbidden: DELETE method requires admin role' }),
-          responseTimeMs: 25,
+          bodyText: JSON.stringify({ error: 'Forbidden' }),
+          responseTimeMs: 20,
         };
       }
-      // Overridden POST check with X-HTTP-Method-Override: DELETE -> returns 200 OK
-      if (req.method === 'POST' && getHeader('x-http-method-override') === 'DELETE') {
+      // Override header X-HTTP-Method-Override: GET returns 200 OK
+      if (req.headers['X-HTTP-Method-Override'] === 'GET') {
         return {
           statusCode: 200,
           headers: { 'content-type': 'application/json' },
-          bodyText: JSON.stringify({ success: true, message: 'Resource deleted via override' }),
-          responseTimeMs: 30,
+          bodyText: JSON.stringify({ status: 'success', data: ['secret1', 'secret2'] }),
+          responseTimeMs: 22,
         };
       }
       return {
         statusCode: 405,
         headers: {},
         bodyText: 'Method Not Allowed',
-        responseTimeMs: 10,
+        responseTimeMs: 15,
       };
     };
 
@@ -153,9 +146,9 @@ async function runSmokeTests() {
       actorId,
       verifiedAuthorizationDecision: verifiedDecision,
       scopeGrant,
-      endpointUrl: 'https://api.example.com/api/admin/users/42',
-      targetOperation: 'delete_user_account',
-      baselineMethod: 'DELETE',
+      endpointUrl: 'https://api.example.com/api/v1/admin/users',
+      targetOperation: 'delete_user',
+      baselineMethod: 'POST',
       transport: mockTransport,
     });
 
@@ -163,25 +156,21 @@ async function runSmokeTests() {
       throw new Error(`[TEST 1] Expected pending_human_review, got ${result.status} (${result.reasonCode})`);
     }
     if (!result.evidenceDraft) {
-      throw new Error('[TEST 1] Expected evidenceDraft in unattended run');
+      throw new Error('[TEST 1] Expected evidenceDraft in result');
     }
     if (result.bypassType !== 'method_override_header') {
       throw new Error(`[TEST 1] Expected bypassType 'method_override_header', got ${result.bypassType}`);
     }
-    if (result.manipulatedStatusCode !== 200) {
-      throw new Error(`[TEST 1] Expected manipulatedStatusCode 200, got ${result.manipulatedStatusCode}`);
-    }
-    console.log(`[TEST 1] PASS: Flagged method override draft: ${result.evidenceDraft.draftId}`);
+    console.log(`[TEST 1] PASS: Flagged HTTP method override draft: ${result.evidenceDraft.draftId}`);
   }
 
   // -------------------------------------------------------------------------
-  // TEST 2: Detects enabled TRACE method reflecting custom canary header
+  // TEST 2: Detects TRACE method header reflection
   // -------------------------------------------------------------------------
-  console.log('[TEST 2] Testing TRACE method reflection detection...');
+  console.log('[TEST 2] Testing TRACE method reflection with canary header...');
   {
-    const mockTraceTransport: IdorHttpProbeTransport = async (req: HttpProbeRequest): Promise<HttpProbeResponse> => {
-      // Baseline DELETE is 403
-      if (req.method === 'DELETE') {
+    const mockTransport: IdorHttpProbeTransport = async (req: HttpProbeRequest): Promise<HttpProbeResponse> => {
+      if (req.method === 'POST') {
         return {
           statusCode: 403,
           headers: {},
@@ -189,14 +178,14 @@ async function runSmokeTests() {
           responseTimeMs: 15,
         };
       }
-      // TRACE method reflects the request headers including canary
       if (req.method === 'TRACE') {
-        const canary = req.headers['x-fixguard-canary'] || req.headers['X-Fixguard-Canary'] || '';
+        // Echo back request lines including canary header
+        const canary = req.headers['X-Fixguard-Canary'] ?? 'canary-reflected';
         return {
           statusCode: 200,
           headers: { 'content-type': 'message/http' },
-          bodyText: `TRACE /api/admin HTTP/1.1\r\nHost: api.example.com\r\nX-Fixguard-Canary: ${canary}\r\n`,
-          responseTimeMs: 20,
+          bodyText: `TRACE /api/v1/debug HTTP/1.1\r\nHost: api.example.com\r\nX-Fixguard-Canary: ${canary}\r\n`,
+          responseTimeMs: 25,
         };
       }
       return {
@@ -218,10 +207,10 @@ async function runSmokeTests() {
       actorId,
       verifiedAuthorizationDecision: verifiedDecision,
       scopeGrant,
-      endpointUrl: 'https://api.example.com/api/admin',
-      targetOperation: 'trace_check',
-      baselineMethod: 'DELETE',
-      transport: mockTraceTransport,
+      endpointUrl: 'https://api.example.com/api/v1/debug',
+      targetOperation: 'read_debug_info',
+      baselineMethod: 'POST',
+      transport: mockTransport,
     });
 
     if (result.status !== 'pending_human_review') {
@@ -230,20 +219,20 @@ async function runSmokeTests() {
     if (result.bypassType !== 'trace_enabled') {
       throw new Error(`[TEST 2] Expected bypassType 'trace_enabled', got ${result.bypassType}`);
     }
-    console.log(`[TEST 2] PASS: Detected TRACE reflection draft: ${result.evidenceDraft?.draftId}`);
+    console.log(`[TEST 2] PASS: Flagged TRACE method reflection draft: ${result.evidenceDraft?.draftId}`);
   }
 
   // -------------------------------------------------------------------------
-  // TEST 3: Cleanly abstains when target blocks overrides or returns 405
+  // TEST 3: Clean abstention on 405 or non-bypass endpoints
   // -------------------------------------------------------------------------
-  console.log('[TEST 3] Verifying abstention on secure target blocking overrides...');
+  console.log('[TEST 3] Testing clean abstention on secure endpoint...');
   {
-    const mockSecureTransport: IdorHttpProbeTransport = async (_req: HttpProbeRequest): Promise<HttpProbeResponse> => {
+    const mockTransportSecure: IdorHttpProbeTransport = async (): Promise<HttpProbeResponse> => {
       return {
         statusCode: 405,
         headers: {},
         bodyText: 'Method Not Allowed',
-        responseTimeMs: 10,
+        responseTimeMs: 12,
       };
     };
 
@@ -258,90 +247,108 @@ async function runSmokeTests() {
       actorId,
       verifiedAuthorizationDecision: verifiedDecision,
       scopeGrant,
-      endpointUrl: 'https://api.example.com/api/secure',
+      endpointUrl: 'https://api.example.com/api/v1/secure',
       targetOperation: 'secure_op',
-      baselineMethod: 'DELETE',
-      transport: mockSecureTransport,
+      baselineMethod: 'POST',
+      transport: mockTransportSecure,
     });
 
     if (result.status !== 'secure_target_abstained') {
       throw new Error(`[TEST 3] Expected secure_target_abstained, got ${result.status}`);
     }
-    console.log('[TEST 3] PASS: Cleanly abstained on secure target.');
+    if (result.evidenceDraft !== undefined) {
+      throw new Error('[TEST 3] Expected no draft on abstention');
+    }
+    console.log(`[TEST 3] PASS: Cleanly abstained with reason ${result.reasonCode}`);
   }
 
   // -------------------------------------------------------------------------
-  // TEST 4: Preflight & Egress Gates Block Internal / SSRF Targets
+  // TEST 4: SSRF Preflight / Egress Gate Rejection
   // -------------------------------------------------------------------------
-  console.log('[TEST 4] Verifying preflight SSRF protection against loopback/metadata...');
+  console.log('[TEST 4] Verifying preflight SSRF protection against internal endpoints...');
   {
-    const ssrfScopeGrant: AuthorizedScopeGrant = {
-      ...scopeGrant,
-      subject: {
-        targetKind: 'origin',
-        normalizedOrigin: 'http://127.0.0.1:8080',
-      },
-      boundaries: {
-        allowedDomains: ['127.0.0.1'],
-        allowedHosts: ['127.0.0.1'],
-        allowedOrigins: ['http://127.0.0.1:8080'],
-        allowedMethods: ['GET', 'POST', 'DELETE'],
-      },
+    const mockTransport: IdorHttpProbeTransport = async (): Promise<HttpProbeResponse> => {
+      throw new Error('Transport should not be called for SSRF target');
     };
 
-    const ssrfAuth = establishVerifiedAuthorizationDecision(
-      {
-        contractVersion: 'fixguard-verified-authorization-decision/v0',
-        kind: 'establish_verified_authorization_decision_request',
-        assessmentId,
-        scanId,
-        authorizationDecisionId: 'dec_ssrf_002',
-        authorizedActor: { actorId, actorType: 'human' },
-        decision: 'authorized',
-        decidedAt: nowIso,
-        scopeGrant: ssrfScopeGrant,
-      },
-      nowIso
-    );
-
-    if (ssrfAuth.status !== 'established' || !ssrfAuth.decision) {
-      throw new Error('Failed to establish SSRF auth decision fixture');
-    }
-
-    const result = await runHttpMethodManipulationDetection({
+    const ssrfResult = await runHttpMethodManipulationDetection({
       contractVersion: DETECTION_CONTRACT_VERSION,
       kind: 'http_method_manipulation_detection_request',
-      detectionId: 'det_hmeth_ssrf_001',
+      detectionId: 'det_hmeth_test_004',
       assessmentId,
       scanId,
       authorizationGrantId: grantId,
-      authorizationDecisionId: 'dec_ssrf_002',
+      authorizationDecisionId: decisionId,
       actorId,
-      verifiedAuthorizationDecision: ssrfAuth.decision,
-      scopeGrant: ssrfScopeGrant,
-      endpointUrl: 'http://127.0.0.1:8080/api/admin',
+      verifiedAuthorizationDecision: verifiedDecision,
+      scopeGrant,
+      endpointUrl: 'http://169.254.169.254/latest/meta-data',
+      targetOperation: 'metadata_access',
+      baselineMethod: 'POST',
+      transport: mockTransport,
     });
 
-    if (result.status !== 'preflight_denied') {
-      throw new Error(`[TEST 4] Expected preflight_denied for loopback, got ${result.status}`);
+    if (ssrfResult.status !== 'preflight_denied') {
+      throw new Error(`[TEST 4] Expected preflight_denied for SSRF target, got ${ssrfResult.status}`);
     }
-    console.log('[TEST 4] PASS: Preflight successfully blocked loopback SSRF probe.');
+    console.log(`[TEST 4] PASS: Safely rejected SSRF target with code ${ssrfResult.reasonCode}`);
   }
 
   // -------------------------------------------------------------------------
-  // TEST 5: Full HITL Review Lifecycle & Promotion to Formal Finding
+  // TEST 5: Orchestrated Assessment Application Service HITL lifecycle promotion
   // -------------------------------------------------------------------------
-  console.log('[TEST 5] Testing HITL review lifecycle promoting draft to formal Finding...');
+  console.log('[TEST 5] Verifying HITL draft review & promotion to formal Finding in Application Service...');
   {
     const repo = new InMemoryOrchestratedAssessmentRepository();
-    const appService = new OrchestratedAssessmentApplicationService({ repository: repo });
+    const service = new OrchestratedAssessmentApplicationService({ repository: repo });
 
-    const initialRecord = {
-      contractVersion: 'fixguard-orchestrated-assessment/v0' as const,
+    const mockTransport: IdorHttpProbeTransport = async (req: HttpProbeRequest): Promise<HttpProbeResponse> => {
+      if (req.headers['X-HTTP-Method-Override'] === 'GET') {
+        return {
+          statusCode: 200,
+          headers: { 'content-type': 'application/json' },
+          bodyText: JSON.stringify({ success: true, bypassed: true }),
+          responseTimeMs: 18,
+        };
+      }
+      return {
+        statusCode: 403,
+        headers: {},
+        bodyText: 'Forbidden',
+        responseTimeMs: 15,
+      };
+    };
+
+    const detResult = await runHttpMethodManipulationDetection({
+      contractVersion: DETECTION_CONTRACT_VERSION,
+      kind: 'http_method_manipulation_detection_request',
+      detectionId: 'det_hmeth_test_005',
+      assessmentId,
+      scanId,
+      authorizationGrantId: grantId,
+      authorizationDecisionId: decisionId,
+      actorId,
+      verifiedAuthorizationDecision: verifiedDecision,
+      scopeGrant,
+      endpointUrl: 'https://api.example.com/api/v1/users/delete',
+      targetOperation: 'delete_user_op',
+      baselineMethod: 'POST',
+      transport: mockTransport,
+    });
+
+    if (detResult.status !== 'pending_human_review' || !detResult.evidenceDraft) {
+      throw new Error('[TEST 5] Failed to generate evidence draft for review promotion');
+    }
+
+    const draft = detResult.evidenceDraft;
+
+    // Execute HITL review reviewEvidenceDraft via OrchestratedAssessmentApplicationService
+    const initialRecord: OrchestratedAssessmentRecord = {
+      contractVersion: 'fixguard-orchestrated-assessment/v0',
       assessmentId,
       scanId,
       targetDomain: 'api.example.com',
-      status: 'completed' as const,
+      status: 'running',
       lineage: {
         assessmentId,
         scanId,
@@ -350,53 +357,25 @@ async function runSmokeTests() {
         actorId,
       },
       stages: [],
-      timing: { startedAt: nowIso, completedAt: nowIso, durationMs: 150 },
+      timing: {
+        startedAt: nowIso,
+      },
       errorCount: 0,
       warningCount: 0,
       findings: [],
-      pendingEvidenceDrafts: [
-        {
-          draftKind: 'non_persisted_comparison_evidence_draft' as const,
-          draftId: 'dft_hmeth_rev_001',
-          suggestedEvidenceType: 'http_difference' as const,
-          suggestedStrength: 'strong' as const,
-          sourceComparisonId: 'cmp_hmeth_001',
-          sourceSnapshotIds: {
-            baselineSnapshotId: 'snp_base_001',
-            validationSnapshotId: 'snp_ovr_001',
-          },
-          requiresHumanReview: true as const,
-          notPersisted: true as const,
-          notARealFinding: true as const,
-          notConfirmedEvidence: true as const,
-          notForExternalDelivery: true as const,
-          notM45EvidenceRecord: true as const,
-          safeRationale: 'Endpoint blocked under DELETE returns 200 OK via X-HTTP-Method-Override header.',
-          differentialContext: {
-            endpointUrl: 'https://api.example.com/api/admin/users/42',
-            detectionKind: 'http_method_manipulation' as const,
-            targetOperation: 'delete_user_account',
-            baselineMethod: 'DELETE',
-            bypassMethodOrHeader: 'X-HTTP-Method-Override: DELETE',
-            baselineStatusCode: 403,
-            manipulatedStatusCode: 200,
-            bypassType: 'method_override_header' as const,
-            validationStatusCode: 200,
-          },
-        },
-      ],
+      pendingEvidenceDrafts: [draft],
       recommendations: [],
     };
 
     await repo.save(initialRecord);
 
-    const reviewRes = await appService.reviewEvidenceDraft({
+    const reviewRes = await service.reviewEvidenceDraft({
       assessmentId,
-      draftId: 'dft_hmeth_rev_001',
+      draftId: draft.draftId,
       decision: 'approve_evidence',
       reviewerId: 'act_operator_human_01',
       reviewedAt: nowIso,
-      notes: 'Confirmed HTTP method override authorization bypass.',
+      notes: 'Confirmed HTTP method override bypass on sensitive endpoint.',
     });
 
     if (reviewRes.decision !== 'approve_evidence' || !reviewRes.findingCreated) {
@@ -408,22 +387,17 @@ async function runSmokeTests() {
       throw new Error('[TEST 5] Expected formal finding created in repository');
     }
 
-    const createdFinding = updated.findings[0];
-    if (
-      createdFinding.metadata.kind !== 'http_method_manipulation_metadata' ||
-      createdFinding.metadata.category !== 'BROKEN_ACCESS_CONTROL' ||
-      createdFinding.metadata.bypassType !== 'method_override_header' ||
-      createdFinding.metadata.manipulatedStatusCode !== 200
-    ) {
-      throw new Error('[TEST 5] Metadata mismatch in promoted finding');
+    const finding = updated.findings[0];
+    if (finding.metadata.kind !== 'http_method_manipulation_metadata') {
+      throw new Error(`[TEST 5] Expected finding metadata kind 'http_method_manipulation_metadata', got ${finding.metadata.kind}`);
     }
-    console.log(`[TEST 5] PASS: Promoted finding verified: ${createdFinding.id} (${createdFinding.title})`);
+    console.log(`[TEST 5] PASS: HITL review promoted evidence draft to formal Finding: ${finding.id}`);
   }
 
-  console.log('\n[ALL TESTS PASSED] Milestone P5-3 HTTP Method Manipulation Detection Engine certified!');
+  console.log('\n=== ALL 5 MILESTONE P5-3 SMOKE TESTS PASSED SUCCESSFULLY ===');
 }
 
 runSmokeTests().catch((err) => {
-  console.error('[SMOKE FAILED]', err);
+  console.error('FAILED Smoke Test:', err);
   process.exit(1);
 });

@@ -302,6 +302,7 @@ export async function runParameterIntegrityDetection(
         reviewedAt: nowIso,
       }),
       confidence: 1.0,
+      verificationState: 'observed_anomaly',
       metadata: {
         kind: 'parameter_integrity_metadata',
         category: 'INFORMATION_DISCLOSURE',

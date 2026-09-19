@@ -1,3 +1,6 @@
+import type { VerificationState, VerificationStateTransition } from './VerificationStateContracts';
+export type { VerificationState, VerificationStateTransition };
+
 export interface BrokenAccessControlMetadata {
   readonly kind: 'broken_access_control_metadata';
   readonly category: 'BROKEN_ACCESS_CONTROL';
@@ -541,6 +544,7 @@ export interface Finding {
   evidence: string;
   confidence: number;
   metadata: FindingMetadata;
+  readonly verificationState: VerificationState;
 }
 
 export interface EvidenceCollection {

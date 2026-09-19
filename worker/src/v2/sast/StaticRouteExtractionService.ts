@@ -378,6 +378,7 @@ export function scanFilesForStaticRoutes(request: StaticRouteExtractionRequest):
           reviewedAt: nowIso,
         }),
         confidence: 1.0,
+        verificationState: 'observed_anomaly',
         metadata: {
           kind: 'static_route_extraction_metadata',
           category: 'SECURITY_MISCONFIGURATION',

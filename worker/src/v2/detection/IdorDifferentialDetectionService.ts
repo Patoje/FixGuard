@@ -938,6 +938,7 @@ export async function runIdorDifferentialDetection(
       evidenceId: evidenceRecord.evidenceId
     })),
     confidence: 0.95,
+    verificationState: 'validated_vulnerability',
     metadata: {
       kind: 'broken_access_control_metadata',
       category: 'BROKEN_ACCESS_CONTROL',

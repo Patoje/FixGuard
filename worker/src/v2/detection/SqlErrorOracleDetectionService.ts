@@ -286,6 +286,7 @@ export async function runSqlErrorOracleDetection(
           })
         ),
         confidence: 0.95,
+        verificationState: 'validated_vulnerability',
         metadata: {
           kind: 'sql_error_oracle_metadata',
           category: 'INFORMATION_DISCLOSURE',

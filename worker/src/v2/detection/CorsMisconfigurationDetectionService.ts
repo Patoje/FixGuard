@@ -883,6 +883,7 @@ export async function runCorsMisconfigurationDetection(
       evidenceId: evidenceRecord.evidenceId
     }),
     confidence: 0.95,
+    verificationState: 'validated_vulnerability',
     metadata: {
       kind: 'security_misconfiguration_metadata',
       category: 'CORS_MISCONFIGURATION',

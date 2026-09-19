@@ -257,6 +257,7 @@ export async function runDependencyConfusionDetection(
           reviewedAt: nowIso,
         }),
         confidence: 1.0,
+        verificationState: 'validated_vulnerability',
         metadata: {
           kind: 'dependency_confusion_metadata',
           category: 'SUPPLY_CHAIN_RISK',

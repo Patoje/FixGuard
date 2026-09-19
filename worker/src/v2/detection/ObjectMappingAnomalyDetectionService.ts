@@ -253,6 +253,7 @@ export async function runObjectMappingAnomalyDetection(
         reviewedAt: nowIso,
       }),
       confidence: 1.0,
+      verificationState: 'validated_vulnerability',
       metadata: {
         kind: 'object_mapping_anomaly_metadata',
         category: 'BROKEN_ACCESS_CONTROL',

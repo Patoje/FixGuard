@@ -345,6 +345,7 @@ export async function runManifestExposureDetection(
         reviewedAt: nowIso,
       }),
       confidence: 1.0,
+      verificationState: 'observed_anomaly',
       metadata: {
         kind: 'manifest_exposure_metadata',
         category: 'INFORMATION_DISCLOSURE',

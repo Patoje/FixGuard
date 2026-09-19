@@ -198,6 +198,7 @@ export function scanSourceFilesForSecrets(request: StaticSecretScanningRequest):
           reviewedAt: nowIso,
         }),
         confidence: 1.0,
+        verificationState: 'validated_vulnerability',
         metadata: {
           kind: 'static_secret_exposure_metadata',
           category: 'INFORMATION_DISCLOSURE',

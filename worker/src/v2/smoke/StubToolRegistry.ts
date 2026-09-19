@@ -61,6 +61,7 @@ const STUB_SUBDOMAIN_EVIDENCE: EvidenceCollection = {
       target: 'api.example.com',
       evidence: 'api.example.com',
       confidence: 1.0,
+      verificationState: 'observed_anomaly',
       metadata: { kind: 'discovery_finding_metadata', subdomain: 'api.example.com', host: 'api.example.com' }
     }
   ],
@@ -78,6 +79,7 @@ const STUB_HTTP_EVIDENCE: EvidenceCollection = {
       target: 'https://api.example.com',
       evidence: '{"url":"https://api.example.com","status-code":200}',
       confidence: 0.95,
+      verificationState: 'observed_anomaly',
       metadata: {
         kind: 'discovery_finding_metadata',
         url: 'https://api.example.com',

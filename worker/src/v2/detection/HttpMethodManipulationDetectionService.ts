@@ -36,6 +36,7 @@ export async function runHttpMethodManipulationDetection(
   request: HttpMethodManipulationDetectionRequest
 ): Promise<HttpMethodManipulationDetectionResult> {
   const transport = request.transport ?? defaultHttpProbeTransport;
+  const endpointUrl = request.endpointUrl ?? request.targetEndpointUrl ?? '';
   const safeSeed = sanitizeToSafeId(request.detectionId);
   const lineage = {
     assessmentId: request.assessmentId,
@@ -50,7 +51,7 @@ export async function runHttpMethodManipulationDetection(
 
   // 1. 7-Pass SSRF Preflight Protection
   const preflight = await runAdapterPreflight({
-    target: request.endpointUrl,
+    target: endpointUrl,
     targetKind: 'url',
     verifiedAuthorizationDecision: request.verifiedAuthorizationDecision,
     authorizedScopeGrant: request.scopeGrant,
@@ -72,7 +73,7 @@ export async function runHttpMethodManipulationDetection(
       status: 'preflight_denied',
       reasonCode: preflight.reasonCode,
       lineage,
-      endpointUrl: request.endpointUrl,
+      endpointUrl: endpointUrl,
       targetOperation,
       baselineMethod,
       bypassMethodOrHeader: '',
@@ -103,7 +104,7 @@ export async function runHttpMethodManipulationDetection(
   let baselineBody = '';
   try {
     const baselineResp = await transport({
-      url: request.endpointUrl,
+      url: endpointUrl,
       method: (baselineMethod === 'DELETE' || baselineMethod === 'PUT' || baselineMethod === 'POST' || baselineMethod === 'HEAD' || baselineMethod === 'OPTIONS' || baselineMethod === 'TRACE') ? baselineMethod : 'PUT',
       headers: baseHeaders,
       timeoutMs: 5000,
@@ -123,7 +124,7 @@ export async function runHttpMethodManipulationDetection(
       status: 'unexpected_failure',
       reasonCode: 'baseline_method_probe_failed',
       lineage,
-      endpointUrl: request.endpointUrl,
+      endpointUrl: endpointUrl,
       targetOperation,
       baselineMethod,
       bypassMethodOrHeader: '',
@@ -138,15 +139,16 @@ export async function runHttpMethodManipulationDetection(
   }
 
   // 3. Override Probe A: X-HTTP-Method-Override Header
+  const altMethod = baselineMethod.toUpperCase() === 'GET' ? 'POST' : 'GET';
   let overrideAStatusCode = 0;
   let overrideABody = '';
   try {
     const overrideAResp = await transport({
-      url: request.endpointUrl,
+      url: endpointUrl,
       method: 'POST',
       headers: {
         ...baseHeaders,
-        'X-HTTP-Method-Override': baselineMethod,
+        'X-HTTP-Method-Override': altMethod,
       },
       timeoutMs: 5000,
     });
@@ -160,8 +162,8 @@ export async function runHttpMethodManipulationDetection(
   let overrideBStatusCode = 0;
   let overrideBBody = '';
   try {
-    const parsedUrl = new URL(request.endpointUrl);
-    parsedUrl.searchParams.set('_method', baselineMethod);
+    const parsedUrl = new URL(endpointUrl);
+    parsedUrl.searchParams.set('_method', altMethod);
     const overrideBResp = await transport({
       url: parsedUrl.toString(),
       method: 'POST',
@@ -180,7 +182,7 @@ export async function runHttpMethodManipulationDetection(
   let traceBody = '';
   try {
     const traceResp = await transport({
-      url: request.endpointUrl,
+      url: endpointUrl,
       method: 'TRACE',
       headers: {
         ...baseHeaders,
@@ -209,15 +211,15 @@ export async function runHttpMethodManipulationDetection(
       ? 'method_override_header'
       : 'query_param_override';
     const bypassMethodOrHeader = isOverrideABypass
-      ? `X-HTTP-Method-Override: ${baselineMethod}`
-      : `_method=${baselineMethod}`;
+      ? `X-HTTP-Method-Override: ${altMethod}`
+      : `_method=${altMethod}`;
     const manipulatedStatusCode = isOverrideABypass ? overrideAStatusCode : overrideBStatusCode;
     const responseBodySample = isOverrideABypass ? overrideABody : overrideBBody;
 
     const draftId = `dft_hmeth_${safeSeed}`;
     const candidateId = `cnd_hmeth_${safeSeed}`;
     const evidenceRecordId = `evd_hmeth_${safeSeed}`;
-    const sanitizedUrl = sanitizeEvidenceFragment(request.endpointUrl);
+    const sanitizedUrl = sanitizeEvidenceFragment(endpointUrl);
 
     // HITL Decision Handling
     if (request.humanReviewDecision) {
@@ -228,7 +230,7 @@ export async function runHttpMethodManipulationDetection(
           severity: 'high',
           title: `Approved HTTP Verb Tampering Bypass (${bypassMethodOrHeader}) on ${sanitizedUrl}`,
           description: `Target application restricts direct HTTP ${baselineMethod} (status ${baselineStatusCode}) but accepts verb manipulation via '${bypassMethodOrHeader}' on ${sanitizedUrl}, returning HTTP ${manipulatedStatusCode} OK and bypassing authorization controls.`,
-          target: request.endpointUrl,
+          target: endpointUrl,
           evidence: JSON.stringify({
             endpointUrl: sanitizedUrl,
             targetOperation,
@@ -240,10 +242,11 @@ export async function runHttpMethodManipulationDetection(
             bodySampleSnippet: sanitizeEvidenceFragment(responseBodySample.slice(0, 200)),
           }),
           confidence: 0.95,
+          verificationState: 'validated_vulnerability',
           metadata: {
             kind: 'http_method_manipulation_metadata',
             category: 'BROKEN_ACCESS_CONTROL',
-            endpointUrl: request.endpointUrl,
+            endpointUrl: endpointUrl,
             targetOperation,
             baselineMethod,
             bypassMethodOrHeader,
@@ -269,7 +272,7 @@ export async function runHttpMethodManipulationDetection(
           status: 'vulnerability_detected',
           reasonCode: 'http_method_override_bypass_confirmed',
           lineage,
-          endpointUrl: request.endpointUrl,
+          endpointUrl: endpointUrl,
           targetOperation,
           baselineMethod,
           bypassMethodOrHeader,
@@ -292,7 +295,7 @@ export async function runHttpMethodManipulationDetection(
         status: 'secure_target_abstained',
         reasonCode: 'human_operator_rejected_method_override_draft',
         lineage,
-        endpointUrl: request.endpointUrl,
+        endpointUrl: endpointUrl,
         targetOperation,
         baselineMethod,
         bypassMethodOrHeader,
@@ -320,6 +323,16 @@ export async function runHttpMethodManipulationDetection(
       notForExternalDelivery: true,
       notM45EvidenceRecord: true,
       safeRationale: `Target blocked direct ${baselineMethod} (${baselineStatusCode}) but accepted override '${bypassMethodOrHeader}' returning ${manipulatedStatusCode} OK.`,
+      differentialContext: {
+        endpointUrl: sanitizedUrl,
+        detectionKind: 'http_method_manipulation',
+        targetOperation,
+        baselineMethod,
+        bypassMethodOrHeader,
+        baselineStatusCode,
+        manipulatedStatusCode,
+        bypassType,
+      },
     };
 
     return {
@@ -334,7 +347,7 @@ export async function runHttpMethodManipulationDetection(
       status: 'pending_human_review',
       reasonCode: 'http_method_override_bypass_pending_review',
       lineage,
-      endpointUrl: request.endpointUrl,
+      endpointUrl: endpointUrl,
       targetOperation,
       baselineMethod,
       bypassMethodOrHeader,
@@ -350,7 +363,7 @@ export async function runHttpMethodManipulationDetection(
     const draftId = `dft_hmeth_${safeSeed}`;
     const candidateId = `cnd_hmeth_${safeSeed}`;
     const evidenceRecordId = `evd_hmeth_${safeSeed}`;
-    const sanitizedUrl = sanitizeEvidenceFragment(request.endpointUrl);
+    const sanitizedUrl = sanitizeEvidenceFragment(endpointUrl);
 
     if (request.humanReviewDecision) {
       if (request.humanReviewDecision.decision === 'approve_evidence') {
@@ -360,7 +373,7 @@ export async function runHttpMethodManipulationDetection(
           severity: 'medium',
           title: `Approved HTTP TRACE Method Enabled (Cross-Site Tracing) on ${sanitizedUrl}`,
           description: `Target application responds with HTTP 200 OK to TRACE requests and echoes back custom request headers (${canaryToken}), creating Cross-Site Tracing (XST) and credential exposure risks.`,
-          target: request.endpointUrl,
+          target: endpointUrl,
           evidence: JSON.stringify({
             endpointUrl: sanitizedUrl,
             targetOperation: 'trace_debugging',
@@ -372,10 +385,11 @@ export async function runHttpMethodManipulationDetection(
             bodySampleSnippet: sanitizeEvidenceFragment(traceBody.slice(0, 200)),
           }),
           confidence: 0.9,
+          verificationState: 'observed_anomaly',
           metadata: {
             kind: 'http_method_manipulation_metadata',
             category: 'SECURITY_MISCONFIGURATION',
-            endpointUrl: request.endpointUrl,
+            endpointUrl: endpointUrl,
             targetOperation: 'trace_debugging',
             baselineMethod: 'TRACE',
             bypassMethodOrHeader: 'HTTP TRACE',
@@ -401,7 +415,7 @@ export async function runHttpMethodManipulationDetection(
           status: 'potential_weakness',
           reasonCode: 'http_trace_xst_enabled_confirmed',
           lineage,
-          endpointUrl: request.endpointUrl,
+          endpointUrl: endpointUrl,
           targetOperation: 'trace_debugging',
           baselineMethod: 'TRACE',
           bypassMethodOrHeader: 'HTTP TRACE',
@@ -424,7 +438,7 @@ export async function runHttpMethodManipulationDetection(
         status: 'secure_target_abstained',
         reasonCode: 'human_operator_rejected_trace_draft',
         lineage,
-        endpointUrl: request.endpointUrl,
+        endpointUrl: endpointUrl,
         targetOperation: 'trace_debugging',
         baselineMethod: 'TRACE',
         bypassMethodOrHeader: 'HTTP TRACE',
@@ -451,6 +465,16 @@ export async function runHttpMethodManipulationDetection(
       notForExternalDelivery: true,
       notM45EvidenceRecord: true,
       safeRationale: `Target application responds 200 OK to TRACE requests reflecting canary header '${canaryToken}'.`,
+      differentialContext: {
+        endpointUrl: sanitizedUrl,
+        detectionKind: 'http_method_manipulation',
+        targetOperation: 'trace_debugging',
+        baselineMethod: 'TRACE',
+        bypassMethodOrHeader: 'HTTP TRACE',
+        baselineStatusCode,
+        manipulatedStatusCode: traceStatusCode,
+        bypassType: 'trace_enabled',
+      },
     };
 
     return {
@@ -465,7 +489,7 @@ export async function runHttpMethodManipulationDetection(
       status: 'pending_human_review',
       reasonCode: 'http_trace_enabled_pending_review',
       lineage,
-      endpointUrl: request.endpointUrl,
+      endpointUrl: endpointUrl,
       targetOperation: 'trace_debugging',
       baselineMethod: 'TRACE',
       bypassMethodOrHeader: 'HTTP TRACE',
@@ -489,7 +513,7 @@ export async function runHttpMethodManipulationDetection(
     status: 'secure_target_abstained',
     reasonCode: 'http_method_overrides_and_trace_blocked',
     lineage,
-    endpointUrl: request.endpointUrl,
+    endpointUrl: endpointUrl,
     targetOperation,
     baselineMethod,
     bypassMethodOrHeader: '',

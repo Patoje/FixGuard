@@ -220,7 +220,8 @@ export function analyzeAttackSurfaceDelta(
         reviewedBy: request.actorId,
         reviewedAt: nowIso,
       }),
-      confidence: 1.0,
+      confidence: 0.9,
+      verificationState: 'observed_anomaly',
       metadata: {
         kind: 'attack_surface_delta_metadata',
         category: 'SECURITY_MISCONFIGURATION',

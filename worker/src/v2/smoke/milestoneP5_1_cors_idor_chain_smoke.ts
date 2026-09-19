@@ -48,6 +48,7 @@ async function runTests(): Promise<void> {
       target: 'https://app.example.com/api/user',
       evidence: '{"acao":"https://canary.fixguard.internal","acac":true}',
       confidence: 0.95,
+      verificationState: 'validated_vulnerability',
       metadata: {
         kind: 'credentialed_cors_metadata',
         category: 'SECURITY_MISCONFIGURATION',
@@ -70,6 +71,7 @@ async function runTests(): Promise<void> {
       target: 'https://app.example.com/api/tenant/documents/42',
       evidence: '{"statusDiff":200}',
       confidence: 0.95,
+      verificationState: 'validated_vulnerability',
       metadata: {
         kind: 'broken_access_control_metadata',
         category: 'BROKEN_ACCESS_CONTROL',
@@ -128,6 +130,7 @@ async function runTests(): Promise<void> {
       target: 'https://app.example.com/api/user',
       evidence: '{"acac":true}',
       confidence: 0.9,
+      verificationState: 'validated_vulnerability',
       metadata: {
         kind: 'credentialed_cors_metadata',
         category: 'SECURITY_MISCONFIGURATION',
@@ -150,6 +153,7 @@ async function runTests(): Promise<void> {
       target: 'https://api.partner.net/documents/100',
       evidence: '{"statusDiff":200}',
       confidence: 0.9,
+      verificationState: 'validated_vulnerability',
       metadata: {
         kind: 'broken_access_control_metadata',
         category: 'BROKEN_ACCESS_CONTROL',
@@ -191,6 +195,7 @@ async function runTests(): Promise<void> {
       target: 'https://app.example.com/api/public',
       evidence: '{"acac":false}',
       confidence: 0.8,
+      verificationState: 'validated_vulnerability',
       metadata: {
         kind: 'credentialed_cors_metadata',
         category: 'SECURITY_MISCONFIGURATION',
@@ -213,6 +218,7 @@ async function runTests(): Promise<void> {
       target: 'https://app.example.com/api/tenant/42',
       evidence: '{"statusDiff":200}',
       confidence: 0.9,
+      verificationState: 'validated_vulnerability',
       metadata: {
         kind: 'broken_access_control_metadata',
         category: 'BROKEN_ACCESS_CONTROL',
@@ -254,6 +260,7 @@ async function runTests(): Promise<void> {
       target: 'https://app.example.com/api/account',
       evidence: '{"acac":true}',
       confidence: 0.95,
+      verificationState: 'validated_vulnerability',
       metadata: {
         kind: 'credentialed_cors_metadata',
         category: 'SECURITY_MISCONFIGURATION',
@@ -276,6 +283,7 @@ async function runTests(): Promise<void> {
       target: 'https://app.example.com/api/account/data/99',
       evidence: '{"statusDiff":200}',
       confidence: 0.95,
+      verificationState: 'validated_vulnerability',
       metadata: {
         kind: 'broken_access_control_metadata',
         category: 'BROKEN_ACCESS_CONTROL',

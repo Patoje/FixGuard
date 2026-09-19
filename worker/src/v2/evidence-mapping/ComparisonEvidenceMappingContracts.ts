@@ -7,6 +7,7 @@ import type {
   EvidenceType,
   EvidenceStrength
 } from "../evidence/EvidenceBoundaryContracts.js";
+import type { DifferentialEvidenceContext } from "../application/OrchestratedAssessmentContracts.js";
 
 export const COMPARISON_EVIDENCE_MAPPING_CONTRACT_VERSION = "fixguard-comparison-evidence-mapping/v0";
 
@@ -82,6 +83,7 @@ export interface EvidenceDraftEnvelope {
   notForExternalDelivery: true;
   notM45EvidenceRecord: true;
   safeRationale: string;
+  differentialContext?: DifferentialEvidenceContext;
 }
 
 export interface SourceSummary {

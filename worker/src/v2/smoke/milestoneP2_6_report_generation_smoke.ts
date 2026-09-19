@@ -59,6 +59,7 @@ async function runTests(): Promise<void> {
     target: 'https://example.com/login?next=https://canary.fixguard.internal/cb',
     evidence: 'Server issued HTTP 302 redirecting directly to canary domain.',
     confidence: 0.95,
+    verificationState: 'validated_vulnerability',
     metadata: {
       kind: 'open_redirect_metadata',
       parameterName: 'next',

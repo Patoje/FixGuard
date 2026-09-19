@@ -310,6 +310,7 @@ export async function runSourcemapExposureDetection(
           })
         ),
         confidence: 0.95,
+        verificationState: 'observed_anomaly',
         metadata: {
           kind: 'sourcemap_exposure_metadata',
           category: 'INFORMATION_DISCLOSURE',

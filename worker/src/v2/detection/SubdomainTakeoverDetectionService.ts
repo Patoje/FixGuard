@@ -338,6 +338,7 @@ export async function runSubdomainTakeoverDetection(
           reviewedAt: request.humanReviewDecision.reviewedAt,
         }),
         confidence: 0.95,
+        verificationState: 'observed_anomaly',
         metadata: {
           kind: 'subdomain_takeover_metadata',
           category: 'DNS_HIJACKING_RISK',

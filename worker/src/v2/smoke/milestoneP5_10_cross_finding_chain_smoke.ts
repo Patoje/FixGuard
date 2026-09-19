@@ -36,6 +36,7 @@ async function runSmokeTests() {
     target: `https://${targetDomain}/api/v2/billing/invoice`,
     evidence: JSON.stringify({ invoiceId: 'inv_123', status: 200 }),
     confidence: 1.0,
+    verificationState: 'validated_vulnerability',
     metadata: {
       kind: 'broken_access_control_metadata',
       category: 'BROKEN_ACCESS_CONTROL',
@@ -55,6 +56,7 @@ async function runSmokeTests() {
     target: `https://${targetDomain}/.env`,
     evidence: JSON.stringify({ leakedKeys: ['API_KEY', 'DB_HOST'] }),
     confidence: 1.0,
+    verificationState: 'validated_vulnerability',
     metadata: {
       kind: 'manifest_exposure_metadata',
       category: 'INFORMATION_DISCLOSURE',
@@ -76,6 +78,7 @@ async function runSmokeTests() {
     target: `https://${targetDomain}/`,
     evidence: JSON.stringify({ missingHeaders: ['X-Frame-Options'] }),
     confidence: 1.0,
+    verificationState: 'validated_vulnerability',
     metadata: {
       kind: 'missing_security_headers_metadata',
       category: 'SECURITY_MISCONFIGURATION',

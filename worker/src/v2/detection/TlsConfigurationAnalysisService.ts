@@ -241,6 +241,7 @@ export function analyzeTlsConfiguration(
           reviewedAt: request.humanReviewDecision.reviewedAt,
         }),
         confidence: 0.95,
+        verificationState: 'observed_anomaly',
         metadata: {
           kind: 'weak_tls_metadata',
           category: 'SECURITY_MISCONFIGURATION',

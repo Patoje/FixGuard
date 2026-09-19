@@ -112,6 +112,7 @@ export function correlateCorsIdorChains(
               })
             ),
             confidence: 1.0,
+            verificationState: 'validated_vulnerability',
             metadata: {
               kind: 'compound_chain_metadata',
               category: 'BROKEN_ACCESS_CONTROL',

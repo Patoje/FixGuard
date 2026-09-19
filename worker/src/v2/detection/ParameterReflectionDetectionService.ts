@@ -881,6 +881,7 @@ export async function runParameterReflectionDetection(
       evidenceId: evidenceRecord.evidenceId
     }),
     confidence: 0.90,
+    verificationState: 'observed_anomaly',
     metadata: {
       kind: 'input_validation_flaw_metadata',
       category: 'INPUT_VALIDATION_FLAW',

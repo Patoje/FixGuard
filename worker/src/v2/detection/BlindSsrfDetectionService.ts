@@ -238,6 +238,7 @@ export async function runBlindSsrfDetection(
         reviewedAt: nowIso,
       }),
       confidence: 1.0,
+      verificationState: 'validated_vulnerability',
       metadata: {
         kind: 'blind_ssrf_detection_metadata',
         category: 'SERVER_SIDE_REQUEST_FORGERY',

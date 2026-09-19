@@ -188,6 +188,7 @@ export async function runWordPressSurfaceDetection(
                   })
                 ),
                 confidence: 0.95,
+                verificationState: 'observed_anomaly',
                 metadata: {
                   kind: 'wordpress_surface_metadata',
                   category: 'SECURITY_MISCONFIGURATION',
@@ -374,6 +375,7 @@ export async function runWordPressSurfaceDetection(
                 })
               ),
               confidence: 0.95,
+              verificationState: 'observed_anomaly',
               metadata: {
                 kind: 'wordpress_surface_metadata',
                 category: 'INFORMATION_DISCLOSURE',

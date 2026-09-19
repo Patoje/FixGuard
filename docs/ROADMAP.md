@@ -132,13 +132,16 @@
                                                                 │
                                                                 ▼
                                                         [PHASE 5: P5-2] COMPLETED (API Versioning Sprawl Detection Engine)
+                                                                │
+                                                                ▼
+                                                        [PHASE 5: P5-3] COMPLETED (HTTP Method Manipulation Detection Engine)
 ```
 
 ---
 
 ## 2. Completed Milestones (`CONFIRMED`)
 
-All completed milestones are verified via active TypeScript contracts and the regression test suite (`npm run check:v2` with 67 passing smoke suites, 100% pass rate).
+All completed milestones are verified via active TypeScript contracts and the regression test suite (`npm run check:v2` with 68 passing smoke suites, 100% pass rate).
 
 
 
@@ -1599,7 +1602,31 @@ All completed milestones are verified via active TypeScript contracts and the re
   4. **Verification & Hygiene**:
      - Dedicated smoke test `worker/src/v2/smoke/milestoneP7_3_blind_xss_smoke.ts` passes 100% across all 5 assertions.
      - `npm run typecheck:v2` exits with code 0.
-     - Full regression suite `npm run check:v2` (81/81 smoke suites) passes 100%.
+     - Full regression suite `npm run check:v2` (82/82 smoke suites) passes 100%.
+     - `cd web && npm run build` compiles cleanly with zero errors.
+     - 0 occurrences of `as any` across all production code.
+
+---
+
+### Milestone A1: CI Dependency Fix & Verification State Machine (Adversarial Phase 1 Kickoff)
+- **Status:** COMPLETED.
+- **Goal:** Resolve CI dependency location (`playwright` in `worker/package.json`) and implement the formal 5-state Findings Verification State Machine (`observed_anomaly`, `suspected_vulnerability`, `validated_vulnerability`, `exploitability_confirmed`, `impact_confirmed`) enforcing epistemic honesty and transition immutability.
+- **Key Deliverables:**
+  1. **CI Dependency Fix**:
+     - Moved `playwright` to `dependencies` in `worker/package.json` to ensure container build and CI pipeline typechecking pass.
+  2. **Domain Contracts & State Machine (`VerificationStateContracts.ts`, `VerificationStateService.ts`)**:
+     - Created `worker/src/v2/core/VerificationStateContracts.ts` defining the 5-state verification lifecycle and `VerificationStateTransition`.
+     - Created `worker/src/v2/core/VerificationStateService.ts` enforcing state transition invariants (`advanceState`, `refuteState`). Mandates either `evidenceId` (from automated execution) or `reviewerId` (from HITL triage). Direct field assignment is strictly prohibited.
+  3. **Model & Detection Engine Integration**:
+     - Extended `Finding` interface in `worker/src/v2/core/Evidence.ts` with `readonly verificationState: VerificationState;`.
+     - Updated all detection engines to assign proper initial state:
+       - High-confidence deterministic findings (Auth Bypass, CORS, SQL Error, Blind SSRF, etc.) -> `'validated_vulnerability'`.
+       - Heuristics/potential weaknesses (Info Disclosure, Security Headers, Manifest Exposure, etc.) -> `'observed_anomaly'`.
+     - Updated `reviewEvidenceDraft()` in `OrchestratedAssessmentApplicationService.ts` to advance state (`observed_anomaly` -> `suspected_vulnerability`) via `VerificationStateService.advanceState` upon HITL operator approval.
+  4. **Verification & Hygiene**:
+     - Dedicated smoke test `worker/src/v2/smoke/milestoneA1_verification_state_smoke.ts` passes 100% across all 5 assertions.
+     - `npm run typecheck:v2` exits with code 0.
+     - Full regression suite `npm run check:v2` (82/82 smoke suites) passes 100%.
      - `cd web && npm run build` compiles cleanly with zero errors.
      - 0 occurrences of `as any` across all production code.
 

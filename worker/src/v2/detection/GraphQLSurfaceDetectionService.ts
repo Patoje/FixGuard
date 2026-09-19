@@ -281,6 +281,7 @@ export async function runGraphQLSurfaceDetection(
               })
             ),
             confidence: 0.95,
+            verificationState: 'observed_anomaly',
             metadata: {
               kind: 'graphql_surface_metadata',
               category,

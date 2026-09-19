@@ -221,6 +221,7 @@ export async function runSessionFixationDetection(
             })
           ),
           confidence: 0.9,
+          verificationState: 'validated_vulnerability',
           metadata: {
             kind: 'session_fixation_metadata',
             category: 'BROKEN_AUTHENTICATION',

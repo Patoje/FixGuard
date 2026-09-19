@@ -83,6 +83,8 @@ import {
   runStateTransitionAnomalyDetection,
   isStateTransitionCandidateEndpoint,
 } from '../detection/StateTransitionAnomalyDetectionService.js';
+
+import { runBlindXssDetection } from '../detection/BlindXssDetectionService.js';
 import { correlateCorsIdorChains } from '../intelligence/correlation/CorsIdorChainCorrelator.js';
 import { correlateCrossFindingChains } from '../intelligence/correlation/CrossFindingChainCorrelator.js';
 
@@ -95,8 +97,9 @@ import { scanManifestsForVulnerabilities } from '../sast/DependencyVulnerability
 import { scanFilesForStaticRoutes } from '../sast/StaticRouteExtractionService.js';
 import { defaultOobCanaryManager } from '../oob/OobCanaryManager.js';
 import { runBlindSsrfDetection, isSsrfCandidateParameter } from '../detection/BlindSsrfDetectionService.js';
-import { runBlindXssDetection, isXssCandidateParameter } from '../detection/BlindXssDetectionService.js';
 import type { Finding } from '../core/Evidence.js';
+import type { VerificationState } from '../core/VerificationStateContracts.js';
+import { VerificationStateService } from '../core/VerificationStateService.js';
 import type { EvidenceDraftEnvelope } from '../evidence-mapping/ComparisonEvidenceMappingContracts.js';
 
 import { SessionNotFoundError } from '../storage/StorageErrors.js';
@@ -821,6 +824,7 @@ export class OrchestratedAssessmentApplicationService {
             differentialContext: context,
           }),
           confidence: 1.0,
+          verificationState: 'suspected_vulnerability',
           metadata: {
             kind: 'security_misconfiguration_metadata',
             category: 'CORS_MISCONFIGURATION',
@@ -853,6 +857,7 @@ export class OrchestratedAssessmentApplicationService {
             differentialContext: context,
           }),
           confidence: 1.0,
+          verificationState: 'suspected_vulnerability',
           metadata: {
             kind: 'input_validation_flaw_metadata',
             category: 'PARAMETER_REFLECTION',
@@ -885,6 +890,7 @@ export class OrchestratedAssessmentApplicationService {
             differentialContext: context,
           }),
           confidence: 1.0,
+          verificationState: 'suspected_vulnerability',
           metadata: {
             kind: 'broken_access_control_metadata',
             category: 'BROKEN_ACCESS_CONTROL',
@@ -921,6 +927,7 @@ export class OrchestratedAssessmentApplicationService {
             differentialContext: context,
           }),
           confidence: 0.95,
+          verificationState: 'suspected_vulnerability',
           metadata: {
             kind: 'auth_bypass_metadata',
             category: 'BROKEN_AUTHENTICATION',
@@ -954,6 +961,7 @@ export class OrchestratedAssessmentApplicationService {
             differentialContext: context,
           }),
           confidence: 0.95,
+          verificationState: 'suspected_vulnerability',
           metadata: {
             kind: 'missing_security_headers_metadata',
             category: 'SECURITY_MISCONFIGURATION',
@@ -991,6 +999,7 @@ export class OrchestratedAssessmentApplicationService {
             differentialContext: context,
           }),
           confidence: 1.0,
+          verificationState: 'suspected_vulnerability',
           metadata: {
             kind: 'open_redirect_metadata',
             category: 'INPUT_VALIDATION_FLAW',
@@ -1029,6 +1038,7 @@ export class OrchestratedAssessmentApplicationService {
             differentialContext: context,
           }),
           confidence: 0.95,
+          verificationState: 'suspected_vulnerability',
           metadata: {
             kind: 'information_disclosure_metadata',
             category: 'SECURITY_MISCONFIGURATION',
@@ -1068,6 +1078,7 @@ export class OrchestratedAssessmentApplicationService {
             differentialContext: context,
           }),
           confidence: 1.0,
+          verificationState: 'suspected_vulnerability',
           metadata: {
             kind: 'subdomain_takeover_metadata',
             category: 'DNS_HIJACKING_RISK',
@@ -1133,6 +1144,7 @@ export class OrchestratedAssessmentApplicationService {
             differentialContext: context,
           }),
           confidence: 1.0,
+          verificationState: 'suspected_vulnerability',
           metadata: {
             kind: 'weak_tls_metadata',
             category: 'SECURITY_MISCONFIGURATION',
@@ -1174,6 +1186,7 @@ export class OrchestratedAssessmentApplicationService {
             differentialContext: context,
           }),
           confidence: 1.0,
+          verificationState: 'suspected_vulnerability',
           metadata: {
             kind: 'sourcemap_exposure_metadata',
             category: 'INFORMATION_DISCLOSURE',
@@ -1212,6 +1225,7 @@ export class OrchestratedAssessmentApplicationService {
               differentialContext: context,
             }),
             confidence: 1.0,
+            verificationState: 'suspected_vulnerability',
             metadata: {
               kind: 'wordpress_surface_metadata',
               category: 'SECURITY_MISCONFIGURATION',
@@ -1241,6 +1255,7 @@ export class OrchestratedAssessmentApplicationService {
               differentialContext: context,
             }),
             confidence: 1.0,
+            verificationState: 'suspected_vulnerability',
             metadata: {
               kind: 'wordpress_surface_metadata',
               category: 'INFORMATION_DISCLOSURE',
@@ -1277,6 +1292,7 @@ export class OrchestratedAssessmentApplicationService {
             differentialContext: context,
           }),
           confidence: 1.0,
+          verificationState: 'suspected_vulnerability',
           metadata: {
             kind: 'sql_error_oracle_metadata',
             category: 'INFORMATION_DISCLOSURE',
@@ -1335,6 +1351,7 @@ export class OrchestratedAssessmentApplicationService {
             differentialContext: context,
           }),
           confidence: 1.0,
+          verificationState: 'suspected_vulnerability',
           metadata: {
             kind: 'graphql_surface_metadata',
             category,
@@ -1379,6 +1396,7 @@ export class OrchestratedAssessmentApplicationService {
             differentialContext: context,
           }),
           confidence: 1.0,
+          verificationState: 'suspected_vulnerability',
           metadata: {
             kind: 'jwt_algorithm_confusion_metadata',
             category: 'BROKEN_AUTHENTICATION',
@@ -1422,6 +1440,7 @@ export class OrchestratedAssessmentApplicationService {
             differentialContext: context,
           }),
           confidence: 1.0,
+          verificationState: 'suspected_vulnerability',
           metadata: {
             kind: 'session_fixation_metadata',
             category: 'BROKEN_AUTHENTICATION',
@@ -1466,6 +1485,7 @@ export class OrchestratedAssessmentApplicationService {
             differentialContext: context,
           }),
           confidence: 1.0,
+          verificationState: 'suspected_vulnerability',
           metadata: {
             kind: 'credentialed_cors_metadata',
             category: 'SECURITY_MISCONFIGURATION',
@@ -1505,6 +1525,7 @@ export class OrchestratedAssessmentApplicationService {
             differentialContext: context,
           }),
           confidence: 1.0,
+          verificationState: 'suspected_vulnerability',
           metadata: {
             kind: 'cms_plugin_vulnerability_metadata',
             category: 'SECURITY_MISCONFIGURATION',
@@ -1543,6 +1564,7 @@ export class OrchestratedAssessmentApplicationService {
             differentialContext: context,
           }),
           confidence: 1.0,
+          verificationState: 'suspected_vulnerability',
           metadata: {
             kind: 'compound_chain_metadata',
             category: 'BROKEN_ACCESS_CONTROL',
@@ -1586,6 +1608,7 @@ export class OrchestratedAssessmentApplicationService {
             differentialContext: context,
           }),
           confidence: 1.0,
+          verificationState: 'suspected_vulnerability',
           metadata: {
             kind: 'api_versioning_sprawl_metadata',
             category,
@@ -1631,6 +1654,7 @@ export class OrchestratedAssessmentApplicationService {
             differentialContext: context,
           }),
           confidence: 1.0,
+          verificationState: 'suspected_vulnerability',
           metadata: {
             kind: 'http_method_manipulation_metadata',
             category,
@@ -1670,6 +1694,7 @@ export class OrchestratedAssessmentApplicationService {
             differentialContext: context,
           }),
           confidence: 1.0,
+          verificationState: 'suspected_vulnerability',
           metadata: {
             kind: 'dependency_confusion_metadata',
             category: 'SUPPLY_CHAIN_RISK',
@@ -1712,6 +1737,7 @@ export class OrchestratedAssessmentApplicationService {
             differentialContext: context,
           }),
           confidence: 1.0,
+          verificationState: 'suspected_vulnerability',
           metadata: {
             kind: 'manifest_exposure_metadata',
             category: 'INFORMATION_DISCLOSURE',
@@ -1748,6 +1774,7 @@ export class OrchestratedAssessmentApplicationService {
             differentialContext: context,
           }),
           confidence: 1.0,
+          verificationState: 'suspected_vulnerability',
           metadata: {
             kind: 'parameter_integrity_metadata',
             category: 'INFORMATION_DISCLOSURE',
@@ -1784,6 +1811,7 @@ export class OrchestratedAssessmentApplicationService {
             differentialContext: context,
           }),
           confidence: 1.0,
+          verificationState: 'suspected_vulnerability',
           metadata: {
             kind: 'object_mapping_anomaly_metadata',
             category: 'BROKEN_ACCESS_CONTROL',
@@ -1820,6 +1848,7 @@ export class OrchestratedAssessmentApplicationService {
             differentialContext: context,
           }),
           confidence: 1.0,
+          verificationState: 'suspected_vulnerability',
           metadata: {
             kind: 'state_transition_anomaly_metadata',
             category: 'BUSINESS_LOGIC_BYPASS',
@@ -1856,6 +1885,7 @@ export class OrchestratedAssessmentApplicationService {
             differentialContext: context,
           }),
           confidence: 1.0,
+          verificationState: 'suspected_vulnerability',
           metadata: {
             kind: 'attack_surface_delta_metadata',
             category: 'SECURITY_MISCONFIGURATION',
@@ -1898,6 +1928,7 @@ export class OrchestratedAssessmentApplicationService {
             differentialContext: context,
           }),
           confidence: 1.0,
+          verificationState: 'suspected_vulnerability',
           metadata: {
             kind: 'cross_finding_chain_metadata',
             category: 'BROKEN_ACCESS_CONTROL',
@@ -1939,6 +1970,7 @@ export class OrchestratedAssessmentApplicationService {
             differentialContext: context,
           }),
           confidence: 1.0,
+          verificationState: 'suspected_vulnerability',
           metadata: {
             kind: 'static_secret_exposure_metadata',
             category: 'INFORMATION_DISCLOSURE',
@@ -1984,6 +2016,7 @@ export class OrchestratedAssessmentApplicationService {
             differentialContext: context,
           }),
           confidence: 1.0,
+          verificationState: 'suspected_vulnerability',
           metadata: {
             kind: 'dependency_vulnerability_metadata',
             category: 'SUPPLY_CHAIN_RISK',
@@ -2027,6 +2060,7 @@ export class OrchestratedAssessmentApplicationService {
             differentialContext: context,
           }),
           confidence: 1.0,
+          verificationState: 'suspected_vulnerability',
           metadata: {
             kind: 'static_route_extraction_metadata',
             category: 'SECURITY_MISCONFIGURATION',
@@ -2070,6 +2104,7 @@ export class OrchestratedAssessmentApplicationService {
             differentialContext: context,
           }),
           confidence: 1.0,
+          verificationState: 'suspected_vulnerability',
           metadata: {
             kind: 'oob_canary_metadata',
             category: 'SERVER_SIDE_REQUEST_FORGERY',
@@ -2112,6 +2147,7 @@ export class OrchestratedAssessmentApplicationService {
             differentialContext: context,
           }),
           confidence: 1.0,
+          verificationState: 'suspected_vulnerability',
           metadata: {
             kind: 'blind_ssrf_detection_metadata',
             category: 'SERVER_SIDE_REQUEST_FORGERY',
@@ -2155,6 +2191,7 @@ export class OrchestratedAssessmentApplicationService {
             differentialContext: context,
           }),
           confidence: 1.0,
+          verificationState: 'suspected_vulnerability',
           metadata: {
             kind: 'blind_xss_detection_metadata',
             category: 'CROSS_SITE_SCRIPTING',
@@ -2188,6 +2225,7 @@ export class OrchestratedAssessmentApplicationService {
             differentialContext: context,
           }),
           confidence: 1.0,
+          verificationState: 'suspected_vulnerability',
           metadata: {
             kind: 'security_misconfiguration_metadata',
             category: 'SECURITY_MISCONFIGURATION',
@@ -2202,6 +2240,16 @@ export class OrchestratedAssessmentApplicationService {
             endpointUrl: context?.endpointUrl,
           },
         };
+      }
+
+      if (findingCreated) {
+        const initialState = findingCreated.verificationState;
+        const targetState: VerificationState = initialState === 'observed_anomaly' ? 'suspected_vulnerability' : initialState;
+        const { updatedFinding } = VerificationStateService.advanceState(findingCreated, targetState, {
+          reviewerId,
+          reasonCode: 'hitl_operator_approval',
+        });
+        findingCreated = updatedFinding;
       }
 
       const updatedFindings = [...record.findings, findingCreated!];

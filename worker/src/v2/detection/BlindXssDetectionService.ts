@@ -237,6 +237,7 @@ export async function runBlindXssDetection(
       target: endpointUrl,
       evidence: `Injected script payload '${sanitizedPayload}' triggered confirmed out-of-band execution callback from IP ${remoteAddress}.`,
       confidence: 1.0,
+      verificationState: 'validated_vulnerability',
       metadata: {
         kind: 'blind_xss_detection_metadata',
         category: 'CROSS_SITE_SCRIPTING',

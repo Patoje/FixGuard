@@ -189,6 +189,7 @@ export function correlateCrossFindingChains(
             reviewedAt: nowIso,
           }),
           confidence: 1.0,
+          verificationState: 'validated_vulnerability',
           metadata: {
             kind: 'cross_finding_chain_metadata',
             category: 'BROKEN_ACCESS_CONTROL',

@@ -324,6 +324,7 @@ export async function runApiVersioningSprawlDetection(
               bodySampleSnippet: sanitizeEvidenceFragment(legacyBody.slice(0, 200)),
             }),
             confidence: isAuthDisparity ? 0.95 : 0.75,
+            verificationState: 'observed_anomaly',
             metadata: {
               kind: 'api_versioning_sprawl_metadata',
               category,

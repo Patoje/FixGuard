@@ -300,6 +300,7 @@ export async function runOpenRedirectDetection(
                 reviewedAt: request.humanReviewDecision.reviewedAt,
               }),
               confidence: 1.0,
+              verificationState: 'observed_anomaly',
               metadata: {
                 kind: 'open_redirect_metadata',
                 category: 'INPUT_VALIDATION_FLAW',

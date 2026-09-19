@@ -33,6 +33,7 @@ export class SubfinderJsonParser implements Parser {
             target: record.host,
             evidence: JSON.stringify(record),
             confidence: 0.9, // High confidence for passive OSINT
+            verificationState: 'observed_anomaly',
             metadata: {
               kind: 'discovery_finding_metadata',
               source: record.source || 'unknown',

@@ -292,6 +292,7 @@ export async function runStateTransitionAnomalyDetection(
         reviewedAt: nowIso,
       }),
       confidence: 1.0,
+      verificationState: 'validated_vulnerability',
       metadata: {
         kind: 'state_transition_anomaly_metadata',
         category: 'BUSINESS_LOGIC_BYPASS',

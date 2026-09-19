@@ -251,6 +251,7 @@ export class OobCanaryManager {
             reviewedAt: nowIso,
           }),
           confidence: 1.0,
+          verificationState: 'validated_vulnerability',
           metadata: {
             kind: 'oob_canary_metadata',
             category: 'SERVER_SIDE_REQUEST_FORGERY',

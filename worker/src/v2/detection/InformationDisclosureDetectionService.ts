@@ -382,6 +382,7 @@ export async function runInformationDisclosureDetection(
           reviewedAt: request.humanReviewDecision.reviewedAt,
         }),
         confidence: 0.95,
+        verificationState: 'observed_anomaly',
         metadata: {
           kind: 'information_disclosure_metadata',
           category: 'SECURITY_MISCONFIGURATION',
@@ -467,3 +468,12 @@ export async function runInformationDisclosureDetection(
     evidenceDraft: draftEnvelope,
   };
 }
+
+export class InformationDisclosureDetectionService {
+  public async detectInformationDisclosure(
+    request: InformationDisclosureDetectionRequest
+  ): Promise<InformationDisclosureDetectionResult> {
+    return runInformationDisclosureDetection(request);
+  }
+}
+

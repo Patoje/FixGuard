@@ -1211,6 +1211,7 @@ export interface HttpMethodManipulationDetectionRequest {
   readonly verifiedAuthorizationDecision: VerifiedAuthorizationDecision;
   readonly scopeGrant: AuthorizedScopeGrant;
   readonly endpointUrl: string;
+  readonly targetEndpointUrl?: string;
   readonly targetOperation?: string;
   readonly baselineMethod?: string;
   readonly identityAContext?: ProbeAuthContext;

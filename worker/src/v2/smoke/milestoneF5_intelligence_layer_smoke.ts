@@ -83,6 +83,7 @@ function createMockFinding(params: {
     target: params.target,
     evidence: `evidence_for_${params.id}`,
     confidence: params.confidence,
+    verificationState: 'validated_vulnerability',
     metadata: meta,
   };
 }

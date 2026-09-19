@@ -251,7 +251,7 @@ export async function runAssessmentRepositoryConformanceSuite(
     
     // simulate findings by adding to evidence collections inside state
     const ev = createMinimalEvidence();
-    ev.findings.push({ id: 'f1', type: 't', severity: 'low', title: 'test', description: 'd', target: 't', evidence: 'e', confidence: 1, metadata: { kind: 'discovery_finding_metadata' } });
+    ev.findings.push({ id: 'f1', type: 't', severity: 'low', title: 'test', description: 'd', target: 't', evidence: 'e', confidence: 1, verificationState: 'observed_anomaly', metadata: { kind: 'discovery_finding_metadata' } });
     state1.evidenceCollections.push(ev);
     state1.pendingRecommendations.push(createMinimalRecommendation());
     state1.executionFailures.push(createMinimalExecutionFailure());
@@ -337,12 +337,12 @@ export async function runAssessmentRepositoryConformanceSuite(
 
     // Append record A (higher timestamp, second in time but first inserted)
     const evA1 = createMinimalEvidence();
-    evA1.findings.push({ id: 'evA1', type: 't', severity: 'low', title: 'test', description: 'd', target: 't', evidence: 'e', confidence: 1, metadata: { kind: 'discovery_finding_metadata' } });
+    evA1.findings.push({ id: 'evA1', type: 't', severity: 'low', title: 'test', description: 'd', target: 't', evidence: 'e', confidence: 1, verificationState: 'observed_anomaly', metadata: { kind: 'discovery_finding_metadata' } });
     await repo.appendEvidence({ sessionId: sa, evidence: evA1, capability: 'cap', recordedAt: 2000 });
     
     // Append record B (lower timestamp, first in time but second inserted)
     const evA2 = createMinimalEvidence();
-    evA2.findings.push({ id: 'evA2', type: 't', severity: 'low', title: 'test', description: 'd', target: 't', evidence: 'e', confidence: 1, metadata: { kind: 'discovery_finding_metadata' } });
+    evA2.findings.push({ id: 'evA2', type: 't', severity: 'low', title: 'test', description: 'd', target: 't', evidence: 'e', confidence: 1, verificationState: 'observed_anomaly', metadata: { kind: 'discovery_finding_metadata' } });
     await repo.appendEvidence({ sessionId: sa, evidence: evA2, capability: 'cap', recordedAt: 1000 });
     
     // Isolation check

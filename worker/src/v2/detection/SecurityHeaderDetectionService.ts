@@ -301,6 +301,7 @@ export async function runSecurityHeaderDetection(
       reviewedAt: request.humanReviewDecision.reviewedAt,
     }),
     confidence: 0.95,
+    verificationState: 'observed_anomaly',
     metadata: {
       kind: 'missing_security_headers_metadata',
       category: 'SECURITY_MISCONFIGURATION',

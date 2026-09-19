@@ -267,6 +267,7 @@ export async function runJwtAlgorithmConfusionDetection(
             })
           ),
           confidence: 0.95,
+          verificationState: 'validated_vulnerability',
           metadata: {
             kind: 'jwt_algorithm_confusion_metadata',
             category: 'BROKEN_AUTHENTICATION',

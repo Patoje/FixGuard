@@ -199,6 +199,7 @@ export async function runCredentialedCorsDetection(
             })
           ),
           confidence: 0.95,
+          verificationState: 'validated_vulnerability',
           metadata: {
             kind: 'credentialed_cors_metadata',
             category: 'SECURITY_MISCONFIGURATION',

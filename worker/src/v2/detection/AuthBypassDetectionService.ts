@@ -1055,6 +1055,7 @@ export async function runAuthBypassDetection(
       })
     ),
     confidence: 0.95,
+    verificationState: 'validated_vulnerability',
     metadata: {
       kind: 'auth_bypass_metadata',
       category: 'BROKEN_AUTHENTICATION',
