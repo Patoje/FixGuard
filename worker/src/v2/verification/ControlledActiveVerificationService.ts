@@ -22,6 +22,8 @@ import type {
   ActiveVerificationProofRecord,
   ActiveVerificationResult,
   ConfirmedFindingCandidateRecord,
+  IdorDifferentialExecuteRequest,
+  IdorDifferentialExecuteResult,
   VerificationHttpRequest,
   VerificationHttpResponse,
   VerificationHttpTransport,
@@ -87,6 +89,124 @@ export class ControlledActiveVerificationService {
 
   constructor(transport?: VerificationHttpTransport) {
     this.transport = transport ?? defaultHttpTransport;
+  }
+
+  /**
+   * Dual-identity IDOR differential execute.
+   * Applies static SSRF + optional DNS rebinding gates, then probes with both identities.
+   * Does NOT mint exploitation WeakSet brands — callers must already hold attack-execution authority.
+   */
+  public async execute(
+    request: IdorDifferentialExecuteRequest
+  ): Promise<IdorDifferentialExecuteResult> {
+    let parsedUrl: URL;
+    try {
+      parsedUrl = new URL(request.targetUrl);
+    } catch {
+      return {
+        status: 'preflight_denied',
+        reasonCode: 'invalid_target_url',
+        safeMessage: 'Target URL is malformed or invalid',
+      };
+    }
+
+    if (parsedUrl.protocol !== 'http:' && parsedUrl.protocol !== 'https:') {
+      return {
+        status: 'preflight_denied',
+        reasonCode: 'invalid_protocol',
+        safeMessage: 'IDOR differential target URL must use HTTP or HTTPS',
+      };
+    }
+
+    const host = parsedUrl.hostname.toLowerCase();
+
+    if (isInternalOrSsrfTarget(host)) {
+      return {
+        status: 'preflight_denied',
+        reasonCode: 'ssrf_target_blocked',
+        safeMessage: 'Target URL points to blocked internal, loopback, or metadata host',
+      };
+    }
+
+    if (request.dnsResolver) {
+      const dnsCheck = await validateDnsRebinding(host, request.dnsResolver);
+      if (!dnsCheck.ok) {
+        return {
+          status: 'preflight_denied',
+          reasonCode: 'ssrf_target_blocked',
+          safeMessage: `Target host resolves to blocked internal or private IP: ${dnsCheck.blockedIp}`,
+        };
+      }
+    }
+
+    const baseHeaders: Record<string, string> = {
+      'User-Agent': 'FixGuard-Active-Verification/1.0',
+      Accept: '*/*',
+    };
+
+    let primaryResponse: VerificationHttpResponse;
+    let secondaryResponse: VerificationHttpResponse;
+    try {
+      primaryResponse = await this.transport({
+        url: request.targetUrl,
+        method: 'GET',
+        headers: { ...baseHeaders, ...(request.primaryIdentity.headers ?? {}) },
+        timeoutMs: request.timeoutMs,
+      });
+      secondaryResponse = await this.transport({
+        url: request.targetUrl,
+        method: 'GET',
+        headers: { ...baseHeaders, ...(request.secondaryIdentity.headers ?? {}) },
+        timeoutMs: request.timeoutMs,
+      });
+    } catch (err) {
+      return {
+        status: 'failed',
+        reasonCode: 'network_execution_error',
+        safeMessage: `Failed to execute IDOR differential probe: ${err instanceof Error ? err.message : String(err)}`,
+      };
+    }
+
+    const denialCodes = new Set([401, 403, 404]);
+    if (denialCodes.has(secondaryResponse.statusCode)) {
+      const reasonCode =
+        secondaryResponse.statusCode === 401
+          ? 'http_401'
+          : secondaryResponse.statusCode === 403
+            ? 'http_403'
+            : secondaryResponse.statusCode === 404
+              ? 'http_404'
+              : 'target_denied';
+      return {
+        status: 'access_denied',
+        reasonCode,
+        statusCode: secondaryResponse.statusCode,
+        evidenceSummary: `Secondary identity denied object access with HTTP ${secondaryResponse.statusCode}`,
+      };
+    }
+
+    const primaryOk =
+      primaryResponse.statusCode === 200 && primaryResponse.bodyText.length > 0;
+    const secondaryOk =
+      secondaryResponse.statusCode === 200 && secondaryResponse.bodyText.length > 0;
+
+    if (primaryOk && secondaryOk) {
+      return {
+        status: 'differential_access_observed',
+        primaryStatusCode: primaryResponse.statusCode,
+        secondaryStatusCode: secondaryResponse.statusCode,
+        primaryBodyHash: computeSha256(primaryResponse.bodyText),
+        secondaryBodyHash: computeSha256(secondaryResponse.bodyText),
+        evidenceSummary: `Cross-identity differential read observed (primary=${request.primaryIdentity.identityId}, secondary=${request.secondaryIdentity.identityId})`,
+      };
+    }
+
+    return {
+      status: 'access_denied',
+      reasonCode: 'target_denied',
+      statusCode: secondaryResponse.statusCode,
+      evidenceSummary: `No differential object access observed (primary HTTP ${primaryResponse.statusCode}, secondary HTTP ${secondaryResponse.statusCode})`,
+    };
   }
 
   public async verifyActiveExploit(

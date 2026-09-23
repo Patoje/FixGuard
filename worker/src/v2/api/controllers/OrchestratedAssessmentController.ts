@@ -33,6 +33,7 @@ import { ApiValidationError, UnauthorizedGatewayError } from '../ApiErrors.js';
 import { TargetExecutionCoordinator } from '../../runtime/TargetExecutionCoordinator.js';
 import type { Finding } from '../../core/Evidence.js';
 import type { AuthorizedScopeGrant } from '../../scope/AuthorizedScopeContracts.js';
+import type { AttackCapabilityIdentityRef } from '../../attack-execution/AttackExecutionContracts.js';
 
 function isAuthorizedScopeGrant(value: object): value is AuthorizedScopeGrant {
   return (
@@ -53,6 +54,46 @@ function isFindingArray(value: unknown): value is Finding[] {
     if (typeof Reflect.get(item, 'verificationState') !== 'string') return false;
   }
   return true;
+}
+
+function parseOptionalIdentity(
+  value: unknown,
+  fieldName: string
+): AttackCapabilityIdentityRef | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new ApiValidationError(`Field ${fieldName} must be an object when provided`);
+  }
+  const record = value as Record<string, unknown>;
+  for (const k of Object.keys(record)) {
+    if (k !== 'identityId' && k !== 'headers') {
+      throw new ApiValidationError(`Field ${fieldName} contains unknown or forbidden field`);
+    }
+  }
+  if (typeof record.identityId !== 'string' || record.identityId.trim().length === 0) {
+    throw new ApiValidationError(`Field ${fieldName}.identityId must be a non-empty string`);
+  }
+  let headers: Readonly<Record<string, string>> | undefined;
+  if (record.headers !== undefined) {
+    if (!record.headers || typeof record.headers !== 'object' || Array.isArray(record.headers)) {
+      throw new ApiValidationError(`Field ${fieldName}.headers must be an object when provided`);
+    }
+    const rawHeaders = record.headers as Record<string, unknown>;
+    const normalized: Record<string, string> = {};
+    for (const [hk, hv] of Object.entries(rawHeaders)) {
+      if (typeof hv !== 'string') {
+        throw new ApiValidationError(`Field ${fieldName}.headers values must be strings`);
+      }
+      normalized[hk] = hv;
+    }
+    headers = Object.freeze(normalized);
+  }
+  return {
+    identityId: record.identityId,
+    ...(headers ? { headers } : {}),
+  };
 }
 
 export class OrchestratedAssessmentController {
@@ -299,7 +340,8 @@ export class OrchestratedAssessmentController {
   /**
    * Milestone A5 — execute an authorized attack plan under 7 safety gates.
    * Requires a prior in-process authorize that sealed a WeakSet-branded token.
-   * Exact-key body: operatorId, scopeGrant, findings (optional), dnsAnswers (optional hermetic).
+   * Exact-key body: operatorId, scopeGrant, findings (optional), dnsAnswers (optional hermetic),
+   * primaryIdentity / secondaryIdentity (optional differential identities).
    */
   public executeAttackPlan = async (
     req: Request,
@@ -325,7 +367,14 @@ export class OrchestratedAssessmentController {
       }
 
       const body = req.body as Record<string, unknown>;
-      const allowedKeys = ['operatorId', 'scopeGrant', 'findings', 'dnsAnswers'];
+      const allowedKeys = [
+        'operatorId',
+        'scopeGrant',
+        'findings',
+        'dnsAnswers',
+        'primaryIdentity',
+        'secondaryIdentity',
+      ];
       for (const k of Object.keys(body)) {
         if (!allowedKeys.includes(k)) {
           throw new ApiValidationError('Execution request contains unknown or forbidden field');
@@ -353,6 +402,9 @@ export class OrchestratedAssessmentController {
         throw new ApiValidationError('Field findings must be an array of Finding objects');
       }
 
+      const primaryIdentity = parseOptionalIdentity(body.primaryIdentity, 'primaryIdentity');
+      const secondaryIdentity = parseOptionalIdentity(body.secondaryIdentity, 'secondaryIdentity');
+
       const token = this.attackAuthorizationService.getRuntimeToken(planId, assessmentId);
       if (!token) {
         throw new UnauthorizedGatewayError(
@@ -377,6 +429,8 @@ export class OrchestratedAssessmentController {
         dnsResolver: async () => dnsAnswers,
         findings,
         operatorId,
+        ...(primaryIdentity ? { primaryIdentity } : {}),
+        ...(secondaryIdentity ? { secondaryIdentity } : {}),
       });
 
       if (result.status === 'preflight_denied') {

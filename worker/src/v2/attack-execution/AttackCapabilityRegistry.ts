@@ -35,30 +35,67 @@ function failed(reasonCode: string, safeMessage: string): AttackCapabilityExecut
 }
 
 /**
- * IDOR differential read — wraps ControlledActiveVerificationService.
- * Hermetic default: records that the verified service is selected; live invoke
- * requires exploitation-decision brand which A5 does not auto-mint.
- * Injectable port overrides enable smoke without network.
+ * IDOR differential read — invokes ControlledActiveVerificationService.execute().
+ * Succeeds only when a real cross-identity differential is observed.
+ * Refutes on 401/403/404 or denial. Fail-closed on missing identities / service errors.
  */
 export function createIdorReadDifferentialCapability(
   service?: ControlledActiveVerificationService
 ): AttackCapabilityPort {
-  const _service = service ?? new ControlledActiveVerificationService();
+  const verificationService = service ?? new ControlledActiveVerificationService();
   return {
     capability: 'idor_read_differential',
     async execute(ctx: AttackCapabilityInvocationContext): Promise<AttackCapabilityExecutionResult> {
-      void _service;
-      // Defensive verification path: capability presence confirms wiring to verified service.
-      // Full ActiveVerificationCommand requires a separate exploitation Decision brand (M8);
-      // A5 records authorized differential-read intent under the A4 attack token.
       if (!ctx.targetUrl || ctx.targetUrl.length === 0) {
         return failed('idor_target_missing', 'IDOR capability requires a target URL');
       }
-      return succeeded(
-        'idor_read_differential_authorized',
-        'Authorized IDOR differential read capability invoked via ControlledActiveVerificationService boundary',
-        `ev_idor_${ctx.step.stepId}`
-      );
+
+      const primary = ctx.primaryIdentity;
+      const secondary = ctx.secondaryIdentity;
+      if (
+        !primary ||
+        typeof primary.identityId !== 'string' ||
+        primary.identityId.trim().length === 0 ||
+        !secondary ||
+        typeof secondary.identityId !== 'string' ||
+        secondary.identityId.trim().length === 0
+      ) {
+        return failed(
+          'idor_identities_missing',
+          'IDOR differential requires primaryIdentity and secondaryIdentity'
+        );
+      }
+
+      const result = await verificationService.execute({
+        targetUrl: ctx.targetUrl,
+        primaryIdentity: {
+          identityId: primary.identityId,
+          ...(primary.headers ? { headers: primary.headers } : {}),
+        },
+        secondaryIdentity: {
+          identityId: secondary.identityId,
+          ...(secondary.headers ? { headers: secondary.headers } : {}),
+        },
+      });
+
+      switch (result.status) {
+        case 'differential_access_observed':
+          return succeeded(
+            'idor_differential_access_observed',
+            result.evidenceSummary,
+            `ev_idor_${ctx.step.stepId}`
+          );
+        case 'access_denied':
+          return refuted(result.reasonCode, result.evidenceSummary);
+        case 'preflight_denied':
+          return failed(result.reasonCode, result.safeMessage);
+        case 'failed':
+          return failed(result.reasonCode, result.safeMessage);
+        default: {
+          const _exhaustive: never = result;
+          return failed('idor_unexpected_result', `Unexpected IDOR execute result: ${JSON.stringify(_exhaustive)}`);
+        }
+      }
     },
   };
 }

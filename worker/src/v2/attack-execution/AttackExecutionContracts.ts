@@ -56,6 +56,11 @@ export interface AttackCapabilityExecutionResult {
   readonly evidenceId?: string;
 }
 
+export interface AttackCapabilityIdentityRef {
+  readonly identityId: string;
+  readonly headers?: Readonly<Record<string, string>>;
+}
+
 export interface AttackCapabilityInvocationContext {
   readonly plan: AttackPlan;
   readonly step: AttackExecutionStep;
@@ -64,6 +69,10 @@ export interface AttackCapabilityInvocationContext {
   readonly targetUrl: string;
   readonly scopeGrant: AuthorizedScopeGrant;
   readonly findings: readonly Finding[];
+  /** Optional primary (resource-owner) identity for differential capabilities. */
+  readonly primaryIdentity?: AttackCapabilityIdentityRef;
+  /** Optional secondary (cross-identity) identity for differential capabilities. */
+  readonly secondaryIdentity?: AttackCapabilityIdentityRef;
 }
 
 /**
@@ -118,6 +127,8 @@ export interface AttackExecutionRequest {
   readonly findings: readonly Finding[];
   readonly operatorId: string;
   readonly executedAt?: string;
+  readonly primaryIdentity?: AttackCapabilityIdentityRef;
+  readonly secondaryIdentity?: AttackCapabilityIdentityRef;
 }
 
 export type AttackExecutionResult =

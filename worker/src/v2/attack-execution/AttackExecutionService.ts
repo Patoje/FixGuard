@@ -8,6 +8,7 @@
  */
 
 import type { Finding } from '../core/Evidence.js';
+import { nextVerificationState } from '../core/VerificationStateContracts.js';
 import { VerificationStateService } from '../core/VerificationStateService.js';
 import type { AttackPlan } from '../attack-planning/AttackPlanContracts.js';
 import type { AttackPlanRepository } from '../attack-planning/AttackPlanRepository.js';
@@ -22,6 +23,7 @@ import { validateDnsRebinding } from '../recon/adapters/AdapterPreflightPipeline
 import {
   ATTACK_EXECUTION_CONTRACT_VERSION,
   isScopeAllowed,
+  type AttackCapabilityIdentityRef,
   type AttackExecutionGateFailureCode,
   type AttackExecutionRecord,
   type AttackExecutionRequest,
@@ -34,6 +36,19 @@ import type { AttackCapabilityRegistry } from './AttackCapabilityRegistry.js';
 function isSafeId(value: unknown): value is string {
   if (typeof value !== 'string' || value.length === 0 || value.length > 128) return false;
   return /^[a-zA-Z0-9_\-.:]+$/.test(value);
+}
+
+function isCapabilityIdentityRef(value: unknown): value is AttackCapabilityIdentityRef {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  const identityId = Reflect.get(value, 'identityId');
+  if (typeof identityId !== 'string' || identityId.trim().length === 0) return false;
+  if (!Reflect.has(value, 'headers')) return true;
+  const headers = Reflect.get(value, 'headers');
+  if (!headers || typeof headers !== 'object' || Array.isArray(headers)) return false;
+  for (const hv of Object.values(headers as Record<string, unknown>)) {
+    if (typeof hv !== 'string') return false;
+  }
+  return true;
 }
 
 function extractTargetHost(
@@ -341,6 +356,8 @@ export class AttackExecutionService {
         targetUrl,
         scopeGrant: req.scopeGrant,
         findings,
+        ...(req.primaryIdentity ? { primaryIdentity: req.primaryIdentity } : {}),
+        ...(req.secondaryIdentity ? { secondaryIdentity: req.secondaryIdentity } : {}),
       });
 
       const completedAt = new Date().toISOString();
@@ -355,16 +372,21 @@ export class AttackExecutionService {
       if (capabilityResult.outcome === 'succeeded' && findingIdx >= 0) {
         const finding = findings[findingIdx]!;
         verificationStateBefore = finding.verificationState;
-        const advanced = VerificationStateService.advanceState(finding, 'exploitability_confirmed', {
-          evidenceId: capabilityResult.evidenceId ?? `ev_a5_${step.stepId}`,
-          reasonCode: 'attack_execution_step_succeeded',
-        });
-        findings = [
-          ...findings.slice(0, findingIdx),
-          advanced.updatedFinding,
-          ...findings.slice(findingIdx + 1),
-        ];
-        verificationStateAfter = advanced.updatedFinding.verificationState;
+        const nextState = nextVerificationState(finding.verificationState);
+        if (nextState !== null) {
+          const advanced = VerificationStateService.advanceState(finding, nextState, {
+            evidenceId: capabilityResult.evidenceId ?? `ev_a5_${step.stepId}`,
+            reasonCode: 'attack_execution_step_succeeded',
+          });
+          findings = [
+            ...findings.slice(0, findingIdx),
+            advanced.updatedFinding,
+            ...findings.slice(findingIdx + 1),
+          ];
+          verificationStateAfter = advanced.updatedFinding.verificationState;
+        } else {
+          verificationStateAfter = finding.verificationState;
+        }
       } else if (
         (capabilityResult.outcome === 'refuted' || capabilityResult.outcome === 'failed') &&
         findingIdx >= 0
@@ -534,6 +556,8 @@ export class AttackExecutionService {
       'findings',
       'operatorId',
       'executedAt',
+      'primaryIdentity',
+      'secondaryIdentity',
     ];
     for (const k of Object.keys(req)) {
       if (!allowedKeys.includes(k)) {
@@ -623,6 +647,30 @@ export class AttackExecutionService {
       };
     }
 
+    let primaryIdentity: AttackCapabilityIdentityRef | undefined;
+    if (req.primaryIdentity !== undefined) {
+      if (!isCapabilityIdentityRef(req.primaryIdentity)) {
+        return {
+          status: 'invalid',
+          reasonCode: 'request_invalid',
+          safeMessage: 'primaryIdentity shape is invalid',
+        };
+      }
+      primaryIdentity = req.primaryIdentity;
+    }
+
+    let secondaryIdentity: AttackCapabilityIdentityRef | undefined;
+    if (req.secondaryIdentity !== undefined) {
+      if (!isCapabilityIdentityRef(req.secondaryIdentity)) {
+        return {
+          status: 'invalid',
+          reasonCode: 'request_invalid',
+          safeMessage: 'secondaryIdentity shape is invalid',
+        };
+      }
+      secondaryIdentity = req.secondaryIdentity;
+    }
+
     // Narrowed ids — already validated by isSafeId above.
     const planId = req.planId;
     const assessmentId = req.assessmentId;
@@ -647,6 +695,8 @@ export class AttackExecutionService {
       findings: req.findings,
       operatorId,
       ...(typeof req.executedAt === 'string' ? { executedAt: req.executedAt } : {}),
+      ...(primaryIdentity ? { primaryIdentity } : {}),
+      ...(secondaryIdentity ? { secondaryIdentity } : {}),
     };
 
     return { status: 'ok', request: built };

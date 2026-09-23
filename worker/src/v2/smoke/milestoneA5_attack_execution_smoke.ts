@@ -29,6 +29,7 @@ import { AttackExecutionService } from '../attack-execution/AttackExecutionServi
 import { TargetExecutionCoordinator } from '../runtime/TargetExecutionCoordinator.js';
 import { V2CompositionRoot } from '../api/V2CompositionRoot.js';
 import { OrchestratedAssessmentController } from '../api/controllers/OrchestratedAssessmentController.js';
+import { ControlledActiveVerificationService } from '../verification/ControlledActiveVerificationService.js';
 import type { Request, Response, NextFunction } from 'express';
 
 function fail(message: string): never {
@@ -358,8 +359,35 @@ async function runSmokeTests(): Promise<void> {
   );
   console.log('[+] Test 4d: DNS rebinding gate fail-closed OK');
 
-  // --- Test 5: CompositionRoot + HTTP execute path (hermetic) ---
-  const root = V2CompositionRoot.createDefault();
+  // --- Test 5: CompositionRoot + HTTP execute path (hermetic real IDOR) ---
+  const hermeticResponses = [
+    {
+      statusCode: 200,
+      headers: { 'content-type': 'application/json' },
+      bodyText: '{"owner":"alice","secret":"x"}',
+      responseTimeMs: 3,
+    },
+    {
+      statusCode: 200,
+      headers: { 'content-type': 'application/json' },
+      bodyText: '{"owner":"alice","secret":"x"}',
+      responseTimeMs: 3,
+    },
+  ];
+  const hermeticRegistry = new AttackCapabilityRegistry([
+    createIdorReadDifferentialCapability(
+      new ControlledActiveVerificationService(async () => {
+        const next = hermeticResponses.shift();
+        if (!next) {
+          throw new Error('unexpected extra hermetic transport call');
+        }
+        return next;
+      })
+    ),
+  ]);
+  const root = V2CompositionRoot.withDependencies({
+    attackCapabilityRegistry: hermeticRegistry,
+  });
   const httpPlanId = 'plan_smoke_a5_http';
   await root.attackPlanRepository.savePlan(buildPlan(httpPlanId, assessmentId, findingId));
 
@@ -392,8 +420,6 @@ async function runSmokeTests(): Promise<void> {
   assertTrue(authNext === undefined, `HTTP authorize must succeed: ${String(authNext)}`);
   assert.equal(authStatus, 201);
 
-  // Override capability registry on a dedicated execution service is not on root;
-  // default IDOR wrapper also returns succeeded — sufficient for HTTP path.
   let execStatus = 0;
   let execBody: unknown = null;
   let execNext: unknown;
@@ -405,6 +431,14 @@ async function runSmokeTests(): Promise<void> {
         scopeGrant,
         findings: [finding],
         dnsAnswers: ['93.184.216.34'],
+        primaryIdentity: {
+          identityId: 'identity_alice',
+          headers: { authorization: 'Bearer alice' },
+        },
+        secondaryIdentity: {
+          identityId: 'identity_bob',
+          headers: { authorization: 'Bearer bob' },
+        },
       },
     } as unknown as Request,
     {

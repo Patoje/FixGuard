@@ -283,3 +283,46 @@ export type ActiveVerificationResult =
       readonly lineage: AuthorizedActiveReconRequestLineage;
       readonly durationMs: number;
     };
+
+// ---------------------------------------------------------------------------
+// Dual-identity IDOR differential execute (capability honesty path)
+// ---------------------------------------------------------------------------
+
+export interface IdorDifferentialIdentity {
+  readonly identityId: string;
+  readonly headers?: Readonly<Record<string, string>>;
+}
+
+export interface IdorDifferentialExecuteRequest {
+  readonly targetUrl: string;
+  readonly primaryIdentity: IdorDifferentialIdentity;
+  readonly secondaryIdentity: IdorDifferentialIdentity;
+  readonly dnsResolver?: PreSpawnDnsResolver;
+  readonly timeoutMs?: number;
+}
+
+export type IdorDifferentialExecuteResult =
+  | {
+      readonly status: 'differential_access_observed';
+      readonly primaryStatusCode: number;
+      readonly secondaryStatusCode: number;
+      readonly primaryBodyHash: string;
+      readonly secondaryBodyHash: string;
+      readonly evidenceSummary: string;
+    }
+  | {
+      readonly status: 'access_denied';
+      readonly reasonCode: 'http_401' | 'http_403' | 'http_404' | 'target_denied';
+      readonly statusCode: number;
+      readonly evidenceSummary: string;
+    }
+  | {
+      readonly status: 'preflight_denied';
+      readonly reasonCode: string;
+      readonly safeMessage: string;
+    }
+  | {
+      readonly status: 'failed';
+      readonly reasonCode: string;
+      readonly safeMessage: string;
+    };

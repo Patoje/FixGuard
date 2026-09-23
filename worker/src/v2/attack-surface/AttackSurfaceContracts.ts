@@ -32,6 +32,7 @@ export type AsgNodeKind =
   | 'endpoint'
   | 'parameter'
   | 'identity'
+  | 'session'
   | 'vulnerability';
 
 export type AsgEdgeKind =
@@ -43,6 +44,7 @@ export type AsgEdgeKind =
   | 'has_vulnerability'
   | 'requires_auth'
   | 'authenticated_by'
+  | 'observed_as_accessible_by'
   | 'reachable_from'
   | 'enables_attack';
 
@@ -150,6 +152,21 @@ export interface IdentityNode extends AsgNodeBase {
   };
 }
 
+/**
+ * Session node — authorized session bound to an identity.
+ * Token material is referenced only (sessionTokenRef / vaultRef); never embedded.
+ * Population into the graph builder may be deferred; type + constructability required.
+ */
+export interface SessionNode extends AsgNodeBase {
+  readonly kind: 'session';
+  readonly metadata: {
+    readonly identityId: string;
+    readonly sessionTokenRef?: string;
+    readonly vaultRef?: string;
+    readonly createdAt: string;
+  };
+}
+
 export interface VulnerabilityNode extends AsgNodeBase {
   readonly kind: 'vulnerability';
   readonly metadata: {
@@ -171,6 +188,7 @@ export type AsgNode =
   | EndpointNode
   | ParameterNode
   | IdentityNode
+  | SessionNode
   | VulnerabilityNode;
 
 export interface AsgEdge {

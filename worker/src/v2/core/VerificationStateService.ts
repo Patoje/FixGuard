@@ -1,15 +1,58 @@
 /**
  * VerificationStateService.ts
  * FixGuard V2 - Verification State Machine Service
- * Enforces strict transitions and state immutability.
+ * Enforces strict ordered forward transitions and state immutability.
  */
 
 import type { Finding } from './Evidence';
 import type { VerificationState, VerificationStateTransition } from './VerificationStateContracts';
+import {
+  IllegalVerificationStateTransitionError,
+  verificationStateIndex,
+} from './VerificationStateContracts';
+
+function applyTransition(
+  finding: Finding,
+  targetState: VerificationState,
+  transition: {
+    readonly evidenceId?: string;
+    readonly reviewerId?: string;
+    readonly reasonCode: string;
+  }
+): { updatedFinding: Finding; transitionRecord: VerificationStateTransition } {
+  if (!transition.evidenceId && !transition.reviewerId) {
+    throw new Error(
+      'Verification state transition invariant violated: Must specify either evidenceId or reviewerId.'
+    );
+  }
+
+  if (!transition.reasonCode || transition.reasonCode.trim().length === 0) {
+    throw new Error('Verification state transition invariant violated: Reason code is required.');
+  }
+
+  const currentState = finding.verificationState;
+
+  const transitionRecord: VerificationStateTransition = {
+    fromState: currentState,
+    toState: targetState,
+    transitionedAt: new Date().toISOString(),
+    ...(transition.evidenceId ? { evidenceId: transition.evidenceId } : {}),
+    ...(transition.reviewerId ? { reviewerId: transition.reviewerId } : {}),
+    reasonCode: transition.reasonCode,
+  };
+
+  const updatedFinding: Finding = Object.freeze({
+    ...finding,
+    verificationState: targetState,
+  });
+
+  return { updatedFinding, transitionRecord };
+}
 
 export class VerificationStateService {
   /**
-   * Advances or transitions the verification state of a Finding.
+   * Advances verification state by at most ONE ordered step forward (or same-state no-op).
+   * Skipping ahead or moving backward throws IllegalVerificationStateTransitionError.
    * Invariant: A transition MUST carry either an evidenceId or a reviewerId.
    */
   public static advanceState(
@@ -21,35 +64,19 @@ export class VerificationStateService {
       readonly reasonCode: string;
     }
   ): { updatedFinding: Finding; transitionRecord: VerificationStateTransition } {
-    if (!transition.evidenceId && !transition.reviewerId) {
-      throw new Error('Verification state transition invariant violated: Must specify either evidenceId or reviewerId.');
+    const fromIdx = verificationStateIndex(finding.verificationState);
+    const toIdx = verificationStateIndex(targetState);
+
+    if (fromIdx < 0 || toIdx < 0 || toIdx - fromIdx > 1 || toIdx < fromIdx) {
+      throw new IllegalVerificationStateTransitionError(finding.verificationState, targetState);
     }
 
-    if (!transition.reasonCode || transition.reasonCode.trim().length === 0) {
-      throw new Error('Verification state transition invariant violated: Reason code is required.');
-    }
-
-    const currentState = finding.verificationState;
-
-    const transitionRecord: VerificationStateTransition = {
-      fromState: currentState,
-      toState: targetState,
-      transitionedAt: new Date().toISOString(),
-      ...(transition.evidenceId ? { evidenceId: transition.evidenceId } : {}),
-      ...(transition.reviewerId ? { reviewerId: transition.reviewerId } : {}),
-      reasonCode: transition.reasonCode,
-    };
-
-    const updatedFinding: Finding = Object.freeze({
-      ...finding,
-      verificationState: targetState,
-    });
-
-    return { updatedFinding, transitionRecord };
+    return applyTransition(finding, targetState, transition);
   }
 
   /**
-   * Refutes or downgrades a verification state with evidence or human reviewer authorization.
+   * Refutes or resets verification state with evidence or human reviewer authorization.
+   * May downgrade / stay / reset — ordered-forward constraint does NOT apply.
    */
   public static refuteState(
     finding: Finding,
@@ -60,6 +87,6 @@ export class VerificationStateService {
       readonly reasonCode: string;
     }
   ): { updatedFinding: Finding; transitionRecord: VerificationStateTransition } {
-    return this.advanceState(finding, targetState, transition);
+    return applyTransition(finding, targetState, transition);
   }
 }

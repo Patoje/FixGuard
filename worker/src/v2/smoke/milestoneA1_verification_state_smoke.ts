@@ -247,7 +247,7 @@ async function runSmokeSuite() {
       () => {
         VerificationStateService.advanceState(finding, 'suspected_vulnerability', {
           reasonCode: 'unauthorized_attempt',
-        } as any);
+        });
       },
       /Verification state transition invariant violated/
     );
@@ -281,7 +281,7 @@ async function runSmokeSuite() {
 
     const { updatedFinding } = VerificationStateService.advanceState(
       initialFinding,
-      'validated_vulnerability',
+      'suspected_vulnerability',
       {
         evidenceId: 'evd_proof_005',
         reasonCode: 'proof_of_concept_verification',
@@ -289,15 +289,53 @@ async function runSmokeSuite() {
     );
 
     assert.strictEqual(initialFinding.verificationState, 'observed_anomaly');
-    assert.strictEqual(updatedFinding.verificationState, 'validated_vulnerability');
+    assert.strictEqual(updatedFinding.verificationState, 'suspected_vulnerability');
     assert.throws(() => {
-      (updatedFinding as any).verificationState = 'observed_anomaly';
+      (updatedFinding as { verificationState: string }).verificationState = 'observed_anomaly';
     });
 
     console.log('✓ Test 5 Passed: Object immutability enforced, preventing direct in-place mutation');
   }
 
-  console.log('\n=== All Milestone A1 Verification State Machine Smoke Tests PASSED (5/5) ===');
+  // -------------------------------------------------------------------------
+  // Test 6: Illegal forward jump fails closed
+  // -------------------------------------------------------------------------
+  console.log('--- Test 6: Illegal verification jump (skip >1) fails closed ---');
+  {
+    const finding: Finding = {
+      id: 'fnd_test_006',
+      type: 'SECURITY_MISCONFIGURATION',
+      severity: 'medium',
+      title: 'Jump Guard Finding',
+      description: 'Ordered transition guard',
+      target: 'https://app.example.com/',
+      evidence: 'test',
+      confidence: 1.0,
+      verificationState: 'observed_anomaly',
+      metadata: {
+        kind: 'missing_security_headers_metadata',
+        category: 'SECURITY_MISCONFIGURATION',
+        missingHeaders: ['X-Frame-Options'],
+        presentHeaders: [],
+        observedAt: nowIso,
+      },
+    };
+
+    assert.throws(
+      () => {
+        VerificationStateService.advanceState(finding, 'validated_vulnerability', {
+          evidenceId: 'evd_illegal_006',
+          reasonCode: 'illegal_skip_attempt',
+        });
+      },
+      /Illegal verification state transition/
+    );
+
+    assert.strictEqual(finding.verificationState, 'observed_anomaly');
+    console.log('✓ Test 6 Passed: Illegal multi-step jump blocked fail-closed');
+  }
+
+  console.log('\n=== All Milestone A1 Verification State Machine Smoke Tests PASSED (6/6) ===');
 }
 
 runSmokeSuite().catch((err) => {
