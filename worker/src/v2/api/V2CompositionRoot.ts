@@ -10,8 +10,13 @@ import type { EvidenceDraftRepository } from '../finding-candidate-draft/Evidenc
 import { InMemoryEvidenceDraftRepository } from '../finding-candidate-draft/InMemoryEvidenceDraftRepository.js';
 import type { OrchestratedAssessmentRepository } from '../application/OrchestratedAssessmentContracts.js';
 import { InMemoryOrchestratedAssessmentRepository } from '../storage/InMemoryOrchestratedAssessmentRepository.js';
-import { OrchestratedAssessmentApplicationService } from '../application/OrchestratedAssessmentApplicationService.js';
+import {
+  OrchestratedAssessmentApplicationService,
+  createAttackSurfaceQueryService,
+} from '../application/OrchestratedAssessmentApplicationService.js';
 import { ReconToolAvailabilityService } from '../capabilities/ReconToolAvailabilityService.js';
+import type { AttackSurfaceGraph } from '../attack-surface/AttackSurfaceContracts.js';
+import type { AttackSurfaceQueryService } from '../attack-surface/AttackSurfaceQueryService.js';
 
 export interface V2CompositionDependencies {
   readonly assessmentRepository?: AssessmentRepository;
@@ -59,6 +64,11 @@ export class V2CompositionRoot {
         repository: this.orchestratedRepository,
         availabilityService: this.availabilityService,
       });
+  }
+
+  /** Milestone A2 — bind a query service to an immutable Attack Surface Graph. */
+  public createAttackSurfaceQueryService(graph: AttackSurfaceGraph): AttackSurfaceQueryService {
+    return createAttackSurfaceQueryService(graph);
   }
 
   public static createDefault(): V2CompositionRoot {

@@ -14,6 +14,7 @@ import type { TargetProfile, TargetRecommendation } from '../intelligence/Intell
 import type { Finding } from '../core/Evidence.js';
 import type { EvidenceDraftEnvelope } from '../evidence-mapping/ComparisonEvidenceMappingContracts.js';
 import type { ByotSessionIdentityBundle } from '../detection/DetectionContracts.js';
+import type { AttackSurfaceGraph } from '../attack-surface/AttackSurfaceContracts.js';
 
 export const ORCHESTRATED_ASSESSMENT_CONTRACT_VERSION =
   'fixguard-orchestrated-assessment/v0' as const;
@@ -236,6 +237,8 @@ export interface OrchestratedAssessmentRecord {
   readonly findings: readonly Finding[];
   readonly pendingEvidenceDrafts?: readonly EnrichedEvidenceDraft[];
   readonly recommendations: readonly TargetRecommendation[];
+  /** Milestone A2 — immutable Attack Surface Graph built at assessment completion. */
+  readonly attackSurfaceGraph?: AttackSurfaceGraph;
   readonly error?: string;
   readonly reasonCode?: string;
 }
@@ -264,10 +267,20 @@ export interface OrchestratedAssessmentSummaryDto {
   readonly findings: readonly Finding[];
   readonly pendingEvidenceDrafts?: readonly EnrichedEvidenceDraft[];
   readonly recommendations: readonly TargetRecommendation[];
+  readonly attackSurfaceGraph?: AttackSurfaceGraph;
   readonly lineage: AuthorizedActiveReconRequestLineage;
   readonly timing: OrchestratedAssessmentTiming;
   readonly error?: string;
   readonly reasonCode?: string;
+}
+
+export interface GetAttackSurfaceResult {
+  readonly assessmentId: string;
+  readonly scanId: string;
+  readonly targetDomain: string;
+  readonly status: OrchestratedAssessmentStatus;
+  readonly attackSurfaceGraph: AttackSurfaceGraph | null;
+  readonly lineage: AuthorizedActiveReconRequestLineage;
 }
 
 export interface ReviewEvidenceDraftCommand {

@@ -1644,6 +1644,18 @@ All completed milestones are verified via active TypeScript contracts and the re
 
 ---
 
+### Milestone A2: Attack Surface Graph (ASG) — Master Phase 2 Track A
+- **Status:** COMPLETED.
+- **Goal:** Typed immutable Attack Surface Graph from TargetProfile + recon observations + Findings, with mandatory EpistemicStatus on every edge, query service, and orchestrated assessment API exposure.
+- **Key Deliverables:**
+  1. Contracts in `worker/src/v2/attack-surface/AttackSurfaceContracts.ts` (10 node kinds, edge kinds, EpistemicStatus).
+  2. Pure `AttackSurfaceGraphBuilder.buildFromAssessmentResults()` — zero side effects / network.
+  3. `AttackSurfaceQueryService` — endpoints-with-finding, identities-for-endpoint, uncovered endpoints, reachable hosts.
+  4. Wired into orchestrated assessment completion + `GET /v2/assessments/:assessmentId/attack-surface`.
+  5. Smoke `smoke:v2:milestone-a2-asg`; suite count 83→84.
+
+---
+
 ## 5. Architectural Proposals (`PROPOSED` — NOT YET DECIDED)
 
 > [!NOTE]

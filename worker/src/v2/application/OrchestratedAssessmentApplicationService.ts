@@ -92,6 +92,9 @@ import { correlateCrossFindingChains } from '../intelligence/correlation/CrossFi
 import { buildTargetProfile } from '../intelligence/TargetProfileBuilder.js';
 import { correlateTargetProfile } from '../intelligence/TargetRecommendationEngine.js';
 import { analyzeAttackSurfaceDelta } from '../intelligence/analysis/AttackSurfaceDeltaAnalysisService.js';
+import { AttackSurfaceGraphBuilder } from '../attack-surface/AttackSurfaceGraphBuilder.js';
+import { AttackSurfaceQueryService } from '../attack-surface/AttackSurfaceQueryService.js';
+import type { AttackSurfaceGraph } from '../attack-surface/AttackSurfaceContracts.js';
 import { scanSourceFilesForSecrets } from '../sast/StaticSecretScanningService.js';
 import { scanManifestsForVulnerabilities } from '../sast/DependencyVulnerabilityScanService.js';
 import { scanFilesForStaticRoutes } from '../sast/StaticRouteExtractionService.js';
@@ -152,6 +155,7 @@ export function buildAnonymousProbeContext(identityId: string = 'anonymous_probe
 import type {
   DifferentialEvidenceContext,
   EnrichedEvidenceDraft,
+  GetAttackSurfaceResult,
   GetEvidenceDraftsResult,
   OrchestratedAssessmentRecord,
   OrchestratedAssessmentRepository,
@@ -171,6 +175,13 @@ export interface OrchestratedAssessmentServiceDependencies {
   readonly httpTransport?: IdorHttpProbeTransport;
   readonly dnsResolver?: (host: string) => Promise<string[]>;
   readonly availabilityService?: ReconToolAvailabilityService;
+}
+
+/** Pure helper exposed for tests / composition — builds query service over a graph. */
+export function createAttackSurfaceQueryService(
+  graph: AttackSurfaceGraph
+): AttackSurfaceQueryService {
+  return new AttackSurfaceQueryService(graph);
 }
 
 const defaultHttpTransport: IdorHttpProbeTransport = async (
@@ -699,10 +710,39 @@ export class OrchestratedAssessmentApplicationService {
       findings: record.findings,
       pendingEvidenceDrafts: record.pendingEvidenceDrafts ?? [],
       recommendations: record.recommendations,
+      ...(record.attackSurfaceGraph
+        ? { attackSurfaceGraph: record.attackSurfaceGraph }
+        : {}),
       lineage: record.lineage,
       timing: record.timing,
       ...(record.error ? { error: record.error } : {}),
       ...(record.reasonCode ? { reasonCode: record.reasonCode } : {}),
+    };
+  }
+
+  /**
+   * Milestone A2 — returns the persisted Attack Surface Graph for an assessment.
+   */
+  public async getAttackSurface(assessmentId: string): Promise<GetAttackSurfaceResult> {
+    if (!assessmentId || typeof assessmentId !== 'string' || !isStrictSafeId(assessmentId)) {
+      throw new ApiValidationError('Field assessmentId must satisfy strict identifier format');
+    }
+
+    const record = await this.repository.findById(assessmentId);
+    if (!record) {
+      throw new SessionNotFoundError(
+        `Orchestrated assessment '${assessmentId}' was not found`,
+        assessmentId
+      );
+    }
+
+    return {
+      assessmentId: record.assessmentId,
+      scanId: record.scanId,
+      targetDomain: record.targetDomain,
+      status: record.status,
+      attackSurfaceGraph: record.attackSurfaceGraph ?? null,
+      lineage: record.lineage,
     };
   }
 
@@ -2468,6 +2508,12 @@ export class OrchestratedAssessmentApplicationService {
 
         const recommendationResult = correlateTargetProfile(profile);
 
+        const attackSurfaceGraph = AttackSurfaceGraphBuilder.buildFromAssessmentResults({
+          profile,
+          findings: [],
+          observations: reconResult.aggregatedObservations,
+        });
+
         await this.repository.update(record.assessmentId, (prev) => ({
           ...prev,
           status: 'circuit_broken',
@@ -2475,6 +2521,7 @@ export class OrchestratedAssessmentApplicationService {
           profile,
           findings: [],
           recommendations: recommendationResult.recommendations,
+          attackSurfaceGraph,
           timing: {
             startedAt: prev.timing.startedAt,
             completedAt: new Date().toISOString(),
@@ -4188,6 +4235,12 @@ export class OrchestratedAssessmentApplicationService {
 
       const recommendationResult = correlateTargetProfile(profile);
 
+      const attackSurfaceGraph = AttackSurfaceGraphBuilder.buildFromAssessmentResults({
+        profile,
+        findings,
+        observations: reconResult.aggregatedObservations,
+      });
+
       // If circuit breaker opened during detection, record circuit_broken with evidence preserved
       if (coordinator.isCircuitOpen(record.targetDomain)) {
         await this.repository.update(record.assessmentId, (prev) => ({
@@ -4198,6 +4251,7 @@ export class OrchestratedAssessmentApplicationService {
           findings,
           pendingEvidenceDrafts,
           recommendations: recommendationResult.recommendations,
+          attackSurfaceGraph,
           timing: {
             startedAt: prev.timing.startedAt,
             completedAt: new Date().toISOString(),
@@ -4218,6 +4272,7 @@ export class OrchestratedAssessmentApplicationService {
         findings,
         pendingEvidenceDrafts,
         recommendations: recommendationResult.recommendations,
+        attackSurfaceGraph,
         timing: {
           startedAt: prev.timing.startedAt,
           completedAt: new Date().toISOString(),

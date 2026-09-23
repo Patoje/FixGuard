@@ -5,6 +5,7 @@
  * - POST /api/v2/orchestrated/assessments/start
  * - GET /api/v2/orchestrated/assessments/:assessmentId/summary
  * - GET /api/v2/orchestrated/assessments/:assessmentId/status
+ * - GET /api/v2/assessments/:assessmentId/attack-surface (Milestone A2)
  *
  * Responsibilities:
  * 1) Extract and validate path parameters and request body.
@@ -70,6 +71,24 @@ export class OrchestratedAssessmentController {
 
       const summary = await this.service.getSummary(assessmentId);
       res.status(200).json(summary);
+    } catch (err) {
+      next(err);
+    }
+  };
+
+  public getAttackSurface = async (
+    req: Request,
+    res: Response,
+    next: NextFunction
+  ): Promise<void> => {
+    try {
+      const assessmentId = req.params.assessmentId;
+      if (!assessmentId || typeof assessmentId !== 'string' || !isStrictSafeId(assessmentId)) {
+        throw new ApiValidationError('Field assessmentId must satisfy strict identifier format');
+      }
+
+      const result = await this.service.getAttackSurface(assessmentId);
+      res.status(200).json(result);
     } catch (err) {
       next(err);
     }
