@@ -1656,6 +1656,17 @@ All completed milestones are verified via active TypeScript contracts and the re
 
 ---
 
+### Milestone A3: TargetProfile v2 & Attack Planning Engine — Master Phase 3 Track A
+- **Status:** COMPLETED.
+- **Goal:** Additive TargetProfile v2 enrichment (hosts/auth/historical/deps) plus advisory AttackPlan generation (6 rules) with prerequisite retention and orchestrated API exposure.
+- **Key Deliverables:**
+  1. TargetProfile additive fields + analytical CNAME/CSP inference (zero network).
+  2. `worker/src/v2/attack-planning/` contracts, generator, port, in-memory repository.
+  3. Wired into orchestrated assessment + `GET /v2/assessments/:assessmentId/attack-plans`.
+  4. Smoke `smoke:v2:milestone-a3-attack-planning`; suite count 84→85.
+
+---
+
 ## 5. Architectural Proposals (`PROPOSED` — NOT YET DECIDED)
 
 > [!NOTE]

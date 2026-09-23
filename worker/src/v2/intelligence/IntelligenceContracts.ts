@@ -31,6 +31,91 @@ export interface TargetProfileEndpoint {
   readonly flawCategories: readonly string[];
 }
 
+/** Milestone A3 — hosting/CDN provider inferred analytically from CNAME (never claimed as vulnerability). */
+export type InferredHostingProvider =
+  | 'vercel'
+  | 'netlify'
+  | 'heroku'
+  | 'github_pages'
+  | 'aws_s3'
+  | 'aws_cloudfront'
+  | 'azure'
+  | 'fastly'
+  | 'cloudflare'
+  | 'shopify'
+  | 'unknown';
+
+export interface DiscoveredHostPortRecord {
+  readonly port: number;
+  readonly protocol: 'tcp' | 'udp';
+  readonly state: 'open' | 'filtered' | 'closed' | 'unknown';
+}
+
+/**
+ * Milestone A3 — DiscoveredHostRecord
+ * FQDN + IPs + ports + CDN/ASN/hosting inferred from CNAME. Inference is analytical only.
+ */
+export interface DiscoveredHostRecord {
+  readonly fqdn: string;
+  readonly ipAddresses: readonly string[];
+  readonly ports: readonly DiscoveredHostPortRecord[];
+  readonly cnameTargets: readonly string[];
+  readonly inferredHostingProvider?: InferredHostingProvider;
+  readonly inferredCdn?: boolean;
+  readonly asn?: string;
+  readonly epistemicStatus: 'OBSERVED' | 'INFERRED';
+}
+
+export interface AuthSurfacePathRecord {
+  readonly path: string;
+  readonly url?: string;
+  readonly source: 'well_known_heuristic' | 'url_observation' | 'endpoint_observation';
+  readonly formHints: readonly string[];
+}
+
+/**
+ * Milestone A3 — AuthSurfaceMap
+ * Well-known auth paths & forms discovered analytically from URL/endpoint observations.
+ */
+export interface AuthSurfaceMap {
+  readonly loginPaths: readonly AuthSurfacePathRecord[];
+  readonly oauthPaths: readonly AuthSurfacePathRecord[];
+  readonly ssoPaths: readonly AuthSurfacePathRecord[];
+  readonly registrationPaths: readonly AuthSurfacePathRecord[];
+  readonly passwordResetPaths: readonly AuthSurfacePathRecord[];
+  readonly otherAuthPaths: readonly AuthSurfacePathRecord[];
+}
+
+/**
+ * Milestone A3 — HistoricalAssetRecord
+ * Freshness-tagged gau-style historical URL assets (no live network).
+ */
+export interface HistoricalAssetRecord {
+  readonly url: string;
+  readonly host: string;
+  readonly path: string;
+  readonly query?: string;
+  readonly sources: readonly string[];
+  readonly freshness: 'live' | 'historical' | 'unknown';
+  readonly sourceReliability: 'direct_observation' | 'historical_archive' | 'inferred_relationship';
+  readonly discoveredAt: string;
+  readonly collectedAt?: string;
+}
+
+export type ExternalDependencyKind = 'csp_script_src' | 'csp_connect_src' | 'csp_frame_src' | 'csp_img_src' | 'csp_other' | 'cname_cloud';
+
+/**
+ * Milestone A3 — ExternalDependency
+ * Derived from CSP header parsing and CNAME cloud inference. Zero network calls.
+ */
+export interface ExternalDependency {
+  readonly kind: ExternalDependencyKind;
+  readonly value: string;
+  readonly inferredProvider?: InferredHostingProvider;
+  readonly sourceHost?: string;
+  readonly epistemicStatus: 'OBSERVED' | 'INFERRED';
+}
+
 export interface TargetProfile {
   readonly contractVersion: IntelligenceContractVersion;
   readonly kind: 'target_profile';
@@ -45,6 +130,11 @@ export interface TargetProfile {
   readonly knownFindings: readonly Finding[];
   readonly rawObservations?: readonly unknown[];
   readonly lineage: AuthorizedExecutionLineageTuple;
+  /** Milestone A3 — additive TargetProfile v2 fields (always present; may be empty). */
+  readonly discoveredHosts: readonly DiscoveredHostRecord[];
+  readonly authSurface: AuthSurfaceMap;
+  readonly historicalAssets: readonly HistoricalAssetRecord[];
+  readonly externalDependencies: readonly ExternalDependency[];
 }
 
 export interface TargetProfileBuilderInput {
@@ -53,6 +143,53 @@ export interface TargetProfileBuilderInput {
   readonly normalizedOrigin?: string;
   readonly findings?: readonly Finding[];
   readonly observations?: readonly unknown[];
+  /** Optional structured recon aggregate for TargetProfile v2 enrichment (Milestone A3). */
+  readonly aggregatedObservations?: {
+    readonly subdomains?: readonly {
+      readonly subdomain: string;
+      readonly parentDomain: string;
+      readonly ipAddresses?: readonly string[];
+      readonly freshness?: 'live' | 'historical' | 'unknown';
+      readonly sourceReliability?: 'direct_observation' | 'historical_archive' | 'inferred_relationship';
+      readonly discoveredAt?: string;
+      readonly collectedAt?: string;
+    }[];
+    readonly dnsRecords?: readonly {
+      readonly domain: string;
+      readonly recordType: string;
+      readonly values: readonly string[];
+      readonly freshness?: 'live' | 'historical' | 'unknown';
+      readonly sourceReliability?: 'direct_observation' | 'historical_archive' | 'inferred_relationship';
+      readonly discoveredAt?: string;
+      readonly collectedAt?: string;
+    }[];
+    readonly ports?: readonly {
+      readonly host: string;
+      readonly ip: string;
+      readonly port: number;
+      readonly protocol: 'tcp' | 'udp';
+      readonly state: 'open' | 'filtered' | 'closed' | 'unknown';
+      readonly freshness?: 'live' | 'historical' | 'unknown';
+    }[];
+    readonly urls?: readonly {
+      readonly url: string;
+      readonly host: string;
+      readonly path: string;
+      readonly query?: string;
+      readonly sources: readonly string[];
+      readonly freshness?: 'live' | 'historical' | 'unknown';
+      readonly sourceReliability?: 'direct_observation' | 'historical_archive' | 'inferred_relationship';
+      readonly discoveredAt: string;
+      readonly collectedAt?: string;
+    }[];
+    readonly webObservations?: readonly {
+      readonly url: string;
+      readonly method?: string;
+      readonly headers?: Readonly<Record<string, string | string[] | undefined>>;
+      readonly technologies?: readonly string[];
+      readonly resolvedIp?: string;
+    }[];
+  };
   readonly lineage: AuthorizedExecutionLineageTuple;
   readonly buildTimestamp?: string;
 }

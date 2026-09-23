@@ -95,6 +95,13 @@ import { analyzeAttackSurfaceDelta } from '../intelligence/analysis/AttackSurfac
 import { AttackSurfaceGraphBuilder } from '../attack-surface/AttackSurfaceGraphBuilder.js';
 import { AttackSurfaceQueryService } from '../attack-surface/AttackSurfaceQueryService.js';
 import type { AttackSurfaceGraph } from '../attack-surface/AttackSurfaceContracts.js';
+import type { AttackPlanRepository } from '../attack-planning/AttackPlanRepository.js';
+import { InMemoryAttackPlanRepository } from '../attack-planning/InMemoryAttackPlanRepository.js';
+import {
+  AttackPlanGeneratorService,
+  identityHasJwtHeuristic,
+} from '../attack-planning/AttackPlanGeneratorService.js';
+import type { AttackPlanIdentityContext } from '../attack-planning/AttackPlanContracts.js';
 import { scanSourceFilesForSecrets } from '../sast/StaticSecretScanningService.js';
 import { scanManifestsForVulnerabilities } from '../sast/DependencyVulnerabilityScanService.js';
 import { scanFilesForStaticRoutes } from '../sast/StaticRouteExtractionService.js';
@@ -165,6 +172,7 @@ import type {
   ReviewEvidenceDraftResult,
   StartOrchestratedAssessmentCommand,
   StartOrchestratedAssessmentResult,
+  GetAttackPlansResult,
 } from './OrchestratedAssessmentContracts.js';
 import { ORCHESTRATED_ASSESSMENT_CONTRACT_VERSION } from './OrchestratedAssessmentContracts.js';
 
@@ -175,6 +183,8 @@ export interface OrchestratedAssessmentServiceDependencies {
   readonly httpTransport?: IdorHttpProbeTransport;
   readonly dnsResolver?: (host: string) => Promise<string[]>;
   readonly availabilityService?: ReconToolAvailabilityService;
+  readonly attackPlanRepository?: AttackPlanRepository;
+  readonly attackPlanGenerator?: AttackPlanGeneratorService;
 }
 
 /** Pure helper exposed for tests / composition — builds query service over a graph. */
@@ -182,6 +192,27 @@ export function createAttackSurfaceQueryService(
   graph: AttackSurfaceGraph
 ): AttackSurfaceQueryService {
   return new AttackSurfaceQueryService(graph);
+}
+
+function buildAttackPlanIdentities(
+  sessionIdentities?: ByotSessionIdentityBundle
+): readonly AttackPlanIdentityContext[] {
+  if (!sessionIdentities) {
+    return [];
+  }
+  const identities: AttackPlanIdentityContext[] = [
+    {
+      identityId: sessionIdentities.identityA.identityId,
+      hasJwt: identityHasJwtHeuristic(sessionIdentities.identityA),
+    },
+  ];
+  if (sessionIdentities.identityB) {
+    identities.push({
+      identityId: sessionIdentities.identityB.identityId,
+      hasJwt: identityHasJwtHeuristic(sessionIdentities.identityB),
+    });
+  }
+  return identities;
 }
 
 const defaultHttpTransport: IdorHttpProbeTransport = async (
@@ -423,6 +454,8 @@ export class OrchestratedAssessmentApplicationService {
   private readonly httpTransport: IdorHttpProbeTransport;
   private readonly dnsResolver: (host: string) => Promise<string[]>;
   private readonly availabilityService: ReconToolAvailabilityService;
+  private readonly attackPlanRepository: AttackPlanRepository;
+  private readonly attackPlanGenerator: AttackPlanGeneratorService;
   private readonly activeAssessments = new Map<string, Promise<void>>();
 
   constructor(deps: OrchestratedAssessmentServiceDependencies) {
@@ -430,6 +463,8 @@ export class OrchestratedAssessmentApplicationService {
     this.httpTransport = deps.httpTransport ?? defaultHttpTransport;
     this.dnsResolver = deps.dnsResolver ?? defaultDnsResolver;
     this.availabilityService = deps.availabilityService ?? new ReconToolAvailabilityService();
+    this.attackPlanRepository = deps.attackPlanRepository ?? new InMemoryAttackPlanRepository();
+    this.attackPlanGenerator = deps.attackPlanGenerator ?? new AttackPlanGeneratorService();
     this.reconAdapters =
       deps.reconAdapters ??
       createDefaultReconAdapters(this.dnsResolver, this.httpTransport);
@@ -742,6 +777,32 @@ export class OrchestratedAssessmentApplicationService {
       targetDomain: record.targetDomain,
       status: record.status,
       attackSurfaceGraph: record.attackSurfaceGraph ?? null,
+      lineage: record.lineage,
+    };
+  }
+
+  /**
+   * Milestone A3 — returns advisory AttackPlans for an assessment (never executable).
+   */
+  public async getAttackPlans(assessmentId: string): Promise<GetAttackPlansResult> {
+    if (!assessmentId || typeof assessmentId !== 'string' || !isStrictSafeId(assessmentId)) {
+      throw new ApiValidationError('Field assessmentId must satisfy strict identifier format');
+    }
+
+    const record = await this.repository.findById(assessmentId);
+    if (!record) {
+      throw new SessionNotFoundError(
+        `Orchestrated assessment '${assessmentId}' was not found`,
+        assessmentId
+      );
+    }
+
+    const plans = await this.attackPlanRepository.listByAssessmentId(assessmentId);
+    return {
+      assessmentId: record.assessmentId,
+      scanId: record.scanId,
+      planCount: plans.length,
+      plans,
       lineage: record.lineage,
     };
   }
@@ -2503,6 +2564,7 @@ export class OrchestratedAssessmentApplicationService {
           normalizedOrigin: `https://${record.targetDomain}`,
           findings: [],
           observations: rawObservations,
+          aggregatedObservations: reconResult.aggregatedObservations,
           lineage,
         });
 
@@ -2513,6 +2575,16 @@ export class OrchestratedAssessmentApplicationService {
           findings: [],
           observations: reconResult.aggregatedObservations,
         });
+
+        const attackPlanResult = this.attackPlanGenerator.generate({
+          assessmentId: record.assessmentId,
+          scanId: record.scanId,
+          findings: [],
+          identities: buildAttackPlanIdentities(sessionIdentities),
+          lineage,
+        });
+        await this.attackPlanRepository.deleteByAssessmentId(record.assessmentId);
+        await this.attackPlanRepository.savePlans(attackPlanResult.plans);
 
         await this.repository.update(record.assessmentId, (prev) => ({
           ...prev,
@@ -4184,6 +4256,7 @@ export class OrchestratedAssessmentApplicationService {
         normalizedOrigin: `https://${record.targetDomain}`,
         findings,
         observations: rawObservations,
+        aggregatedObservations: reconResult.aggregatedObservations,
         lineage,
       });
 
@@ -4240,6 +4313,16 @@ export class OrchestratedAssessmentApplicationService {
         findings,
         observations: reconResult.aggregatedObservations,
       });
+
+      const attackPlanResult = this.attackPlanGenerator.generate({
+        assessmentId: record.assessmentId,
+        scanId: record.scanId,
+        findings,
+        identities: buildAttackPlanIdentities(sessionIdentities),
+        lineage,
+      });
+      await this.attackPlanRepository.deleteByAssessmentId(record.assessmentId);
+      await this.attackPlanRepository.savePlans(attackPlanResult.plans);
 
       // If circuit breaker opened during detection, record circuit_broken with evidence preserved
       if (coordinator.isCircuitOpen(record.targetDomain)) {

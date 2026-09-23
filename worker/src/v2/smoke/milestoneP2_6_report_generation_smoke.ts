@@ -136,6 +136,17 @@ async function runTests(): Promise<void> {
       ],
       knownFindings: [sampleFinding],
       lineage,
+      discoveredHosts: [],
+      authSurface: {
+        loginPaths: [],
+        oauthPaths: [],
+        ssoPaths: [],
+        registrationPaths: [],
+        passwordResetPaths: [],
+        otherAuthPaths: [],
+      },
+      historicalAssets: [],
+      externalDependencies: [],
     },
   };
 

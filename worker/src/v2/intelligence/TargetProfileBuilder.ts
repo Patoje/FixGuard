@@ -13,10 +13,24 @@ import type {
   TargetProfileEndpoint,
   CorsProfileConfiguration,
   AuthRequirementKind,
+  DiscoveredHostRecord,
+  DiscoveredHostPortRecord,
+  AuthSurfaceMap,
+  AuthSurfacePathRecord,
+  HistoricalAssetRecord,
+  ExternalDependency,
+  InferredHostingProvider,
 } from './IntelligenceContracts.js';
 import { INTELLIGENCE_CONTRACT_VERSION } from './IntelligenceContracts.js';
 import type { Finding } from '../core/Evidence.js';
 import { TechnologyFingerprintService } from '../recon/analysis/TechnologyFingerprintService.js';
+import {
+  classifyAuthPath,
+  extractHeaderValue,
+  inferHostingProviderFromCname,
+  isInferredCdnProvider,
+  parseCspHeader,
+} from './TargetProfileInference.js';
 
 function sha256(content: string): string {
   return createHash('sha256').update(content).digest('hex');
@@ -178,6 +192,13 @@ export function buildTargetProfile(input: TargetProfileBuilderInput): TargetProf
 
   const sortedTechnologies = Array.from(technologySet).sort();
 
+  // 4. Milestone A3 — TargetProfile v2 additive enrichment (analytical only, zero network)
+  const aggregated = input.aggregatedObservations;
+  const discoveredHosts = buildDiscoveredHosts(input.targetHost, aggregated, rawObservations);
+  const authSurface = buildAuthSurface(endpoints, aggregated, rawObservations);
+  const historicalAssets = buildHistoricalAssets(aggregated);
+  const externalDependencies = buildExternalDependencies(aggregated, rawObservations, discoveredHosts);
+
   return {
     contractVersion: INTELLIGENCE_CONTRACT_VERSION,
     kind: 'target_profile',
@@ -192,7 +213,358 @@ export function buildTargetProfile(input: TargetProfileBuilderInput): TargetProf
     knownFindings: [...findings],
     rawObservations: [...rawObservations],
     lineage: { ...input.lineage },
+    discoveredHosts,
+    authSurface,
+    historicalAssets,
+    externalDependencies,
   };
+}
+
+function buildDiscoveredHosts(
+  rootHost: string,
+  aggregated: TargetProfileBuilderInput['aggregatedObservations'],
+  rawObservations: readonly unknown[]
+): readonly DiscoveredHostRecord[] {
+  type MutableHost = {
+    fqdn: string;
+    ips: Set<string>;
+    ports: Map<string, DiscoveredHostPortRecord>;
+    cnames: Set<string>;
+    providers: Set<InferredHostingProvider>;
+    asn?: string;
+    epistemicStatus: 'OBSERVED' | 'INFERRED';
+  };
+
+  const hosts = new Map<string, MutableHost>();
+
+  function ensure(fqdn: string, status: 'OBSERVED' | 'INFERRED'): MutableHost {
+    const key = fqdn.toLowerCase();
+    let existing = hosts.get(key);
+    if (!existing) {
+      existing = {
+        fqdn: key,
+        ips: new Set(),
+        ports: new Map(),
+        cnames: new Set(),
+        providers: new Set(),
+        epistemicStatus: status,
+      };
+      hosts.set(key, existing);
+    } else if (status === 'OBSERVED') {
+      existing.epistemicStatus = 'OBSERVED';
+    }
+    return existing;
+  }
+
+  ensure(rootHost.toLowerCase(), 'OBSERVED');
+
+  for (const sub of aggregated?.subdomains ?? []) {
+    const host = ensure(sub.subdomain, 'OBSERVED');
+    for (const ip of sub.ipAddresses ?? []) {
+      host.ips.add(ip);
+    }
+  }
+
+  for (const dns of aggregated?.dnsRecords ?? []) {
+    const host = ensure(dns.domain, 'OBSERVED');
+    if (dns.recordType === 'A' || dns.recordType === 'AAAA') {
+      for (const value of dns.values) {
+        host.ips.add(value);
+      }
+    }
+    if (dns.recordType === 'CNAME') {
+      for (const value of dns.values) {
+        const cleaned = value.replace(/\.$/, '').toLowerCase();
+        host.cnames.add(cleaned);
+        const provider = inferHostingProviderFromCname(cleaned);
+        if (provider !== 'unknown') {
+          host.providers.add(provider);
+        }
+      }
+    }
+  }
+
+  for (const port of aggregated?.ports ?? []) {
+    const host = ensure(port.host || rootHost, 'OBSERVED');
+    host.ips.add(port.ip);
+    const portKey = `${port.protocol}:${port.port}`;
+    host.ports.set(portKey, {
+      port: port.port,
+      protocol: port.protocol,
+      state: port.state,
+    });
+  }
+
+  for (const obs of rawObservations) {
+    if (typeof obs !== 'object' || obs === null) continue;
+    const rec = obs as Record<string, unknown>;
+    if (typeof rec.domain === 'string' && rec.recordType === 'CNAME' && Array.isArray(rec.values)) {
+      const host = ensure(rec.domain, 'OBSERVED');
+      for (const value of rec.values) {
+        if (typeof value !== 'string') continue;
+        const cleaned = value.replace(/\.$/, '').toLowerCase();
+        host.cnames.add(cleaned);
+        const provider = inferHostingProviderFromCname(cleaned);
+        if (provider !== 'unknown') {
+          host.providers.add(provider);
+        }
+      }
+    }
+    if (typeof rec.subdomain === 'string') {
+      const host = ensure(rec.subdomain, 'OBSERVED');
+      if (Array.isArray(rec.ipAddresses)) {
+        for (const ip of rec.ipAddresses) {
+          if (typeof ip === 'string') host.ips.add(ip);
+        }
+      }
+    }
+  }
+
+  return Array.from(hosts.values())
+    .map((h) => {
+      let provider: InferredHostingProvider | undefined;
+      for (const p of h.providers) {
+        provider = p;
+        break;
+      }
+      return {
+        fqdn: h.fqdn,
+        ipAddresses: Array.from(h.ips).sort(),
+        ports: Array.from(h.ports.values()).sort((a, b) => a.port - b.port),
+        cnameTargets: Array.from(h.cnames).sort(),
+        ...(provider ? { inferredHostingProvider: provider } : {}),
+        ...(provider && isInferredCdnProvider(provider) ? { inferredCdn: true } : {}),
+        ...(h.asn ? { asn: h.asn } : {}),
+        epistemicStatus: h.epistemicStatus,
+      };
+    })
+    .sort((a, b) => a.fqdn.localeCompare(b.fqdn));
+}
+
+function buildAuthSurface(
+  endpoints: readonly TargetProfileEndpoint[],
+  aggregated: TargetProfileBuilderInput['aggregatedObservations'],
+  rawObservations: readonly unknown[]
+): AuthSurfaceMap {
+  const buckets: {
+    loginPaths: AuthSurfacePathRecord[];
+    oauthPaths: AuthSurfacePathRecord[];
+    ssoPaths: AuthSurfacePathRecord[];
+    registrationPaths: AuthSurfacePathRecord[];
+    passwordResetPaths: AuthSurfacePathRecord[];
+    otherAuthPaths: AuthSurfacePathRecord[];
+  } = {
+    loginPaths: [],
+    oauthPaths: [],
+    ssoPaths: [],
+    registrationPaths: [],
+    passwordResetPaths: [],
+    otherAuthPaths: [],
+  };
+
+  const seen = new Set<string>();
+
+  function addPath(
+    path: string,
+    url: string | undefined,
+    source: AuthSurfacePathRecord['source'],
+    formHints: readonly string[] = []
+  ): void {
+    const bucket = classifyAuthPath(path);
+    if (!bucket) return;
+    const key = `${bucket}:${path}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    buckets[bucket].push({
+      path,
+      ...(url ? { url } : {}),
+      source,
+      formHints: [...formHints],
+    });
+  }
+
+  for (const ep of endpoints) {
+    addPath(ep.path, ep.url, 'endpoint_observation');
+  }
+
+  for (const urlObs of aggregated?.urls ?? []) {
+    addPath(urlObs.path, urlObs.url, 'url_observation');
+  }
+
+  for (const obs of rawObservations) {
+    if (typeof obs !== 'object' || obs === null) continue;
+    const rec = obs as Record<string, unknown>;
+    if (typeof rec.path === 'string') {
+      const url = typeof rec.url === 'string' ? rec.url : undefined;
+      addPath(rec.path, url, 'url_observation');
+    } else if (typeof rec.url === 'string') {
+      try {
+        const parsed = new URL(rec.url);
+        addPath(parsed.pathname || '/', rec.url, 'url_observation');
+      } catch {
+        // ignore malformed
+      }
+    }
+  }
+
+  if (
+    buckets.loginPaths.length === 0 &&
+    buckets.oauthPaths.length === 0 &&
+    buckets.ssoPaths.length === 0 &&
+    buckets.registrationPaths.length === 0 &&
+    buckets.passwordResetPaths.length === 0 &&
+    buckets.otherAuthPaths.length === 0
+  ) {
+    for (const wellKnown of ['/login', '/oauth/authorize', '/sso', '/register', '/password/reset']) {
+      addPath(wellKnown, undefined, 'well_known_heuristic');
+    }
+  }
+
+  return {
+    loginPaths: buckets.loginPaths.sort((a, b) => a.path.localeCompare(b.path)),
+    oauthPaths: buckets.oauthPaths.sort((a, b) => a.path.localeCompare(b.path)),
+    ssoPaths: buckets.ssoPaths.sort((a, b) => a.path.localeCompare(b.path)),
+    registrationPaths: buckets.registrationPaths.sort((a, b) => a.path.localeCompare(b.path)),
+    passwordResetPaths: buckets.passwordResetPaths.sort((a, b) => a.path.localeCompare(b.path)),
+    otherAuthPaths: buckets.otherAuthPaths.sort((a, b) => a.path.localeCompare(b.path)),
+  };
+}
+
+function buildHistoricalAssets(
+  aggregated: TargetProfileBuilderInput['aggregatedObservations']
+): readonly HistoricalAssetRecord[] {
+  const assets: HistoricalAssetRecord[] = [];
+  for (const urlObs of aggregated?.urls ?? []) {
+    const freshness = urlObs.freshness ?? 'unknown';
+    const sourceReliability =
+      urlObs.sourceReliability ??
+      (freshness === 'historical' ? 'historical_archive' : 'direct_observation');
+    if (freshness !== 'historical' && sourceReliability !== 'historical_archive') {
+      continue;
+    }
+    assets.push({
+      url: urlObs.url,
+      host: urlObs.host,
+      path: urlObs.path,
+      ...(urlObs.query ? { query: urlObs.query } : {}),
+      sources: [...urlObs.sources],
+      freshness,
+      sourceReliability,
+      discoveredAt: urlObs.discoveredAt,
+      ...(urlObs.collectedAt ? { collectedAt: urlObs.collectedAt } : {}),
+    });
+  }
+  return assets.sort((a, b) => a.url.localeCompare(b.url));
+}
+
+function cspKindForDirective(directive: string): ExternalDependency['kind'] {
+  switch (directive) {
+    case 'script-src':
+      return 'csp_script_src';
+    case 'connect-src':
+      return 'csp_connect_src';
+    case 'frame-src':
+      return 'csp_frame_src';
+    case 'img-src':
+      return 'csp_img_src';
+    default:
+      return 'csp_other';
+  }
+}
+
+function buildExternalDependencies(
+  aggregated: TargetProfileBuilderInput['aggregatedObservations'],
+  rawObservations: readonly unknown[],
+  discoveredHosts: readonly DiscoveredHostRecord[]
+): readonly ExternalDependency[] {
+  const deps: ExternalDependency[] = [];
+  const seen = new Set<string>();
+
+  function add(dep: ExternalDependency): void {
+    const key = `${dep.kind}|${dep.value}|${dep.sourceHost ?? ''}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    deps.push(dep);
+  }
+
+  function ingestHeaders(
+    headers: Readonly<Record<string, string | string[] | undefined>> | undefined,
+    sourceHost?: string
+  ): void {
+    const csp = extractHeaderValue(headers, 'content-security-policy');
+    if (!csp) return;
+    const parsed = parseCspHeader(csp);
+    for (const [directive, sources] of parsed.entries()) {
+      for (const source of sources) {
+        if (source.startsWith("'") || source === '*' || source === 'data:' || source === 'blob:') {
+          continue;
+        }
+        let hostValue = source;
+        try {
+          if (source.includes('://')) {
+            hostValue = new URL(source).hostname;
+          }
+        } catch {
+          hostValue = source;
+        }
+        const provider = inferHostingProviderFromCname(hostValue);
+        add({
+          kind: cspKindForDirective(directive),
+          value: hostValue,
+          epistemicStatus: 'OBSERVED',
+          ...(sourceHost ? { sourceHost } : {}),
+          ...(provider !== 'unknown' ? { inferredProvider: provider } : {}),
+        });
+      }
+    }
+  }
+
+  for (const web of aggregated?.webObservations ?? []) {
+    let host: string | undefined;
+    try {
+      host = new URL(web.url).hostname;
+    } catch {
+      host = undefined;
+    }
+    ingestHeaders(web.headers, host);
+  }
+
+  for (const obs of rawObservations) {
+    if (typeof obs !== 'object' || obs === null) continue;
+    const rec = obs as Record<string, unknown>;
+    if (rec.headers && typeof rec.headers === 'object' && !Array.isArray(rec.headers)) {
+      let host: string | undefined;
+      if (typeof rec.url === 'string') {
+        try {
+          host = new URL(rec.url).hostname;
+        } catch {
+          host = undefined;
+        }
+      }
+      const headerEntries: Record<string, string | string[] | undefined> = {};
+      for (const [k, v] of Object.entries(rec.headers)) {
+        if (typeof v === 'string' || Array.isArray(v) || v === undefined) {
+          headerEntries[k] = v;
+        }
+      }
+      ingestHeaders(headerEntries, host);
+    }
+  }
+
+  for (const host of discoveredHosts) {
+    for (const cname of host.cnameTargets) {
+      const provider = inferHostingProviderFromCname(cname);
+      add({
+        kind: 'cname_cloud',
+        value: cname,
+        ...(provider !== 'unknown' ? { inferredProvider: provider } : {}),
+        sourceHost: host.fqdn,
+        epistemicStatus: 'INFERRED',
+      });
+    }
+  }
+
+  return deps.sort((a, b) => `${a.kind}:${a.value}`.localeCompare(`${b.kind}:${b.value}`));
 }
 
 export class TargetProfileBuilder {

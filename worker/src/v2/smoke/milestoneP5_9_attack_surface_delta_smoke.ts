@@ -71,6 +71,17 @@ async function runSmokeTests() {
       },
     ],
     knownFindings: [],
+    discoveredHosts: [],
+    authSurface: {
+      loginPaths: [],
+      oauthPaths: [],
+      ssoPaths: [],
+      registrationPaths: [],
+      passwordResetPaths: [],
+      otherAuthPaths: [],
+    },
+    historicalAssets: [],
+    externalDependencies: [],
   };
 
   const currentProfileWithExpansion: TargetProfile = {
@@ -139,6 +150,17 @@ async function runSmokeTests() {
       },
     ],
     knownFindings: [],
+    discoveredHosts: [],
+    authSurface: {
+      loginPaths: [],
+      oauthPaths: [],
+      ssoPaths: [],
+      registrationPaths: [],
+      passwordResetPaths: [],
+      otherAuthPaths: [],
+    },
+    historicalAssets: [],
+    externalDependencies: [],
   };
 
   // -------------------------------------------------------------------------

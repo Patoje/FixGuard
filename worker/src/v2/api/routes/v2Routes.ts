@@ -28,6 +28,8 @@ export function createV2Router(root: V2CompositionRoot): Router {
 
   // Milestone A2 — Attack Surface Graph read model
   router.get('/assessments/:assessmentId/attack-surface', orchestratedController.getAttackSurface);
+  // Milestone A3 — Attack Plans read model (advisory only)
+  router.get('/assessments/:assessmentId/attack-plans', orchestratedController.getAttackPlans);
 
   // Triage & Candidate Promotion endpoints (M61.1)
   router.get('/scans/:scanId/evidence-drafts', triageController.listEvidenceDrafts);
@@ -45,6 +47,7 @@ export function createV2Router(root: V2CompositionRoot): Router {
   router.get('/orchestrated/assessments/:assessmentId/status', orchestratedController.getStatus);
   router.get('/orchestrated/assessments/:assessmentId/evidence-drafts', orchestratedController.getEvidenceDrafts);
   router.get('/orchestrated/assessments/:assessmentId/attack-surface', orchestratedController.getAttackSurface);
+  router.get('/orchestrated/assessments/:assessmentId/attack-plans', orchestratedController.getAttackPlans);
   router.post('/orchestrated/assessments/:assessmentId/evidence/:draftId/review', orchestratedController.reviewEvidenceDraft);
   router.post('/orchestrated/assessments/:assessmentId/report/html', orchestratedController.generateHtmlReport);
 

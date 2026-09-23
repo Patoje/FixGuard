@@ -124,6 +124,17 @@ async function runSmokeTests(): Promise<void> {
       },
     ],
     knownFindings: findings,
+    discoveredHosts: [],
+    authSurface: {
+      loginPaths: [],
+      oauthPaths: [],
+      ssoPaths: [],
+      registrationPaths: [],
+      passwordResetPaths: [],
+      otherAuthPaths: [],
+    },
+    historicalAssets: [],
+    externalDependencies: [],
   };
 
   const observations: AggregatedReconObservations = {

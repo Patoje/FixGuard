@@ -15,6 +15,7 @@ import type { Finding } from '../core/Evidence.js';
 import type { EvidenceDraftEnvelope } from '../evidence-mapping/ComparisonEvidenceMappingContracts.js';
 import type { ByotSessionIdentityBundle } from '../detection/DetectionContracts.js';
 import type { AttackSurfaceGraph } from '../attack-surface/AttackSurfaceContracts.js';
+import type { AttackPlan } from '../attack-planning/AttackPlanContracts.js';
 
 export const ORCHESTRATED_ASSESSMENT_CONTRACT_VERSION =
   'fixguard-orchestrated-assessment/v0' as const;
@@ -280,6 +281,15 @@ export interface GetAttackSurfaceResult {
   readonly targetDomain: string;
   readonly status: OrchestratedAssessmentStatus;
   readonly attackSurfaceGraph: AttackSurfaceGraph | null;
+  readonly lineage: AuthorizedActiveReconRequestLineage;
+}
+
+/** Milestone A3 — advisory attack plans read model (never executable). */
+export interface GetAttackPlansResult {
+  readonly assessmentId: string;
+  readonly scanId: string;
+  readonly planCount: number;
+  readonly plans: readonly AttackPlan[];
   readonly lineage: AuthorizedActiveReconRequestLineage;
 }
 
