@@ -10,6 +10,7 @@
  * 3. Only authorizePlan() seals tokens into the matching WeakSet.
  * 4. isRuntimeAuthorizedForBlastRadius() requires exact class match +
  *    plan/assessment bindings + WeakSet membership.
+ * 5. Plan must exist in AttackPlanRepository for the assessment before sealing.
  *
  * Brand is process-local — not cryptographic, not transferable via JSON.
  */
@@ -27,6 +28,7 @@ import {
   isProhibitedBlastRadiusClass,
   requiredAuthorizationLevelFor,
 } from './AttackAuthorizationContracts.js';
+import type { AttackPlanRepository } from '../attack-planning/AttackPlanRepository.js';
 
 // ---------------------------------------------------------------------------
 // Module-private WeakSet brands — one per AUTHORIZABLE class only.
@@ -102,14 +104,21 @@ function hasBrandForClass(
   return BRAND_BY_CLASS[blastRadiusClass].has(token);
 }
 
+function tokenRegistryKey(planId: string, assessmentId: string): string {
+  return `${assessmentId}::${planId}`;
+}
+
 // ---------------------------------------------------------------------------
-// authorizePlan / establishAttackAuthorization
+// authorizePlan / establishAttackAuthorization (sync core — no repo)
 // ---------------------------------------------------------------------------
 
 /**
  * Authorize an attack plan for a specific blast-radius class.
  * Seals a runtime-branded token in the corresponding WeakSet.
  * Permanently rejects `persistence` and `destructive`.
+ *
+ * NOTE: Does not check plan repository existence. Prefer
+ * AttackAuthorizationService.authorizePlan which enforces plan presence.
  */
 export function authorizePlan(
   planId: string,
@@ -330,23 +339,73 @@ export function isRuntimeAuthorizedForBlastRadius(
 }
 
 /**
- * Thin façade for composition-root DI. Brand state remains module-private.
+ * Façade for composition-root DI. Brand state remains module-private.
+ * Requires AttackPlanRepository — planId must exist for assessmentId
+ * before minting a WeakSet brand.
  */
 export class AttackAuthorizationService {
-  public authorizePlan(
+  private readonly sealedTokens = new Map<string, AttackAuthorizationToken>();
+
+  constructor(private readonly planRepository: AttackPlanRepository) {}
+
+  public async authorizePlan(
     planId: string,
     assessmentId: string,
     blastRadiusClass: BlastRadiusClass,
     operatorId: string,
     authorizedAt?: string
-  ): EstablishAttackAuthorizationResult {
-    return authorizePlan(planId, assessmentId, blastRadiusClass, operatorId, authorizedAt);
+  ): Promise<EstablishAttackAuthorizationResult> {
+    return this.establishAttackAuthorization({
+      contractVersion: ATTACK_AUTHORIZATION_CONTRACT_VERSION,
+      kind: 'establish_attack_authorization_request',
+      planId,
+      assessmentId,
+      blastRadiusClass,
+      operatorId,
+      ...(authorizedAt !== undefined ? { authorizedAt } : {}),
+    });
   }
 
-  public establishAttackAuthorization(
+  public async establishAttackAuthorization(
     request: unknown
-  ): EstablishAttackAuthorizationResult {
-    return establishAttackAuthorization(request);
+  ): Promise<EstablishAttackAuthorizationResult> {
+    // Pre-validate IDs enough to query the repository before sealing.
+    if (request && typeof request === 'object' && !Array.isArray(request)) {
+      const req = request as Record<string, unknown>;
+      if (typeof req.planId === 'string' && typeof req.assessmentId === 'string') {
+        if (isSafeId(req.planId) && isSafeId(req.assessmentId)) {
+          const plan = await this.planRepository.getPlan(req.planId);
+          if (!plan || plan.assessmentId !== req.assessmentId) {
+            return {
+              status: 'failed',
+              reasonCode: 'plan_not_found',
+              safeMessage: 'Attack plan does not exist for the given assessment',
+            };
+          }
+        }
+      }
+    }
+
+    const result = establishAttackAuthorization(request);
+    if (result.status === 'established') {
+      this.sealedTokens.set(
+        tokenRegistryKey(result.token.planId, result.token.assessmentId),
+        result.token
+      );
+    }
+    return result;
+  }
+
+  /**
+   * Retrieve the process-local branded token for in-process execution (A5).
+   * JSON/plain copies are never stored — only the WeakSet-sealed object.
+   */
+  public getRuntimeToken(
+    planId: string,
+    assessmentId: string
+  ): AttackAuthorizationToken | null {
+    if (!isSafeId(planId) || !isSafeId(assessmentId)) return null;
+    return this.sealedTokens.get(tokenRegistryKey(planId, assessmentId)) ?? null;
   }
 
   public isRuntimeAuthorizedForBlastRadius(

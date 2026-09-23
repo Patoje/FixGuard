@@ -80,7 +80,8 @@ export type EstablishAttackAuthorizationReasonCode =
   | 'attack_authorization_established'
   | 'establishment_request_invalid'
   | 'blast_radius_class_prohibited'
-  | 'operator_invalid';
+  | 'operator_invalid'
+  | 'plan_not_found';
 
 export type EstablishAttackAuthorizationResult =
   | {

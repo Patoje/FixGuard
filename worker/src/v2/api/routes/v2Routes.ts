@@ -16,7 +16,8 @@ export function createV2Router(root: V2CompositionRoot): Router {
   const triageController = new TriageController(root.candidateRepository, root.draftRepository);
   const orchestratedController = new OrchestratedAssessmentController(
     root.orchestratedService,
-    root.attackAuthorizationService
+    root.attackAuthorizationService,
+    root.attackExecutionService
   );
   const capabilityController = new CapabilityStatusController(root.availabilityService);
 
@@ -37,6 +38,11 @@ export function createV2Router(root: V2CompositionRoot): Router {
   router.post(
     '/assessments/:assessmentId/attack-plans/:planId/authorize',
     orchestratedController.authorizeAttackPlan
+  );
+  // Milestone A5 — Attack plan execution (7 safety gates + branded token)
+  router.post(
+    '/assessments/:assessmentId/attack-plans/:planId/execute',
+    orchestratedController.executeAttackPlan
   );
 
   // Triage & Candidate Promotion endpoints (M61.1)

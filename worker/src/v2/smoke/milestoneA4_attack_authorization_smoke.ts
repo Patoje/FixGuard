@@ -2,8 +2,9 @@
  * Milestone A4 Smoke Suite — Attack Authorization Model (Graduated WeakSet Brands)
  *
  * Verifies:
- * 1. Valid authorizePlan → token passes isRuntimeAuthorizedForBlastRadius for its class
- * 2. Adversarial forgery / mismatch / prohibited classes fail closed
+ * 1. Valid authorizePlan (with plan existence in repo) → token branded
+ * 2. Missing plan fails closed with plan_not_found
+ * 3. Adversarial forgery / mismatch / prohibited classes fail closed
  */
 
 import assert from 'node:assert/strict';
@@ -17,6 +18,9 @@ import {
   requiredAuthorizationLevelFor,
   type AttackAuthorizationToken,
 } from '../attack-authorization/AttackAuthorizationContracts.js';
+import { InMemoryAttackPlanRepository } from '../attack-planning/InMemoryAttackPlanRepository.js';
+import type { AttackPlan } from '../attack-planning/AttackPlanContracts.js';
+import { ATTACK_PLANNING_CONTRACT_VERSION } from '../attack-planning/AttackPlanContracts.js';
 import { V2CompositionRoot } from '../api/V2CompositionRoot.js';
 import { OrchestratedAssessmentController } from '../api/controllers/OrchestratedAssessmentController.js';
 import type { Request, Response, NextFunction } from 'express';
@@ -34,6 +38,45 @@ function assertFalse(condition: boolean, message: string): void {
   if (condition) fail(message);
 }
 
+function buildPlan(planId: string, assessmentId: string): AttackPlan {
+  return {
+    contractVersion: ATTACK_PLANNING_CONTRACT_VERSION,
+    kind: 'attack_plan',
+    planId,
+    assessmentId,
+    scanId: 'scn_smoke_a4_001',
+    capability: 'idor_read_differential',
+    title: 'A4 smoke plan',
+    reasoning: 'Hermetic advisory plan for authorization smoke',
+    status: 'ready_for_authorization',
+    blastRadius: 'single_resource',
+    capabilityGained: 'read_escalated',
+    sourceFindingIds: ['fnd_a4_001'],
+    sourceFindingTypes: ['BROKEN_ACCESS_CONTROL'],
+    prerequisites: [],
+    steps: [
+      {
+        stepId: 'step_a4_1',
+        ordinal: 1,
+        title: 'Authorize',
+        description: 'Advisory step',
+        status: 'ready',
+        requiredPermissions: ['active_http_get'],
+      },
+    ],
+    targetUrl: 'https://app.example.com/resource/1',
+    lineage: {
+      assessmentId,
+      scanId: 'scn_smoke_a4_001',
+      authorizationGrantId: 'grn_smoke_a4_001',
+      authorizationDecisionId: 'dec_smoke_a4_001',
+      actorId: 'act_smoke_a4_operator',
+    },
+    createdAt: '2026-09-23T18:30:00.000Z',
+    executable: false,
+  };
+}
+
 async function runSmokeTests(): Promise<void> {
   console.log('=== Milestone A4: Attack Authorization WeakSet Smoke Suite ===');
 
@@ -43,8 +86,13 @@ async function runSmokeTests(): Promise<void> {
   const operatorId = 'act_smoke_a4_operator';
   const authorizedAt = '2026-09-23T18:30:00.000Z';
 
-  // --- Test 1: Valid authorization brands correctly ---
-  const established = authorizePlan(
+  const planRepo = new InMemoryAttackPlanRepository();
+  await planRepo.savePlan(buildPlan(planA, assessmentId));
+  await planRepo.savePlan(buildPlan(planB, assessmentId));
+  const authService = new AttackAuthorizationService(planRepo);
+
+  // --- Test 1: Valid authorization brands correctly (with plan existence) ---
+  const established = await authService.authorizePlan(
     planA,
     assessmentId,
     'read_escalated',
@@ -64,6 +112,20 @@ async function runSmokeTests(): Promise<void> {
   assert.equal(requiredAuthorizationLevelFor('persistence'), 'PROHIBITED');
   assert.equal(requiredAuthorizationLevelFor('destructive'), 'PROHIBITED');
   console.log('[+] Test 1: valid authorization brand OK');
+
+  // --- Test 1b: Missing plan fails closed ---
+  const missing = await authService.authorizePlan(
+    'plan_does_not_exist',
+    assessmentId,
+    'read_public',
+    operatorId,
+    authorizedAt
+  );
+  assertTrue(
+    missing.status === 'failed' && missing.reasonCode === 'plan_not_found',
+    'Missing plan must fail with plan_not_found'
+  );
+  console.log('[+] Test 1b: plan existence check OK');
 
   // --- Test 2: read_escalated token must NOT authorize sensitive_data_access (no cascade) ---
   assertFalse(
@@ -149,8 +211,7 @@ async function runSmokeTests(): Promise<void> {
   console.log('[+] Test 6: prohibited classes rejected OK');
 
   // --- Test 7: self-authorization fields rejected ---
-  const service = new AttackAuthorizationService();
-  const selfAuth = service.establishAttackAuthorization({
+  const selfAuth = await authService.establishAttackAuthorization({
     contractVersion: ATTACK_AUTHORIZATION_CONTRACT_VERSION,
     kind: 'establish_attack_authorization_request',
     planId: planA,
@@ -159,10 +220,7 @@ async function runSmokeTests(): Promise<void> {
     operatorId,
     confirmed: true,
   });
-  assertTrue(
-    selfAuth.status === 'failed',
-    'confirmed:true self-authorization must be rejected'
-  );
+  assertTrue(selfAuth.status === 'failed', 'confirmed:true self-authorization must be rejected');
   console.log('[+] Test 7: self-authorization rejected OK');
 
   // --- Test 8: CompositionRoot + HTTP authorize path (hermetic) ---
@@ -172,9 +230,12 @@ async function runSmokeTests(): Promise<void> {
     'CompositionRoot must expose AttackAuthorizationService'
   );
 
+  await root.attackPlanRepository.savePlan(buildPlan(planA, assessmentId));
+
   const controller = new OrchestratedAssessmentController(
     root.orchestratedService,
-    root.attackAuthorizationService
+    root.attackAuthorizationService,
+    root.attackExecutionService
   );
 
   let statusCode = 0;

@@ -26,7 +26,6 @@ import type {
   ActiveReconOrchestrationConfig,
 } from '../recon/orchestration/ActiveReconOrchestrationContracts.js';
 import { CompositeActiveReconOrchestratorService } from '../recon/orchestration/CompositeActiveReconOrchestratorService.js';
-import { SUBDOMAIN_DISCOVERY_NON_CLAIMS } from '../recon/adapters/SubdomainDiscoveryContracts.js';
 import { DNS_RESOLUTION_NON_CLAIMS } from '../recon/adapters/DnsResolutionContracts.js';
 import { PORT_DISCOVERY_NON_CLAIMS } from '../recon/adapters/PortDiscoveryContracts.js';
 import { WEB_INSPECTION_NON_CLAIMS } from '../recon/adapters/WebInspectionContracts.js';
@@ -36,6 +35,9 @@ import { CONTENT_DISCOVERY_NON_CLAIMS } from '../recon/adapters/ContentDiscovery
 import { PARAMETER_DISCOVERY_NON_CLAIMS } from '../recon/adapters/ParameterDiscoveryContracts.js';
 import { SECRET_DISCOVERY_NON_CLAIMS } from '../recon/adapters/SecretDiscoveryContracts.js';
 import { PlaywrightSpaAdapter } from '../recon/adapters/PlaywrightSpaAdapter.js';
+import { CrtShAdapter } from '../recon/adapters/CrtShAdapter.js';
+import { SUBDOMAIN_DISCOVERY_NON_CLAIMS } from '../recon/adapters/SubdomainDiscoveryContracts.js';
+import type { SubdomainDiscoveryTool } from '../recon/adapters/SubdomainDiscoveryContracts.js';
 
 import type {
   HttpProbeRequest,
@@ -254,11 +256,40 @@ const defaultDnsResolver = async (host: string): Promise<string[]> => {
   }
 };
 
+/**
+ * Default composition wires CrtShAdapter as passiveCtTool (class + port).
+ * Transport is fail-closed without a live fetch injection so hermetic smokes
+ * never hang on crt.sh or ingest non-deterministic CT data. Live/scripts inject
+ * `new CrtShAdapter({ fetchApi: fetch })` for real historical CT lookups.
+ * CT ≠ live probing.
+ */
+function createDefaultPassiveCtTool(
+  dnsResolver: (host: string) => Promise<string[]>
+): SubdomainDiscoveryTool {
+  const adapter = new CrtShAdapter({
+    dnsResolver,
+    fetchApi: async () => {
+      throw new TypeError(
+        'Default composition CT transport is fail-closed; inject CrtShAdapter with live fetch for historical CT'
+      );
+    },
+  });
+  return {
+    async discoverSubdomains(req) {
+      return adapter.discoverSubdomains({
+        ...req,
+        timeoutMs: req.timeoutMs ?? 2_000,
+      });
+    },
+  };
+}
+
 function createDefaultReconAdapters(
   dnsResolver: (host: string) => Promise<string[]>,
   httpTransport: IdorHttpProbeTransport
 ): ReconToolAdapters {
   return {
+    // Hermetic-safe active subdomain stub (empty success). Inject SubfinderAdapter for live runs.
     subdomainTool: {
       async discoverSubdomains(req) {
         return {
@@ -272,6 +303,8 @@ function createDefaultReconAdapters(
         };
       },
     },
+    // PART1 follow-up: CrtShAdapter wired as passiveCtTool (CT ≠ live).
+    passiveCtTool: createDefaultPassiveCtTool(dnsResolver),
     dnsTool: {
       async resolveDns(req) {
         const start = Date.now();

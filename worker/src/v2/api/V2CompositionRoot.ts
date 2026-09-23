@@ -21,6 +21,8 @@ import type { AttackPlanRepository } from '../attack-planning/AttackPlanReposito
 import { InMemoryAttackPlanRepository } from '../attack-planning/InMemoryAttackPlanRepository.js';
 import { AttackPlanGeneratorService } from '../attack-planning/AttackPlanGeneratorService.js';
 import { AttackAuthorizationService } from '../attack-authorization/AttackAuthorizationService.js';
+import { AttackCapabilityRegistry } from '../attack-execution/AttackCapabilityRegistry.js';
+import { AttackExecutionService } from '../attack-execution/AttackExecutionService.js';
 
 export interface V2CompositionDependencies {
   readonly assessmentRepository?: AssessmentRepository;
@@ -36,6 +38,8 @@ export interface V2CompositionDependencies {
   readonly attackPlanRepository?: AttackPlanRepository;
   readonly attackPlanGenerator?: AttackPlanGeneratorService;
   readonly attackAuthorizationService?: AttackAuthorizationService;
+  readonly attackCapabilityRegistry?: AttackCapabilityRegistry;
+  readonly attackExecutionService?: AttackExecutionService;
 }
 
 /**
@@ -57,6 +61,8 @@ export class V2CompositionRoot {
   public readonly attackPlanRepository: AttackPlanRepository;
   public readonly attackPlanGenerator: AttackPlanGeneratorService;
   public readonly attackAuthorizationService: AttackAuthorizationService;
+  public readonly attackCapabilityRegistry: AttackCapabilityRegistry;
+  public readonly attackExecutionService: AttackExecutionService;
 
   constructor(deps: V2CompositionDependencies = {}) {
     this.assessmentRepository = deps.assessmentRepository ?? new InMemoryAssessmentRepository();
@@ -69,7 +75,15 @@ export class V2CompositionRoot {
     this.attackPlanRepository = deps.attackPlanRepository ?? new InMemoryAttackPlanRepository();
     this.attackPlanGenerator = deps.attackPlanGenerator ?? new AttackPlanGeneratorService();
     this.attackAuthorizationService =
-      deps.attackAuthorizationService ?? new AttackAuthorizationService();
+      deps.attackAuthorizationService ?? new AttackAuthorizationService(this.attackPlanRepository);
+    this.attackCapabilityRegistry =
+      deps.attackCapabilityRegistry ?? AttackCapabilityRegistry.createDefault();
+    this.attackExecutionService =
+      deps.attackExecutionService ??
+      new AttackExecutionService({
+        planRepository: this.attackPlanRepository,
+        capabilityRegistry: this.attackCapabilityRegistry,
+      });
     this.orchestratedRepository =
       deps.orchestratedRepository ?? new InMemoryOrchestratedAssessmentRepository();
     this.orchestratedService =

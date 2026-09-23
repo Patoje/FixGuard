@@ -1674,6 +1674,18 @@ All completed milestones are verified via active TypeScript contracts and the re
   2. `POST /api/v2/assessments/:assessmentId/attack-plans/:planId/authorize` + CompositionRoot wiring.
   3. Smoke `smoke:v2:milestone-a4-attack-auth`; suite count 85→86.
   4. Tokens are runtime brands only — not attack execution.
+  5. Follow-up: plan must exist in `AttackPlanRepository` for assessment before minting brand (`plan_not_found`).
+
+### Milestone A5: Attack Execution Engine — Master Phase 4 Track A
+- **Status:** COMPLETED.
+- **Goal:** Execute human-authorized defensive verification capabilities under 7 ordered safety gates; WeakSet brand required; persistence/destructive remain prohibited at auth layer.
+- **Key Deliverables:**
+  1. `worker/src/v2/attack-execution/` contracts, capability registry (4 wrappers), execution service.
+  2. Gates (exact order): brand/class → plan binding → assessment binding → SSRF → DNS rebind → scope → circuit.
+  3. `POST /api/v2/assessments/:assessmentId/attack-plans/:planId/execute` + CompositionRoot wiring.
+  4. Step success advances `VerificationState` via `VerificationStateService`; refutation records `REFUTED`.
+  5. Smoke `smoke:v2:milestone-a5-attack-execution`; suite count 86→87.
+  6. Recon follow-up: `CrtShAdapter` wired as `passiveCtTool` in `createDefaultReconAdapters` (CT ≠ live; default CT transport fail-closed — inject live fetch for real crt.sh; active Subfinder remains injectable).
 
 ---
 
