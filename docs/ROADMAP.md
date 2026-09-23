@@ -1664,6 +1664,16 @@ All completed milestones are verified via active TypeScript contracts and the re
   2. `worker/src/v2/attack-planning/` contracts, generator, port, in-memory repository.
   3. Wired into orchestrated assessment + `GET /v2/assessments/:assessmentId/attack-plans`.
   4. Smoke `smoke:v2:milestone-a3-attack-planning`; suite count 84→85.
+  5. Plan scope taxonomy renamed to `AttackPlanScopeClass` (A4 owns authorization `BlastRadiusClass`).
+
+### Milestone A4: Attack Authorization Model (Graduated WeakSet Brands) — Master Phase 4 Track A
+- **Status:** COMPLETED.
+- **Goal:** Graduated per-class WeakSet attack authorization tokens; `persistence`/`destructive` permanently prohibited; no cascade across classes.
+- **Key Deliverables:**
+  1. `worker/src/v2/attack-authorization/` contracts + service (one WeakSet per authorizable class).
+  2. `POST /api/v2/assessments/:assessmentId/attack-plans/:planId/authorize` + CompositionRoot wiring.
+  3. Smoke `smoke:v2:milestone-a4-attack-auth`; suite count 85→86.
+  4. Tokens are runtime brands only — not attack execution.
 
 ---
 

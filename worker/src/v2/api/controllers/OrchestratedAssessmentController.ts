@@ -7,25 +7,31 @@
  * - GET /api/v2/orchestrated/assessments/:assessmentId/status
  * - GET /api/v2/assessments/:assessmentId/attack-surface (Milestone A2)
  * - GET /api/v2/assessments/:assessmentId/attack-plans (Milestone A3)
+ * - POST /api/v2/assessments/:assessmentId/attack-plans/:planId/authorize (Milestone A4)
  *
  * Responsibilities:
  * 1) Extract and validate path parameters and request body.
- * 2) Delegate to OrchestratedAssessmentApplicationService.
- * 3) Return appropriate HTTP status codes (202 Accepted, 200 OK).
+ * 2) Delegate to OrchestratedAssessmentApplicationService / AttackAuthorizationService.
+ * 3) Return appropriate HTTP status codes (202 Accepted, 200 OK, 201 Created).
  */
 
 import type { Request, Response, NextFunction } from 'express';
 import type { OrchestratedAssessmentApplicationService } from '../../application/OrchestratedAssessmentApplicationService.js';
+import type { AttackAuthorizationService } from '../../attack-authorization/AttackAuthorizationService.js';
+import { ATTACK_AUTHORIZATION_CONTRACT_VERSION } from '../../attack-authorization/AttackAuthorizationContracts.js';
 import {
   parseStartOrchestratedAssessmentBody,
   parseReviewEvidenceDraftBody,
   parseGenerateHtmlReportHttpBody,
 } from '../validation/ApiRequestValidators.js';
 import { isStrictSafeId } from '../../reporting-boundary/DefensiveReportContracts.js';
-import { ApiValidationError } from '../ApiErrors.js';
+import { ApiValidationError, UnauthorizedGatewayError } from '../ApiErrors.js';
 
 export class OrchestratedAssessmentController {
-  constructor(private readonly service: OrchestratedAssessmentApplicationService) {}
+  constructor(
+    private readonly service: OrchestratedAssessmentApplicationService,
+    private readonly attackAuthorizationService?: AttackAuthorizationService
+  ) {}
 
   public startAssessment = async (
     req: Request,
@@ -181,6 +187,77 @@ export class OrchestratedAssessmentController {
       );
 
       res.setHeader('Content-Type', 'text/html; charset=utf-8').status(200).send(html);
+    } catch (err) {
+      next(err);
+    }
+  };
+
+  /**
+   * Milestone A4 — mint a runtime-branded AttackAuthorizationToken for a plan.
+   * Does not execute attacks. Self-authorization flags are rejected by the service.
+   */
+  public authorizeAttackPlan = async (
+    req: Request,
+    res: Response,
+    next: NextFunction
+  ): Promise<void> => {
+    try {
+      if (!this.attackAuthorizationService) {
+        throw new ApiValidationError('Attack authorization service is not configured');
+      }
+
+      const assessmentId = req.params.assessmentId;
+      const planId = req.params.planId;
+      if (!assessmentId || typeof assessmentId !== 'string' || !isStrictSafeId(assessmentId)) {
+        throw new ApiValidationError('Field assessmentId must satisfy strict identifier format');
+      }
+      if (!planId || typeof planId !== 'string' || !isStrictSafeId(planId)) {
+        throw new ApiValidationError('Field planId must satisfy strict identifier format');
+      }
+
+      if (!req.body || typeof req.body !== 'object' || Array.isArray(req.body)) {
+        throw new ApiValidationError('Authorization request body must be a non-empty object');
+      }
+
+      const body = req.body as Record<string, unknown>;
+      const operatorId = body.operatorId;
+      const blastRadiusClass = body.blastRadiusClass;
+      if (typeof operatorId !== 'string' || !isStrictSafeId(operatorId)) {
+        throw new ApiValidationError('Field operatorId must satisfy strict identifier format');
+      }
+      if (typeof blastRadiusClass !== 'string') {
+        throw new ApiValidationError('Field blastRadiusClass must be a closed-world string');
+      }
+
+      const result = this.attackAuthorizationService.establishAttackAuthorization({
+        contractVersion: ATTACK_AUTHORIZATION_CONTRACT_VERSION,
+        kind: 'establish_attack_authorization_request',
+        planId,
+        assessmentId,
+        blastRadiusClass,
+        operatorId,
+        ...(typeof body.authorizedAt === 'string' ? { authorizedAt: body.authorizedAt } : {}),
+      });
+
+      if (result.status === 'failed') {
+        if (result.reasonCode === 'blast_radius_class_prohibited') {
+          throw new UnauthorizedGatewayError(result.safeMessage, result.reasonCode);
+        }
+        throw new ApiValidationError(result.safeMessage);
+      }
+
+      res.status(201).json({
+        status: 'established',
+        reasonCode: result.reasonCode,
+        token: {
+          planId: result.token.planId,
+          assessmentId: result.token.assessmentId,
+          blastRadiusClass: result.token.blastRadiusClass,
+          authorizationLevel: result.token.authorizationLevel,
+          authorizedBy: result.token.authorizedBy,
+          authorizedAt: result.token.authorizedAt,
+        },
+      });
     } catch (err) {
       next(err);
     }

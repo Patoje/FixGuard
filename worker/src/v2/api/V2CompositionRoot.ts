@@ -20,6 +20,7 @@ import type { AttackSurfaceQueryService } from '../attack-surface/AttackSurfaceQ
 import type { AttackPlanRepository } from '../attack-planning/AttackPlanRepository.js';
 import { InMemoryAttackPlanRepository } from '../attack-planning/InMemoryAttackPlanRepository.js';
 import { AttackPlanGeneratorService } from '../attack-planning/AttackPlanGeneratorService.js';
+import { AttackAuthorizationService } from '../attack-authorization/AttackAuthorizationService.js';
 
 export interface V2CompositionDependencies {
   readonly assessmentRepository?: AssessmentRepository;
@@ -34,6 +35,7 @@ export interface V2CompositionDependencies {
   readonly availabilityService?: ReconToolAvailabilityService;
   readonly attackPlanRepository?: AttackPlanRepository;
   readonly attackPlanGenerator?: AttackPlanGeneratorService;
+  readonly attackAuthorizationService?: AttackAuthorizationService;
 }
 
 /**
@@ -54,6 +56,7 @@ export class V2CompositionRoot {
   public readonly availabilityService: ReconToolAvailabilityService;
   public readonly attackPlanRepository: AttackPlanRepository;
   public readonly attackPlanGenerator: AttackPlanGeneratorService;
+  public readonly attackAuthorizationService: AttackAuthorizationService;
 
   constructor(deps: V2CompositionDependencies = {}) {
     this.assessmentRepository = deps.assessmentRepository ?? new InMemoryAssessmentRepository();
@@ -65,6 +68,8 @@ export class V2CompositionRoot {
     this.availabilityService = deps.availabilityService ?? new ReconToolAvailabilityService();
     this.attackPlanRepository = deps.attackPlanRepository ?? new InMemoryAttackPlanRepository();
     this.attackPlanGenerator = deps.attackPlanGenerator ?? new AttackPlanGeneratorService();
+    this.attackAuthorizationService =
+      deps.attackAuthorizationService ?? new AttackAuthorizationService();
     this.orchestratedRepository =
       deps.orchestratedRepository ?? new InMemoryOrchestratedAssessmentRepository();
     this.orchestratedService =

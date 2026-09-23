@@ -14,7 +14,10 @@ export function createV2Router(root: V2CompositionRoot): Router {
   const reportController = new ReportController(root.reportService);
   const authController = new AuthorizationController();
   const triageController = new TriageController(root.candidateRepository, root.draftRepository);
-  const orchestratedController = new OrchestratedAssessmentController(root.orchestratedService);
+  const orchestratedController = new OrchestratedAssessmentController(
+    root.orchestratedService,
+    root.attackAuthorizationService
+  );
   const capabilityController = new CapabilityStatusController(root.availabilityService);
 
   // Capability Status endpoint (Milestone P0-3)
@@ -30,6 +33,11 @@ export function createV2Router(root: V2CompositionRoot): Router {
   router.get('/assessments/:assessmentId/attack-surface', orchestratedController.getAttackSurface);
   // Milestone A3 — Attack Plans read model (advisory only)
   router.get('/assessments/:assessmentId/attack-plans', orchestratedController.getAttackPlans);
+  // Milestone A4 — Graduated attack-plan authorization (runtime brand; not execution)
+  router.post(
+    '/assessments/:assessmentId/attack-plans/:planId/authorize',
+    orchestratedController.authorizeAttackPlan
+  );
 
   // Triage & Candidate Promotion endpoints (M61.1)
   router.get('/scans/:scanId/evidence-drafts', triageController.listEvidenceDrafts);

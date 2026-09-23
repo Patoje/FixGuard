@@ -13,10 +13,11 @@ export const ATTACK_PLANNING_CONTRACT_VERSION: AttackPlanningContractVersion =
   'fixguard-attack-planning/v0';
 
 /**
- * Closed blast-radius taxonomy (exactly 10 classes).
- * Describes recommended validation scope — not an automatic severity claim.
+ * Closed plan-scope taxonomy (exactly 10 classes).
+ * Describes recommended validation scope on an advisory AttackPlan —
+ * not an authorization blast-radius class (see attack-authorization BlastRadiusClass).
  */
-export type BlastRadiusClass =
+export type AttackPlanScopeClass =
   | 'single_parameter'
   | 'single_endpoint'
   | 'single_resource'
@@ -100,7 +101,7 @@ export interface AttackPlan {
   readonly title: string;
   readonly reasoning: string;
   readonly status: AttackPlanStatus;
-  readonly blastRadius: BlastRadiusClass;
+  readonly blastRadius: AttackPlanScopeClass;
   readonly capabilityGained: CapabilityGained;
   readonly sourceFindingIds: readonly string[];
   readonly sourceFindingTypes: readonly string[];

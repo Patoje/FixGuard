@@ -26,7 +26,7 @@ import {
   type AttackPlanStatus,
   type AttackPrerequisite,
   type AttackStep,
-  type BlastRadiusClass,
+  type AttackPlanScopeClass,
   type CapabilityGained,
 } from './AttackPlanContracts.js';
 
@@ -122,7 +122,7 @@ function buildPlan(args: {
   capability: AttackCapabilityKind;
   title: string;
   reasoning: string;
-  blastRadius: BlastRadiusClass;
+  blastRadius: AttackPlanScopeClass;
   capabilityGained: CapabilityGained;
   finding: Finding;
   prerequisites: readonly AttackPrerequisite[];
