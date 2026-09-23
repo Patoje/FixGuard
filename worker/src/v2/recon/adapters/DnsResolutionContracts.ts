@@ -6,7 +6,7 @@ export type DnsResolutionContractVersion = 'fixguard-dns-resolution/v0';
 export const DNS_RESOLUTION_CONTRACT_VERSION: DnsResolutionContractVersion =
   'fixguard-dns-resolution/v0';
 
-export type DnsRecordType = 'A' | 'AAAA' | 'CNAME' | 'TXT' | 'MX';
+export type DnsRecordType = 'A' | 'AAAA' | 'CNAME' | 'TXT' | 'MX' | 'NS' | 'SOA' | 'CAA' | 'SRV' | 'PTR';
 
 export interface DnsResolutionExplicitNonClaims {
   readonly createsRealFindings: false;
@@ -35,6 +35,9 @@ export interface DiscoveredDnsObservation {
   readonly recordType: DnsRecordType;
   readonly values: readonly string[];
   readonly discoveredAt: string;
+  readonly collectedAt?: string;
+  readonly freshness?: 'live' | 'historical' | 'unknown';
+  readonly sourceReliability?: 'direct_observation' | 'historical_archive' | 'inferred_relationship';
 }
 
 export interface DnsResolutionRequest {
@@ -42,6 +45,9 @@ export interface DnsResolutionRequest {
   readonly recordTypes?: readonly DnsRecordType[];
   readonly resolvers?: readonly string[];
   readonly wildcardFiltering?: boolean;
+  readonly axfr?: boolean;
+  readonly asn?: boolean;
+  readonly cdn?: boolean;
   readonly verifiedAuthorizationDecision: VerifiedAuthorizationDecision;
   readonly authorizedScopeGrant: AuthorizedScopeGrant;
   readonly lineage: AuthorizedActiveReconRequestLineage;

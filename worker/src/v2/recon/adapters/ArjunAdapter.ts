@@ -246,6 +246,9 @@ export class ArjunAdapter implements ParameterDiscoveryTool {
             method: effectiveMethod,
             parameterName: cleanParam,
             discoveredAt: new Date().toISOString(),
+            collectedAt: new Date().toISOString(),
+            freshness: 'live',
+            sourceReliability: 'direct_observation',
           });
         }
       };

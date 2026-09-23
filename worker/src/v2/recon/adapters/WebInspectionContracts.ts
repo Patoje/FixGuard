@@ -37,6 +37,9 @@ export interface DiscoveredWebObservation {
   readonly technologies: readonly string[];
   readonly resolvedIp?: string;
   readonly discoveredAt: string;
+  readonly collectedAt?: string;
+  readonly freshness?: 'live' | 'historical' | 'unknown';
+  readonly sourceReliability?: 'direct_observation' | 'historical_archive' | 'inferred_relationship';
 }
 
 export interface WebInspectionRequest {

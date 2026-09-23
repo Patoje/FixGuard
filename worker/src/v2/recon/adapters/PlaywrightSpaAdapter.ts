@@ -458,6 +458,9 @@ export class PlaywrightSpaAdapter implements BrowserAutomationTool {
         inputs: discoveredInputs,
         technologies: [...evalResult.frameworks],
         discoveredAt: nowIso,
+        collectedAt: nowIso,
+        freshness: 'live',
+        sourceReliability: 'direct_observation',
       };
 
       return {

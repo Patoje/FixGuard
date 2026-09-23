@@ -35,6 +35,9 @@ export interface DiscoveredSubdomainObservation {
   readonly sources?: readonly string[];
   readonly discoveredAt: string;
   readonly confidence: number;
+  readonly collectedAt?: string;
+  readonly freshness?: 'live' | 'historical' | 'unknown';
+  readonly sourceReliability?: 'direct_observation' | 'historical_archive' | 'inferred_relationship';
 }
 
 export interface SubdomainDiscoveryRequest {

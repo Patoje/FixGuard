@@ -220,6 +220,9 @@ export class HttpxInspectionAdapter implements WebInspectionTool {
           technologies,
           resolvedIp,
           discoveredAt: nowIso,
+          collectedAt: nowIso,
+          freshness: 'live',
+          sourceReliability: 'direct_observation',
         });
       }
     }

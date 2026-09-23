@@ -191,6 +191,9 @@ export class SubfinderAdapter implements SubdomainDiscoveryTool {
         ipAddresses: obs.ips.size > 0 ? Array.from(obs.ips).sort() : undefined,
         sources: obs.sources.size > 0 ? Array.from(obs.sources).sort() : undefined,
         discoveredAt: obs.discoveredAt,
+        collectedAt: obs.discoveredAt,
+        freshness: 'unknown' as const,
+        sourceReliability: 'historical_archive' as const,
         confidence: obs.confidence,
       }));
 

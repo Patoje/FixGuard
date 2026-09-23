@@ -205,14 +205,28 @@ export class CompositeUrlDiscoveryAdapter implements UrlDiscoveryTool {
 
     const observations: DiscoveredUrlObservation[] = Array.from(observationsMap.values())
       .sort((a, b) => a.url.localeCompare(b.url))
-      .map((obs) => ({
-        url: obs.url,
-        host: obs.host,
-        path: obs.path,
-        query: obs.query,
-        sources: Array.from(obs.sources).sort(),
-        discoveredAt: nowIso,
-      }));
+      .map((obs) => {
+        const sources = Array.from(obs.sources).sort();
+        const hasLive = sources.includes('modern_crawler');
+        const hasArchive = sources.includes('archive_legacy');
+        const freshness = hasLive ? ('live' as const) : hasArchive ? ('historical' as const) : ('unknown' as const);
+        const sourceReliability = hasLive
+          ? ('direct_observation' as const)
+          : hasArchive
+            ? ('historical_archive' as const)
+            : ('inferred_relationship' as const);
+        return {
+          url: obs.url,
+          host: obs.host,
+          path: obs.path,
+          query: obs.query,
+          sources,
+          discoveredAt: nowIso,
+          collectedAt: nowIso,
+          freshness,
+          sourceReliability,
+        };
+      });
 
     return {
       status: 'success',

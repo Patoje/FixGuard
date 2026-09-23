@@ -34,6 +34,9 @@ export interface DiscoveredSecretObservation {
   readonly redactedSecret: string;
   readonly discoveredAt: string;
   readonly verified?: boolean;
+  readonly collectedAt?: string;
+  readonly freshness?: 'live' | 'historical' | 'unknown';
+  readonly sourceReliability?: 'direct_observation' | 'historical_archive' | 'inferred_relationship';
 }
 
 export interface SecretDiscoveryRequest {

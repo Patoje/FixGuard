@@ -41,6 +41,9 @@ export interface DiscoveredTlsObservation {
   readonly expired?: boolean;
   readonly selfSigned?: boolean;
   readonly discoveredAt: string;
+  readonly collectedAt?: string;
+  readonly freshness?: 'live' | 'historical' | 'unknown';
+  readonly sourceReliability?: 'direct_observation' | 'historical_archive' | 'inferred_relationship';
 }
 
 export interface TlsInspectionRequest {

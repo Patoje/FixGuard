@@ -266,6 +266,9 @@ export class FfufAdapter implements ContentDiscoveryTool {
         ...(contentType !== undefined ? { contentType } : {}),
         ...(redirectLocation !== undefined ? { redirectLocation } : {}),
         discoveredAt: new Date().toISOString(),
+        collectedAt: new Date().toISOString(),
+        freshness: 'live',
+        sourceReliability: 'direct_observation',
       });
     }
 

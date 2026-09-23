@@ -35,6 +35,9 @@ export interface DiscoveredParameterObservation {
   readonly method: HttpParameterMethod;
   readonly parameterName: string;
   readonly discoveredAt: string;
+  readonly collectedAt?: string;
+  readonly freshness?: 'live' | 'historical' | 'unknown';
+  readonly sourceReliability?: 'direct_observation' | 'historical_archive' | 'inferred_relationship';
 }
 
 export interface ParameterDiscoveryRequest {

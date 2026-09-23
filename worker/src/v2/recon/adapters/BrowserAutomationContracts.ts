@@ -66,6 +66,9 @@ export interface DiscoveredSpaObservation {
   readonly inputs: readonly DiscoveredDomInputObservation[];
   readonly technologies: readonly string[];
   readonly discoveredAt: string;
+  readonly collectedAt?: string;
+  readonly freshness?: 'live' | 'historical' | 'unknown';
+  readonly sourceReliability?: 'direct_observation' | 'historical_archive' | 'inferred_relationship';
 }
 
 export interface RouteInstance {

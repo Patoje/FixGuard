@@ -12,7 +12,8 @@
  * graceful stage containment, and unbroken lineage preservation.
  */
 
-import { runAdapterPreflight } from '../adapters/AdapterPreflightPipeline.js';
+import { runAdapterPreflight, FQDN_REGEX, extractHost } from '../adapters/AdapterPreflightPipeline.js';
+import { isInternalOrSsrfTarget } from '../policy/PassiveEgressPolicy.js';
 import { validateSessionHealth } from '../../core/SessionLifecycleService.js';
 import { TargetExecutionCoordinator } from '../../runtime/TargetExecutionCoordinator.js';
 import {
@@ -74,10 +75,70 @@ import type {
   BrowserAutomationResult,
   DiscoveredSpaObservation,
 } from '../adapters/BrowserAutomationContracts.js';
+import type { AuthorizedScopeGrant } from '../../scope/AuthorizedScopeContracts.js';
 
 function sanitizeToSafeId(raw: string): string {
   const cleaned = raw.replace(/[^A-Za-z0-9]/g, '').slice(0, 16);
   return cleaned.length > 0 ? cleaned : 'target';
+}
+
+function normalizeHostname(raw: string): string | null {
+  let cleaned = raw.trim().toLowerCase();
+  if (cleaned.startsWith('*.')) cleaned = cleaned.slice(2);
+  cleaned = cleaned.replace(/\.$/, '');
+  if (!cleaned || !FQDN_REGEX.test(cleaned)) return null;
+  if (isInternalOrSsrfTarget(cleaned)) return null;
+  return cleaned;
+}
+
+function isHostnameInAuthorizedScope(host: string, grant: AuthorizedScopeGrant): boolean {
+  const allowedDomains = (grant.boundaries.allowedDomains ?? []).map((d) =>
+    d.trim().toLowerCase().replace(/\.$/, '')
+  );
+  const allowedHosts = (grant.boundaries.allowedHosts ?? []).map((h) =>
+    h.trim().toLowerCase().replace(/\.$/, '')
+  );
+  const subjectDomain = grant.subject.domain?.trim().toLowerCase().replace(/\.$/, '');
+  const subjectHost = grant.subject.host?.trim().toLowerCase().replace(/\.$/, '');
+
+  const originHosts: string[] = [];
+  for (const origin of grant.boundaries.allowedOrigins ?? []) {
+    const h = extractHost(origin);
+    if (h) originHosts.push(h);
+  }
+
+  return (
+    allowedDomains.includes(host) ||
+    allowedDomains.some((d) => host === d || host.endsWith('.' + d)) ||
+    allowedHosts.includes(host) ||
+    subjectDomain === host ||
+    (subjectDomain !== undefined && host.endsWith('.' + subjectDomain)) ||
+    subjectHost === host ||
+    originHosts.includes(host) ||
+    originHosts.some((h) => host === h || host.endsWith('.' + h))
+  );
+}
+
+function mergeSubdomainObservation(
+  bucket: DiscoveredSubdomainObservation[],
+  index: Map<string, number>,
+  obs: DiscoveredSubdomainObservation
+): void {
+  const existingIdx = index.get(obs.subdomain);
+  if (existingIdx === undefined) {
+    index.set(obs.subdomain, bucket.length);
+    bucket.push(obs);
+    return;
+  }
+  const existing = bucket[existingIdx]!;
+  const mergedSources = new Set<string>([...(existing.sources ?? []), ...(obs.sources ?? [])]);
+  const mergedIps = new Set<string>([...(existing.ipAddresses ?? []), ...(obs.ipAddresses ?? [])]);
+  bucket[existingIdx] = {
+    ...existing,
+    sources: mergedSources.size > 0 ? Array.from(mergedSources).sort() : existing.sources,
+    ipAddresses: mergedIps.size > 0 ? Array.from(mergedIps).sort() : existing.ipAddresses,
+    confidence: Math.max(existing.confidence, obs.confidence),
+  };
 }
 
 export class CompositeActiveReconOrchestratorService {
@@ -154,6 +215,7 @@ export class CompositeActiveReconOrchestratorService {
     let draftCounter = 0;
 
     const subdomains: DiscoveredSubdomainObservation[] = [];
+    const subdomainIndex = new Map<string, number>();
     const dnsRecords: DiscoveredDnsObservation[] = [];
     const ports: DiscoveredPortObservation[] = [];
     const webObservations: DiscoveredWebObservation[] = [];
@@ -163,6 +225,11 @@ export class CompositeActiveReconOrchestratorService {
     const parameters: DiscoveredParameterObservation[] = [];
     const secrets: DiscoveredSecretObservation[] = [];
     const spaObservations: DiscoveredSpaObservation[] = [];
+
+    /** Hosts already submitted to DNS resolution (idempotent across stages / SAN feedback). */
+    const dnsResolvedHosts = new Set<string>();
+    /** Hosts already submitted to HTTP inspection (idempotent across stages / SAN feedback). */
+    const httpInspectedHosts = new Set<string>();
 
     function createDraft(
       stage: ReconStageName,
@@ -253,7 +320,7 @@ export class CompositeActiveReconOrchestratorService {
 
         if (subResult.status === 'success') {
           for (const obs of subResult.observations) {
-            subdomains.push(obs);
+            mergeSubdomainObservation(subdomains, subdomainIndex, obs);
           }
         } else {
           stage1Warnings.push(`Subdomain discovery denied: ${subResult.reasonCode}`);
@@ -272,6 +339,45 @@ export class CompositeActiveReconOrchestratorService {
         stage1Warnings.push(`Subdomain tool error: ${err instanceof Error ? err.message : String(err)}`);
       }
 
+      // Passive CT-log (crt.sh) — historical hostname candidates; merged + deduped with Subfinder
+      if (this.tools.passiveCtTool) {
+        try {
+          const ctResult: SubdomainDiscoveryResult = await coordinator.execute(
+            request.targetDomain,
+            () =>
+              this.tools.passiveCtTool!.discoverSubdomains({
+                targetDomain: request.targetDomain,
+                verifiedAuthorizationDecision: request.verifiedAuthorizationDecision,
+                authorizedScopeGrant: request.authorizedScopeGrant,
+                lineage: request.lineage,
+                timeoutMs: request.config?.timeoutMs,
+              })
+          );
+
+          if (ctResult.status === 'success') {
+            for (const obs of ctResult.observations) {
+              mergeSubdomainObservation(subdomains, subdomainIndex, obs);
+            }
+          } else {
+            stage1Warnings.push(`Passive CT discovery denied: ${ctResult.reasonCode}`);
+          }
+        } catch (err) {
+          if (err instanceof TargetInstabilityError || coordinator.isCircuitOpen(request.targetDomain)) {
+            await recordStageResult({
+              stage: 'stage_1_domain_zone',
+              status: 'partial_failure',
+              durationMs: Date.now() - stage1Start,
+              observationsCount: subdomains.length,
+              warnings: [`Circuit breaker tripped on ${request.targetDomain}`],
+            });
+            return buildCircuitBrokenResult(request.targetDomain);
+          }
+          stage1Warnings.push(
+            `Passive CT tool error: ${err instanceof Error ? err.message : String(err)}`
+          );
+        }
+      }
+
       // Collect hosts to resolve with Dnsx
       const hostsToResolve = new Set<string>();
       hostsToResolve.add(request.targetDomain);
@@ -280,6 +386,8 @@ export class CompositeActiveReconOrchestratorService {
       }
 
       for (const host of hostsToResolve) {
+        if (dnsResolvedHosts.has(host)) continue;
+        dnsResolvedHosts.add(host);
         try {
           const dnsResult: DnsResolutionResult = await coordinator.execute(
             host,
@@ -441,21 +549,25 @@ export class CompositeActiveReconOrchestratorService {
         try {
           const parsed = new URL(targetUrl);
           currentHost = parsed.hostname;
-          const webResult: WebInspectionResult = await coordinator.execute(
-            parsed.hostname,
-            () =>
-              this.tools.webTool.inspectWeb({
-                targetUrl,
-                verifiedAuthorizationDecision: request.verifiedAuthorizationDecision,
-                authorizedScopeGrant: request.authorizedScopeGrant,
-                lineage: request.lineage,
-                timeoutMs: request.config?.timeoutMs,
-              })
-          );
 
-          if (webResult.status === 'success') {
-            for (const obs of webResult.observations) {
-              webObservations.push(obs);
+          if (!httpInspectedHosts.has(parsed.hostname)) {
+            httpInspectedHosts.add(parsed.hostname);
+            const webResult: WebInspectionResult = await coordinator.execute(
+              parsed.hostname,
+              () =>
+                this.tools.webTool.inspectWeb({
+                  targetUrl,
+                  verifiedAuthorizationDecision: request.verifiedAuthorizationDecision,
+                  authorizedScopeGrant: request.authorizedScopeGrant,
+                  lineage: request.lineage,
+                  timeoutMs: request.config?.timeoutMs,
+                })
+            );
+
+            if (webResult.status === 'success') {
+              for (const obs of webResult.observations) {
+                webObservations.push(obs);
+              }
             }
           }
 
@@ -494,6 +606,123 @@ export class CompositeActiveReconOrchestratorService {
             return buildCircuitBrokenResult(currentHost);
           }
           stage3Warnings.push(`Web/TLS inspection error on ${targetUrl}: ${err instanceof Error ? err.message : String(err)}`);
+        }
+      }
+
+      // -----------------------------------------------------------------
+      // R1d — TLS SAN → subdomain feedback (one-shot, non-recursive)
+      // SAN ≠ live. Discovery ≠ authorization. Scope-check + dedupe only.
+      // -----------------------------------------------------------------
+      const knownHosts = new Set<string>();
+      knownHosts.add(request.targetDomain.toLowerCase().replace(/\.$/, ''));
+      for (const s of subdomains) {
+        knownHosts.add(s.subdomain);
+      }
+
+      const sanFeedbackHosts: string[] = [];
+      const sanSeen = new Set<string>();
+      const nowIso = new Date().toISOString();
+
+      for (const tlsObs of tlsCertificates) {
+        for (const rawSan of tlsObs.subjectAlternativeNames) {
+          const host = normalizeHostname(rawSan);
+          if (!host) continue;
+          if (sanSeen.has(host) || knownHosts.has(host)) continue;
+          if (!isHostnameInAuthorizedScope(host, request.authorizedScopeGrant)) continue;
+
+          sanSeen.add(host);
+          knownHosts.add(host);
+          sanFeedbackHosts.push(host);
+
+          mergeSubdomainObservation(subdomains, subdomainIndex, {
+            subdomain: host,
+            parentDomain: request.targetDomain,
+            sources: ['tls_san'],
+            discoveredAt: nowIso,
+            collectedAt: nowIso,
+            freshness: 'unknown',
+            sourceReliability: 'inferred_relationship',
+            confidence: 0.7,
+          });
+        }
+      }
+
+      // One-shot DNS + HTTP follow-up for newly discovered in-scope SAN hosts (no TLS recursion)
+      for (const host of sanFeedbackHosts) {
+        if (!dnsResolvedHosts.has(host)) {
+          dnsResolvedHosts.add(host);
+          try {
+            const dnsResult: DnsResolutionResult = await coordinator.execute(
+              host,
+              () =>
+                this.tools.dnsTool.resolveDns({
+                  targetDomain: host,
+                  verifiedAuthorizationDecision: request.verifiedAuthorizationDecision,
+                  authorizedScopeGrant: request.authorizedScopeGrant,
+                  lineage: request.lineage,
+                  timeoutMs: request.config?.timeoutMs,
+                })
+            );
+            if (dnsResult.status === 'success') {
+              for (const obs of dnsResult.observations) {
+                dnsRecords.push(obs);
+              }
+            }
+          } catch (err) {
+            if (err instanceof TargetInstabilityError || coordinator.isCircuitOpen(host)) {
+              createDraft('stage_3_web_tls', request.targetDomain, 'web_technologies', webObservations.length);
+              createDraft('stage_3_web_tls', request.targetDomain, 'tls_certificates', tlsCertificates.length);
+              await recordStageResult({
+                stage: 'stage_3_web_tls',
+                status: 'partial_failure',
+                durationMs: Date.now() - stage3Start,
+                observationsCount: webObservations.length + tlsCertificates.length,
+                warnings: [`Circuit breaker tripped on SAN feedback host ${host}`],
+              });
+              return buildCircuitBrokenResult(host);
+            }
+            stage3Warnings.push(
+              `SAN DNS follow-up error on ${host}: ${err instanceof Error ? err.message : String(err)}`
+            );
+          }
+        }
+
+        if (!httpInspectedHosts.has(host)) {
+          httpInspectedHosts.add(host);
+          try {
+            const webResult: WebInspectionResult = await coordinator.execute(
+              host,
+              () =>
+                this.tools.webTool.inspectWeb({
+                  targetUrl: `https://${host}`,
+                  verifiedAuthorizationDecision: request.verifiedAuthorizationDecision,
+                  authorizedScopeGrant: request.authorizedScopeGrant,
+                  lineage: request.lineage,
+                  timeoutMs: request.config?.timeoutMs,
+                })
+            );
+            if (webResult.status === 'success') {
+              for (const obs of webResult.observations) {
+                webObservations.push(obs);
+              }
+            }
+          } catch (err) {
+            if (err instanceof TargetInstabilityError || coordinator.isCircuitOpen(host)) {
+              createDraft('stage_3_web_tls', request.targetDomain, 'web_technologies', webObservations.length);
+              createDraft('stage_3_web_tls', request.targetDomain, 'tls_certificates', tlsCertificates.length);
+              await recordStageResult({
+                stage: 'stage_3_web_tls',
+                status: 'partial_failure',
+                durationMs: Date.now() - stage3Start,
+                observationsCount: webObservations.length + tlsCertificates.length,
+                warnings: [`Circuit breaker tripped on SAN feedback host ${host}`],
+              });
+              return buildCircuitBrokenResult(host);
+            }
+            stage3Warnings.push(
+              `SAN HTTP follow-up error on ${host}: ${err instanceof Error ? err.message : String(err)}`
+            );
+          }
         }
       }
 

@@ -36,6 +36,9 @@ export interface DiscoveredContentObservation {
   readonly contentType?: string;
   readonly redirectLocation?: string;
   readonly discoveredAt: string;
+  readonly collectedAt?: string;
+  readonly freshness?: 'live' | 'historical' | 'unknown';
+  readonly sourceReliability?: 'direct_observation' | 'historical_archive' | 'inferred_relationship';
 }
 
 export interface ContentDiscoveryRequest {

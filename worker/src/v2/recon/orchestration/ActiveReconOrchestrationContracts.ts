@@ -91,6 +91,8 @@ import type {
 
 export interface ReconToolAdapters {
   readonly subdomainTool: SubdomainDiscoveryTool;
+  /** Optional passive CT-log adapter (crt.sh). Merged into Stage 1 subdomain queue alongside subdomainTool. */
+  readonly passiveCtTool?: SubdomainDiscoveryTool;
   readonly dnsTool: DnsResolutionTool;
   readonly portTool: PortDiscoveryTool;
   readonly webTool: WebInspectionTool;

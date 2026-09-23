@@ -235,6 +235,7 @@ export class TlsxAdapter implements TlsInspectionTool {
       if (seen.has(dedupKey)) continue;
       seen.add(dedupKey);
 
+      const collectedAt = new Date().toISOString();
       observations.push({
         host,
         port,
@@ -247,7 +248,10 @@ export class TlsxAdapter implements TlsInspectionTool {
         ...(notAfter ? { notAfter } : {}),
         ...(expired !== undefined ? { expired } : {}),
         ...(selfSigned !== undefined ? { selfSigned } : {}),
-        discoveredAt: new Date().toISOString(),
+        discoveredAt: collectedAt,
+        collectedAt,
+        freshness: 'live',
+        sourceReliability: 'direct_observation',
       });
     }
 

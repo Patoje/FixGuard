@@ -73,6 +73,16 @@ export class DnsxAdapter implements DnsResolutionTool {
     if (recordTypes.includes('CNAME')) args.push('-cname');
     if (recordTypes.includes('TXT')) args.push('-txt');
     if (recordTypes.includes('MX')) args.push('-mx');
+    if (recordTypes.includes('NS')) args.push('-ns');
+    if (recordTypes.includes('SOA')) args.push('-soa');
+    if (recordTypes.includes('CAA')) args.push('-caa');
+    if (recordTypes.includes('SRV')) args.push('-srv');
+    if (recordTypes.includes('PTR')) args.push('-ptr');
+
+    // Opt-in enrichment flags (absent by default; backward compatible)
+    if (request.axfr === true) args.push('-axfr');
+    if (request.asn === true) args.push('-asn');
+    if (request.cdn === true) args.push('-cdn');
 
     // Wildcard Filtering (-wd <targetDomain>)
     if (request.wildcardFiltering !== false) {
@@ -185,11 +195,15 @@ export class DnsxAdapter implements DnsResolutionTool {
         if (seen.has(dedupKey)) return;
         seen.add(dedupKey);
 
+        const collectedAt = new Date().toISOString();
         observations.push({
           domain: host,
           recordType: type,
           values: stringValues,
-          discoveredAt: new Date().toISOString(),
+          discoveredAt: collectedAt,
+          collectedAt,
+          freshness: 'live',
+          sourceReliability: 'direct_observation',
         });
       };
 
@@ -198,6 +212,11 @@ export class DnsxAdapter implements DnsResolutionTool {
       if (rec.cname) addObservation('CNAME', rec.cname);
       if (rec.txt) addObservation('TXT', rec.txt);
       if (rec.mx) addObservation('MX', rec.mx);
+      if (rec.ns) addObservation('NS', rec.ns);
+      if (rec.soa) addObservation('SOA', Array.isArray(rec.soa) ? rec.soa : [rec.soa]);
+      if (rec.caa) addObservation('CAA', rec.caa);
+      if (rec.srv) addObservation('SRV', rec.srv);
+      if (rec.ptr) addObservation('PTR', rec.ptr);
     }
 
     return {

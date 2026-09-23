@@ -221,6 +221,9 @@ export class TrufflehogAdapter implements SecretScannerTool {
         detectorName,
         redactedSecret,
         discoveredAt: new Date().toISOString(),
+        collectedAt: new Date().toISOString(),
+        freshness: 'live',
+        sourceReliability: 'direct_observation',
         ...(verified !== undefined ? { verified } : {}),
       });
     }

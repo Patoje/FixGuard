@@ -1632,6 +1632,18 @@ All completed milestones are verified via active TypeScript contracts and the re
 
 ---
 
+### Milestone 3 Track R (R1a–R1d): Recon Foundation Hardening
+- **Status:** COMPLETED.
+- **Goal:** Native CT-log subdomain discovery, DNS record/type opt-in extensions, observation freshness/provenance tagging, and TLS SAN → subdomain feedback without uncontrolled recursion.
+- **Key Deliverables:**
+  1. **R1a** — `CrtShAdapter` (fetch-based crt.sh JSON, injectable, hermetic-testable); historical CT provenance; Stage 1 merge via optional `passiveCtTool`.
+  2. **R1b** — `DnsRecordType` extended with NS/SOA/CAA/SRV/PTR; DnsxAdapter opt-in `axfr`/`asn`/`cdn` (absent by default).
+  3. **R1c** — Observation DTOs carry `collectedAt` / `freshness` / `sourceReliability`; gau→historical, live probes→live, CT/SAN→non-live semantics.
+  4. **R1d** — Orchestrator one-shot SAN feedback: normalize, scope-check, dedupe, DNS+HTTP follow-up; no TLS recursion; multi-source idempotent.
+  5. **Verification** — `smoke:v2:recon-foundation-hardening`; `check:v2` 83/83.
+
+---
+
 ## 5. Architectural Proposals (`PROPOSED` — NOT YET DECIDED)
 
 > [!NOTE]

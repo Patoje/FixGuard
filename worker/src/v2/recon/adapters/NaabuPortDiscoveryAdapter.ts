@@ -164,6 +164,9 @@ export class NaabuPortDiscoveryAdapter implements PortDiscoveryTool {
           protocol: 'tcp',
           state: 'open',
           discoveredAt: nowIso,
+          collectedAt: nowIso,
+          freshness: 'live',
+          sourceReliability: 'direct_observation',
         });
       }
     }
