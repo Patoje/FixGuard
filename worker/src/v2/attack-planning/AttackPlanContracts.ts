@@ -30,8 +30,9 @@ export type AttackPlanScopeClass =
   | 'cross_origin_third_party';
 
 /**
- * Closed capability allowlist (initial 8 kinds).
- * First 6 have generator rules in A3; last 2 are reserved closed-world slots.
+ * Closed capability allowlist.
+ * A3: first 6 have generator rules; session_fixation / method_manipulation reserved.
+ * A7: native LFI path traversal + SQL oracle advancement.
  */
 export type AttackCapabilityKind =
   | 'idor_read_differential'
@@ -41,7 +42,9 @@ export type AttackCapabilityKind =
   | 'sql_error_oracle_probe'
   | 'parameter_reflection_probe'
   | 'session_fixation_probe'
-  | 'method_manipulation_probe';
+  | 'method_manipulation_probe'
+  | 'lfi_path_traversal'
+  | 'sql_oracle_advancement';
 
 /**
  * Capability expected if a human later authorizes a defensive validation step.

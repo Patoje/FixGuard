@@ -12,6 +12,8 @@
  * 4. BROKEN_AUTHENTICATION + jwt_algorithm_confusion_metadata → jwt_alg_none_probe
  * 5. INFORMATION_DISCLOSURE + sql_error_oracle_metadata → sql_error_oracle_probe
  * 6. INPUT_VALIDATION_FLAW reflection (+ input_validation_flaw_metadata) → parameter_reflection_probe
+ * 7. parameter_integrity_metadata (LFI/path traversal candidates) → lfi_path_traversal
+ * 8. sql_error_oracle_metadata @ suspected_vulnerability → sql_oracle_advancement
  */
 
 import { createHash } from 'node:crypto';
@@ -94,6 +96,20 @@ function isParameterReflection(finding: Finding): boolean {
   );
 }
 
+/** Parameter integrity / LFI boundary findings (P5-6) → native LFI advancement plan. */
+function isParameterIntegrity(finding: Finding): boolean {
+  return finding.metadata.kind === 'parameter_integrity_metadata';
+}
+
+/**
+ * SQL oracle advancement applies when an oracle finding is already at
+ * suspected_vulnerability (one ordered step away from validated_vulnerability).
+ * observed_anomaly findings keep the A3 sql_error_oracle_probe plan only.
+ */
+function isSqlOracleAdvancementCandidate(finding: Finding): boolean {
+  return isSqlErrorOracle(finding) && finding.verificationState === 'suspected_vulnerability';
+}
+
 function targetFromFinding(finding: Finding): string | undefined {
   const meta = finding.metadata as FindingMetadata & { endpointUrl?: string };
   if (typeof meta.endpointUrl === 'string' && meta.endpointUrl.length > 0) {
@@ -108,6 +124,9 @@ function parameterFromFinding(finding: Finding): string | undefined {
     return meta.parameterName;
   }
   if (meta.kind === 'input_validation_flaw_metadata' && typeof meta.parameterName === 'string') {
+    return meta.parameterName;
+  }
+  if (meta.kind === 'parameter_integrity_metadata' && typeof meta.parameterName === 'string') {
     return meta.parameterName;
   }
   if (meta.kind === 'broken_access_control_metadata' && typeof meta.resourceParamName === 'string') {
@@ -456,6 +475,83 @@ export function generateAttackPlans(input: AttackPlanGeneratorInput): AttackPlan
               ordinal: 1,
               title: 'Authorize parameter reflection probe',
               description: 'Human-authorized canary reflection validation on the observed parameter.',
+              requiredPermissions: ['active_http_get'],
+            },
+          ],
+          lineage: input.lineage,
+          createdAt: generatedAt,
+          targetUrl: targetFromFinding(finding),
+          parameterName,
+        })
+      );
+    }
+
+    // Rule 7 (A7): parameter_integrity_metadata → lfi_path_traversal
+    // Authorization blast-radius intent: read_escalated (HITL plan approval).
+    if (isParameterIntegrity(finding)) {
+      const parameterName = parameterFromFinding(finding);
+      const prereqs = [
+        findingPresentPrereq(finding, finding.type),
+        parameterPresentPrereq(parameterName),
+      ];
+      plans.push(
+        buildPlan({
+          assessmentId: input.assessmentId,
+          scanId: input.scanId,
+          capability: 'lfi_path_traversal',
+          title: 'LFI path traversal validation',
+          reasoning:
+            'Observed parameter integrity / path-boundary anomaly. Recommend allowlisted LFI canary re-validation after human authorization.',
+          blastRadius: 'single_parameter',
+          capabilityGained: 'read_escalated',
+          finding,
+          prerequisites: prereqs,
+          steps: [
+            {
+              stepId: `${finding.id}_lfi_step_1`,
+              ordinal: 1,
+              title: 'Authorize LFI path traversal probe',
+              description:
+                'Human-authorized allowlisted traversal canary probe against a resource/file parameter. Advisory only.',
+              requiredPermissions: ['active_http_get'],
+            },
+          ],
+          lineage: input.lineage,
+          createdAt: generatedAt,
+          targetUrl: targetFromFinding(finding),
+          parameterName,
+        })
+      );
+    }
+
+    // Rule 8 (A7): sql_error_oracle @ suspected_vulnerability → sql_oracle_advancement
+    // Authorization blast-radius intent: read_authenticated (assessment authorization).
+    // capabilityGained active_validation describes plan scope intent, not a BlastRadiusClass.
+    if (isSqlOracleAdvancementCandidate(finding)) {
+      const parameterName = parameterFromFinding(finding);
+      const prereqs = [
+        findingPresentPrereq(finding, 'INFORMATION_DISCLOSURE'),
+        parameterPresentPrereq(parameterName),
+      ];
+      plans.push(
+        buildPlan({
+          assessmentId: input.assessmentId,
+          scanId: input.scanId,
+          capability: 'sql_oracle_advancement',
+          title: 'SQL error oracle advancement',
+          reasoning:
+            'Suspected SQL error oracle. Recommend error-based re-probe (no blind/sleep, no data dump) to advance verification state after human authorization.',
+          blastRadius: 'single_parameter',
+          capabilityGained: 'active_validation',
+          finding,
+          prerequisites: prereqs,
+          steps: [
+            {
+              stepId: `${finding.id}_sql_adv_step_1`,
+              ordinal: 1,
+              title: 'Authorize SQL oracle advancement probe',
+              description:
+                'Human-authorized error-provoking re-probe to advance suspected_vulnerability → validated_vulnerability.',
               requiredPermissions: ['active_http_get'],
             },
           ],
