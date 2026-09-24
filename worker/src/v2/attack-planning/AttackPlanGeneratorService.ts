@@ -15,6 +15,7 @@
  * 7. parameter_integrity_metadata (LFI/path traversal candidates) → lfi_path_traversal
  * 8. sql_error_oracle_metadata @ suspected_vulnerability → sql_oracle_advancement
  * 9. reflection / XSS anomaly → nuclei_xss_scan (capabilityGained active_validation)
+ * 10. sql_error_oracle_metadata @ validated_vulnerability → sql_injection_verification (A9)
  */
 
 import { createHash } from 'node:crypto';
@@ -116,6 +117,15 @@ function isReflectionOrXssAnomaly(finding: Finding): boolean {
  */
 function isSqlOracleAdvancementCandidate(finding: Finding): boolean {
   return isSqlErrorOracle(finding) && finding.verificationState === 'suspected_vulnerability';
+}
+
+/**
+ * A9 sqlmap verification applies when an oracle finding is already at
+ * validated_vulnerability (one ordered step away from exploitability_confirmed).
+ * A7 covers suspected → validated; A9 covers validated → exploitability.
+ */
+function isSqlInjectionVerificationCandidate(finding: Finding): boolean {
+  return isSqlErrorOracle(finding) && finding.verificationState === 'validated_vulnerability';
 }
 
 function targetFromFinding(finding: Finding): string | undefined {
@@ -602,6 +612,45 @@ export function generateAttackPlans(input: AttackPlanGeneratorInput): AttackPlan
               title: 'Authorize nuclei XSS scan',
               description:
                 'Human-authorized allowlisted nuclei XSS templates (-no-interactsh). Advisory only until authorized.',
+              requiredPermissions: ['active_http_get', 'active_validation'],
+            },
+          ],
+          lineage: input.lineage,
+          createdAt: generatedAt,
+          targetUrl: targetFromFinding(finding),
+          parameterName,
+        })
+      );
+    }
+
+    // Rule 10 (A9): sql_error_oracle @ validated_vulnerability → sql_injection_verification
+    // Error-based sqlmap only (--technique=E). Authorization blast-radius: read_authenticated.
+    // capabilityGained active_validation describes plan scope intent, not a BlastRadiusClass.
+    if (isSqlInjectionVerificationCandidate(finding)) {
+      const parameterName = parameterFromFinding(finding);
+      const prereqs = [
+        findingPresentPrereq(finding, 'INFORMATION_DISCLOSURE'),
+        parameterPresentPrereq(parameterName),
+      ];
+      plans.push(
+        buildPlan({
+          assessmentId: input.assessmentId,
+          scanId: input.scanId,
+          capability: 'sql_injection_verification',
+          title: 'SQL injection error-based verification',
+          reasoning:
+            'Validated SQL error oracle. Recommend error-based sqlmap verification (--technique=E only; no dump/shell/blind/time-based) to advance exploitability after human authorization.',
+          blastRadius: 'single_parameter',
+          capabilityGained: 'active_validation',
+          finding,
+          prerequisites: prereqs,
+          steps: [
+            {
+              stepId: `${finding.id}_sql_inj_step_1`,
+              ordinal: 1,
+              title: 'Authorize SQL injection verification',
+              description:
+                'Human-authorized error-based sqlmap (--batch --technique=E --level=1 --risk=1 --no-cast) to advance validated_vulnerability → exploitability_confirmed.',
               requiredPermissions: ['active_http_get', 'active_validation'],
             },
           ],

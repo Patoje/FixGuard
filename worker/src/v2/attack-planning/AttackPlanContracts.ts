@@ -34,6 +34,7 @@ export type AttackPlanScopeClass =
  * A3: first 6 have generator rules; session_fixation / method_manipulation reserved.
  * A7: native LFI path traversal + SQL oracle advancement.
  * A8: nuclei XSS scan (allowlisted templates only).
+ * A9: sqlmap error-based SQL injection verification (technique=E only).
  */
 export type AttackCapabilityKind =
   | 'idor_read_differential'
@@ -46,7 +47,8 @@ export type AttackCapabilityKind =
   | 'method_manipulation_probe'
   | 'lfi_path_traversal'
   | 'sql_oracle_advancement'
-  | 'nuclei_xss_scan';
+  | 'nuclei_xss_scan'
+  | 'sql_injection_verification';
 
 /**
  * Capability expected if a human later authorizes a defensive validation step.
