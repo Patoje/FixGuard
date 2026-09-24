@@ -64,9 +64,10 @@ export interface V2CompositionDependencies {
  * Defaults to in-memory repositories to ensure 100% database-free conformance (ADR-011),
  * while supporting external injection of Postgres adapters (e.g. from M59 / Phase D2).
  *
- * Phase D2 durable orchestrated assessments + ASG:
- * - Inject `orchestratedRepository` via `withDependencies`, OR
+ * Phase D2 durable orchestrated assessments + ASG + attack plans/chains:
+ * - Inject repositories via `withDependencies`, OR
  * - Use `createDurableV2CompositionFromEnv()` (Postgres when opt-in + DATABASE_URL).
+ * - Post-exploitation remains InMemory until a later durable step.
  */
 export class V2CompositionRoot {
   public readonly assessmentRepository: AssessmentRepository;

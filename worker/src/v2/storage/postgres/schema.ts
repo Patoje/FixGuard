@@ -21,6 +21,8 @@ import type { ReviewedEvidenceStoreRecord } from '../../evidence-store/ReviewedE
 import type { ReviewedEvidenceFormalFindingCandidate } from '../../finding-candidate-promotion/ReviewedEvidenceFindingCandidatePromotionContracts';
 import type { OrchestratedAssessmentRecord } from '../../application/OrchestratedAssessmentContracts';
 import type { AttackSurfaceGraph } from '../../attack-surface/AttackSurfaceContracts';
+import type { AttackPlan } from '../../attack-planning/AttackPlanContracts';
+import type { AttackChain } from '../../attack-chain/AttackChainContracts';
 
 export const v2_active_recon_run_records = pgTable('v2_active_recon_run_records', {
   run_id: text('run_id').primaryKey(),
@@ -260,4 +262,73 @@ export const v2_attack_surface_graphs = pgTable('v2_attack_surface_graphs', {
 
 export type V2AttackSurfaceGraphRow = typeof v2_attack_surface_graphs.$inferSelect;
 export type NewV2AttackSurfaceGraphRow = typeof v2_attack_surface_graphs.$inferInsert;
+
+/**
+ * Phase D2 Step 2 — durable AttackPlan records (advisory; executable must remain false).
+ * Epistemic/status fields live in plan_json; indexed columns enable list/filter without decoding.
+ */
+export const v2_attack_plans = pgTable('v2_attack_plans', {
+  plan_id: text('plan_id').primaryKey(),
+  assessment_id: text('assessment_id').notNull(),
+  scan_id: text('scan_id').notNull(),
+  status: text('status').notNull(),
+  capability: text('capability').notNull(),
+  contract_version: text('contract_version').notNull(),
+  actor_id: text('actor_id').notNull(),
+  authorization_grant_id: text('authorization_grant_id').notNull(),
+  authorization_decision_id: text('authorization_decision_id').notNull(),
+  executable: boolean('executable').notNull().default(false),
+  created_at: timestamp('created_at', { withTimezone: true }).notNull(),
+  updated_at: timestamp('updated_at', { withTimezone: true }).notNull(),
+  plan_json: jsonb('plan_json').$type<AttackPlan>().notNull(),
+}, (table) => ({
+  assessmentIdIdx: index('idx_v2_ap_assessment_id').on(table.assessment_id),
+  scanIdIdx: index('idx_v2_ap_scan_id').on(table.scan_id),
+  statusIdx: index('idx_v2_ap_status').on(table.status),
+  createdAtIdx: index('idx_v2_ap_created_at').on(table.created_at),
+  assessmentCreatedIdx: index('idx_v2_ap_assessment_created').on(
+    table.assessment_id,
+    table.created_at
+  ),
+}));
+
+export type V2AttackPlanRow = typeof v2_attack_plans.$inferSelect;
+export type NewV2AttackPlanRow = typeof v2_attack_plans.$inferInsert;
+
+/**
+ * Phase D2 Step 2 — durable AttackChain hypotheses.
+ * overall_epistemic_status and status indexed for honest reload/consistency checks.
+ */
+export const v2_attack_chains = pgTable('v2_attack_chains', {
+  chain_id: text('chain_id').primaryKey(),
+  assessment_id: text('assessment_id').notNull(),
+  scan_id: text('scan_id').notNull(),
+  status: text('status').notNull(),
+  overall_epistemic_status: text('overall_epistemic_status').notNull(),
+  impact_level: text('impact_level').notNull(),
+  declared_impact_level: text('declared_impact_level').notNull(),
+  objective_kind: text('objective_kind').notNull(),
+  contract_version: text('contract_version').notNull(),
+  step_count: integer('step_count').notNull(),
+  actor_id: text('actor_id').notNull(),
+  authorization_grant_id: text('authorization_grant_id').notNull(),
+  authorization_decision_id: text('authorization_decision_id').notNull(),
+  created_at: timestamp('created_at', { withTimezone: true }).notNull(),
+  completed_at: timestamp('completed_at', { withTimezone: true }),
+  updated_at: timestamp('updated_at', { withTimezone: true }).notNull(),
+  chain_json: jsonb('chain_json').$type<AttackChain>().notNull(),
+}, (table) => ({
+  assessmentIdIdx: index('idx_v2_ac_assessment_id').on(table.assessment_id),
+  scanIdIdx: index('idx_v2_ac_scan_id').on(table.scan_id),
+  statusIdx: index('idx_v2_ac_status').on(table.status),
+  epistemicIdx: index('idx_v2_ac_epistemic').on(table.overall_epistemic_status),
+  createdAtIdx: index('idx_v2_ac_created_at').on(table.created_at),
+  assessmentCreatedIdx: index('idx_v2_ac_assessment_created').on(
+    table.assessment_id,
+    table.created_at
+  ),
+}));
+
+export type V2AttackChainRow = typeof v2_attack_chains.$inferSelect;
+export type NewV2AttackChainRow = typeof v2_attack_chains.$inferInsert;
 

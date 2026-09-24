@@ -125,7 +125,7 @@
     "smoke:v2:phase-d1-seeding": "tsx src/v2/smoke/phaseD1_seeding_discovery_smoke.ts",
     "smoke:v2:phase-d1-detection-bridge": "tsx src/v2/smoke/phaseD1_detection_bridge_smoke.ts",
     "smoke:v2:phase-d1-playwright-rsc": "tsx src/v2/smoke/phaseD1_playwright_rsc_discovery_smoke.ts",
-    "smoke:v2:phase-d2-durable": "tsx src/v2/smoke/phaseD2_durable_assessment_asg_smoke.ts",
+    "smoke:v2:phase-d2-durable": "tsx src/v2/smoke/phaseD2_durable_assessment_asg_smoke.ts && tsx src/v2/smoke/phaseD2_durable_plans_chains_smoke.ts",
     "live:orchestrated-charmarket": "tsx scripts/live_orchestrated_charmarket.ts"
   },
   "keywords": [],
