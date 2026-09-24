@@ -289,6 +289,8 @@ import type {
   OperatorStackHints,
 } from '../attack-recommendation/AttackOperatorRecommendationContracts.js';
 import { HypothesisSchedulerService } from '../hypothesis-scheduler/HypothesisSchedulerService.js';
+import type { DefenseObservation } from '../test-validity/TestValidityContracts.js';
+import { observeWafWithWafw00f } from '../test-validity/Wafw00fHostCache.js';
 import { AttackCapabilityRegistry } from '../attack-execution/AttackCapabilityRegistry.js';
 import type { AttackPlan } from '../attack-planning/AttackPlanContracts.js';
 import { ORCHESTRATED_ASSESSMENT_CONTRACT_VERSION } from './OrchestratedAssessmentContracts.js';
@@ -1620,6 +1622,24 @@ export class OrchestratedAssessmentApplicationService {
       hasJwtIdentity: preconditions.hasJwtIdentity,
     });
 
+    // F3 — optional 1×/host wafw00f defense observation (fail-soft; never auto-execute).
+    let defenseObservations: readonly DefenseObservation[] | undefined;
+    try {
+      const wafEntry = await observeWafWithWafw00f({
+        host: record.targetDomain,
+        processRunner: new LocalProcessRunner(),
+        ...(process.env.FIXGUARD_WAFW00F_BIN
+          ? { binaryPath: process.env.FIXGUARD_WAFW00F_BIN }
+          : {}),
+        timeoutMs: 20_000,
+      });
+      if (wafEntry.status === 'observed') {
+        defenseObservations = wafEntry.defenses;
+      }
+    } catch {
+      // Fail-soft: missing wafw00f must not block recommendations.
+    }
+
     const service = new AttackRecommendationService();
     const result = service.recommend({
       assessmentId: record.assessmentId,
@@ -1631,6 +1651,7 @@ export class OrchestratedAssessmentApplicationService {
       stackHints,
       preconditions,
       registeredCapabilities,
+      ...(defenseObservations ? { defenses: defenseObservations } : {}),
       lineage: {
         assessmentId: record.lineage.assessmentId,
         scanId: record.lineage.scanId,

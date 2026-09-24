@@ -480,20 +480,30 @@ export class AttackExecutionService {
       if (capabilityResult.outcome === 'succeeded' && findingIdx >= 0) {
         const finding = findings[findingIdx]!;
         verificationStateBefore = finding.verificationState;
-        const nextState = nextVerificationState(finding.verificationState);
-        if (nextState !== null) {
-          const advanced = VerificationStateService.advanceState(finding, nextState, {
-            evidenceId: capabilityResult.evidenceId ?? `ev_a5_${step.stepId}`,
-            reasonCode: 'attack_execution_step_succeeded',
-          });
-          findings = [
-            ...findings.slice(0, findingIdx),
-            advanced.updatedFinding,
-            ...findings.slice(findingIdx + 1),
-          ];
-          verificationStateAfter = advanced.updatedFinding.verificationState;
-        } else {
+        const succeedValidity = evaluateTestValidityFromReasonCode(
+          `${capabilityResult.reasonCode} ${capabilityResult.safeMessage}`,
+          { evaluatedAt: completedAt, targetHost }
+        );
+        if (!canMutateVerificationState(succeedValidity)) {
           verificationStateAfter = finding.verificationState;
+          stepInterference = true;
+          stepInterferenceReason = succeedValidity.reasonCode;
+        } else {
+          const nextState = nextVerificationState(finding.verificationState);
+          if (nextState !== null) {
+            const advanced = VerificationStateService.advanceState(finding, nextState, {
+              evidenceId: capabilityResult.evidenceId ?? `ev_a5_${step.stepId}`,
+              reasonCode: 'attack_execution_step_succeeded',
+            });
+            findings = [
+              ...findings.slice(0, findingIdx),
+              advanced.updatedFinding,
+              ...findings.slice(findingIdx + 1),
+            ];
+            verificationStateAfter = advanced.updatedFinding.verificationState;
+          } else {
+            verificationStateAfter = finding.verificationState;
+          }
         }
       } else if (capabilityResult.outcome === 'observed' && findingIdx >= 0) {
         // Epistemic ladder: OBSERVED template/tool hits must NOT claim validated+.

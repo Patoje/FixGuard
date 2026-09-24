@@ -207,6 +207,43 @@ async function testRecommendationSoftPenalty(): Promise<void> {
   );
 }
 
+async function testWafw00fHostCacheOnce(): Promise<void> {
+  const { Wafw00fHostCache, observeWafWithWafw00f } = await import(
+    '../test-validity/Wafw00fHostCache.js'
+  );
+  const cache = new Wafw00fHostCache();
+  let calls = 0;
+  const runner = {
+    async execute() {
+      calls += 1;
+      return {
+        stdout: 'The site https://app.example.com is behind Cloudflare (Cloudflare Inc.) WAF.\n',
+        stderr: '',
+        exitCode: 0,
+        durationMs: 1,
+        timedOut: false,
+      };
+    },
+  };
+  const first = await observeWafWithWafw00f({
+    host: 'app.example.com',
+    processRunner: runner,
+    cache,
+  });
+  const second = await observeWafWithWafw00f({
+    host: 'app.example.com',
+    processRunner: runner,
+    cache,
+  });
+  assert.equal(first.status, 'observed');
+  assert.equal(second.status, 'observed');
+  assert.equal(calls, 1, 'wafw00f must run at most once per host');
+  if (first.status === 'observed') {
+    assertTrue(first.defenses.length >= 1, 'expected defense observation');
+  }
+  console.log('[+] Test 7: wafw00f 1×/host cache OK');
+}
+
 async function main(): Promise<void> {
   console.log('=== FixGuard V2: DefenseObservation + TestValidity (F3 foundation) ===');
   await testPassiveWafObservation();
@@ -215,6 +252,7 @@ async function main(): Promise<void> {
   await testValidMeasurement();
   await testReasonCodeBridge();
   await testRecommendationSoftPenalty();
+  await testWafw00fHostCacheOnce();
   console.log('=== ALL TESTS PASSED ===');
 }
 
