@@ -141,6 +141,15 @@ export function buildTargetProfile(input: TargetProfileBuilderInput): TargetProf
     }
   }
 
+  // 2a-bis. Phase D1 — ingest aggregated URL observations (includes assessment seeds)
+  if (input.aggregatedObservations?.urls) {
+    for (const urlObs of input.aggregatedObservations.urls) {
+      if (typeof urlObs.url === 'string' && urlObs.url.length > 0) {
+        getOrCreateEndpoint(urlObs.url, 'GET');
+      }
+    }
+  }
+
   // 2b. Ingest endpoints and flaw context from canonical Findings
   for (const finding of findings) {
     const ep = getOrCreateEndpoint(finding.target, 'GET');

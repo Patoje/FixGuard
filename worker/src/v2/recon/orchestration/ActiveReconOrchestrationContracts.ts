@@ -146,6 +146,11 @@ export interface ActiveReconOrchestrationRequest {
   readonly config?: ActiveReconOrchestrationConfig;
   readonly dnsResolver?: PreSpawnDnsResolver;
   readonly onStageComplete?: (stageResult: ReconStageExecutionResult) => Promise<void> | void;
+  /**
+   * Phase D1 — pre-validated absolute seed URLs (scope + egress already enforced).
+   * Injected as live OBSERVED URL observations; also used as crawl roots.
+   */
+  readonly seedUrls?: readonly string[];
 }
 
 export interface AggregatedReconObservations {

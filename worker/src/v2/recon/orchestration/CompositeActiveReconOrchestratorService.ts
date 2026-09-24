@@ -226,6 +226,31 @@ export class CompositeActiveReconOrchestratorService {
     const secrets: DiscoveredSecretObservation[] = [];
     const spaObservations: DiscoveredSpaObservation[] = [];
 
+    // Phase D1 — inject pre-validated assessment seeds as live OBSERVED URL inventory.
+    if (request.seedUrls && request.seedUrls.length > 0) {
+      const seedObservedAt = new Date().toISOString();
+      for (const seedUrl of request.seedUrls) {
+        try {
+          const parsed = new URL(seedUrl);
+          urls.push({
+            url: seedUrl,
+            host: parsed.hostname.toLowerCase(),
+            path: parsed.pathname || '/',
+            ...(parsed.search.length > 1
+              ? { query: parsed.search.slice(1) }
+              : {}),
+            sources: Object.freeze(['assessment_seed']),
+            discoveredAt: seedObservedAt,
+            collectedAt: seedObservedAt,
+            freshness: 'live',
+            sourceReliability: 'direct_observation',
+          });
+        } catch {
+          // Seeds are pre-validated; skip any residual parse failure fail-closed without aborting recon.
+        }
+      }
+    }
+
     /** Hosts already submitted to DNS resolution (idempotent across stages / SAN feedback). */
     const dnsResolvedHosts = new Set<string>();
     /** Hosts already submitted to HTTP inspection (idempotent across stages / SAN feedback). */
@@ -758,11 +783,18 @@ export class CompositeActiveReconOrchestratorService {
 
       // Collect root URLs from Stage 3 web discoveries or default
       const rootUrls: string[] = [];
+      if (request.seedUrls && request.seedUrls.length > 0) {
+        for (const seedUrl of request.seedUrls) {
+          rootUrls.push(seedUrl);
+        }
+      }
       if (webObservations.length > 0) {
         for (const w of webObservations) {
-          rootUrls.push(w.url);
+          if (!rootUrls.includes(w.url)) {
+            rootUrls.push(w.url);
+          }
         }
-      } else {
+      } else if (rootUrls.length === 0) {
         rootUrls.push(`https://${request.targetDomain}`);
       }
 

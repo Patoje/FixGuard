@@ -302,6 +302,32 @@ export function parseByotSessionIdentityBundle(raw: unknown): ByotSessionIdentit
   };
 }
 
+function parseOptionalStringArray(
+  value: unknown,
+  fieldName: string
+): readonly string[] | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+  if (!Array.isArray(value)) {
+    throw new ApiValidationError(`Field ${fieldName} must be an array of strings when provided`);
+  }
+  if (value.length > 100) {
+    throw new ApiValidationError(`Field ${fieldName} exceeds maximum of 100 entries`);
+  }
+  const out: string[] = [];
+  for (const item of value) {
+    if (typeof item !== 'string' || item.trim().length === 0) {
+      throw new ApiValidationError(`Field ${fieldName} entries must be non-empty strings`);
+    }
+    if (item.length > 2048) {
+      throw new ApiValidationError(`Field ${fieldName} entry exceeds maximum length of 2048`);
+    }
+    out.push(item.trim());
+  }
+  return Object.freeze(out);
+}
+
 export function parseStartOrchestratedAssessmentBody(
   body: unknown
 ): {
@@ -309,13 +335,22 @@ export function parseStartOrchestratedAssessmentBody(
   actorId?: string;
   config?: Record<string, unknown>;
   sessionIdentities?: ByotSessionIdentityBundle;
+  seedUrls?: readonly string[];
+  seedPaths?: readonly string[];
 } {
   if (!body || typeof body !== 'object' || Array.isArray(body)) {
     throw new ApiValidationError('Request body must be a non-empty object');
   }
 
   const record = body as Record<string, unknown>;
-  const allowedKeys = ['targetDomain', 'actorId', 'config', 'sessionIdentities'] as const;
+  const allowedKeys = [
+    'targetDomain',
+    'actorId',
+    'config',
+    'sessionIdentities',
+    'seedUrls',
+    'seedPaths',
+  ] as const;
   for (const k of Object.keys(record)) {
     if (!allowedKeys.includes(k as typeof allowedKeys[number])) {
       throw new ApiValidationError(
@@ -330,7 +365,7 @@ export function parseStartOrchestratedAssessmentBody(
     );
   }
 
-  const { targetDomain, actorId, config, sessionIdentities } = record;
+  const { targetDomain, actorId, config, sessionIdentities, seedUrls, seedPaths } = record;
   if (typeof targetDomain !== 'string' || targetDomain.trim().length === 0) {
     throw new ApiValidationError('Field targetDomain must be a non-empty string');
   }
@@ -348,11 +383,16 @@ export function parseStartOrchestratedAssessmentBody(
     parsedSessionIdentities = parseByotSessionIdentityBundle(sessionIdentities);
   }
 
+  const parsedSeedUrls = parseOptionalStringArray(seedUrls, 'seedUrls');
+  const parsedSeedPaths = parseOptionalStringArray(seedPaths, 'seedPaths');
+
   return {
     targetDomain: targetDomain.trim(),
     ...(actorId ? { actorId } : {}),
     ...(config ? { config: config as Record<string, unknown> } : {}),
     ...(parsedSessionIdentities ? { sessionIdentities: parsedSessionIdentities } : {}),
+    ...(parsedSeedUrls ? { seedUrls: parsedSeedUrls } : {}),
+    ...(parsedSeedPaths ? { seedPaths: parsedSeedPaths } : {}),
   };
 }
 

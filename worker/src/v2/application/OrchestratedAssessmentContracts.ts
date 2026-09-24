@@ -41,11 +41,25 @@ export type OrchestratedAssessmentStatus =
   | 'preflight_denied'
   | 'circuit_broken';
 
+/**
+ * Phase D1 — operator-supplied discovery seeds for deep URL/path inventory.
+ * Every seed MUST validate against sealed AuthorizedScopeGrant + egress before use.
+ */
+export interface AssessmentSeed {
+  readonly targetDomain: string;
+  readonly seedUrls?: readonly string[];
+  readonly seedPaths?: readonly string[];
+}
+
 export interface StartOrchestratedAssessmentCommand {
   readonly targetDomain: string;
   readonly actorId?: string;
   readonly config?: ActiveReconOrchestrationConfig;
   readonly sessionIdentities?: ByotSessionIdentityBundle;
+  /** Absolute in-scope URLs to seed into crawl / endpoint inventory (OBSERVED). */
+  readonly seedUrls?: readonly string[];
+  /** Relative paths combined with targetDomain into absolute HTTPS URLs. */
+  readonly seedPaths?: readonly string[];
 }
 
 export interface StartOrchestratedAssessmentResult {

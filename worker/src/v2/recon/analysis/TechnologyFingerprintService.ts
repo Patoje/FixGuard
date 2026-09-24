@@ -210,6 +210,12 @@ export class TechnologyFingerprintService {
           confidence: 'high',
           detectionSignal: `X-Powered-By header: ${poweredBy}`,
         });
+        addTech({
+          name: 'React',
+          category: 'frontend',
+          confidence: 'medium',
+          detectionSignal: `Inferred from Next.js X-Powered-By header`,
+        });
       }
       if (poweredBy.toLowerCase().includes('asp.net')) {
         addTech({
@@ -219,6 +225,42 @@ export class TechnologyFingerprintService {
           detectionSignal: `X-Powered-By header: ${poweredBy}`,
         });
       }
+    }
+
+    // Phase D1 — Next.js / RSC response fingerprint signals
+    const varyHeader = extractHeaderValue(headers, 'vary');
+    if (varyHeader) {
+      const lowerVary = varyHeader.toLowerCase();
+      if (lowerVary.includes('rsc') || /next-router-/.test(lowerVary)) {
+        addTech({
+          name: 'Next.js',
+          category: 'framework',
+          confidence: 'high',
+          detectionSignal: `Vary header RSC/Next-Router signal: ${varyHeader}`,
+        });
+        addTech({
+          name: 'React',
+          category: 'frontend',
+          confidence: 'medium',
+          detectionSignal: `Inferred from Next.js RSC Vary header`,
+        });
+      }
+    }
+
+    const xMatchedPath = extractHeaderValue(headers, 'x-matched-path');
+    if (xMatchedPath !== undefined && xMatchedPath.length > 0) {
+      addTech({
+        name: 'Next.js',
+        category: 'framework',
+        confidence: 'high',
+        detectionSignal: `X-Matched-Path header: ${xMatchedPath}`,
+      });
+      addTech({
+        name: 'React',
+        category: 'frontend',
+        confidence: 'medium',
+        detectionSignal: `Inferred from Next.js X-Matched-Path header`,
+      });
     }
 
     // X-Generator / Meta generators

@@ -206,6 +206,7 @@ import type {
   EvaluateCredentialReuseHttpResult,
 } from './OrchestratedAssessmentContracts.js';
 import { ORCHESTRATED_ASSESSMENT_CONTRACT_VERSION } from './OrchestratedAssessmentContracts.js';
+import { validateAssessmentSeeds } from './AssessmentSeedValidation.js';
 import type { AttackPlanCredentialReuseContext } from '../attack-planning/AttackPlanContracts.js';
 import {
   LateralMovementUnauthorizedError,
@@ -822,6 +823,38 @@ export class OrchestratedAssessmentApplicationService {
       },
     };
 
+    // Phase D1 — atomic seed validation against sealed grant + egress (zero seed network).
+    let validatedSeedUrls: readonly string[] = Object.freeze([]);
+    if (
+      (command.seedUrls && command.seedUrls.length > 0) ||
+      (command.seedPaths && command.seedPaths.length > 0)
+    ) {
+      const seedValidation = validateAssessmentSeeds(
+        {
+          targetDomain: cleanedDomain,
+          ...(command.seedUrls ? { seedUrls: command.seedUrls } : {}),
+          ...(command.seedPaths ? { seedPaths: command.seedPaths } : {}),
+        },
+        scopeGrant,
+        nowIso
+      );
+      if (seedValidation.status !== 'validated') {
+        if (seedValidation.reasonCode === 'seed_malformed') {
+          throw new ApiValidationError(seedValidation.reason, {
+            reasonCode: seedValidation.reasonCode,
+            ...(seedValidation.offendingSeed
+              ? { offendingSeed: seedValidation.offendingSeed }
+              : {}),
+          });
+        }
+        throw new UnauthorizedGatewayError(
+          seedValidation.reason,
+          seedValidation.reasonCode
+        );
+      }
+      validatedSeedUrls = seedValidation.absoluteSeedUrls;
+    }
+
     const authRes = establishVerifiedAuthorizationDecision(
       {
         contractVersion: 'fixguard-verified-authorization-decision/v0',
@@ -882,7 +915,8 @@ export class OrchestratedAssessmentApplicationService {
       scopeGrant,
       lineage,
       command.config,
-      command.sessionIdentities
+      command.sessionIdentities,
+      validatedSeedUrls
     );
     this.activeAssessments.set(assessmentId, pipelinePromise);
 
@@ -3116,7 +3150,8 @@ export class OrchestratedAssessmentApplicationService {
     scopeGrant: AuthorizedScopeGrant,
     lineage: AuthorizedActiveReconRequestLineage,
     config?: ActiveReconOrchestrationConfig,
-    sessionIdentities?: ByotSessionIdentityBundle
+    sessionIdentities?: ByotSessionIdentityBundle,
+    seedUrls?: readonly string[]
   ): Promise<void> {
     const startTime = Date.now();
     let timeoutTimer: NodeJS.Timeout | undefined;
@@ -3141,7 +3176,8 @@ export class OrchestratedAssessmentApplicationService {
           lineage,
           startTime,
           config,
-          sessionIdentities
+          sessionIdentities,
+          seedUrls
         ),
         timeoutPromise,
       ]);
@@ -3207,7 +3243,8 @@ export class OrchestratedAssessmentApplicationService {
     lineage: AuthorizedActiveReconRequestLineage,
     startTime: number,
     config?: ActiveReconOrchestrationConfig,
-    sessionIdentities?: ByotSessionIdentityBundle
+    sessionIdentities?: ByotSessionIdentityBundle,
+    seedUrls?: readonly string[]
   ): Promise<void> {
     const coordinator = new TargetExecutionCoordinator({
       requestsPerSecond: 5,
@@ -3232,6 +3269,7 @@ export class OrchestratedAssessmentApplicationService {
         config,
         coordinator,
         dnsResolver: this.dnsResolver,
+        ...(seedUrls && seedUrls.length > 0 ? { seedUrls } : {}),
         onStageComplete: async (stageResult) => {
           await this.repository.update(record.assessmentId, (prev) => {
             const existingStages = prev.stages.filter((s) => s.stage !== stageResult.stage);
