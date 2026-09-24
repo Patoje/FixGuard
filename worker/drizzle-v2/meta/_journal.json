@@ -22,6 +22,13 @@
       "when": 1788819346115,
       "tag": "0002_nasty_dazzler",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1790260000000,
+      "tag": "0003_phase_d2_orchestrated_asg",
+      "breakpoints": true
     }
   ]
 }

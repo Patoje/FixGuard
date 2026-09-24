@@ -19,6 +19,8 @@ import type { AuditEntry } from '../../approval/ApprovalContracts';
 import type { PersistedActiveReconRunRecord } from '../../recon/active/ActiveReconOriginRunPersistenceContracts';
 import type { ReviewedEvidenceStoreRecord } from '../../evidence-store/ReviewedEvidenceStoreContracts';
 import type { ReviewedEvidenceFormalFindingCandidate } from '../../finding-candidate-promotion/ReviewedEvidenceFindingCandidatePromotionContracts';
+import type { OrchestratedAssessmentRecord } from '../../application/OrchestratedAssessmentContracts';
+import type { AttackSurfaceGraph } from '../../attack-surface/AttackSurfaceContracts';
 
 export const v2_active_recon_run_records = pgTable('v2_active_recon_run_records', {
   run_id: text('run_id').primaryKey(),
@@ -194,4 +196,68 @@ export const v2_formal_finding_candidates = pgTable('v2_formal_finding_candidate
 
 export type V2FormalFindingCandidateRow = typeof v2_formal_finding_candidates.$inferSelect;
 export type NewV2FormalFindingCandidateRow = typeof v2_formal_finding_candidates.$inferInsert;
+
+/**
+ * Phase D2 — durable OrchestratedAssessment records (includes embedded ASG when present).
+ * Standalone from runtime `v2_assessment_sessions` (different identity space: asm_* vs session_*).
+ */
+export const v2_orchestrated_assessments = pgTable('v2_orchestrated_assessments', {
+  assessment_id: text('assessment_id').primaryKey(),
+  scan_id: text('scan_id').notNull(),
+  target_domain: text('target_domain').notNull(),
+  status: text('status').notNull(),
+  contract_version: text('contract_version').notNull(),
+  actor_id: text('actor_id').notNull(),
+  authorization_grant_id: text('authorization_grant_id').notNull(),
+  authorization_decision_id: text('authorization_decision_id').notNull(),
+  has_attack_surface_graph: boolean('has_attack_surface_graph').notNull().default(false),
+  graph_id: text('graph_id'),
+  started_at: timestamp('started_at', { withTimezone: true }).notNull(),
+  completed_at: timestamp('completed_at', { withTimezone: true }),
+  updated_at: timestamp('updated_at', { withTimezone: true }).notNull(),
+  record_json: jsonb('record_json').$type<OrchestratedAssessmentRecord>().notNull(),
+}, (table) => ({
+  scanIdIdx: index('idx_v2_oa_scan_id').on(table.scan_id),
+  statusIdx: index('idx_v2_oa_status').on(table.status),
+  targetDomainIdx: index('idx_v2_oa_target_domain').on(table.target_domain),
+  updatedAtIdx: index('idx_v2_oa_updated_at').on(table.updated_at),
+  graphIdIdx: index('idx_v2_oa_graph_id').on(table.graph_id),
+}));
+
+export type V2OrchestratedAssessmentRow = typeof v2_orchestrated_assessments.$inferSelect;
+export type NewV2OrchestratedAssessmentRow = typeof v2_orchestrated_assessments.$inferInsert;
+
+/**
+ * Phase D2 — durable Attack Surface Graph projection (epistemic statuses preserved in graph_json).
+ * Upserted alongside orchestrated assessments when ASG is present; independent reload path.
+ */
+export const v2_attack_surface_graphs = pgTable('v2_attack_surface_graphs', {
+  graph_id: text('graph_id').primaryKey(),
+  assessment_id: text('assessment_id')
+    .notNull()
+    .references(() => v2_orchestrated_assessments.assessment_id, { onDelete: 'cascade' }),
+  scan_id: text('scan_id').notNull(),
+  target_host: text('target_host').notNull(),
+  contract_version: text('contract_version').notNull(),
+  built_at: timestamp('built_at', { withTimezone: true }).notNull(),
+  node_count: integer('node_count').notNull(),
+  edge_count: integer('edge_count').notNull(),
+  observed_node_count: integer('observed_node_count').notNull(),
+  inferred_node_count: integer('inferred_node_count').notNull(),
+  verified_node_count: integer('verified_node_count').notNull(),
+  refuted_node_count: integer('refuted_node_count').notNull(),
+  actor_id: text('actor_id').notNull(),
+  authorization_grant_id: text('authorization_grant_id').notNull(),
+  authorization_decision_id: text('authorization_decision_id').notNull(),
+  graph_json: jsonb('graph_json').$type<AttackSurfaceGraph>().notNull(),
+  updated_at: timestamp('updated_at', { withTimezone: true }).notNull(),
+}, (table) => ({
+  assessmentIdIdx: index('idx_v2_asg_assessment_id').on(table.assessment_id),
+  scanIdIdx: index('idx_v2_asg_scan_id').on(table.scan_id),
+  targetHostIdx: index('idx_v2_asg_target_host').on(table.target_host),
+  updatedAtIdx: index('idx_v2_asg_updated_at').on(table.updated_at),
+}));
+
+export type V2AttackSurfaceGraphRow = typeof v2_attack_surface_graphs.$inferSelect;
+export type NewV2AttackSurfaceGraphRow = typeof v2_attack_surface_graphs.$inferInsert;
 

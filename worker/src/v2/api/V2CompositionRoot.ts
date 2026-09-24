@@ -62,7 +62,11 @@ export interface V2CompositionDependencies {
  * V2CompositionRoot manages static dependency injection for the V2 defensive core.
  *
  * Defaults to in-memory repositories to ensure 100% database-free conformance (ADR-011),
- * while supporting external injection of Postgres adapters (e.g. from M59).
+ * while supporting external injection of Postgres adapters (e.g. from M59 / Phase D2).
+ *
+ * Phase D2 durable orchestrated assessments + ASG:
+ * - Inject `orchestratedRepository` via `withDependencies`, OR
+ * - Use `createDurableV2CompositionFromEnv()` (Postgres when opt-in + DATABASE_URL).
  */
 export class V2CompositionRoot {
   public readonly assessmentRepository: AssessmentRepository;
