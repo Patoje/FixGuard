@@ -31,6 +31,7 @@ import { InMemoryPostExploitationRepository } from '../post-exploitation/InMemor
 import { CredentialVaultService } from '../post-exploitation/CredentialVaultService.js';
 import { PostExploitationService } from '../post-exploitation/PostExploitationService.js';
 import { LateralMovementService } from '../attack-planning/LateralMovementService.js';
+import { ImpactAssessmentService } from '../reporting-boundary/ImpactAssessmentService.js';
 
 export interface V2CompositionDependencies {
   readonly assessmentRepository?: AssessmentRepository;
@@ -54,6 +55,7 @@ export interface V2CompositionDependencies {
   readonly credentialVaultService?: CredentialVaultService;
   readonly postExploitationService?: PostExploitationService;
   readonly lateralMovementService?: LateralMovementService;
+  readonly impactAssessmentService?: ImpactAssessmentService;
 }
 
 /**
@@ -83,6 +85,7 @@ export class V2CompositionRoot {
   public readonly credentialVaultService: CredentialVaultService;
   public readonly postExploitationService: PostExploitationService;
   public readonly lateralMovementService: LateralMovementService;
+  public readonly impactAssessmentService: ImpactAssessmentService;
 
   constructor(deps: V2CompositionDependencies = {}) {
     this.assessmentRepository = deps.assessmentRepository ?? new InMemoryAssessmentRepository();
@@ -119,6 +122,8 @@ export class V2CompositionRoot {
       );
     this.lateralMovementService =
       deps.lateralMovementService ?? new LateralMovementService();
+    this.impactAssessmentService =
+      deps.impactAssessmentService ?? new ImpactAssessmentService();
     this.orchestratedRepository =
       deps.orchestratedRepository ?? new InMemoryOrchestratedAssessmentRepository();
     this.orchestratedService =
@@ -134,6 +139,7 @@ export class V2CompositionRoot {
         credentialVaultService: this.credentialVaultService,
         postExploitationService: this.postExploitationService,
         lateralMovementService: this.lateralMovementService,
+        impactAssessmentService: this.impactAssessmentService,
       });
   }
 

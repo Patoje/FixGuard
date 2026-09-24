@@ -130,7 +130,13 @@ import {
   ConcurrencyLimitExceededError,
 } from '../api/ApiErrors.js';
 import { isStrictSafeId } from '../reporting-boundary/DefensiveReportContracts.js';
-import { ReportGeneratorService } from '../reporting-boundary/ReportGeneratorService.js';
+import {
+  ReportGeneratorService,
+  type AdversarialReportContext,
+} from '../reporting-boundary/ReportGeneratorService.js';
+import { ImpactAssessmentService } from '../reporting-boundary/ImpactAssessmentService.js';
+import type { CredentialReference } from '../post-exploitation/PostExploitationContracts.js';
+import type { ImpactAssessment } from '../reporting-boundary/ImpactAssessmentContracts.js';
 import { isForbiddenSyntheticReviewerId } from '../api/validation/ApiRequestValidators.js';
 import { ReconToolAvailabilityService } from '../capabilities/ReconToolAvailabilityService.js';
 import type { ReconToolName } from '../capabilities/CapabilityStatusContracts.js';
@@ -204,6 +210,7 @@ export interface OrchestratedAssessmentServiceDependencies {
   readonly credentialVaultService?: CredentialVaultService;
   readonly postExploitationService?: PostExploitationService;
   readonly lateralMovementService?: LateralMovementService;
+  readonly impactAssessmentService?: ImpactAssessmentService;
 }
 
 /** Pure helper exposed for tests / composition — builds query service over a graph. */
@@ -537,6 +544,7 @@ export class OrchestratedAssessmentApplicationService {
   private readonly credentialVaultService: CredentialVaultService;
   private readonly postExploitationService: PostExploitationService;
   private readonly lateralMovementService: LateralMovementService;
+  private readonly impactAssessmentService: ImpactAssessmentService;
   private readonly activeAssessments = new Map<string, Promise<void>>();
   /**
    * Process-local sealed VerifiedAuthorizationDecision refs (WeakSet-branded).
@@ -568,6 +576,8 @@ export class OrchestratedAssessmentApplicationService {
       );
     this.lateralMovementService =
       deps.lateralMovementService ?? new LateralMovementService();
+    this.impactAssessmentService =
+      deps.impactAssessmentService ?? new ImpactAssessmentService();
     this.reconAdapters =
       deps.reconAdapters ??
       createDefaultReconAdapters(this.dnsResolver, this.httpTransport);
@@ -583,6 +593,68 @@ export class OrchestratedAssessmentApplicationService {
     return this.lateralMovementService;
   }
 
+  /** Milestone A12 — impact assessment derivation (no inflation). */
+  public getImpactAssessmentService(): ImpactAssessmentService {
+    return this.impactAssessmentService;
+  }
+
+  /**
+   * Collect CredentialReference metadata for reporting (never vault secrets).
+   */
+  private collectCredentialReferences(
+    state: Awaited<ReturnType<PostExploitationService['getSnapshot']>>
+  ): readonly CredentialReference[] {
+    if (!state) return Object.freeze([]);
+    const refs: CredentialReference[] = [];
+    const seen = new Set<string>();
+    for (const access of state.acquiredAccess) {
+      if (!access.credentialRefId || seen.has(access.credentialRefId)) continue;
+      const ref = this.postExploitationService.getCredentialReference(access.credentialRefId);
+      if (ref) {
+        seen.add(access.credentialRefId);
+        refs.push(ref);
+      }
+    }
+    for (const hyp of state.lateralMovementHypotheses) {
+      if (!hyp.credentialRefId || seen.has(hyp.credentialRefId)) continue;
+      const ref = this.postExploitationService.getCredentialReference(hyp.credentialRefId);
+      if (ref) {
+        seen.add(hyp.credentialRefId);
+        refs.push(ref);
+      }
+    }
+    return Object.freeze(refs);
+  }
+
+  private async buildAdversarialReportContext(
+    assessmentId: string
+  ): Promise<{
+    readonly context: AdversarialReportContext;
+    readonly impactAssessments: readonly ImpactAssessment[];
+    readonly credentialReferences: readonly CredentialReference[];
+  }> {
+    const [chains, plans, state] = await Promise.all([
+      this.attackChainService.listByAssessmentId(assessmentId),
+      this.attackPlanRepository.listByAssessmentId(assessmentId),
+      this.postExploitationService.getSnapshot(assessmentId),
+    ]);
+    const impactAssessments = this.impactAssessmentService.deriveImpactAssessments({
+      chains,
+      postExploitationState: state,
+    });
+    const credentialReferences = this.collectCredentialReferences(state);
+    return {
+      context: {
+        attackPlans: plans,
+        attackChains: chains,
+        impactAssessments,
+        postExploitationState: state,
+        credentialReferences,
+      },
+      impactAssessments,
+      credentialReferences,
+    };
+  }
   /**
    * Validates target host, verifies SSRF boundaries, establishes branded authorization,
    * creates an in-memory assessment record, and launches the orchestration pipeline.
@@ -857,7 +929,8 @@ export class OrchestratedAssessmentApplicationService {
   }
 
   /**
-   * Returns the synthesized TargetProfile, confirmed findings, and advisory recommendations.
+   * Returns the synthesized TargetProfile, confirmed findings, advisory recommendations,
+   * and A12 impact / adversarial summary fields (no vault secrets).
    */
   public async getSummary(assessmentId: string): Promise<OrchestratedAssessmentSummaryDto> {
     if (!assessmentId || typeof assessmentId !== 'string' || !isStrictSafeId(assessmentId)) {
@@ -872,6 +945,8 @@ export class OrchestratedAssessmentApplicationService {
       );
     }
 
+    const adversarial = await this.buildAdversarialReportContext(assessmentId);
+
     return {
       assessmentId: record.assessmentId,
       scanId: record.scanId,
@@ -884,6 +959,10 @@ export class OrchestratedAssessmentApplicationService {
       ...(record.attackSurfaceGraph
         ? { attackSurfaceGraph: record.attackSurfaceGraph }
         : {}),
+      impactAssessments: adversarial.impactAssessments,
+      attackChains: adversarial.context.attackChains ?? [],
+      postExploitationState: adversarial.context.postExploitationState ?? null,
+      credentialReferences: adversarial.credentialReferences,
       lineage: record.lineage,
       timing: record.timing,
       ...(record.error ? { error: record.error } : {}),
@@ -1052,7 +1131,8 @@ export class OrchestratedAssessmentApplicationService {
   }
 
   /**
-   * Generates a complete standalone defensive HTML report with mandatory operator attestation.
+   * Generates a complete standalone defensive HTML report with mandatory operator attestation
+   * and A12 adversarial sections (chains, impact, acquired access refs, defenses, limitations).
    */
   public async generateHtmlReport(
     assessmentId: string,
@@ -1072,12 +1152,14 @@ export class OrchestratedAssessmentApplicationService {
       );
     }
 
+    const adversarial = await this.buildAdversarialReportContext(assessmentId);
     const generator = new ReportGeneratorService();
     return generator.generateHtmlReport({
       assessmentRecord: record,
       operatorId,
       attestationText,
       ...(verifiedAt ? { verifiedAt } : {}),
+      adversarialContext: adversarial.context,
     });
   }
 

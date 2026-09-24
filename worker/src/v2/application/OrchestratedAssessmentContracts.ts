@@ -17,7 +17,11 @@ import type { ByotSessionIdentityBundle } from '../detection/DetectionContracts.
 import type { AttackSurfaceGraph } from '../attack-surface/AttackSurfaceContracts.js';
 import type { AttackPlan } from '../attack-planning/AttackPlanContracts.js';
 import type { AttackChain } from '../attack-chain/AttackChainContracts.js';
-import type { PostExploitationState } from '../post-exploitation/PostExploitationContracts.js';
+import type {
+  CredentialReference,
+  PostExploitationState,
+} from '../post-exploitation/PostExploitationContracts.js';
+import type { ImpactAssessment } from '../reporting-boundary/ImpactAssessmentContracts.js';
 import type { LateralMovementSnapshot } from '../attack-planning/LateralMovementContracts.js';
 
 export const ORCHESTRATED_ASSESSMENT_CONTRACT_VERSION =
@@ -272,6 +276,14 @@ export interface OrchestratedAssessmentSummaryDto {
   readonly pendingEvidenceDrafts?: readonly EnrichedEvidenceDraft[];
   readonly recommendations: readonly TargetRecommendation[];
   readonly attackSurfaceGraph?: AttackSurfaceGraph;
+  /** Milestone A12 — completed-chain impact assessments (no vault secrets). */
+  readonly impactAssessments?: readonly ImpactAssessment[];
+  /** Milestone A12 — attack chain hypotheses for summary consumers. */
+  readonly attackChains?: readonly AttackChain[];
+  /** Milestone A12 — post-exploitation snapshot (CredentialReference metadata only). */
+  readonly postExploitationState?: PostExploitationState | null;
+  /** Milestone A12 — credential references only (never raw secrets). */
+  readonly credentialReferences?: readonly CredentialReference[];
   readonly lineage: AuthorizedActiveReconRequestLineage;
   readonly timing: OrchestratedAssessmentTiming;
   readonly error?: string;

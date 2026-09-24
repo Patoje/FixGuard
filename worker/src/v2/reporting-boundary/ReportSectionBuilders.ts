@@ -16,6 +16,14 @@ import type { Finding } from '../core/Evidence.js';
 import type { TargetRecommendation } from '../intelligence/IntelligenceContracts.js';
 import type { AuthorizedActiveReconRequestLineage } from '../lineage/AuthorizedExecutionLineageContracts.js';
 import { sanitizeEvidenceFragment } from '../core/EvidenceSanitizer.js';
+import type { AttackChain } from '../attack-chain/AttackChainContracts.js';
+import type { AttackPlan } from '../attack-planning/AttackPlanContracts.js';
+import type {
+  CredentialReference,
+  PostExploitationState,
+} from '../post-exploitation/PostExploitationContracts.js';
+import type { ImpactAssessment } from './ImpactAssessmentContracts.js';
+import { formatEpistemicBadge } from './ImpactAssessmentContracts.js';
 
 export function escapeHtml(str: string): string {
   if (!str) return '';
@@ -254,7 +262,64 @@ export function buildReportStyles(): string {
       color: var(--text-dim);
       padding: 1rem 0;
     }
+    .epistemic-badge {
+      display: inline-block;
+      font-size: 0.7rem;
+      font-family: monospace;
+      font-weight: 700;
+      letter-spacing: 0.02em;
+      padding: 0.2rem 0.55rem;
+      border-radius: 4px;
+      white-space: nowrap;
+    }
+    .epistemic-verified {
+      background: rgba(16, 185, 129, 0.15);
+      color: #34d399;
+      border: 1px solid rgba(16, 185, 129, 0.4);
+    }
+    .epistemic-inferred {
+      background: rgba(234, 179, 8, 0.12);
+      color: #facc15;
+      border: 1px solid rgba(234, 179, 8, 0.35);
+    }
+    .epistemic-refuted {
+      background: rgba(239, 68, 68, 0.12);
+      color: #f87171;
+      border: 1px solid rgba(239, 68, 68, 0.35);
+    }
+    .epistemic-observed {
+      background: rgba(59, 130, 246, 0.12);
+      color: #60a5fa;
+      border: 1px solid rgba(59, 130, 246, 0.35);
+    }
+    .adversarial-item {
+      background: rgba(255, 255, 255, 0.02);
+      border: 1px solid var(--card-border);
+      border-radius: 8px;
+      padding: 1rem;
+      margin-bottom: 0.75rem;
+    }
   `;
+}
+
+function epistemicBadgeClass(status: string): string {
+  switch (status) {
+    case 'VERIFIED':
+      return 'epistemic-verified';
+    case 'INFERRED':
+      return 'epistemic-inferred';
+    case 'REFUTED':
+      return 'epistemic-refuted';
+    case 'OBSERVED':
+      return 'epistemic-observed';
+    default:
+      return 'epistemic-inferred';
+  }
+}
+
+function renderEpistemicBadgeHtml(status: 'OBSERVED' | 'INFERRED' | 'VERIFIED' | 'REFUTED'): string {
+  const badge = formatEpistemicBadge(status);
+  return `<span class="epistemic-badge ${epistemicBadgeClass(status)}">${escapeHtml(badge)}</span>`;
 }
 
 export function buildHeaderSection(record: OrchestratedAssessmentRecord): string {
@@ -506,6 +571,329 @@ export function buildOperatorAttestationSection(attestation: {
           <div>Attestation Status: <strong style="color: #34d399;">SIGNED &amp; RATIFIED</strong></div>
         </div>
       </div>
+    </section>
+  `;
+}
+
+/**
+ * Section 4 — Attack Execution Record
+ * Timeline of authorized plans and chain-step execution outcomes (no secrets).
+ */
+export function buildAttackExecutionRecordSection(params: {
+  readonly attackPlans?: readonly AttackPlan[];
+  readonly attackChains?: readonly AttackChain[];
+}): string {
+  const plans = params.attackPlans ?? [];
+  const chains = params.attackChains ?? [];
+
+  const planItems =
+    plans.length === 0
+      ? `<p style="color: var(--text-muted); font-size: 0.85rem;">No authorized attack plans were recorded for this assessment.</p>`
+      : plans
+          .map((p) => {
+            const completedSteps = p.steps.filter((s) => s.status === 'completed').length;
+            return `
+          <div class="adversarial-item">
+            <div style="display:flex;justify-content:space-between;gap:1rem;flex-wrap:wrap;">
+              <strong style="color:#ffffff;">${escapeHtml(p.title)}</strong>
+              <span style="font-family:monospace;font-size:0.75rem;color:#a1a1aa;">${escapeHtml(p.status)}</span>
+            </div>
+            <div style="font-size:0.8rem;font-family:monospace;color:var(--text-muted);margin-top:0.35rem;">
+              Plan: ${escapeHtml(p.planId)} • Capability: ${escapeHtml(p.capability)} • Steps completed: ${completedSteps}/${p.steps.length}
+            </div>
+            <p style="font-size:0.85rem;color:var(--text-muted);margin-top:0.5rem;">${escapeHtml(p.reasoning)}</p>
+          </div>`;
+          })
+          .join('\n');
+
+  const stepRows: string[] = [];
+  for (const chain of chains) {
+    for (const step of chain.steps) {
+      stepRows.push(`
+        <div class="adversarial-item">
+          <div style="display:flex;justify-content:space-between;gap:1rem;flex-wrap:wrap;align-items:center;">
+            <strong style="color:#ffffff;">Chain ${escapeHtml(chain.chainId)} · Step ${step.sequence}</strong>
+            ${renderEpistemicBadgeHtml(step.epistemicStatus)}
+          </div>
+          <div style="font-size:0.8rem;font-family:monospace;color:var(--text-muted);margin-top:0.35rem;">
+            Capability: ${escapeHtml(step.capabilityKind)} • Outcome: ${escapeHtml(step.outcome)} • Recorded: ${escapeHtml(step.evidence.recordedAt)}
+          </div>
+          <p style="font-size:0.85rem;color:var(--text-muted);margin-top:0.4rem;">${escapeHtml(step.evidence.safeMessage)}</p>
+        </div>`);
+    }
+  }
+
+  const executionHtml =
+    stepRows.length === 0
+      ? `<p style="color: var(--text-muted); font-size: 0.85rem;">No executed attack-chain steps were recorded.</p>`
+      : stepRows.join('\n');
+
+  return `
+    <section class="card" id="section-attack-execution-record">
+      <h2>Attack Execution Record</h2>
+      <p style="color: var(--text-muted); font-size: 0.85rem; margin-bottom: 1rem;">
+        Authorized plans and recorded validation-step outcomes. Duration is derived from recorded step timestamps when available.
+      </p>
+      <h3 style="margin-top:0.5rem;">Authorized Plans</h3>
+      ${planItems}
+      <h3 style="margin-top:1rem;">Execution Outcomes</h3>
+      ${executionHtml}
+    </section>
+  `;
+}
+
+/**
+ * Section 5 — Attack Chains & Impact (epistemic badges mandatory)
+ */
+export function buildAttackChainsAndImpactSection(params: {
+  readonly attackChains?: readonly AttackChain[];
+  readonly impactAssessments?: readonly ImpactAssessment[];
+}): string {
+  const chains = params.attackChains ?? [];
+  const impacts = params.impactAssessments ?? [];
+  const impactByChain = new Map(impacts.map((i) => [i.chainId, i]));
+
+  if (chains.length === 0) {
+    return `
+      <section class="card" id="section-attack-chains-impact">
+        <h2>Attack Chains &amp; Impact</h2>
+        <p style="color: var(--text-muted); font-size: 0.85rem;">No attack chains were recorded for this assessment.</p>
+      </section>
+    `;
+  }
+
+  const items = chains
+    .map((chain) => {
+      const impact = impactByChain.get(chain.chainId);
+      const impactBlock = impact
+        ? `
+          <div style="margin-top:0.75rem;padding-top:0.75rem;border-top:1px solid var(--card-border);">
+            <div style="display:flex;gap:0.5rem;align-items:center;flex-wrap:wrap;margin-bottom:0.35rem;">
+              <span style="font-size:0.75rem;font-family:monospace;color:var(--text-dim);text-transform:uppercase;">Impact Assessment</span>
+              ${renderEpistemicBadgeHtml(impact.epistemicStatus)}
+              <span style="font-family:monospace;font-size:0.75rem;color:#a1a1aa;">${escapeHtml(impact.impactLevel)}</span>
+            </div>
+            <p style="font-size:0.85rem;color:var(--text-muted);">${escapeHtml(impact.impactDescription)}</p>
+            <div style="font-size:0.75rem;font-family:monospace;color:var(--text-dim);margin-top:0.35rem;">
+              Evidence basis: ${
+                impact.evidenceBasis.length === 0
+                  ? 'none'
+                  : impact.evidenceBasis.map((id) => escapeHtml(id)).join(', ')
+              }
+            </div>
+          </div>`
+        : `<p style="font-size:0.8rem;color:var(--text-dim);margin-top:0.5rem;">No terminal impact assessment derived (chain not completed).</p>`;
+
+      const stepsHtml = chain.steps
+        .map(
+          (s) => `
+          <li style="margin-bottom:0.35rem;">
+            ${renderEpistemicBadgeHtml(s.epistemicStatus)}
+            <span style="font-family:monospace;font-size:0.8rem;color:#e4e4e7;">#${s.sequence} ${escapeHtml(s.capabilityKind)}</span>
+            <span style="font-size:0.8rem;color:var(--text-muted);"> — ${escapeHtml(s.outcome)}: ${escapeHtml(s.evidence.safeMessage)}</span>
+          </li>`
+        )
+        .join('\n');
+
+      return `
+        <div class="adversarial-item">
+          <div style="display:flex;justify-content:space-between;gap:1rem;flex-wrap:wrap;align-items:center;">
+            <strong style="color:#ffffff;">${escapeHtml(chain.hypothesis)}</strong>
+            ${renderEpistemicBadgeHtml(chain.overallEpistemicStatus)}
+          </div>
+          <div style="font-size:0.8rem;font-family:monospace;color:var(--text-muted);margin-top:0.35rem;">
+            Chain: ${escapeHtml(chain.chainId)} • Status: ${escapeHtml(chain.status)} • Objective: ${escapeHtml(chain.objectiveKind)} • ImpactLevel: ${escapeHtml(chain.impactLevel)}
+          </div>
+          <ul style="list-style:none;margin-top:0.75rem;padding:0;">${stepsHtml || '<li style="color:var(--text-dim);font-size:0.85rem;">No steps recorded.</li>'}</ul>
+          ${impactBlock}
+        </div>`;
+    })
+    .join('\n');
+
+  return `
+    <section class="card" id="section-attack-chains-impact">
+      <h2>Attack Chains &amp; Impact</h2>
+      <p style="color: var(--text-muted); font-size: 0.85rem; margin-bottom: 1rem;">
+        Chain progression with mandatory epistemic badges. Impact assessments never exceed chain overall epistemic status.
+      </p>
+      ${items}
+    </section>
+  `;
+}
+
+/**
+ * Section 6 — Acquired Access & Credentials (CredentialReference fields only)
+ */
+export function buildAcquiredAccessAndCredentialsSection(params: {
+  readonly postExploitationState?: PostExploitationState | null;
+  readonly credentialReferences?: readonly CredentialReference[];
+}): string {
+  const state = params.postExploitationState ?? null;
+  const refs = params.credentialReferences ?? [];
+
+  const accessHtml =
+    !state || state.acquiredAccess.length === 0
+      ? `<p style="color: var(--text-muted); font-size: 0.85rem;">No acquired access records.</p>`
+      : state.acquiredAccess
+          .map((a) => {
+            return `
+          <div class="adversarial-item">
+            <div style="display:flex;justify-content:space-between;gap:1rem;flex-wrap:wrap;align-items:center;">
+              <strong style="color:#ffffff;">${escapeHtml(a.accessKind)}</strong>
+              ${renderEpistemicBadgeHtml(a.epistemicStatus)}
+            </div>
+            <p style="font-size:0.85rem;color:var(--text-muted);margin-top:0.35rem;">${escapeHtml(a.description)}</p>
+            <div style="font-size:0.75rem;font-family:monospace;color:var(--text-dim);margin-top:0.35rem;">
+              Access: ${escapeHtml(a.accessId)} • Chain: ${escapeHtml(a.sourceChainId)} • Step: ${escapeHtml(a.sourceStepId)}
+              ${a.credentialRefId ? ` • CredentialRef: ${escapeHtml(a.credentialRefId)}` : ''}
+              ${a.identityContext ? ` • Identity: ${escapeHtml(a.identityContext)}` : ''}
+            </div>
+          </div>`;
+          })
+          .join('\n');
+
+  const credHtml =
+    refs.length === 0
+      ? `<p style="color: var(--text-muted); font-size: 0.85rem;">No credential references recorded.</p>`
+      : refs
+          .map((r) => {
+            // Render ONLY CredentialReference fields — never vault secrets.
+            return `
+          <div class="adversarial-item">
+            <strong style="color:#ffffff;font-family:monospace;">${escapeHtml(r.credentialId)}</strong>
+            <div style="font-size:0.8rem;font-family:monospace;color:var(--text-muted);margin-top:0.35rem;">
+              Kind: ${escapeHtml(r.credentialKind)} • Source: ${escapeHtml(r.source)}
+              ${r.associatedHostname ? ` • Host: ${escapeHtml(r.associatedHostname)}` : ''}
+              • Discovered: ${escapeHtml(r.discoveredAt)}
+              ${r.expiresAt ? ` • Expires: ${escapeHtml(r.expiresAt)}` : ''}
+            </div>
+          </div>`;
+          })
+          .join('\n');
+
+  const lateralHtml =
+    !state || state.lateralMovementHypotheses.length === 0
+      ? ''
+      : `
+      <h3 style="margin-top:1rem;">Lateral Movement Hypotheses</h3>
+      ${state.lateralMovementHypotheses
+        .map(
+          (h) => `
+        <div class="adversarial-item">
+          <div style="display:flex;gap:0.5rem;align-items:center;flex-wrap:wrap;">
+            <strong style="color:#ffffff;">${escapeHtml(h.targetHost)}</strong>
+            ${renderEpistemicBadgeHtml(h.epistemicStatus)}
+          </div>
+          <div style="font-size:0.8rem;font-family:monospace;color:var(--text-muted);margin-top:0.35rem;">
+            Mechanism: ${escapeHtml(h.mechanism)} • Hypothesis: ${escapeHtml(h.hypothesisId)}
+            ${h.credentialRefId ? ` • CredentialRef: ${escapeHtml(h.credentialRefId)}` : ''}
+          </div>
+        </div>`
+        )
+        .join('\n')}`;
+
+  return `
+    <section class="card" id="section-acquired-access-credentials">
+      <h2>Acquired Access &amp; Credentials</h2>
+      <p style="color: var(--text-muted); font-size: 0.85rem; margin-bottom: 1rem;">
+        Privilege indicators and discovered credential references only. Raw vault secrets are never rendered.
+      </p>
+      <h3>Acquired Access</h3>
+      ${accessHtml}
+      <h3 style="margin-top:1rem;">Credential References</h3>
+      ${credHtml}
+      ${lateralHtml}
+    </section>
+  `;
+}
+
+/**
+ * Section 7 — Target Defenses (What Failed & Resisted)
+ */
+export function buildTargetDefensesSection(params: {
+  readonly attackChains?: readonly AttackChain[];
+}): string {
+  const chains = params.attackChains ?? [];
+  const resisted: Array<{
+    chainId: string;
+    stepId: string;
+    capabilityKind: string;
+    safeMessage: string;
+    epistemicStatus: 'OBSERVED' | 'INFERRED' | 'VERIFIED' | 'REFUTED';
+    outcome: string;
+  }> = [];
+
+  for (const chain of chains) {
+    for (const step of chain.steps) {
+      if (step.outcome === 'refuted' || step.outcome === 'failed' || step.epistemicStatus === 'REFUTED') {
+        resisted.push({
+          chainId: chain.chainId,
+          stepId: step.stepId,
+          capabilityKind: step.capabilityKind,
+          safeMessage: step.evidence.safeMessage,
+          epistemicStatus: step.epistemicStatus,
+          outcome: step.outcome,
+        });
+      }
+    }
+    if (chain.status === 'refuted' && resisted.every((r) => r.chainId !== chain.chainId)) {
+      resisted.push({
+        chainId: chain.chainId,
+        stepId: 'chain',
+        capabilityKind: chain.objectiveKind,
+        safeMessage: `Chain ${chain.chainId} marked refuted — target resisted the hypothesized path.`,
+        epistemicStatus: chain.overallEpistemicStatus,
+        outcome: 'refuted',
+      });
+    }
+  }
+
+  const items =
+    resisted.length === 0
+      ? `<p style="color: var(--text-muted); font-size: 0.85rem;">No refuted or failed validation steps were recorded. Absence of resistance records is not proof of weakness.</p>`
+      : resisted
+          .map(
+            (r) => `
+        <div class="adversarial-item">
+          <div style="display:flex;justify-content:space-between;gap:1rem;flex-wrap:wrap;align-items:center;">
+            <strong style="color:#ffffff;">${escapeHtml(r.capabilityKind)}</strong>
+            ${renderEpistemicBadgeHtml(r.epistemicStatus === 'REFUTED' ? 'REFUTED' : r.epistemicStatus)}
+          </div>
+          <div style="font-size:0.8rem;font-family:monospace;color:var(--text-muted);margin-top:0.35rem;">
+            Chain: ${escapeHtml(r.chainId)} • Step: ${escapeHtml(r.stepId)} • Outcome: ${escapeHtml(r.outcome)}
+          </div>
+          <p style="font-size:0.85rem;color:var(--text-muted);margin-top:0.4rem;">${escapeHtml(r.safeMessage)}</p>
+        </div>`
+          )
+          .join('\n');
+
+  return `
+    <section class="card" id="section-target-defenses">
+      <h2>Target Defenses (What Failed &amp; Resisted)</h2>
+      <p style="color: var(--text-muted); font-size: 0.85rem; margin-bottom: 1rem;">
+        Documented where the target blocked or refuted an authorized validation attempt — defensive signal, not speculative severity.
+      </p>
+      ${items}
+    </section>
+  `;
+}
+
+/**
+ * Section 8 — Assessment Limitations (What Was Not Attempted)
+ */
+export function buildAssessmentLimitationsAdversarialSection(): string {
+  return `
+    <section class="card" id="section-assessment-limitations-adversarial">
+      <h2>Assessment Limitations (What Was Not Attempted)</h2>
+      <ul class="limitations-list">
+        <li><strong>No Destructive Operations</strong>: Denial-of-service, destructive writes, and data destruction were prohibited and not attempted.</li>
+        <li><strong>No Brute-Force Credential Harvesting</strong>: Password spraying, credential stuffing, and bulk account enumeration were out of scope.</li>
+        <li><strong>No Autonomous Exploitation</strong>: Attack plans require human authorization; the engine does not self-authorize or auto-escalate blast radius.</li>
+        <li><strong>No Out-of-Scope Assets</strong>: Third-party hosts, payment gateways, and assets outside the authorized scope grant were not targeted.</li>
+        <li><strong>No Speculative Impact Inflation</strong>: Impact assessments never exceed the epistemic status of their source attack chain. INFERRED chains cannot produce VERIFIED impact.</li>
+        <li><strong>Credential Vault Isolation</strong>: Raw secrets remain in the process-local vault and are never serialized into this report — only CredentialReference metadata appears.</li>
+        <li><strong>Point-in-Time Boundary</strong>: Findings and chain outcomes reflect the target state during the authorized assessment window only.</li>
+      </ul>
     </section>
   `;
 }
