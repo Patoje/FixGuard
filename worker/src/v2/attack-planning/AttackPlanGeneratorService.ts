@@ -14,6 +14,7 @@
  * 6. INPUT_VALIDATION_FLAW reflection (+ input_validation_flaw_metadata) → parameter_reflection_probe
  * 7. parameter_integrity_metadata (LFI/path traversal candidates) → lfi_path_traversal
  * 8. sql_error_oracle_metadata @ suspected_vulnerability → sql_oracle_advancement
+ * 9. reflection / XSS anomaly → nuclei_xss_scan (capabilityGained active_validation)
  */
 
 import { createHash } from 'node:crypto';
@@ -101,6 +102,13 @@ function isParameterIntegrity(finding: Finding): boolean {
   return finding.metadata.kind === 'parameter_integrity_metadata';
 }
 
+/** Reflection or XSS anomaly findings → nuclei XSS scan plan (A8). */
+function isReflectionOrXssAnomaly(finding: Finding): boolean {
+  if (isParameterReflection(finding)) return true;
+  if (finding.metadata.kind === 'blind_xss_detection_metadata') return true;
+  return finding.type === 'CROSS_SITE_SCRIPTING' || finding.type === 'PARAMETER_REFLECTION';
+}
+
 /**
  * SQL oracle advancement applies when an oracle finding is already at
  * suspected_vulnerability (one ordered step away from validated_vulnerability).
@@ -127,6 +135,9 @@ function parameterFromFinding(finding: Finding): string | undefined {
     return meta.parameterName;
   }
   if (meta.kind === 'parameter_integrity_metadata' && typeof meta.parameterName === 'string') {
+    return meta.parameterName;
+  }
+  if (meta.kind === 'blind_xss_detection_metadata' && typeof meta.parameterName === 'string') {
     return meta.parameterName;
   }
   if (meta.kind === 'broken_access_control_metadata' && typeof meta.resourceParamName === 'string') {
@@ -553,6 +564,45 @@ export function generateAttackPlans(input: AttackPlanGeneratorInput): AttackPlan
               description:
                 'Human-authorized error-provoking re-probe to advance suspected_vulnerability → validated_vulnerability.',
               requiredPermissions: ['active_http_get'],
+            },
+          ],
+          lineage: input.lineage,
+          createdAt: generatedAt,
+          targetUrl: targetFromFinding(finding),
+          parameterName,
+        })
+      );
+    }
+
+    // Rule 9 (A8): reflection / XSS anomaly → nuclei_xss_scan
+    // capabilityGained active_validation (plan intent). Auth BlastRadiusClass remains
+    // read_authenticated — never invent a BlastRadiusClass named active_validation.
+    if (isReflectionOrXssAnomaly(finding)) {
+      const parameterName = parameterFromFinding(finding);
+      const prereqs = [
+        findingPresentPrereq(finding, finding.type),
+        parameterPresentPrereq(parameterName),
+      ];
+      plans.push(
+        buildPlan({
+          assessmentId: input.assessmentId,
+          scanId: input.scanId,
+          capability: 'nuclei_xss_scan',
+          title: 'Nuclei XSS template validation',
+          reasoning:
+            'Observed parameter reflection or XSS anomaly. Recommend allowlisted nuclei XSS template scan after human authorization. Hits remain OBSERVED template matches — not automatic verified vulnerabilities.',
+          blastRadius: 'single_parameter',
+          capabilityGained: 'active_validation',
+          finding,
+          prerequisites: prereqs,
+          steps: [
+            {
+              stepId: `${finding.id}_nuclei_xss_step_1`,
+              ordinal: 1,
+              title: 'Authorize nuclei XSS scan',
+              description:
+                'Human-authorized allowlisted nuclei XSS templates (-no-interactsh). Advisory only until authorized.',
+              requiredPermissions: ['active_http_get', 'active_validation'],
             },
           ],
           lineage: input.lineage,

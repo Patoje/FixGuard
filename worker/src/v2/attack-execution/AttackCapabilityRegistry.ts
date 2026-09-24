@@ -1,8 +1,9 @@
 /**
- * Milestone A5 / A7 — Attack Capability Registry
+ * Milestone A5 / A7 / A8 — Attack Capability Registry
  *
  * Registers wrappers around EXISTING verified defensive services plus
- * native A7 capabilities (LFI path traversal, SQL oracle advancement).
+ * native A7 capabilities (LFI path traversal, SQL oracle advancement) and
+ * A8 nuclei XSS scan (allowlisted templates only).
  * Capabilities are authorized verification — not free exploitation.
  * Unregistered plan kinds fail closed (not-implemented), never fake success.
  */
@@ -19,6 +20,7 @@ import { AuthBypassDetectionService } from '../detection/AuthBypassDetectionServ
 import { JwtAlgorithmConfusionDetectionService } from '../detection/JwtAlgorithmConfusionDetectionService.js';
 import { createLfiPathTraversalCapability } from './capabilities/LFIPathTraversalCapability.js';
 import { createSqlOracleAdvancementCapability } from './capabilities/SqlOracleAdvancementCapability.js';
+import { createNucleiXssScanCapability } from './capabilities/NucleiXssScanCapability.js';
 
 function succeeded(reasonCode: string, safeMessage: string, evidenceId?: string): AttackCapabilityExecutionResult {
   return {
@@ -185,6 +187,7 @@ export class AttackCapabilityRegistry {
         createJwtAlgNoneProbeCapability(),
         createLfiPathTraversalCapability(),
         createSqlOracleAdvancementCapability(),
+        createNucleiXssScanCapability(),
       ] as const);
     for (const port of initial) {
       this.ports.set(port.capability, port);
@@ -221,3 +224,4 @@ export function createNotImplementedCapability(capability: AttackCapabilityKind)
 export { succeeded as capabilitySucceeded, refuted as capabilityRefuted, failed as capabilityFailed };
 export { createLfiPathTraversalCapability } from './capabilities/LFIPathTraversalCapability.js';
 export { createSqlOracleAdvancementCapability } from './capabilities/SqlOracleAdvancementCapability.js';
+export { createNucleiXssScanCapability } from './capabilities/NucleiXssScanCapability.js';

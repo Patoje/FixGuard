@@ -166,7 +166,7 @@ async function runSmokeTests(): Promise<void> {
 
   console.log('✓ Test 1 Passed: TargetProfile v2 fields populate from sample assessment output');
 
-  // --- Test 2: All 6 generation rules ---
+  // --- Test 2: All generation rules (A3 + A8 nuclei_xss_scan on reflection) ---
   const findingsSatisfied: Finding[] = [
     baseFinding({
       id: 'fnd_idor_a3',
@@ -301,9 +301,10 @@ async function runSmokeTests(): Promise<void> {
     'jwt_alg_none_probe',
     'sql_error_oracle_probe',
     'parameter_reflection_probe',
+    'nuclei_xss_scan',
   ];
 
-  assert.equal(satisfiedResult.plans.length, 6, `expected 6 plans, got ${satisfiedResult.plans.length}`);
+  assert.equal(satisfiedResult.plans.length, 7, `expected 7 plans, got ${satisfiedResult.plans.length}`);
   for (const capability of expectedCapabilities) {
     const plan = satisfiedResult.plans.find((p) => p.capability === capability);
     assert.ok(plan, `missing plan for ${capability}`);
@@ -324,8 +325,10 @@ async function runSmokeTests(): Promise<void> {
   assert.equal(sql?.capabilityGained, 'read_authenticated');
   const reflect = satisfiedResult.plans.find((p) => p.capability === 'parameter_reflection_probe');
   assert.equal(reflect?.capabilityGained, 'active_validation');
+  const nucleiXss = satisfiedResult.plans.find((p) => p.capability === 'nuclei_xss_scan');
+  assert.equal(nucleiXss?.capabilityGained, 'active_validation');
 
-  console.log('✓ Test 2 Passed: Generator produces correct typed plans for all 6 rules');
+  console.log('✓ Test 2 Passed: Generator produces correct typed plans for all rules');
 
   // --- Test 3: Missing prerequisites → prerequisite_missing (never throw) ---
   const missingResult = generateAttackPlans({
@@ -337,7 +340,7 @@ async function runSmokeTests(): Promise<void> {
     generatedAt: nowIso,
   });
 
-  assert.equal(missingResult.plans.length, 6, 'plans with missing prereqs must be retained');
+  assert.equal(missingResult.plans.length, 7, 'plans with missing prereqs must be retained');
   const idorMissing = missingResult.plans.find((p) => p.capability === 'idor_read_differential');
   assert.equal(idorMissing?.status, 'prerequisite_missing');
   const corsMissing = missingResult.plans.find((p) => p.capability === 'cors_chain_exploit');
@@ -347,13 +350,17 @@ async function runSmokeTests(): Promise<void> {
   const jwtMissing = missingResult.plans.find((p) => p.capability === 'jwt_alg_none_probe');
   assert.equal(jwtMissing?.status, 'prerequisite_missing');
 
-  // SQL + reflection only need parameters (present) → ready even without identities
+  // SQL + reflection + nuclei XSS only need parameters (present) → ready even without identities
   assert.equal(
     missingResult.plans.find((p) => p.capability === 'sql_error_oracle_probe')?.status,
     'ready_for_authorization'
   );
   assert.equal(
     missingResult.plans.find((p) => p.capability === 'parameter_reflection_probe')?.status,
+    'ready_for_authorization'
+  );
+  assert.equal(
+    missingResult.plans.find((p) => p.capability === 'nuclei_xss_scan')?.status,
     'ready_for_authorization'
   );
 
@@ -381,9 +388,11 @@ async function runSmokeTests(): Promise<void> {
     lineage,
     generatedAt: nowIso,
   });
-  assert.equal(reflectNoParam.plans.length, 1);
-  assert.equal(reflectNoParam.plans[0]?.status, 'prerequisite_missing');
-  assert.equal(reflectNoParam.plans[0]?.executable, false);
+  assert.equal(reflectNoParam.plans.length, 2);
+  assert.ok(reflectNoParam.plans.every((p) => p.status === 'prerequisite_missing'));
+  assert.ok(reflectNoParam.plans.every((p) => p.executable === false));
+  assert.ok(reflectNoParam.plans.some((p) => p.capability === 'parameter_reflection_probe'));
+  assert.ok(reflectNoParam.plans.some((p) => p.capability === 'nuclei_xss_scan'));
 
   console.log('✓ Test 3 Passed: Missing prerequisites → prerequisite_missing (not discarded)');
 
@@ -392,7 +401,7 @@ async function runSmokeTests(): Promise<void> {
   await attackPlanRepository.savePlans(satisfiedResult.plans);
 
   const listed = await attackPlanRepository.listByAssessmentId(assessmentId);
-  assert.equal(listed.length, 6);
+  assert.equal(listed.length, 7);
 
   const repository = new InMemoryOrchestratedAssessmentRepository();
   const record: OrchestratedAssessmentRecord = {
@@ -418,8 +427,8 @@ async function runSmokeTests(): Promise<void> {
   });
   const apiResult = await service.getAttackPlans(assessmentId);
   assert.equal(apiResult.assessmentId, assessmentId);
-  assert.equal(apiResult.planCount, 6);
-  assert.equal(apiResult.plans.length, 6);
+  assert.equal(apiResult.planCount, 7);
+  assert.equal(apiResult.plans.length, 7);
   assert.ok(apiResult.plans.every((p) => p.executable === false));
   assert.equal(apiResult.lineage.assessmentId, assessmentId);
 
@@ -451,8 +460,8 @@ async function runSmokeTests(): Promise<void> {
   assert.equal(statusCode, 200);
   assert.ok(body && typeof body === 'object');
   const payload = body as { planCount: number; plans: unknown[] };
-  assert.equal(payload.planCount, 6);
-  assert.equal(payload.plans.length, 6);
+  assert.equal(payload.planCount, 7);
+  assert.equal(payload.plans.length, 7);
 
   console.log('✓ Test 4 Passed: Plans stored and retrievable via application/API path');
 
