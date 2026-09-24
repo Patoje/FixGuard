@@ -288,6 +288,7 @@ import type {
   OperatorPreconditions,
   OperatorStackHints,
 } from '../attack-recommendation/AttackOperatorRecommendationContracts.js';
+import { HypothesisSchedulerService } from '../hypothesis-scheduler/HypothesisSchedulerService.js';
 import { AttackCapabilityRegistry } from '../attack-execution/AttackCapabilityRegistry.js';
 import type { AttackPlan } from '../attack-planning/AttackPlanContracts.js';
 import { ORCHESTRATED_ASSESSMENT_CONTRACT_VERSION } from './OrchestratedAssessmentContracts.js';
@@ -1601,6 +1602,24 @@ export class OrchestratedAssessmentApplicationService {
     const stackHints = deriveOperatorStackHints(record.attackSurfaceGraph, record.profile);
     const byotMeta = ephemeralByotSessionStore.getMeta(assessmentId);
     const preconditions = deriveOperatorPreconditions(plans, findings, byotMeta);
+
+    const asgNodeKinds =
+      record.attackSurfaceGraph?.nodes.map((n) => String(n.kind)) ?? [];
+    const hypothesisSchedule = new HypothesisSchedulerService().schedule({
+      assessmentId: record.assessmentId,
+      scanId: record.scanId,
+      findings: findings.map((f) => ({
+        id: f.id,
+        type: f.type,
+        metadataKind: f.metadata.kind,
+        target: f.target,
+      })),
+      asgNodeKinds,
+      stackHints,
+      identityCount: preconditions.identityCount,
+      hasJwtIdentity: preconditions.hasJwtIdentity,
+    });
+
     const service = new AttackRecommendationService();
     const result = service.recommend({
       assessmentId: record.assessmentId,
@@ -1632,15 +1651,37 @@ export class OrchestratedAssessmentApplicationService {
       byotMeta,
     });
 
+    // Soft preference: prefer capabilities suggested by unblocked high-score hypotheses.
+    const preferredCaps = new Set(
+      hypothesisSchedule.hypotheses
+        .filter((h) => !h.blocked && h.score >= 70 && h.suggestedCapability)
+        .map((h) => h.suggestedCapability as string)
+    );
+    const orderedRecommendations =
+      preferredCaps.size === 0
+        ? linkedRecommendations
+        : Object.freeze(
+            [...linkedRecommendations].sort((a, b) => {
+              const ap = preferredCaps.has(a.capabilityKind) ? 1 : 0;
+              const bp = preferredCaps.has(b.capabilityKind) ? 1 : 0;
+              if (bp !== ap) return bp - ap;
+              return b.score - a.score;
+            })
+          );
+
     return {
       assessmentId: result.assessmentId,
       scanId: result.scanId,
       ...(result.subjectFindingId ? { subjectFindingId: result.subjectFindingId } : {}),
       ...(result.subjectPlanId ? { subjectPlanId: result.subjectPlanId } : {}),
       ...(result.investigationId ? { investigationId: result.investigationId } : {}),
-      recommendationCount: linkedRecommendations.length,
-      recommendations: linkedRecommendations,
-      rulesApplied: result.rulesApplied,
+      recommendationCount: orderedRecommendations.length,
+      recommendations: orderedRecommendations,
+      rulesApplied: Object.freeze([
+        ...result.rulesApplied,
+        ...hypothesisSchedule.rulesApplied,
+        'rule_f2_hypothesis_scheduler_feed',
+      ]),
       lineage: result.lineage,
       generatedAt: result.generatedAt,
     };

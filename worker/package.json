@@ -20,6 +20,7 @@
     "smoke:v2:operator-attack-recommendation": "tsx src/v2/smoke/milestone_operator_attack_recommendation_smoke.ts",
     "smoke:v2:f3-test-validity": "tsx src/v2/smoke/milestone_f3_test_validity_smoke.ts",
     "smoke:v2:jsluice-discovery": "tsx src/v2/smoke/milestone_jsluice_discovery_smoke.ts",
+    "smoke:v2:f2-hypothesis-scheduler": "tsx src/v2/smoke/milestone_f2_hypothesis_scheduler_smoke.ts",
     "smoke:v2:milestone-a3-attack-planning": "tsx src/v2/smoke/milestoneA3_attack_planning_smoke.ts",
     "smoke:v2:milestone-a2-asg": "tsx src/v2/smoke/milestoneA2_attack_surface_graph_smoke.ts",
     "smoke:v2:verification-state": "tsx src/v2/smoke/milestoneA1_verification_state_smoke.ts",
