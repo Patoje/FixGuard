@@ -36,6 +36,11 @@ export function createV2Router(root: V2CompositionRoot): Router {
   router.get('/assessments/:assessmentId/attack-plans', orchestratedController.getAttackPlans);
   // Milestone A6 — Attack Chain Tracker read model
   router.get('/assessments/:assessmentId/attack-chains', orchestratedController.getAttackChains);
+  // Milestone A10 — Post-exploitation snapshot (no secrets)
+  router.get(
+    '/assessments/:assessmentId/post-exploitation',
+    orchestratedController.getPostExploitation
+  );
   // Milestone A4 — Graduated attack-plan authorization (runtime brand; not execution)
   router.post(
     '/assessments/:assessmentId/attack-plans/:planId/authorize',
@@ -65,6 +70,10 @@ export function createV2Router(root: V2CompositionRoot): Router {
   router.get('/orchestrated/assessments/:assessmentId/attack-surface', orchestratedController.getAttackSurface);
   router.get('/orchestrated/assessments/:assessmentId/attack-plans', orchestratedController.getAttackPlans);
   router.get('/orchestrated/assessments/:assessmentId/attack-chains', orchestratedController.getAttackChains);
+  router.get(
+    '/orchestrated/assessments/:assessmentId/post-exploitation',
+    orchestratedController.getPostExploitation
+  );
   router.post('/orchestrated/assessments/:assessmentId/evidence/:draftId/review', orchestratedController.reviewEvidenceDraft);
   router.post('/orchestrated/assessments/:assessmentId/report/html', orchestratedController.generateHtmlReport);
 

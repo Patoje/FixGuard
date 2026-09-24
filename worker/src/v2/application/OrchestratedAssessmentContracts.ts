@@ -17,6 +17,7 @@ import type { ByotSessionIdentityBundle } from '../detection/DetectionContracts.
 import type { AttackSurfaceGraph } from '../attack-surface/AttackSurfaceContracts.js';
 import type { AttackPlan } from '../attack-planning/AttackPlanContracts.js';
 import type { AttackChain } from '../attack-chain/AttackChainContracts.js';
+import type { PostExploitationState } from '../post-exploitation/PostExploitationContracts.js';
 
 export const ORCHESTRATED_ASSESSMENT_CONTRACT_VERSION =
   'fixguard-orchestrated-assessment/v0' as const;
@@ -300,6 +301,14 @@ export interface GetAttackChainsResult {
   readonly scanId: string;
   readonly chainCount: number;
   readonly chains: readonly AttackChain[];
+  readonly lineage: AuthorizedActiveReconRequestLineage;
+}
+
+/** Milestone A10 — post-exploitation snapshot (never contains raw secrets). */
+export interface GetPostExploitationResult {
+  readonly assessmentId: string;
+  readonly scanId: string;
+  readonly state: PostExploitationState | null;
   readonly lineage: AuthorizedActiveReconRequestLineage;
 }
 

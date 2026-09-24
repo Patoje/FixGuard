@@ -26,6 +26,10 @@ import { AttackExecutionService } from '../attack-execution/AttackExecutionServi
 import type { AttackChainRepository } from '../attack-chain/AttackChainRepository.js';
 import { InMemoryAttackChainRepository } from '../attack-chain/InMemoryAttackChainRepository.js';
 import { AttackChainService } from '../attack-chain/AttackChainService.js';
+import type { PostExploitationRepository } from '../post-exploitation/PostExploitationRepository.js';
+import { InMemoryPostExploitationRepository } from '../post-exploitation/InMemoryPostExploitationRepository.js';
+import { CredentialVaultService } from '../post-exploitation/CredentialVaultService.js';
+import { PostExploitationService } from '../post-exploitation/PostExploitationService.js';
 
 export interface V2CompositionDependencies {
   readonly assessmentRepository?: AssessmentRepository;
@@ -45,6 +49,9 @@ export interface V2CompositionDependencies {
   readonly attackExecutionService?: AttackExecutionService;
   readonly attackChainRepository?: AttackChainRepository;
   readonly attackChainService?: AttackChainService;
+  readonly postExploitationRepository?: PostExploitationRepository;
+  readonly credentialVaultService?: CredentialVaultService;
+  readonly postExploitationService?: PostExploitationService;
 }
 
 /**
@@ -70,6 +77,9 @@ export class V2CompositionRoot {
   public readonly attackExecutionService: AttackExecutionService;
   public readonly attackChainRepository: AttackChainRepository;
   public readonly attackChainService: AttackChainService;
+  public readonly postExploitationRepository: PostExploitationRepository;
+  public readonly credentialVaultService: CredentialVaultService;
+  public readonly postExploitationService: PostExploitationService;
 
   constructor(deps: V2CompositionDependencies = {}) {
     this.assessmentRepository = deps.assessmentRepository ?? new InMemoryAssessmentRepository();
@@ -94,6 +104,16 @@ export class V2CompositionRoot {
     this.attackChainRepository = deps.attackChainRepository ?? new InMemoryAttackChainRepository();
     this.attackChainService =
       deps.attackChainService ?? new AttackChainService(this.attackChainRepository);
+    this.postExploitationRepository =
+      deps.postExploitationRepository ?? new InMemoryPostExploitationRepository();
+    this.credentialVaultService =
+      deps.credentialVaultService ?? new CredentialVaultService();
+    this.postExploitationService =
+      deps.postExploitationService ??
+      new PostExploitationService(
+        this.postExploitationRepository,
+        this.credentialVaultService
+      );
     this.orchestratedRepository =
       deps.orchestratedRepository ?? new InMemoryOrchestratedAssessmentRepository();
     this.orchestratedService =
@@ -105,6 +125,9 @@ export class V2CompositionRoot {
         attackPlanGenerator: this.attackPlanGenerator,
         attackChainRepository: this.attackChainRepository,
         attackChainService: this.attackChainService,
+        postExploitationRepository: this.postExploitationRepository,
+        credentialVaultService: this.credentialVaultService,
+        postExploitationService: this.postExploitationService,
       });
   }
 

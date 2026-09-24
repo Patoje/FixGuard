@@ -107,6 +107,10 @@ import type { AttackPlanIdentityContext } from '../attack-planning/AttackPlanCon
 import type { AttackChainRepository } from '../attack-chain/AttackChainRepository.js';
 import { InMemoryAttackChainRepository } from '../attack-chain/InMemoryAttackChainRepository.js';
 import { AttackChainService } from '../attack-chain/AttackChainService.js';
+import type { PostExploitationRepository } from '../post-exploitation/PostExploitationRepository.js';
+import { InMemoryPostExploitationRepository } from '../post-exploitation/InMemoryPostExploitationRepository.js';
+import { CredentialVaultService } from '../post-exploitation/CredentialVaultService.js';
+import { PostExploitationService } from '../post-exploitation/PostExploitationService.js';
 import { scanSourceFilesForSecrets } from '../sast/StaticSecretScanningService.js';
 import { scanManifestsForVulnerabilities } from '../sast/DependencyVulnerabilityScanService.js';
 import { scanFilesForStaticRoutes } from '../sast/StaticRouteExtractionService.js';
@@ -179,6 +183,7 @@ import type {
   StartOrchestratedAssessmentResult,
   GetAttackPlansResult,
   GetAttackChainsResult,
+  GetPostExploitationResult,
 } from './OrchestratedAssessmentContracts.js';
 import { ORCHESTRATED_ASSESSMENT_CONTRACT_VERSION } from './OrchestratedAssessmentContracts.js';
 
@@ -193,6 +198,9 @@ export interface OrchestratedAssessmentServiceDependencies {
   readonly attackPlanGenerator?: AttackPlanGeneratorService;
   readonly attackChainRepository?: AttackChainRepository;
   readonly attackChainService?: AttackChainService;
+  readonly postExploitationRepository?: PostExploitationRepository;
+  readonly credentialVaultService?: CredentialVaultService;
+  readonly postExploitationService?: PostExploitationService;
 }
 
 /** Pure helper exposed for tests / composition — builds query service over a graph. */
@@ -522,6 +530,9 @@ export class OrchestratedAssessmentApplicationService {
   private readonly attackPlanGenerator: AttackPlanGeneratorService;
   private readonly attackChainRepository: AttackChainRepository;
   private readonly attackChainService: AttackChainService;
+  private readonly postExploitationRepository: PostExploitationRepository;
+  private readonly credentialVaultService: CredentialVaultService;
+  private readonly postExploitationService: PostExploitationService;
   private readonly activeAssessments = new Map<string, Promise<void>>();
   /**
    * Process-local sealed VerifiedAuthorizationDecision refs (WeakSet-branded).
@@ -541,9 +552,24 @@ export class OrchestratedAssessmentApplicationService {
       deps.attackChainRepository ?? new InMemoryAttackChainRepository();
     this.attackChainService =
       deps.attackChainService ?? new AttackChainService(this.attackChainRepository);
+    this.postExploitationRepository =
+      deps.postExploitationRepository ?? new InMemoryPostExploitationRepository();
+    this.credentialVaultService =
+      deps.credentialVaultService ?? new CredentialVaultService();
+    this.postExploitationService =
+      deps.postExploitationService ??
+      new PostExploitationService(
+        this.postExploitationRepository,
+        this.credentialVaultService
+      );
     this.reconAdapters =
       deps.reconAdapters ??
       createDefaultReconAdapters(this.dnsResolver, this.httpTransport);
+  }
+
+  /** Milestone A10 — process-local post-exploitation service (vault + state). */
+  public getPostExploitationService(): PostExploitationService {
+    return this.postExploitationService;
   }
 
   /**
@@ -929,6 +955,34 @@ export class OrchestratedAssessmentApplicationService {
       scanId: record.scanId,
       chainCount: chains.length,
       chains,
+      lineage: record.lineage,
+    };
+  }
+
+  /**
+   * Milestone A10 — post-exploitation snapshot for an assessment.
+   * Never includes raw secrets (CredentialReference metadata / access state only).
+   */
+  public async getPostExploitation(
+    assessmentId: string
+  ): Promise<GetPostExploitationResult> {
+    if (!assessmentId || typeof assessmentId !== 'string' || !isStrictSafeId(assessmentId)) {
+      throw new ApiValidationError('Field assessmentId must satisfy strict identifier format');
+    }
+
+    const record = await this.repository.findById(assessmentId);
+    if (!record) {
+      throw new SessionNotFoundError(
+        `Orchestrated assessment '${assessmentId}' was not found`,
+        assessmentId
+      );
+    }
+
+    const state = await this.postExploitationService.getSnapshot(assessmentId);
+    return {
+      assessmentId: record.assessmentId,
+      scanId: record.scanId,
+      state,
       lineage: record.lineage,
     };
   }
