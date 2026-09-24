@@ -34,7 +34,12 @@ import type {
 import { CompositeActiveReconOrchestratorService } from '../recon/orchestration/CompositeActiveReconOrchestratorService.js';
 import { DNS_RESOLUTION_NON_CLAIMS } from '../recon/adapters/DnsResolutionContracts.js';
 import { PORT_DISCOVERY_NON_CLAIMS } from '../recon/adapters/PortDiscoveryContracts.js';
-import { WEB_INSPECTION_NON_CLAIMS } from '../recon/adapters/WebInspectionContracts.js';
+import {
+  WEB_INSPECTION_NON_CLAIMS,
+  WEB_INSPECTION_CONTRACT_VERSION,
+  WEB_OBSERVATION_BODY_CHUNK_MAX_BYTES,
+} from '../recon/adapters/WebInspectionContracts.js';
+import { runAdapterPreflight } from '../recon/adapters/AdapterPreflightPipeline.js';
 import { TLS_INSPECTION_NON_CLAIMS } from '../recon/adapters/TlsInspectionContracts.js';
 import { URL_DISCOVERY_NON_CLAIMS } from '../recon/adapters/UrlDiscoveryContracts.js';
 import { CONTENT_DISCOVERY_NON_CLAIMS } from '../recon/adapters/ContentDiscoveryContracts.js';
@@ -132,7 +137,6 @@ import { SessionNotFoundError } from '../storage/StorageErrors.js';
 import {
   ApiValidationError,
   UnauthorizedGatewayError,
-  UnavailableToolsError,
   ConcurrencyLimitExceededError,
 } from '../api/ApiErrors.js';
 import { isStrictSafeId } from '../reporting-boundary/DefensiveReportContracts.js';
@@ -423,9 +427,50 @@ function createDefaultReconAdapters(
     webTool: {
       async inspectWeb(req) {
         const start = Date.now();
+        const rawTarget = typeof req.targetUrl === 'string' ? req.targetUrl.trim() : '';
+
+        // Double gate: verified authorization + scope + egress SSRF (same as HttpxInspectionAdapter).
+        const preflight = await runAdapterPreflight({
+          target: rawTarget,
+          targetKind: 'url',
+          unsupportedProtocolReasonCode: 'unsupported_url_protocol',
+          verifiedAuthorizationDecision: req.verifiedAuthorizationDecision,
+          authorizedScopeGrant: req.authorizedScopeGrant,
+          lineage: req.lineage,
+          permissionCheck: (ps) => {
+            let hasPermission = Boolean(
+              ps.technologyFingerprinting ||
+                ps.endpointDiscovery ||
+                ps.activeValidation ||
+                ps.lightValidation
+            );
+            if (!hasPermission && 'activeRecon' in ps) {
+              const ext = ps as typeof ps & { activeRecon?: boolean };
+              if (ext.activeRecon) hasPermission = true;
+            }
+            return hasPermission;
+          },
+          missingPermissionReason:
+            'Scope grant does not permit technology fingerprinting or active reconnaissance',
+          targetOutOfScopeReason: 'Target URL host is outside authorized scope boundaries',
+          dnsResolver,
+        });
+
+        if (!preflight.ok) {
+          return {
+            status: 'preflight_denied' as const,
+            contractVersion: WEB_INSPECTION_CONTRACT_VERSION,
+            targetUrl: rawTarget,
+            reasonCode: preflight.reasonCode,
+            reason: preflight.reason,
+            explicitNonClaims: WEB_INSPECTION_NON_CLAIMS,
+            lineage: req.lineage,
+          };
+        }
+
         try {
           const probe = await httpTransport({
-            url: req.targetUrl,
+            url: rawTarget,
             method: 'GET',
             headers: { 'User-Agent': 'FixGuard-V2-Orchestrator/1.0' },
           });
@@ -434,30 +479,49 @@ function createDefaultReconAdapters(
           if (serverHeader) technologies.push(serverHeader);
           if (probe.headers['x-powered-by']) technologies.push(probe.headers['x-powered-by']);
 
+          const capturedHeaders: Record<string, string> = {};
+          for (const [k, v] of Object.entries(probe.headers)) {
+            if (typeof v === 'string') {
+              capturedHeaders[k.toLowerCase()] = v;
+            }
+          }
+          const bodyChunk =
+            probe.bodyText.length > WEB_OBSERVATION_BODY_CHUNK_MAX_BYTES
+              ? probe.bodyText.slice(0, WEB_OBSERVATION_BODY_CHUNK_MAX_BYTES)
+              : probe.bodyText;
+          const observedAt = new Date().toISOString();
+
           return {
-            status: 'success',
-            contractVersion: 'fixguard-web-inspection/v0',
-            targetUrl: req.targetUrl,
+            status: 'success' as const,
+            contractVersion: WEB_INSPECTION_CONTRACT_VERSION,
+            targetUrl: rawTarget,
             observations: [
               {
-                url: req.targetUrl,
+                url: rawTarget,
                 method: 'GET',
                 statusCode: probe.statusCode,
                 webServer: serverHeader,
                 technologies,
-                discoveredAt: new Date().toISOString(),
+                headers: Object.freeze(capturedHeaders),
+                bodyText: bodyChunk,
+                discoveredAt: observedAt,
+                collectedAt: observedAt,
+                freshness: 'live' as const,
+                sourceReliability: 'direct_observation' as const,
               },
             ],
             explicitNonClaims: WEB_INSPECTION_NON_CLAIMS,
             lineage: req.lineage,
             durationMs: Date.now() - start,
           };
-        } catch {
+        } catch (err: unknown) {
+          const msg = err instanceof Error ? err.message : String(err);
           return {
-            status: 'success',
-            contractVersion: 'fixguard-web-inspection/v0',
-            targetUrl: req.targetUrl,
-            observations: [],
+            status: 'execution_failed' as const,
+            contractVersion: WEB_INSPECTION_CONTRACT_VERSION,
+            targetUrl: rawTarget,
+            reasonCode: 'http_probe_failed',
+            reason: msg,
             explicitNonClaims: WEB_INSPECTION_NON_CLAIMS,
             lineage: req.lineage,
             durationMs: Date.now() - start,
@@ -550,12 +614,17 @@ const ALL_STAGE_NAMES: readonly ReconStageName[] = [
   'stage_5_secret_inspection',
 ];
 
+function formatDegradedBinaryNotice(binary: string): string {
+  return `degraded_mode_missing_binary: ${binary}`;
+}
+
 export class OrchestratedAssessmentApplicationService {
   private readonly repository: OrchestratedAssessmentRepository;
   private readonly reconAdapters: ReconToolAdapters;
   private readonly httpTransport: IdorHttpProbeTransport;
   private readonly dnsResolver: (host: string) => Promise<string[]>;
   private readonly availabilityService: ReconToolAvailabilityService;
+  private readonly usingDefaultReconAdapters: boolean;
   private readonly attackPlanRepository: AttackPlanRepository;
   private readonly attackPlanGenerator: AttackPlanGeneratorService;
   private readonly attackChainRepository: AttackChainRepository;
@@ -598,6 +667,7 @@ export class OrchestratedAssessmentApplicationService {
       deps.lateralMovementService ?? new LateralMovementService();
     this.impactAssessmentService =
       deps.impactAssessmentService ?? new ImpactAssessmentService();
+    this.usingDefaultReconAdapters = deps.reconAdapters === undefined;
     this.reconAdapters =
       deps.reconAdapters ??
       createDefaultReconAdapters(this.dnsResolver, this.httpTransport);
@@ -730,7 +800,9 @@ export class OrchestratedAssessmentApplicationService {
       }
     }
 
-    // Pre-Scan Tool Availability Gate (Milestone P0-3 Honest Composition)
+    // Pre-Scan Tool Availability — Phase D1 Step 2 loud degraded mode.
+    // Missing CLIs no longer hard-abort; they are recorded and stages run via
+    // shallow stubs / available adapters with explicit degradation notices.
     const skipStages = new Set(command.config?.skipStages ?? []);
     const requiredToolSet = new Set<ReconToolName>();
     for (const stage of ALL_STAGE_NAMES) {
@@ -744,13 +816,29 @@ export class OrchestratedAssessmentApplicationService {
 
     const requiredTools = Array.from(requiredToolSet);
     const availability = await this.availabilityService.verifyRequiredTools(requiredTools);
-    if (!availability.allAvailable) {
-      throw new UnavailableToolsError(
-        `Required recon CLI binaries are missing from the host environment: ${availability.missingTools.join(', ')}`,
-        availability.missingTools,
-        'unavailable_tools'
-      );
+    const degradedBinarySet = new Set<string>();
+    for (const missing of availability.missingTools) {
+      degradedBinarySet.add(missing);
     }
+
+    // Default composition substitutes shallow stubs for several CLIs — surface them.
+    if (this.usingDefaultReconAdapters) {
+      const defaultStubByStage: Readonly<Record<ReconStageName, readonly string[]>> = {
+        stage_1_domain_zone: ['subfinder'],
+        stage_2_port_service: ['naabu'],
+        stage_3_web_tls: ['tlsx'],
+        stage_4_crawling_parameters: ['gau', 'katana', 'ffuf', 'arjun'],
+        stage_5_secret_inspection: ['trufflehog'],
+      };
+      for (const stage of ALL_STAGE_NAMES) {
+        if (skipStages.has(stage)) continue;
+        for (const stubBinary of defaultStubByStage[stage]) {
+          degradedBinarySet.add(stubBinary);
+        }
+      }
+    }
+
+    const degradedBinaries = Object.freeze(Array.from(degradedBinarySet).sort());
 
     // Scope & Authorization Setup
     const nowIso = new Date().toISOString();
@@ -900,10 +988,17 @@ export class OrchestratedAssessmentApplicationService {
         startedAt: nowIso,
       },
       errorCount: 0,
-      warningCount: 0,
+      warningCount: degradedBinaries.length,
       findings: [],
       pendingEvidenceDrafts: [],
       recommendations: [],
+      ...(degradedBinaries.length > 0
+        ? {
+            degradedCapabilities: Object.freeze(
+              degradedBinaries.map((b) => formatDegradedBinaryNotice(b))
+            ),
+          }
+        : {}),
     };
 
     await this.repository.save(initialRecord);
@@ -916,7 +1011,8 @@ export class OrchestratedAssessmentApplicationService {
       lineage,
       command.config,
       command.sessionIdentities,
-      validatedSeedUrls
+      validatedSeedUrls,
+      degradedBinaries
     );
     this.activeAssessments.set(assessmentId, pipelinePromise);
 
@@ -1082,6 +1178,9 @@ export class OrchestratedAssessmentApplicationService {
       credentialReferences: adversarial.credentialReferences,
       lineage: record.lineage,
       timing: record.timing,
+      ...(record.degradedCapabilities && record.degradedCapabilities.length > 0
+        ? { degradedCapabilities: record.degradedCapabilities }
+        : {}),
       ...(record.error ? { error: record.error } : {}),
       ...(record.reasonCode ? { reasonCode: record.reasonCode } : {}),
     };
@@ -3151,7 +3250,8 @@ export class OrchestratedAssessmentApplicationService {
     lineage: AuthorizedActiveReconRequestLineage,
     config?: ActiveReconOrchestrationConfig,
     sessionIdentities?: ByotSessionIdentityBundle,
-    seedUrls?: readonly string[]
+    seedUrls?: readonly string[],
+    degradedBinaries?: readonly string[]
   ): Promise<void> {
     const startTime = Date.now();
     let timeoutTimer: NodeJS.Timeout | undefined;
@@ -3177,7 +3277,8 @@ export class OrchestratedAssessmentApplicationService {
           startTime,
           config,
           sessionIdentities,
-          seedUrls
+          seedUrls,
+          degradedBinaries
         ),
         timeoutPromise,
       ]);
@@ -3244,7 +3345,8 @@ export class OrchestratedAssessmentApplicationService {
     startTime: number,
     config?: ActiveReconOrchestrationConfig,
     sessionIdentities?: ByotSessionIdentityBundle,
-    seedUrls?: readonly string[]
+    seedUrls?: readonly string[],
+    degradedBinaries?: readonly string[]
   ): Promise<void> {
     const coordinator = new TargetExecutionCoordinator({
       requestsPerSecond: 5,
@@ -3270,6 +3372,9 @@ export class OrchestratedAssessmentApplicationService {
         coordinator,
         dnsResolver: this.dnsResolver,
         ...(seedUrls && seedUrls.length > 0 ? { seedUrls } : {}),
+        ...(degradedBinaries && degradedBinaries.length > 0
+          ? { degradedBinaries }
+          : {}),
         onStageComplete: async (stageResult) => {
           await this.repository.update(record.assessmentId, (prev) => {
             const existingStages = prev.stages.filter((s) => s.stage !== stageResult.stage);
@@ -3352,6 +3457,9 @@ export class OrchestratedAssessmentApplicationService {
           },
           error: reconResult.reason,
           warningCount: prev.warningCount + 1,
+          ...(reconResult.degradedCapabilities && reconResult.degradedCapabilities.length > 0
+            ? { degradedCapabilities: reconResult.degradedCapabilities }
+            : {}),
         }));
         return;
       }
@@ -5117,6 +5225,9 @@ export class OrchestratedAssessmentApplicationService {
           completedAt: new Date().toISOString(),
           durationMs: Date.now() - startTime,
         },
+        ...(reconResult.degradedCapabilities && reconResult.degradedCapabilities.length > 0
+          ? { degradedCapabilities: reconResult.degradedCapabilities }
+          : {}),
       }));
   }
 }

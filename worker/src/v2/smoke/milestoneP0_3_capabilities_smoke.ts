@@ -4,7 +4,7 @@
  * Verifies:
  * 1. ReconToolAvailabilityService accurately detects installed, missing, and wrong_version binaries.
  * 2. GET /api/v2/capabilities/status returns the complete typed capability matrix.
- * 3. Orchestrated assessment execution fails closed (HTTP 400 / reasonCode: 'unavailable_tools')
+ * 3. Orchestrated assessment proceeds in loud degraded mode (degraded_mode_missing_binary)
  *    when a required binary is missing from the execution environment.
  * 4. Honest composition allowlist rejects unknown arbitrary commands.
  */
@@ -26,7 +26,156 @@ import { createV2App, DEFAULT_V2_HOST } from '../api/createV2App.js';
 import { V2CompositionRoot } from '../api/V2CompositionRoot.js';
 import { InMemoryOrchestratedAssessmentRepository } from '../storage/InMemoryOrchestratedAssessmentRepository.js';
 import { OrchestratedAssessmentApplicationService } from '../application/OrchestratedAssessmentApplicationService.js';
-import { ApiValidationError, UnavailableToolsError } from '../api/ApiErrors.js';
+import { ApiValidationError } from '../api/ApiErrors.js';
+import type { IdorHttpProbeTransport } from '../detection/DetectionContracts.js';
+import type { ReconToolAdapters } from '../recon/orchestration/ActiveReconOrchestrationContracts.js';
+import { SUBDOMAIN_DISCOVERY_NON_CLAIMS } from '../recon/adapters/SubdomainDiscoveryContracts.js';
+import { DNS_RESOLUTION_NON_CLAIMS } from '../recon/adapters/DnsResolutionContracts.js';
+import { PORT_DISCOVERY_NON_CLAIMS } from '../recon/adapters/PortDiscoveryContracts.js';
+import { WEB_INSPECTION_NON_CLAIMS } from '../recon/adapters/WebInspectionContracts.js';
+import { TLS_INSPECTION_NON_CLAIMS } from '../recon/adapters/TlsInspectionContracts.js';
+import { URL_DISCOVERY_NON_CLAIMS } from '../recon/adapters/UrlDiscoveryContracts.js';
+import { CONTENT_DISCOVERY_NON_CLAIMS } from '../recon/adapters/ContentDiscoveryContracts.js';
+import { PARAMETER_DISCOVERY_NON_CLAIMS } from '../recon/adapters/ParameterDiscoveryContracts.js';
+import { SECRET_DISCOVERY_NON_CLAIMS } from '../recon/adapters/SecretDiscoveryContracts.js';
+
+function createHermeticReconAdapters(): ReconToolAdapters {
+  return {
+    subdomainTool: {
+      async discoverSubdomains(req) {
+        return {
+          status: 'success',
+          contractVersion: 'fixguard-subdomain-discovery/v0',
+          targetDomain: req.targetDomain,
+          observations: [],
+          explicitNonClaims: SUBDOMAIN_DISCOVERY_NON_CLAIMS,
+          lineage: req.lineage,
+          durationMs: 1,
+        };
+      },
+    },
+    dnsTool: {
+      async resolveDns(req) {
+        return {
+          status: 'success',
+          contractVersion: 'fixguard-dns-resolution/v0',
+          targetDomain: req.targetDomain,
+          observations: [
+            {
+              domain: req.targetDomain,
+              recordType: 'A',
+              values: ['93.184.216.34'],
+              discoveredAt: new Date().toISOString(),
+            },
+          ],
+          explicitNonClaims: DNS_RESOLUTION_NON_CLAIMS,
+          lineage: req.lineage,
+          durationMs: 1,
+        };
+      },
+    },
+    portTool: {
+      async discoverPorts(req) {
+        return {
+          status: 'success',
+          contractVersion: 'fixguard-port-discovery/v0',
+          targetHostOrIp: req.targetHostOrIp,
+          observations: [],
+          explicitNonClaims: PORT_DISCOVERY_NON_CLAIMS,
+          lineage: req.lineage,
+          durationMs: 1,
+        };
+      },
+    },
+    webTool: {
+      async inspectWeb(req) {
+        return {
+          status: 'success',
+          contractVersion: 'fixguard-web-inspection/v0',
+          targetUrl: req.targetUrl,
+          observations: [
+            {
+              url: req.targetUrl,
+              method: 'GET',
+              statusCode: 200,
+              technologies: [],
+              discoveredAt: new Date().toISOString(),
+            },
+          ],
+          explicitNonClaims: WEB_INSPECTION_NON_CLAIMS,
+          lineage: req.lineage,
+          durationMs: 1,
+        };
+      },
+    },
+    tlsTool: {
+      async inspectTls(req) {
+        return {
+          status: 'success',
+          contractVersion: 'fixguard-tls-inspection/v0',
+          targetHost: req.targetHostOrUrl,
+          observations: [],
+          explicitNonClaims: TLS_INSPECTION_NON_CLAIMS,
+          lineage: req.lineage,
+          durationMs: 1,
+        };
+      },
+    },
+    urlTool: {
+      async discoverUrls(req) {
+        return {
+          status: 'success',
+          contractVersion: 'fixguard-url-discovery/v0',
+          targetUrlOrDomain: req.targetUrlOrDomain,
+          observations: [],
+          explicitNonClaims: URL_DISCOVERY_NON_CLAIMS,
+          lineage: req.lineage,
+          durationMs: 1,
+        };
+      },
+    },
+    contentTool: {
+      async discoverContent(req) {
+        return {
+          status: 'success',
+          contractVersion: 'fixguard-content-discovery/v0',
+          targetUrl: req.targetUrl,
+          wordlistPath: req.wordlistPath ?? '/dev/null',
+          observations: [],
+          explicitNonClaims: CONTENT_DISCOVERY_NON_CLAIMS,
+          lineage: req.lineage,
+          durationMs: 1,
+        };
+      },
+    },
+    parameterTool: {
+      async discoverParameters(req) {
+        return {
+          status: 'success',
+          contractVersion: 'fixguard-parameter-discovery/v0',
+          targetUrl: req.targetUrl,
+          observations: [],
+          explicitNonClaims: PARAMETER_DISCOVERY_NON_CLAIMS,
+          lineage: req.lineage,
+          durationMs: 1,
+        };
+      },
+    },
+    secretTool: {
+      async scanSecrets(req) {
+        return {
+          status: 'success',
+          contractVersion: 'fixguard-secret-discovery/v0',
+          targetUrlOrPath: req.targetUrlOrPath,
+          observations: [],
+          explicitNonClaims: SECRET_DISCOVERY_NON_CLAIMS,
+          lineage: req.lineage,
+          durationMs: 1,
+        };
+      },
+    },
+  };
+}
 
 interface RunningServer {
   server: Server;
@@ -106,9 +255,18 @@ async function startServerWithRunner(runner: ProcessRunner): Promise<RunningServ
     return [];
   };
 
+  const hermeticHttpTransport: IdorHttpProbeTransport = async () => ({
+    statusCode: 200,
+    headers: { 'content-type': 'text/html' },
+    bodyText: '<html></html>',
+    responseTimeMs: 1,
+  });
+
   const orchestratedService = new OrchestratedAssessmentApplicationService({
     repository,
+    reconAdapters: createHermeticReconAdapters(),
     dnsResolver: mockDnsResolver,
+    httpTransport: hermeticHttpTransport,
     availabilityService,
   });
 
@@ -237,9 +395,9 @@ async function runMilestoneP0_3SmokeTests(): Promise<void> {
   }
 
   // -------------------------------------------------------------------------
-  // Assertion 3: Assessment fails closed (HTTP 400 / unavailable_tools) when tool missing
+  // Assertion 3: Assessment proceeds in loud degraded mode when required binary is missing
   // -------------------------------------------------------------------------
-  console.log('[*] Assertion 3: Assessment execution fails closed (HTTP 400 / unavailable_tools) when required binary is missing');
+  console.log('[*] Assertion 3: Assessment proceeds with degraded_mode_missing_binary when required binary is missing');
   {
     // naabu, dnsx, and tlsx missing
     const runner = new DeterministicToolProcessRunner({
@@ -256,7 +414,6 @@ async function runMilestoneP0_3SmokeTests(): Promise<void> {
 
     const running = await startServerWithRunner(runner);
     try {
-      // Full scan requires all tools; since naabu, dnsx, tlsx are missing, it MUST fail closed with 400
       const startRes = await fetch(`${running.baseUrl}/orchestrated/assessments/start`, {
         method: 'POST',
         headers: {
@@ -269,22 +426,51 @@ async function runMilestoneP0_3SmokeTests(): Promise<void> {
         }),
       });
 
-      assert.strictEqual(startRes.status, 400, 'Must return 400 Bad Request on missing tools');
-      const errBody = (await startRes.json()) as {
-        error: string;
-        message: string;
-        reasonCode: string;
-        details?: { missingTools?: string[] };
+      assert.ok(
+        startRes.status === 200 || startRes.status === 202,
+        `Must accept start under loud degraded mode, got ${startRes.status}`
+      );
+      const startBody = (await startRes.json()) as { assessmentId: string; status: string };
+      assert.ok(startBody.assessmentId, 'Must return assessmentId');
+
+      // Await completion
+      type DegradedSummary = {
+        status: string;
+        degradedCapabilities?: readonly string[];
+        stages?: readonly { stage: string; warnings?: readonly string[] }[];
       };
+      let summary: DegradedSummary | null = null;
+      for (let i = 0; i < 60; i++) {
+        await new Promise((r) => setTimeout(r, 200));
+        const statusRes = await fetch(
+          `${running.baseUrl}/orchestrated/assessments/${startBody.assessmentId}/summary`,
+          {
+            headers: { Authorization: `Bearer ${TEST_SECRET}` },
+          }
+        );
+        if (statusRes.status !== 200) continue;
+        summary = (await statusRes.json()) as DegradedSummary;
+        if (summary.status !== 'running') break;
+      }
 
-      assert.strictEqual(errBody.error, 'BadRequest');
-      assert.strictEqual(errBody.reasonCode, 'unavailable_tools');
-      assert.ok(errBody.message.includes('missing from the host environment'));
-      assert.ok(errBody.details?.missingTools?.includes('naabu'));
-      assert.ok(errBody.details?.missingTools?.includes('dnsx'));
-      assert.ok(errBody.details?.missingTools?.includes('tlsx'));
+      assert.ok(summary, 'Must obtain assessment summary');
+      assert.notStrictEqual(summary.status, 'running', 'Assessment must leave running state');
 
-      console.log('    [PASS] Missing required binary safely failed closed with HTTP 400 / unavailable_tools');
+      const degraded: readonly string[] = summary.degradedCapabilities ?? [];
+      assert.ok(
+        degraded.some((d: string) => d.includes('degraded_mode_missing_binary: naabu')),
+        `Must surface naabu degradation, got: ${JSON.stringify(degraded)}`
+      );
+      assert.ok(
+        degraded.some((d: string) => d.includes('degraded_mode_missing_binary: dnsx')),
+        `Must surface dnsx degradation, got: ${JSON.stringify(degraded)}`
+      );
+      assert.ok(
+        degraded.some((d: string) => d.includes('degraded_mode_missing_binary: tlsx')),
+        `Must surface tlsx degradation, got: ${JSON.stringify(degraded)}`
+      );
+
+      console.log('    [PASS] Missing required binaries surfaced as degraded_mode_missing_binary (no silent empty success)');
     } finally {
       await stopServer(running);
     }

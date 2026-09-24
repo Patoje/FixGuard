@@ -141,6 +141,18 @@ function mergeSubdomainObservation(
   };
 }
 
+/**
+ * Phase D1 Step 2 — binaries whose absence / stub substitution must be surfaced
+ * per stage (includes katana which is not in the P0-3 allowlist but is used by URL discovery).
+ */
+const STAGE_DEGRADED_BINARIES: Readonly<Record<ReconStageName, readonly string[]>> = {
+  stage_1_domain_zone: ['subfinder', 'dnsx'],
+  stage_2_port_service: ['naabu'],
+  stage_3_web_tls: ['httpx', 'tlsx'],
+  stage_4_crawling_parameters: ['gau', 'katana', 'ffuf', 'arjun'],
+  stage_5_secret_inspection: ['trufflehog'],
+};
+
 export class CompositeActiveReconOrchestratorService {
   constructor(private readonly tools: ReconToolAdapters) {}
 
@@ -255,6 +267,36 @@ export class CompositeActiveReconOrchestratorService {
     const dnsResolvedHosts = new Set<string>();
     /** Hosts already submitted to HTTP inspection (idempotent across stages / SAN feedback). */
     const httpInspectedHosts = new Set<string>();
+    /** Exact URLs already HTTP-probed (seed paths must not be collapsed to hostname). */
+    const httpInspectedUrls = new Set<string>();
+    /** Hosts already TLS-inspected (avoid re-probing TLS per seed path). */
+    const tlsInspectedHosts = new Set<string>();
+
+    /** Phase D1 Step 2 — accumulate loud degradation notices across stages. */
+    const degradedCapabilityNotices = new Set<string>();
+    const degradedBinarySet = new Set(
+      (request.degradedBinaries ?? []).map((b) => b.trim().toLowerCase()).filter((b) => b.length > 0)
+    );
+
+    function degradedNotice(binary: string): string {
+      return `degraded_mode_missing_binary: ${binary}`;
+    }
+
+    function collectStageDegradation(
+      stage: ReconStageName,
+      intoWarnings: string[]
+    ): void {
+      const stageTools = STAGE_DEGRADED_BINARIES[stage] ?? [];
+      for (const binary of stageTools) {
+        if (degradedBinarySet.has(binary)) {
+          const notice = degradedNotice(binary);
+          degradedCapabilityNotices.add(notice);
+          if (!intoWarnings.includes(notice)) {
+            intoWarnings.push(notice);
+          }
+        }
+      }
+    }
 
     function createDraft(
       stage: ReconStageName,
@@ -310,6 +352,9 @@ export class CompositeActiveReconOrchestratorService {
       explicitNonClaims: RECON_ORCHESTRATION_NON_CLAIMS,
       lineage: { ...request.lineage },
       durationMs: Date.now() - startTime,
+      ...(degradedCapabilityNotices.size > 0
+        ? { degradedCapabilities: Object.freeze(Array.from(degradedCapabilityNotices).sort()) }
+        : {}),
     });
 
     // =========================================================================
@@ -451,6 +496,8 @@ export class CompositeActiveReconOrchestratorService {
       createDraft('stage_1_domain_zone', request.targetDomain, 'subdomains', subdomains.length);
       createDraft('stage_1_domain_zone', request.targetDomain, 'dns_records', dnsRecords.length);
 
+      collectStageDegradation('stage_1_domain_zone', stage1Warnings);
+
       await recordStageResult({
         stage: 'stage_1_domain_zone',
         status: stage1Warnings.length > 0 && subdomains.length === 0 ? 'partial_failure' : 'completed',
@@ -524,6 +571,8 @@ export class CompositeActiveReconOrchestratorService {
 
       createDraft('stage_2_port_service', request.targetDomain, 'open_ports', ports.length);
 
+      collectStageDegradation('stage_2_port_service', stage2Warnings);
+
       await recordStageResult({
         stage: 'stage_2_port_service',
         status: stage2Warnings.length > 0 && ports.length === 0 ? 'partial_failure' : 'completed',
@@ -569,13 +618,21 @@ export class CompositeActiveReconOrchestratorService {
         urlsToInspect.add(`http://${request.targetDomain}`);
       }
 
+      // Phase D1 Step 2 — probe each validated seed URL alongside root (URL-level, not host-collapsed).
+      if (request.seedUrls && request.seedUrls.length > 0) {
+        for (const seedUrl of request.seedUrls) {
+          urlsToInspect.add(seedUrl);
+        }
+      }
+
       for (const targetUrl of urlsToInspect) {
         let currentHost = request.targetDomain;
         try {
           const parsed = new URL(targetUrl);
           currentHost = parsed.hostname;
 
-          if (!httpInspectedHosts.has(parsed.hostname)) {
+          if (!httpInspectedUrls.has(targetUrl)) {
+            httpInspectedUrls.add(targetUrl);
             httpInspectedHosts.add(parsed.hostname);
             const webResult: WebInspectionResult = await coordinator.execute(
               parsed.hostname,
@@ -593,10 +650,15 @@ export class CompositeActiveReconOrchestratorService {
               for (const obs of webResult.observations) {
                 webObservations.push(obs);
               }
+            } else if (webResult.status === 'preflight_denied' || webResult.status === 'execution_failed') {
+              stage3Warnings.push(
+                `Web inspection ${webResult.status} on ${targetUrl}: ${webResult.reasonCode}`
+              );
             }
           }
 
-          if (targetUrl.startsWith('https://')) {
+          if (targetUrl.startsWith('https://') && !tlsInspectedHosts.has(parsed.hostname)) {
+            tlsInspectedHosts.add(parsed.hostname);
             const tlsPort = parsed.port ? parseInt(parsed.port, 10) : 443;
             const tlsResult: TlsInspectionResult = await coordinator.execute(
               parsed.hostname,
@@ -615,6 +677,10 @@ export class CompositeActiveReconOrchestratorService {
               for (const obs of tlsResult.observations) {
                 tlsCertificates.push(obs);
               }
+            } else if (tlsResult.status === 'preflight_denied' || tlsResult.status === 'execution_failed') {
+              stage3Warnings.push(
+                `TLS inspection ${tlsResult.status} on ${parsed.hostname}: ${tlsResult.reasonCode}`
+              );
             }
           }
         } catch (err) {
@@ -630,7 +696,19 @@ export class CompositeActiveReconOrchestratorService {
             });
             return buildCircuitBrokenResult(currentHost);
           }
-          stage3Warnings.push(`Web/TLS inspection error on ${targetUrl}: ${err instanceof Error ? err.message : String(err)}`);
+          const errMsg = err instanceof Error ? err.message : String(err);
+          stage3Warnings.push(`Web/TLS inspection error on ${targetUrl}: ${errMsg}`);
+          // Loud degraded mode when CLI spawn fails with missing binary.
+          for (const binary of ['httpx', 'tlsx'] as const) {
+            if (/command not found|ENOENT/i.test(errMsg) && errMsg.toLowerCase().includes(binary)) {
+              const notice = degradedNotice(binary);
+              degradedCapabilityNotices.add(notice);
+              degradedBinarySet.add(binary);
+              if (!stage3Warnings.includes(notice)) {
+                stage3Warnings.push(notice);
+              }
+            }
+          }
         }
       }
 
@@ -714,12 +792,16 @@ export class CompositeActiveReconOrchestratorService {
 
         if (!httpInspectedHosts.has(host)) {
           httpInspectedHosts.add(host);
+          const sanUrl = `https://${host}`;
+          if (!httpInspectedUrls.has(sanUrl)) {
+            httpInspectedUrls.add(sanUrl);
+          }
           try {
             const webResult: WebInspectionResult = await coordinator.execute(
               host,
               () =>
                 this.tools.webTool.inspectWeb({
-                  targetUrl: `https://${host}`,
+                  targetUrl: sanUrl,
                   verifiedAuthorizationDecision: request.verifiedAuthorizationDecision,
                   authorizedScopeGrant: request.authorizedScopeGrant,
                   lineage: request.lineage,
@@ -730,6 +812,10 @@ export class CompositeActiveReconOrchestratorService {
               for (const obs of webResult.observations) {
                 webObservations.push(obs);
               }
+            } else if (webResult.status === 'preflight_denied' || webResult.status === 'execution_failed') {
+              stage3Warnings.push(
+                `SAN HTTP follow-up ${webResult.status} on ${host}: ${webResult.reasonCode}`
+              );
             }
           } catch (err) {
             if (err instanceof TargetInstabilityError || coordinator.isCircuitOpen(host)) {
@@ -753,6 +839,8 @@ export class CompositeActiveReconOrchestratorService {
 
       createDraft('stage_3_web_tls', request.targetDomain, 'web_technologies', webObservations.length);
       createDraft('stage_3_web_tls', request.targetDomain, 'tls_certificates', tlsCertificates.length);
+
+      collectStageDegradation('stage_3_web_tls', stage3Warnings);
 
       await recordStageResult({
         stage: 'stage_3_web_tls',
@@ -932,6 +1020,8 @@ export class CompositeActiveReconOrchestratorService {
       createDraft('stage_4_crawling_parameters', request.targetDomain, 'discovered_parameters', parameters.length);
       createDraft('stage_4_crawling_parameters', request.targetDomain, 'discovered_spa_observations', spaObservations.length);
 
+      collectStageDegradation('stage_4_crawling_parameters', stage4Warnings);
+
       await recordStageResult({
         stage: 'stage_4_crawling_parameters',
         status: stage4Warnings.length > 0 && urls.length === 0 ? 'partial_failure' : 'completed',
@@ -1009,6 +1099,8 @@ export class CompositeActiveReconOrchestratorService {
 
       createDraft('stage_5_secret_inspection', request.targetDomain, 'discovered_secrets', secrets.length);
 
+      collectStageDegradation('stage_5_secret_inspection', stage5Warnings);
+
       await recordStageResult({
         stage: 'stage_5_secret_inspection',
         status: stage5Warnings.length > 0 && secrets.length === 0 ? 'partial_failure' : 'completed',
@@ -1042,6 +1134,9 @@ export class CompositeActiveReconOrchestratorService {
       explicitNonClaims: RECON_ORCHESTRATION_NON_CLAIMS,
       lineage: { ...request.lineage },
       durationMs: Date.now() - startTime,
+      ...(degradedCapabilityNotices.size > 0
+        ? { degradedCapabilities: Object.freeze(Array.from(degradedCapabilityNotices).sort()) }
+        : {}),
     };
   }
 }

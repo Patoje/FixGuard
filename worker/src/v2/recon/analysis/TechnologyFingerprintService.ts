@@ -551,6 +551,25 @@ export class TechnologyFingerprintService {
     for (const obs of rawObs) {
       if (typeof obs === 'object' && obs !== null) {
         const rec = obs as Record<string, unknown>;
+
+        // Phase D1 Step 2 — seed/root probe captures may carry headers + body chunk.
+        // Re-analyze them without nesting rawObservations (avoids recursion).
+        const obsHeaders =
+          rec.headers && typeof rec.headers === 'object' && !Array.isArray(rec.headers)
+            ? (rec.headers as Readonly<Record<string, string | string[] | undefined>>)
+            : undefined;
+        const obsBody = typeof rec.bodyText === 'string' ? rec.bodyText : undefined;
+        if (obsHeaders || (obsBody !== undefined && obsBody.length > 0)) {
+          const nested = this.analyze({
+            url: typeof rec.url === 'string' ? rec.url : url,
+            ...(obsHeaders ? { headers: obsHeaders } : {}),
+            ...(obsBody !== undefined ? { bodyText: obsBody } : {}),
+          });
+          for (const t of nested.technologies) {
+            addTech(t);
+          }
+        }
+
         if (Array.isArray(rec.technologies)) {
           for (const t of rec.technologies) {
             if (typeof t === 'string' && t.trim().length > 0) {

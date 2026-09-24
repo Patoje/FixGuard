@@ -4,7 +4,9 @@
  * Hermetic assertions:
  * 1. Deep seed URL lands in ASG as OBSERVED (direct_observation / live).
  * 2. Out-of-scope seed fails closed with seed_out_of_scope before recon network.
- * 3. Vary: RSC header fingerprints Next.js with high confidence.
+ * 3. Vary: RSC header fingerprints Next.js with high confidence (unit).
+ * 4. Seed HTTP probe with Vary: RSC / X-Matched-Path → TargetProfile Next.js high confidence.
+ * 5. Missing CLI → explicit degraded_mode_missing_binary notice (not silent empty success).
  */
 
 import assert from 'node:assert';
@@ -27,8 +29,11 @@ import type { IdorHttpProbeTransport } from '../detection/DetectionContracts.js'
 import { TechnologyFingerprintService } from '../recon/analysis/TechnologyFingerprintService.js';
 import { UnauthorizedGatewayError } from '../api/ApiErrors.js';
 import type { EndpointNode } from '../attack-surface/AttackSurfaceContracts.js';
+import type { ProcessRunner } from '../core/ProcessRunner.js';
+import type { RawExecutionOutput } from '../core/ExecutionContracts.js';
 
 const DEEP_SEED = 'https://example.com/deep/admin/settings';
+const NEXT_SEED = 'https://example.com/dashboard';
 const OUT_OF_SCOPE_SEED = 'https://evil-out-of-scope.example/steal';
 
 function createMockReconAdapters(invocationCount: { count: number }): ReconToolAdapters {
@@ -178,20 +183,9 @@ function createMockReconAdapters(invocationCount: { count: number }): ReconToolA
   };
 }
 
-function createService(invocationCount: { count: number }): OrchestratedAssessmentApplicationService {
-  const repository = new InMemoryOrchestratedAssessmentRepository();
-  const mockDnsResolver = async (host: string): Promise<string[]> => {
-    if (host === 'example.com') return ['93.184.216.34'];
-    return [];
-  };
-  const mockHttpTransport: IdorHttpProbeTransport = async () => ({
-    statusCode: 200,
-    headers: { 'content-type': 'text/html' },
-    bodyText: '<html></html>',
-    responseTimeMs: 1,
-  });
-  const mockAvailabilityService = new ReconToolAvailabilityService({
-    async execute() {
+function createAllAvailableRunner(): ProcessRunner {
+  return {
+    async execute(): Promise<RawExecutionOutput> {
       return {
         stdout: 'version: 1.0.0\n',
         stderr: '',
@@ -200,11 +194,78 @@ function createService(invocationCount: { count: number }): OrchestratedAssessme
         timedOut: false,
       };
     },
-  });
+  };
+}
+
+/** Marks selected binaries as missing; others report available. */
+function createAvailabilityRunner(missing: ReadonlySet<string>): ProcessRunner {
+  return {
+    async execute(req): Promise<RawExecutionOutput> {
+      const binary = req.binary;
+      if (binary === 'which') {
+        const tool = req.args[0] ?? '';
+        if (missing.has(tool)) {
+          return {
+            stdout: '',
+            stderr: '',
+            exitCode: 1,
+            durationMs: 1,
+            timedOut: false,
+          };
+        }
+        return {
+          stdout: `/usr/local/bin/${tool}\n`,
+          stderr: '',
+          exitCode: 0,
+          durationMs: 1,
+          timedOut: false,
+        };
+      }
+      if (missing.has(binary)) {
+        throw new Error(`Command not found: ${binary}. Ensure it is installed and in PATH.`);
+      }
+      return {
+        stdout: 'version: 1.0.0\n',
+        stderr: '',
+        exitCode: 0,
+        durationMs: 1,
+        timedOut: false,
+      };
+    },
+  };
+}
+
+function createService(
+  invocationCount: { count: number },
+  options?: {
+    httpTransport?: IdorHttpProbeTransport;
+    availabilityRunner?: ProcessRunner;
+    /** When true, omit custom reconAdapters so default stubs + loud degradation apply. */
+    useDefaultReconAdapters?: boolean;
+  }
+): OrchestratedAssessmentApplicationService {
+  const repository = new InMemoryOrchestratedAssessmentRepository();
+  const mockDnsResolver = async (host: string): Promise<string[]> => {
+    if (host === 'example.com') return ['93.184.216.34'];
+    return [];
+  };
+  const mockHttpTransport: IdorHttpProbeTransport =
+    options?.httpTransport ??
+    (async () => ({
+      statusCode: 200,
+      headers: { 'content-type': 'text/html' },
+      bodyText: '<html></html>',
+      responseTimeMs: 1,
+    }));
+  const mockAvailabilityService = new ReconToolAvailabilityService(
+    options?.availabilityRunner ?? createAllAvailableRunner()
+  );
 
   return new OrchestratedAssessmentApplicationService({
     repository,
-    reconAdapters: createMockReconAdapters(invocationCount),
+    ...(options?.useDefaultReconAdapters
+      ? {}
+      : { reconAdapters: createMockReconAdapters(invocationCount) }),
     httpTransport: mockHttpTransport,
     dnsResolver: mockDnsResolver,
     availabilityService: mockAvailabilityService,
@@ -298,7 +359,7 @@ async function runPhaseD1Smoke(): Promise<void> {
   console.log('  [PASS] Out-of-scope seed rejected with seed_out_of_scope and zero recon network.');
 
   // ---------------------------------------------------------------------------
-  // 3. Vary: RSC → Next.js high-confidence fingerprint
+  // 3. Vary: RSC → Next.js high-confidence fingerprint (unit)
   // ---------------------------------------------------------------------------
   console.log('-> Test 3: Vary: RSC fingerprints Next.js...');
   const fingerprint = new TechnologyFingerprintService();
@@ -327,6 +388,136 @@ async function runPhaseD1Smoke(): Promise<void> {
   assert.ok(nextFromMatched, 'Next.js must be detected from X-Matched-Path');
   assert.strictEqual(nextFromMatched.confidence, 'high');
   console.log('  [PASS] Vary: RSC and X-Matched-Path produce high-confidence Next.js fingerprints.');
+
+  // ---------------------------------------------------------------------------
+  // 4. Seed HTTP probe → TargetProfile Next.js (high confidence)
+  // ---------------------------------------------------------------------------
+  console.log('-> Test 4: Seed probe with Vary: RSC populates TargetProfile Next.js...');
+  const inv4 = { count: 0 };
+  const nextAwareTransport: IdorHttpProbeTransport = async (req) => {
+    if (req.url === NEXT_SEED || req.url.includes('/dashboard')) {
+      return {
+        statusCode: 200,
+        headers: {
+          'content-type': 'text/html',
+          vary: 'RSC, Next-Router-State-Tree',
+          'x-matched-path': '/dashboard',
+          'x-powered-by': 'Next.js',
+        },
+        bodyText: '<html><script id="__NEXT_DATA__" type="application/json">{}</script></html>',
+        responseTimeMs: 1,
+      };
+    }
+    return {
+      statusCode: 200,
+      headers: { 'content-type': 'text/html' } as Readonly<Record<string, string>>,
+      bodyText: '<html><title>root</title></html>',
+      responseTimeMs: 1,
+    };
+  };
+
+  // Use default recon adapters so Stage 3 webTool performs real gated HTTP + header capture.
+  const service4 = createService(inv4, {
+    httpTransport: nextAwareTransport,
+    useDefaultReconAdapters: true,
+  });
+  const start4 = await service4.startAssessment({
+    targetDomain: 'example.com',
+    actorId: 'usr_phase_d1_next_seed',
+    seedUrls: [NEXT_SEED],
+    config: {
+      skipStages: [
+        'stage_1_domain_zone',
+        'stage_2_port_service',
+        // stage_3_web_tls runs — seed probe + fingerprint enrichment
+        'stage_4_crawling_parameters',
+        'stage_5_secret_inspection',
+      ],
+    },
+  });
+
+  const record4 = await service4.awaitAssessment(start4.assessmentId);
+  assert.ok(record4, 'Assessment record must exist for seed probe test');
+  assert.strictEqual(
+    record4.status,
+    'completed',
+    `Expected completed, got ${record4.status}: ${record4.error ?? ''}`
+  );
+
+  const profile4 = record4.profile;
+  assert.ok(profile4, 'TargetProfile must be present after seed probe');
+  assert.ok(
+    profile4.technologies.includes('Next.js'),
+    `technologies must include Next.js, got: ${profile4.technologies.join(', ')}`
+  );
+  const detectedNext = profile4.detectedTechnologies?.find((t) => t.name === 'Next.js');
+  assert.ok(detectedNext, 'detectedTechnologies must include Next.js');
+  assert.strictEqual(detectedNext.confidence, 'high');
+  assert.strictEqual(profile4.ecosystemProfile?.spaFramework, 'nextjs');
+
+  const seedWebObs = profile4.rawObservations?.find(
+    (o): o is { url: string; headers?: Record<string, string>; freshness?: string } =>
+      typeof o === 'object' &&
+      o !== null &&
+      'url' in o &&
+      (o as { url: unknown }).url === NEXT_SEED
+  );
+  assert.ok(seedWebObs, 'rawObservations must include seed web probe');
+  assert.strictEqual(seedWebObs.freshness, 'live');
+  console.log('  [PASS] Seed probe headers enrich TargetProfile with high-confidence Next.js.');
+
+  // ---------------------------------------------------------------------------
+  // 5. Missing CLI → loud degraded_mode_missing_binary (not silent empty success)
+  // ---------------------------------------------------------------------------
+  console.log('-> Test 5: Missing CLI records degraded_mode_missing_binary...');
+  const inv5 = { count: 0 };
+  const missingNaabu = new Set(['naabu']);
+  const service5 = createService(inv5, {
+    availabilityRunner: createAvailabilityRunner(missingNaabu),
+  });
+  const start5 = await service5.startAssessment({
+    targetDomain: 'example.com',
+    actorId: 'usr_phase_d1_degraded',
+    config: {
+      skipStages: [
+        'stage_1_domain_zone',
+        // stage_2_port_service runs — naabu marked missing → loud degradation
+        'stage_3_web_tls',
+        'stage_4_crawling_parameters',
+        'stage_5_secret_inspection',
+      ],
+    },
+  });
+
+  const record5 = await service5.awaitAssessment(start5.assessmentId);
+  assert.ok(record5, 'Assessment record must exist for degraded-mode test');
+  assert.strictEqual(
+    record5.status,
+    'completed',
+    `Expected completed (loud degrade), got ${record5.status}: ${record5.error ?? ''}`
+  );
+
+  const degraded = record5.degradedCapabilities ?? [];
+  assert.ok(
+    degraded.some((d) => d === 'degraded_mode_missing_binary: naabu'),
+    `degradedCapabilities must list naabu, got: ${JSON.stringify(degraded)}`
+  );
+
+  const stage2 = record5.stages.find((s) => s.stage === 'stage_2_port_service');
+  assert.ok(stage2, 'stage_2_port_service must have run');
+  assert.ok(
+    (stage2.warnings ?? []).some((w) => w === 'degraded_mode_missing_binary: naabu'),
+    `stage_2 warnings must include degraded_mode_missing_binary: naabu, got: ${JSON.stringify(stage2.warnings)}`
+  );
+
+  const summary5 = await service5.getSummary(start5.assessmentId);
+  assert.ok(
+    (summary5.degradedCapabilities ?? []).some(
+      (d) => d === 'degraded_mode_missing_binary: naabu'
+    ),
+    'Assessment summary must surface degradedCapabilities'
+  );
+  console.log('  [PASS] Missing CLI surfaces degraded_mode_missing_binary on stages + summary.');
 
   console.log('[phaseD1_seeding_discovery_smoke] All Phase D1 assertions passed.');
 }

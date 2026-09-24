@@ -267,6 +267,11 @@ export interface OrchestratedAssessmentRecord {
   readonly recommendations: readonly TargetRecommendation[];
   /** Milestone A2 — immutable Attack Surface Graph built at assessment completion. */
   readonly attackSurfaceGraph?: AttackSurfaceGraph;
+  /**
+   * Phase D1 Step 2 — loud degradation notices when CLI binaries are missing
+   * or replaced by shallow stubs (e.g. `degraded_mode_missing_binary: naabu`).
+   */
+  readonly degradedCapabilities?: readonly string[];
   readonly error?: string;
   readonly reasonCode?: string;
 }
@@ -304,6 +309,8 @@ export interface OrchestratedAssessmentSummaryDto {
   readonly postExploitationState?: PostExploitationState | null;
   /** Milestone A12 — credential references only (never raw secrets). */
   readonly credentialReferences?: readonly CredentialReference[];
+  /** Phase D1 Step 2 — degraded/stub CLI capabilities surfaced for operators. */
+  readonly degradedCapabilities?: readonly string[];
   readonly lineage: AuthorizedActiveReconRequestLineage;
   readonly timing: OrchestratedAssessmentTiming;
   readonly error?: string;

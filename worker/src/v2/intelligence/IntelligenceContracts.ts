@@ -186,6 +186,7 @@ export interface TargetProfileBuilderInput {
       readonly url: string;
       readonly method?: string;
       readonly headers?: Readonly<Record<string, string | string[] | undefined>>;
+      readonly bodyText?: string;
       readonly technologies?: readonly string[];
       readonly resolvedIp?: string;
     }[];

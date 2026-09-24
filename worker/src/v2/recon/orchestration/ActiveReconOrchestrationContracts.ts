@@ -149,8 +149,14 @@ export interface ActiveReconOrchestrationRequest {
   /**
    * Phase D1 — pre-validated absolute seed URLs (scope + egress already enforced).
    * Injected as live OBSERVED URL observations; also used as crawl roots.
+   * Stage 3 issues an HTTP GET probe per seed alongside root host probes.
    */
   readonly seedUrls?: readonly string[];
+  /**
+   * Phase D1 Step 2 — CLI binaries known missing or replaced by shallow stubs.
+   * Surfaced as stage warnings: `degraded_mode_missing_binary: <binary>`.
+   */
+  readonly degradedBinaries?: readonly string[];
 }
 
 export interface AggregatedReconObservations {
@@ -178,6 +184,8 @@ export type ActiveReconOrchestrationResult =
       readonly explicitNonClaims: ReconOrchestrationExplicitNonClaims;
       readonly lineage: AuthorizedActiveReconRequestLineage;
       readonly durationMs: number;
+      /** Phase D1 Step 2 — explicit degradation notices (never silent empty success). */
+      readonly degradedCapabilities?: readonly string[];
     }
   | {
       readonly status: 'circuit_broken';
@@ -191,6 +199,7 @@ export type ActiveReconOrchestrationResult =
       readonly explicitNonClaims: ReconOrchestrationExplicitNonClaims;
       readonly lineage: AuthorizedActiveReconRequestLineage;
       readonly durationMs: number;
+      readonly degradedCapabilities?: readonly string[];
     }
   | {
       readonly status: 'preflight_denied';

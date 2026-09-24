@@ -28,6 +28,9 @@ export const WEB_INSPECTION_NON_CLAIMS: WebInspectionExplicitNonClaims = Object.
   severity: 'info',
 });
 
+/** Max captured body bytes retained for analytical fingerprinting (Phase D1 Step 2). */
+export const WEB_OBSERVATION_BODY_CHUNK_MAX_BYTES = 64 * 1024;
+
 export interface DiscoveredWebObservation {
   readonly url: string;
   readonly method: string;
@@ -36,6 +39,10 @@ export interface DiscoveredWebObservation {
   readonly webServer?: string;
   readonly technologies: readonly string[];
   readonly resolvedIp?: string;
+  /** Sanitized response headers captured by the probe transport (lowercase keys). */
+  readonly headers?: Readonly<Record<string, string>>;
+  /** Truncated response body chunk (≤ WEB_OBSERVATION_BODY_CHUNK_MAX_BYTES) for fingerprinting. */
+  readonly bodyText?: string;
   readonly discoveredAt: string;
   readonly collectedAt?: string;
   readonly freshness?: 'live' | 'historical' | 'unknown';
