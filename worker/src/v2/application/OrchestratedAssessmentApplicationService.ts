@@ -523,6 +523,12 @@ export class OrchestratedAssessmentApplicationService {
   private readonly attackChainRepository: AttackChainRepository;
   private readonly attackChainService: AttackChainService;
   private readonly activeAssessments = new Map<string, Promise<void>>();
+  /**
+   * Process-local sealed VerifiedAuthorizationDecision refs (WeakSet-branded).
+   * Same pattern as A4 AttackAuthorizationService.sealedTokens / getRuntimeToken —
+   * never accept JSON lookalikes from HTTP bodies.
+   */
+  private readonly sealedVerifiedDecisions = new Map<string, VerifiedAuthorizationDecision>();
 
   constructor(deps: OrchestratedAssessmentServiceDependencies) {
     this.repository = deps.repository;
@@ -711,6 +717,8 @@ export class OrchestratedAssessmentApplicationService {
     }
 
     const verifiedDecision = authRes.decision;
+    // Seal branded decision for in-process A5 execute (getRuntimeVerifiedAuthorizationDecision).
+    this.sealedVerifiedDecisions.set(assessmentId, verifiedDecision);
     const lineage: AuthorizedActiveReconRequestLineage = {
       assessmentId,
       scanId,
@@ -756,6 +764,27 @@ export class OrchestratedAssessmentApplicationService {
       status: 'running',
       lineage,
     };
+  }
+
+  /**
+   * Retrieve the process-local WeakSet-branded VerifiedAuthorizationDecision for
+   * in-process A5 execution (mirrors AttackAuthorizationService.getRuntimeToken).
+   * JSON/plain copies are never stored — only the establishment-sealed object.
+   */
+  public getRuntimeVerifiedAuthorizationDecision(
+    assessmentId: string
+  ): VerifiedAuthorizationDecision | null {
+    if (!assessmentId || typeof assessmentId !== 'string' || !isStrictSafeId(assessmentId)) {
+      return null;
+    }
+    return this.sealedVerifiedDecisions.get(assessmentId) ?? null;
+  }
+
+  /**
+   * In-process HTTP transport used by detection-backed attack capabilities.
+   */
+  public getRuntimeHttpTransport(): IdorHttpProbeTransport {
+    return this.httpTransport;
   }
 
   /**

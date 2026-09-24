@@ -8,6 +8,8 @@
  * 3. idor_read_differential invokes ControlledActiveVerificationService.execute() and
  *    evaluates real differentials (not hardcoded success).
  * 4. cors/auth/jwt capabilities invoke real detection services — never synthetic succeeded.
+ * 5. E2E AttackExecutionService.execute wires runtime-branded verifiedAuthorizationDecision
+ *    (CORS succeeds with brand; forged JSON rejected; missing → authorization_missing).
  */
 
 import assert from 'node:assert';
@@ -55,6 +57,12 @@ import { DETECTION_CONTRACT_VERSION } from '../detection/DetectionContracts.js';
 import { establishVerifiedAuthorizationDecision } from '../authorization/VerifiedAuthorizationDecisionService.js';
 import { VERIFIED_AUTHORIZATION_DECISION_CONTRACT_VERSION } from '../authorization/VerifiedAuthorizationDecisionContracts.js';
 import type { VerifiedAuthorizationDecision } from '../authorization/VerifiedAuthorizationDecisionContracts.js';
+import { InMemoryAttackPlanRepository } from '../attack-planning/InMemoryAttackPlanRepository.js';
+import { AttackAuthorizationService } from '../attack-authorization/AttackAuthorizationService.js';
+import { AttackCapabilityRegistry } from '../attack-execution/AttackCapabilityRegistry.js';
+import { AttackExecutionService } from '../attack-execution/AttackExecutionService.js';
+import { ATTACK_EXECUTION_CONTRACT_VERSION } from '../attack-execution/AttackExecutionContracts.js';
+import { TargetExecutionCoordinator } from '../runtime/TargetExecutionCoordinator.js';
 
 function baseFinding(verificationState: Finding['verificationState']): Finding {
   return {
@@ -625,7 +633,212 @@ async function runSmokeSuite(): Promise<void> {
     console.log('[+] Test 4: CORS/Auth/JWT invoke services; no synthetic succeeded OK');
   }
 
-  console.log('\n=== All A6 Preconditions Smoke Tests PASSED (4/4) ===');
+  // -------------------------------------------------------------------------
+  // Test 5: E2E execute() wires branded verifiedAuthorizationDecision (not forgeable)
+  // -------------------------------------------------------------------------
+  console.log('--- Test 5: E2E AttackExecutionService.execute auth wiring ---');
+  {
+    const decidedAt = '2026-09-23T20:00:00.000Z';
+    const e2eScope = minimalScopeGrant();
+    const authEstablish = establishVerifiedAuthorizationDecision(
+      {
+        contractVersion: VERIFIED_AUTHORIZATION_DECISION_CONTRACT_VERSION,
+        kind: 'establish_verified_authorization_decision_request',
+        assessmentId: 'asm_a6_e2e_001',
+        scanId: e2eScope.scanId,
+        authorizationDecisionId: 'dec_a6_e2e_001',
+        authorizedActor: { actorId: 'act_a6_e2e', actorType: 'human' },
+        decision: 'authorized',
+        decidedAt,
+        scopeGrant: e2eScope,
+      },
+      decidedAt
+    );
+    assert.strictEqual(
+      authEstablish.status,
+      'established',
+      `establish failed: ${JSON.stringify(authEstablish)}`
+    );
+    if (authEstablish.status !== 'established') {
+      throw new Error('authorization establishment failed');
+    }
+    const verifiedDecision: VerifiedAuthorizationDecision = authEstablish.decision;
+
+    const corsPlan: AttackPlan = {
+      contractVersion: ATTACK_PLANNING_CONTRACT_VERSION,
+      kind: 'attack_plan',
+      planId: 'plan_a6_e2e_cors',
+      assessmentId: 'asm_a6_e2e_001',
+      scanId: e2eScope.scanId,
+      capability: 'cors_chain_exploit',
+      title: 'A6 E2E CORS execute plan',
+      reasoning: 'Hermetic E2E auth wiring',
+      status: 'ready_for_authorization',
+      blastRadius: 'single_resource',
+      capabilityGained: 'read_escalated',
+      sourceFindingIds: ['fnd_a6_e2e_cors'],
+      sourceFindingTypes: ['SECURITY_MISCONFIGURATION'],
+      prerequisites: [],
+      steps: [
+        {
+          stepId: 'step_a6_e2e_cors',
+          ordinal: 1,
+          title: 'Credentialed CORS probe',
+          description: 'E2E auth wiring',
+          status: 'ready',
+          requiredPermissions: ['active_http_get'],
+        },
+      ],
+      targetUrl: 'https://app.example.com/api/resource/1',
+      lineage: {
+        assessmentId: 'asm_a6_e2e_001',
+        scanId: e2eScope.scanId,
+        authorizationGrantId: e2eScope.grantId,
+        authorizationDecisionId: 'dec_a6_e2e_001',
+        actorId: 'act_a6_e2e',
+      },
+      createdAt: decidedAt,
+      executable: false,
+    };
+
+    let e2eCorsCalls = 0;
+    const e2eCorsService = new CredentialedCorsDetectionService();
+    e2eCorsService.execute = async (
+      _req: CredentialedCorsDetectionRequest
+    ): Promise<CredentialedCorsDetectionResult> => {
+      e2eCorsCalls += 1;
+      return {
+        contractVersion: DETECTION_CONTRACT_VERSION,
+        kind: 'credentialed_cors_detection_result',
+        detectionId: 'det_cors_e2e',
+        assessmentId: 'asm_a6_e2e_001',
+        scanId: e2eScope.scanId,
+        authorizationGrantId: e2eScope.grantId,
+        authorizationDecisionId: 'dec_a6_e2e_001',
+        actorId: 'act_a6_e2e',
+        status: 'vulnerability_detected',
+        reasonCode: 'credentialed_cors_confirmed',
+        lineage: {
+          assessmentId: 'asm_a6_e2e_001',
+          scanId: e2eScope.scanId,
+          authorizationGrantId: e2eScope.grantId,
+          authorizationDecisionId: 'dec_a6_e2e_001',
+          actorId: 'act_a6_e2e',
+        },
+        endpointUrl: 'https://app.example.com/api/resource/1',
+        httpMethod: 'GET',
+        suppliedOrigin: 'https://canary.fixguard.internal',
+        reflectedOrigin: 'https://canary.fixguard.internal',
+        allowCredentialsHeader: true,
+        acaoHeader: 'https://canary.fixguard.internal',
+      };
+    };
+
+    const planRepo = new InMemoryAttackPlanRepository();
+    await planRepo.savePlan(corsPlan);
+    const authService = new AttackAuthorizationService(planRepo);
+    const authResult = await authService.authorizePlan(
+      corsPlan.planId,
+      corsPlan.assessmentId,
+      'read_escalated',
+      'act_a6_e2e',
+      decidedAt
+    );
+    assert.strictEqual(
+      authResult.status,
+      'established',
+      `authorizePlan failed: ${JSON.stringify(authResult)}`
+    );
+    const token = authResult.token;
+
+    const registry = new AttackCapabilityRegistry([
+      createCorsChainExploitCapability(e2eCorsService),
+    ]);
+    const executionService = new AttackExecutionService({
+      planRepository: planRepo,
+      capabilityRegistry: registry,
+    });
+
+    const finding: Finding = {
+      id: 'fnd_a6_e2e_cors',
+      type: 'SECURITY_MISCONFIGURATION',
+      severity: 'medium',
+      title: 'CORS candidate',
+      description: 'E2E auth wiring',
+      target: 'https://app.example.com/api/resource/1',
+      evidence: 'hermetic',
+      confidence: 0.8,
+      verificationState: 'observed_anomaly',
+      metadata: {
+        kind: 'security_misconfiguration_metadata',
+        category: 'CORS_MISCONFIGURATION',
+        candidateId: 'cand_a6_e2e',
+        evidenceRecordId: 'evr_a6_e2e',
+        lineage: {},
+        endpointUrl: 'https://app.example.com/api/resource/1',
+      },
+    };
+
+    const baseExec = {
+      contractVersion: ATTACK_EXECUTION_CONTRACT_VERSION,
+      kind: 'attack_execution_request' as const,
+      planId: corsPlan.planId,
+      assessmentId: corsPlan.assessmentId,
+      token,
+      scopeGrant: e2eScope,
+      coordinator: new TargetExecutionCoordinator(),
+      dnsResolver: async () => ['93.184.216.34'] as const,
+      findings: [finding],
+      operatorId: 'act_a6_e2e',
+      primaryIdentity: {
+        identityId: 'identity_alice',
+        headers: { cookie: 's=1' },
+      },
+    };
+
+    // Missing branded decision → capability fail-closed (authorization_missing)
+    const missingAuth = await executionService.execute(baseExec);
+    assert.strictEqual(missingAuth.status, 'completed');
+    if (missingAuth.status === 'completed') {
+      assert.strictEqual(missingAuth.record.stepRecords[0]?.outcome, 'failed');
+      assert.strictEqual(
+        missingAuth.record.stepRecords[0]?.reasonCode,
+        'cors_authorization_missing'
+      );
+    }
+    assert.strictEqual(e2eCorsCalls, 0);
+
+    // Forged JSON lookalike → parseRequest reject (not brandable via DTO)
+    const forged = {
+      ...verifiedDecision,
+      authorizationDecisionId: 'dec_forged',
+    };
+    const forgedResult = await executionService.execute({
+      ...baseExec,
+      verifiedAuthorizationDecision: forged,
+    });
+    assert.strictEqual(forgedResult.status, 'preflight_denied');
+    if (forgedResult.status === 'preflight_denied') {
+      assert.strictEqual(forgedResult.reasonCode, 'request_invalid');
+    }
+    assert.strictEqual(e2eCorsCalls, 0);
+
+    // Runtime-branded decision through execute() → CORS detection invoked
+    const wired = await executionService.execute({
+      ...baseExec,
+      verifiedAuthorizationDecision: verifiedDecision,
+    });
+    assert.strictEqual(wired.status, 'completed');
+    if (wired.status === 'completed') {
+      assert.strictEqual(wired.record.stepRecords[0]?.outcome, 'succeeded');
+      assert.strictEqual(wired.record.stepRecords[0]?.reasonCode, 'credentialed_cors_confirmed');
+    }
+    assert.strictEqual(e2eCorsCalls, 1);
+
+    console.log('[+] Test 5: E2E execute wires branded auth; forge rejected OK');
+  }
+
+  console.log('\n=== All A6 Preconditions Smoke Tests PASSED (5/5) ===');
 }
 
 runSmokeSuite().catch((err) => {

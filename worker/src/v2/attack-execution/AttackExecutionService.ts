@@ -8,18 +8,25 @@
  */
 
 import type { Finding } from '../core/Evidence.js';
-import { nextVerificationState } from '../core/VerificationStateContracts.js';
+import {
+  nextVerificationState,
+  verificationStateIndex,
+  type VerificationState,
+} from '../core/VerificationStateContracts.js';
 import { VerificationStateService } from '../core/VerificationStateService.js';
 import type { AttackPlan } from '../attack-planning/AttackPlanContracts.js';
 import type { AttackPlanRepository } from '../attack-planning/AttackPlanRepository.js';
 import type { AttackAuthorizationToken } from '../attack-authorization/AttackAuthorizationContracts.js';
 import { ATTACK_AUTHORIZATION_CONTRACT_VERSION } from '../attack-authorization/AttackAuthorizationContracts.js';
 import { isRuntimeAuthorizedForBlastRadius } from '../attack-authorization/AttackAuthorizationService.js';
+import { isRuntimeEstablishedVerifiedAuthorizationDecision } from '../authorization/VerifiedAuthorizationDecisionService.js';
+import type { VerifiedAuthorizationDecision } from '../authorization/VerifiedAuthorizationDecisionContracts.js';
 import type { AuthorizedScopeGrant } from '../scope/AuthorizedScopeContracts.js';
 import type { TargetExecutionCoordinator } from '../runtime/TargetExecutionCoordinator.js';
 import type { PreSpawnDnsResolver } from '../recon/adapters/AdapterPreflightPipeline.js';
 import { isInternalOrSsrfTarget } from '../recon/policy/PassiveEgressPolicy.js';
 import { validateDnsRebinding } from '../recon/adapters/AdapterPreflightPipeline.js';
+import type { IdorHttpProbeTransport } from '../detection/DetectionContracts.js';
 import {
   ATTACK_EXECUTION_CONTRACT_VERSION,
   isScopeAllowed,
@@ -32,6 +39,9 @@ import {
   type AttackStepExecutionRecord,
 } from './AttackExecutionContracts.js';
 import type { AttackCapabilityRegistry } from './AttackCapabilityRegistry.js';
+
+/** OBSERVED-only capabilities (e.g. nuclei) may advance at most to this state. */
+const OBSERVED_OUTCOME_VERIFICATION_CAP: VerificationState = 'suspected_vulnerability';
 
 function isSafeId(value: unknown): value is string {
   if (typeof value !== 'string' || value.length === 0 || value.length > 128) return false;
@@ -151,6 +161,16 @@ function isFindingArray(value: unknown): value is Finding[] {
 
 function isPreSpawnDnsResolver(value: unknown): value is PreSpawnDnsResolver {
   return typeof value === 'function';
+}
+
+function isIdorHttpProbeTransport(value: unknown): value is IdorHttpProbeTransport {
+  return typeof value === 'function';
+}
+
+function isBrandedVerifiedAuthorizationDecision(
+  value: unknown
+): value is VerifiedAuthorizationDecision {
+  return isRuntimeEstablishedVerifiedAuthorizationDecision(value);
 }
 
 export interface AttackExecutionServiceDependencies {
@@ -392,6 +412,30 @@ export class AttackExecutionService {
         } else {
           verificationStateAfter = finding.verificationState;
         }
+      } else if (capabilityResult.outcome === 'observed' && findingIdx >= 0) {
+        // Epistemic ladder: OBSERVED template/tool hits must NOT claim validated+.
+        // Advance at most observed_anomaly → suspected_vulnerability; otherwise hold.
+        const finding = findings[findingIdx]!;
+        verificationStateBefore = finding.verificationState;
+        const nextState = nextVerificationState(finding.verificationState);
+        const capIdx = verificationStateIndex(OBSERVED_OUTCOME_VERIFICATION_CAP);
+        if (
+          nextState !== null &&
+          verificationStateIndex(nextState) <= capIdx
+        ) {
+          const advanced = VerificationStateService.advanceState(finding, nextState, {
+            evidenceId: capabilityResult.evidenceId ?? `ev_a5_obs_${step.stepId}`,
+            reasonCode: 'attack_execution_step_observed',
+          });
+          findings = [
+            ...findings.slice(0, findingIdx),
+            advanced.updatedFinding,
+            ...findings.slice(findingIdx + 1),
+          ];
+          verificationStateAfter = advanced.updatedFinding.verificationState;
+        } else {
+          verificationStateAfter = finding.verificationState;
+        }
       } else if (
         (capabilityResult.outcome === 'refuted' || capabilityResult.outcome === 'failed') &&
         findingIdx >= 0
@@ -549,6 +593,9 @@ export class AttackExecutionService {
       req[key] = Reflect.get(request, key);
     }
 
+    // verifiedAuthorizationDecision / transport are in-process only (WeakSet brand /
+    // function refs). Clients must never forge brands via JSON — resolve server-side
+    // (A4 getRuntimeToken / assessment sealed-decision registry) before calling execute().
     const allowedKeys = [
       'contractVersion',
       'kind',
@@ -563,6 +610,8 @@ export class AttackExecutionService {
       'executedAt',
       'primaryIdentity',
       'secondaryIdentity',
+      'verifiedAuthorizationDecision',
+      'transport',
     ];
     for (const k of Object.keys(req)) {
       if (!allowedKeys.includes(k)) {
@@ -676,6 +725,32 @@ export class AttackExecutionService {
       secondaryIdentity = req.secondaryIdentity;
     }
 
+    let verifiedAuthorizationDecision: VerifiedAuthorizationDecision | undefined;
+    if (req.verifiedAuthorizationDecision !== undefined) {
+      // Fail closed: structural clones / JSON lookalikes are rejected (WeakSet only).
+      if (!isBrandedVerifiedAuthorizationDecision(req.verifiedAuthorizationDecision)) {
+        return {
+          status: 'invalid',
+          reasonCode: 'request_invalid',
+          safeMessage:
+            'verifiedAuthorizationDecision must be the runtime-branded object from establishment',
+        };
+      }
+      verifiedAuthorizationDecision = req.verifiedAuthorizationDecision;
+    }
+
+    let transport: IdorHttpProbeTransport | undefined;
+    if (req.transport !== undefined) {
+      if (!isIdorHttpProbeTransport(req.transport)) {
+        return {
+          status: 'invalid',
+          reasonCode: 'request_invalid',
+          safeMessage: 'transport must be an in-process IdorHttpProbeTransport function',
+        };
+      }
+      transport = req.transport;
+    }
+
     // Narrowed ids — already validated by isSafeId above.
     const planId = req.planId;
     const assessmentId = req.assessmentId;
@@ -702,6 +777,10 @@ export class AttackExecutionService {
       ...(typeof req.executedAt === 'string' ? { executedAt: req.executedAt } : {}),
       ...(primaryIdentity ? { primaryIdentity } : {}),
       ...(secondaryIdentity ? { secondaryIdentity } : {}),
+      ...(verifiedAuthorizationDecision
+        ? { verifiedAuthorizationDecision }
+        : {}),
+      ...(transport ? { transport } : {}),
     };
 
     return { status: 'ok', request: built };

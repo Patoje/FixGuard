@@ -361,6 +361,10 @@ export class OrchestratedAssessmentController {
    * Requires a prior in-process authorize that sealed a WeakSet-branded token.
    * Exact-key body: operatorId, scopeGrant, findings (optional), dnsAnswers (optional hermetic),
    * primaryIdentity / secondaryIdentity (optional differential identities).
+   *
+   * verifiedAuthorizationDecision is NEVER accepted from the HTTP body (not forgeable).
+   * Resolved server-side via OrchestratedAssessmentApplicationService
+   * getRuntimeVerifiedAuthorizationDecision (A4 getRuntimeToken pattern).
    */
   public executeAttackPlan = async (
     req: Request,
@@ -432,6 +436,11 @@ export class OrchestratedAssessmentController {
         );
       }
 
+      // Server-side branded decision — never from client JSON.
+      const verifiedAuthorizationDecision =
+        this.service.getRuntimeVerifiedAuthorizationDecision(assessmentId);
+      const transport = this.service.getRuntimeHttpTransport();
+
       const dnsAnswers =
         Array.isArray(body.dnsAnswers) && body.dnsAnswers.every((ip) => typeof ip === 'string')
           ? body.dnsAnswers
@@ -450,6 +459,10 @@ export class OrchestratedAssessmentController {
         operatorId,
         ...(primaryIdentity ? { primaryIdentity } : {}),
         ...(secondaryIdentity ? { secondaryIdentity } : {}),
+        ...(verifiedAuthorizationDecision
+          ? { verifiedAuthorizationDecision }
+          : {}),
+        transport,
       });
 
       if (result.status === 'preflight_denied') {

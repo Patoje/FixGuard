@@ -5,7 +5,8 @@
  * 1. Allowlisted categories → correct CLI args (-json -silent -no-interactsh -rate-limit 10 -timeout 10)
  * 2. Prohibited categories / path injection → preflight reject, zero processes spawned
  * 3. Output → NucleiObservation[] with epistemicStatus OBSERVED
- * 4. Capability via registry advances VerificationState one ordered step via evidence
+ * 4. Capability returns outcome `observed`; AttackExecutionService caps at suspected_vulnerability
+ *    (never advances to validated_vulnerability+ from nuclei template matches)
  *
  * Hermetic (MockProcessRunner). process.exit(1) on failure.
  */
@@ -13,7 +14,6 @@
 import assert from 'node:assert/strict';
 import type { ExecutionRequest, RawExecutionOutput } from '../core/ExecutionContracts.js';
 import type { ProcessRunner } from '../core/ProcessRunner.js';
-import { VerificationStateService } from '../core/VerificationStateService.js';
 import { establishVerifiedAuthorizationDecision } from '../authorization/VerifiedAuthorizationDecisionService.js';
 import type { AuthorizedScopeGrant } from '../scope/AuthorizedScopeContracts.js';
 import type { AuthorizedActiveReconRequestLineage } from '../lineage/AuthorizedExecutionLineageContracts.js';
@@ -21,20 +21,26 @@ import type { Finding } from '../core/Evidence.js';
 import type { AttackPlan } from '../attack-planning/AttackPlanContracts.js';
 import { ATTACK_PLANNING_CONTRACT_VERSION } from '../attack-planning/AttackPlanContracts.js';
 import { generateAttackPlans } from '../attack-planning/AttackPlanGeneratorService.js';
+import { InMemoryAttackPlanRepository } from '../attack-planning/InMemoryAttackPlanRepository.js';
+import { AttackAuthorizationService } from '../attack-authorization/AttackAuthorizationService.js';
 import {
   AttackCapabilityRegistry,
   createNucleiXssScanCapability,
 } from '../attack-execution/AttackCapabilityRegistry.js';
-import type {
-  AttackCapabilityInvocationContext,
-  AttackExecutionStep,
+import {
+  ATTACK_EXECUTION_CONTRACT_VERSION,
+  type AttackCapabilityInvocationContext,
+  type AttackExecutionStep,
 } from '../attack-execution/AttackExecutionContracts.js';
+import { AttackExecutionService } from '../attack-execution/AttackExecutionService.js';
+import { TargetExecutionCoordinator } from '../runtime/TargetExecutionCoordinator.js';
 import type { AttackAuthorizationToken } from '../attack-authorization/AttackAuthorizationContracts.js';
 import { NucleiAdapter } from '../recon/adapters/NucleiAdapter.js';
 import {
   NUCLEI_SCAN_NON_CLAIMS,
   validateNucleiTemplates,
 } from '../recon/adapters/NucleiContracts.js';
+import { verificationStateIndex } from '../core/VerificationStateContracts.js';
 
 class MockProcessRunner implements ProcessRunner {
   public calls: ExecutionRequest[] = [];
@@ -350,7 +356,7 @@ async function runSmokeTests(): Promise<void> {
     console.log('✓ Test 3: Parsed NucleiObservation[] with epistemicStatus OBSERVED + sanitized');
   }
 
-  // --- Test 4: Capability via registry advances VerificationState ---
+  // --- Test 4: outcome `observed` + VerificationState capped at suspected ---
   {
     const finding: Finding = {
       id: 'fnd_a8_xss_001',
@@ -413,18 +419,104 @@ async function runSmokeTests(): Promise<void> {
     };
 
     const capResult = await port.execute(ctx);
-    assert.equal(capResult.outcome, 'succeeded');
+    assert.equal(capResult.outcome, 'observed');
     assert.equal(capResult.reasonCode, 'nuclei_xss_template_match_observed');
     assert.ok(capResult.safeMessage.includes('OBSERVED'));
 
-    // Honest one-step advancement: observed_anomaly → suspected_vulnerability
-    const advanced = VerificationStateService.advanceState(finding, 'suspected_vulnerability', {
-      evidenceId: capResult.evidenceId ?? 'ev_a8_nuclei',
-      reasonCode: 'nuclei_xss_template_match_observed',
+    // E2E via AttackExecutionService: observed_anomaly → suspected only (never validated+)
+    const planRepo = new InMemoryAttackPlanRepository();
+    await planRepo.savePlan(plan);
+    const authService = new AttackAuthorizationService(planRepo);
+    const authResult = await authService.authorizePlan(
+      plan.planId,
+      plan.assessmentId,
+      'read_authenticated',
+      'operator_a8',
+      collectedAt
+    );
+    assert.equal(authResult.status, 'established');
+    if (authResult.status !== 'established') {
+      throw new Error('A8 attack authorization failed');
+    }
+
+    const executionService = new AttackExecutionService({
+      planRepository: planRepo,
+      capabilityRegistry: registry,
     });
-    assert.equal(advanced.updatedFinding.verificationState, 'suspected_vulnerability');
-    assert.equal(advanced.transitionRecord.fromState, 'observed_anomaly');
-    assert.equal(advanced.transitionRecord.toState, 'suspected_vulnerability');
+    const execResult = await executionService.execute({
+      contractVersion: ATTACK_EXECUTION_CONTRACT_VERSION,
+      kind: 'attack_execution_request',
+      planId: plan.planId,
+      assessmentId: plan.assessmentId,
+      token: authResult.token,
+      scopeGrant: auth.authorizedScopeGrant,
+      coordinator: new TargetExecutionCoordinator(),
+      dnsResolver: async () => ['93.184.216.34'],
+      findings: [finding],
+      operatorId: 'operator_a8',
+      executedAt: collectedAt,
+    });
+    assert.equal(execResult.status, 'completed');
+    if (execResult.status !== 'completed') {
+      throw new Error('A8 execution failed');
+    }
+    const stepRec = execResult.record.stepRecords[0]!;
+    assert.equal(stepRec.outcome, 'observed');
+    assert.equal(stepRec.verificationStateBefore, 'observed_anomaly');
+    assert.equal(stepRec.verificationStateAfter, 'suspected_vulnerability');
+    const updated = execResult.record.updatedFindings.find((f) => f.id === finding.id);
+    assert.ok(updated);
+    assert.equal(updated!.verificationState, 'suspected_vulnerability');
+    assert.ok(
+      verificationStateIndex(updated!.verificationState) <
+        verificationStateIndex('validated_vulnerability'),
+      'nuclei OBSERVED must not reach validated_vulnerability'
+    );
+
+    // Re-run from suspected: must NOT advance to validated_vulnerability
+    const suspectedFinding: Finding = {
+      ...finding,
+      verificationState: 'suspected_vulnerability',
+    };
+    const plan2: AttackPlan = {
+      ...plan,
+      planId: 'apl_a8_nuclei_xss_cap',
+    };
+    await planRepo.savePlan(plan2);
+    const auth2 = await authService.authorizePlan(
+      plan2.planId,
+      plan2.assessmentId,
+      'read_authenticated',
+      'operator_a8',
+      collectedAt
+    );
+    assert.equal(auth2.status, 'established');
+    if (auth2.status !== 'established') {
+      throw new Error('A8 cap auth failed');
+    }
+    const capExec = await executionService.execute({
+      contractVersion: ATTACK_EXECUTION_CONTRACT_VERSION,
+      kind: 'attack_execution_request',
+      planId: plan2.planId,
+      assessmentId: plan2.assessmentId,
+      token: auth2.token,
+      scopeGrant: auth.authorizedScopeGrant,
+      coordinator: new TargetExecutionCoordinator(),
+      dnsResolver: async () => ['93.184.216.34'],
+      findings: [suspectedFinding],
+      operatorId: 'operator_a8',
+      executedAt: collectedAt,
+    });
+    assert.equal(capExec.status, 'completed');
+    if (capExec.status === 'completed') {
+      assert.equal(capExec.record.stepRecords[0]?.outcome, 'observed');
+      assert.equal(
+        capExec.record.stepRecords[0]?.verificationStateAfter,
+        'suspected_vulnerability'
+      );
+      const held = capExec.record.updatedFindings.find((f) => f.id === finding.id);
+      assert.equal(held?.verificationState, 'suspected_vulnerability');
+    }
 
     // Generator wiring
     const plans = generateAttackPlans({
@@ -445,7 +537,9 @@ async function runSmokeTests(): Promise<void> {
     const defaultRegistry = AttackCapabilityRegistry.createDefault();
     assert.ok(defaultRegistry.get('nuclei_xss_scan'), 'default registry registers nuclei_xss_scan');
 
-    console.log('✓ Test 4: Capability registry + VerificationState one-step advancement');
+    console.log(
+      '✓ Test 4: Nuclei outcome=observed; VerificationState capped at suspected_vulnerability'
+    );
   }
 
   // --- Hermetic binary-absent fallback ---

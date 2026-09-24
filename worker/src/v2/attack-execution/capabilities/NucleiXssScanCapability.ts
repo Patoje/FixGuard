@@ -38,13 +38,17 @@ function truncateSanitized(raw: string): string {
   return sanitized.length > EVIDENCE_MAX_CHARS ? sanitized.slice(0, EVIDENCE_MAX_CHARS) : sanitized;
 }
 
-function succeeded(
+/**
+ * OBSERVED template matches are not verified vulns — distinct outcome so
+ * AttackExecutionService caps VerificationState at suspected_vulnerability.
+ */
+function observed(
   reasonCode: string,
   safeMessage: string,
   evidenceId?: string
 ): AttackCapabilityExecutionResult {
   return {
-    outcome: 'succeeded',
+    outcome: 'observed',
     reasonCode,
     safeMessage,
     ...(evidenceId ? { evidenceId } : {}),
@@ -156,7 +160,7 @@ export function createNucleiXssScanCapability(options?: {
       }
 
       const evidence = summarizeObservations(observations);
-      return succeeded(
+      return observed(
         'nuclei_xss_template_match_observed',
         `OBSERVED nuclei XSS template match(es) count=${observations.length}; evidence=${evidence}`,
         `ev_nuclei_xss_${ctx.step.stepId}`

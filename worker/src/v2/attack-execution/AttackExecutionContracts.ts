@@ -31,6 +31,7 @@ export interface AttackExecutionStep extends AttackStep {
 
 export type AttackStepExecutionOutcome =
   | 'succeeded'
+  | 'observed'
   | 'refuted'
   | 'failed'
   | 'preflight_denied'
@@ -78,9 +79,14 @@ export interface AttackCapabilityInvocationContext {
   /**
    * Runtime-branded authorization decision required by detection-backed capabilities
    * (CORS / auth bypass / JWT). Missing → fail closed (never synthetic success).
+   * MUST be the WeakSet-sealed object from establishVerifiedAuthorizationDecision /
+   * assessment getRuntimeVerifiedAuthorizationDecision — never a JSON lookalike.
    */
   readonly verifiedAuthorizationDecision?: VerifiedAuthorizationDecision;
-  /** Optional hermetic HTTP transport for detection-backed capabilities. */
+  /**
+   * Optional hermetic HTTP transport for detection-backed capabilities.
+   * In-process function reference only (not serializable).
+   */
   readonly transport?: IdorHttpProbeTransport;
   /** Optional DNS resolver for detection preflight. */
   readonly dnsResolver?: PreSpawnDnsResolver;
@@ -140,7 +146,7 @@ export interface AttackExecutionRequest {
   readonly executedAt?: string;
   readonly primaryIdentity?: AttackCapabilityIdentityRef;
   readonly secondaryIdentity?: AttackCapabilityIdentityRef;
-  /** Runtime-branded decision for detection-backed capabilities. */
+  /** Runtime-branded decision for detection-backed capabilities (in-process WeakSet only). */
   readonly verifiedAuthorizationDecision?: VerifiedAuthorizationDecision;
   /** Optional hermetic HTTP transport forwarded to detection-backed capabilities. */
   readonly transport?: IdorHttpProbeTransport;
