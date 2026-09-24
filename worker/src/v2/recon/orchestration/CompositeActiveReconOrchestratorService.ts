@@ -20,6 +20,7 @@ import {
   CIRCUIT_OPEN_REASON_CODE,
   TargetInstabilityError,
 } from '../../runtime/CircuitBreakerContracts.js';
+import { selectJsLuiceTargets } from '../adapters/JsLuiceAdapter.js';
 
 import type {
   ActiveReconOrchestrationRequest,
@@ -1297,6 +1298,48 @@ export class CompositeActiveReconOrchestratorService {
           if (paramResult.status === 'success') {
             for (const obs of paramResult.observations) {
               parameters.push(obs);
+            }
+          }
+
+          // 3b. jsluice discovery-only mining of in-scope JS assets (endpoints/params/secrets).
+          if (this.tools.jsLuiceTool) {
+            const jsTargets = selectJsLuiceTargets({ inventoryUrls: urls, maxTargets: 6 });
+            for (const jsUrl of jsTargets) {
+              try {
+                const jsHost = new URL(jsUrl).hostname;
+                const jsResult = await coordinator.execute(jsHost, () =>
+                  this.tools.jsLuiceTool!.discoverFromJavaScript({
+                    targetJsUrlOrPath: jsUrl,
+                    resolvePathsBase: rootUrl,
+                    verifiedAuthorizationDecision: request.verifiedAuthorizationDecision,
+                    authorizedScopeGrant: request.authorizedScopeGrant,
+                    lineage: request.lineage,
+                    timeoutMs: request.config?.timeoutMs,
+                  })
+                );
+                if (jsResult.status === 'success') {
+                  for (const obs of jsResult.urlObservations) {
+                    urls.push(obs);
+                  }
+                  for (const obs of jsResult.parameterObservations) {
+                    parameters.push({
+                      url: obs.sourceUrl,
+                      method: 'GET',
+                      parameterName: obs.parameterName,
+                      discoveredAt: obs.discoveredAt,
+                    });
+                  }
+                  for (const obs of jsResult.secretObservations) {
+                    secrets.push(obs);
+                  }
+                } else if (jsResult.status === 'tool_unavailable') {
+                  stage4Warnings.push(jsResult.reason);
+                }
+              } catch (jsErr: unknown) {
+                stage4Warnings.push(
+                  `jsluice error on ${jsUrl}: ${jsErr instanceof Error ? jsErr.message : String(jsErr)}`
+                );
+              }
             }
           }
         } catch (err) {

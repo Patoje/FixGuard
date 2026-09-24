@@ -47,6 +47,10 @@ import { PARAMETER_DISCOVERY_NON_CLAIMS } from '../recon/adapters/ParameterDisco
 import { SECRET_DISCOVERY_NON_CLAIMS } from '../recon/adapters/SecretDiscoveryContracts.js';
 import { PlaywrightSpaAdapter } from '../recon/adapters/PlaywrightSpaAdapter.js';
 import { CrtShAdapter } from '../recon/adapters/CrtShAdapter.js';
+import { LocalProcessRunner } from '../core/ProcessRunner.js';
+import { CompositeUrlDiscoveryAdapter } from '../recon/adapters/CompositeUrlDiscoveryAdapter.js';
+import { FfufAdapter } from '../recon/adapters/FfufAdapter.js';
+import { JsLuiceAdapter } from '../recon/adapters/JsLuiceAdapter.js';
 import { SUBDOMAIN_DISCOVERY_NON_CLAIMS } from '../recon/adapters/SubdomainDiscoveryContracts.js';
 import type { SubdomainDiscoveryTool } from '../recon/adapters/SubdomainDiscoveryContracts.js';
 
@@ -663,6 +667,11 @@ function createDefaultReconAdapters(
   dnsResolver: (host: string) => Promise<string[]>,
   httpTransport: IdorHttpProbeTransport
 ): ReconToolAdapters {
+  const processRunner = new LocalProcessRunner();
+  const urlTool = new CompositeUrlDiscoveryAdapter(processRunner, dnsResolver);
+  const contentTool = new FfufAdapter(processRunner, dnsResolver);
+  const jsLuiceTool = new JsLuiceAdapter(processRunner, dnsResolver);
+
   return {
     // Hermetic-safe active subdomain stub (empty success). Inject SubfinderAdapter for live runs.
     subdomainTool: {
@@ -844,33 +853,8 @@ function createDefaultReconAdapters(
         };
       },
     },
-    urlTool: {
-      async discoverUrls(req) {
-        return {
-          status: 'success',
-          contractVersion: 'fixguard-url-discovery/v0',
-          targetUrlOrDomain: req.targetUrlOrDomain,
-          observations: [],
-          explicitNonClaims: URL_DISCOVERY_NON_CLAIMS,
-          lineage: req.lineage,
-          durationMs: 5,
-        };
-      },
-    },
-    contentTool: {
-      async discoverContent(req) {
-        return {
-          status: 'success',
-          contractVersion: 'fixguard-content-discovery/v0',
-          targetUrl: req.targetUrl,
-          wordlistPath: req.wordlistPath,
-          observations: [],
-          explicitNonClaims: CONTENT_DISCOVERY_NON_CLAIMS,
-          lineage: req.lineage,
-          durationMs: 5,
-        };
-      },
-    },
+    urlTool,
+    contentTool,
     parameterTool: {
       async discoverParameters(req) {
         return {
@@ -905,6 +889,7 @@ function createDefaultReconAdapters(
       },
     },
     spaDiscoveryTool: new PlaywrightSpaAdapter(undefined, dnsResolver),
+    jsLuiceTool,
   };
 }
 

@@ -57,7 +57,7 @@ export class CompositeUrlDiscoveryAdapter implements UrlDiscoveryTool {
     const [katanaOutput, gauOutput] = await Promise.all([
       this.processRunner.execute({
         binary: 'katana',
-        args: ['-u', targetUrl, '-silent', '-json', '-depth', String(maxDepth), '-jc'],
+        args: ['-u', targetUrl, '-silent', '-json', '-depth', String(maxDepth), '-jc', '-jsl'],
         timeoutMs,
       }),
       this.processRunner.execute({

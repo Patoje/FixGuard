@@ -201,7 +201,7 @@ async function runMilestone67SmokeTests() {
       assert.strictEqual(runner.calls.length, 2);
       const katanaCall = runner.calls.find((c) => c.binary === 'katana');
       assert(katanaCall, 'Katana must be called');
-      assert.deepStrictEqual(katanaCall.args, ['-u', 'https://example.com', '-silent', '-json', '-depth', '3', '-jc']);
+      assert.deepStrictEqual(katanaCall.args, ['-u', 'https://example.com', '-silent', '-json', '-depth', '3', '-jc', '-jsl']);
 
       const gauCall = runner.calls.find((c) => c.binary === 'gau');
       assert(gauCall, 'Gau must be called');

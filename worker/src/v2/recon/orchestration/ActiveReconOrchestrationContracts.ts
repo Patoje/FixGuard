@@ -88,6 +88,7 @@ import type {
   BrowserAutomationTool,
   DiscoveredSpaObservation,
 } from '../adapters/BrowserAutomationContracts.js';
+import type { JsLuiceDiscoveryTool } from '../adapters/JsLuiceDiscoveryContracts.js';
 
 export interface ReconToolAdapters {
   readonly subdomainTool: SubdomainDiscoveryTool;
@@ -102,6 +103,8 @@ export interface ReconToolAdapters {
   readonly parameterTool: ParameterDiscoveryTool;
   readonly secretTool: SecretScannerTool;
   readonly spaDiscoveryTool?: BrowserAutomationTool;
+  /** Optional jsluice JS URL/param/secret mining (discovery-only). */
+  readonly jsLuiceTool?: JsLuiceDiscoveryTool;
 }
 
 
