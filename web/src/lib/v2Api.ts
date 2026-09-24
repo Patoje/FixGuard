@@ -409,7 +409,17 @@ export class V2OrchestratedApiClient {
       }
     }
 
-    const res = await fetch(url, { ...options, headers });
+    let res: Response;
+    try {
+      res = await fetch(url, { ...options, headers });
+    } catch {
+      throw new V2ApiError(
+        0,
+        'V2GatewayUnreachable',
+        'FixGuard V2 API Gateway is not reachable. Start it with: cd worker && npm run dev (http://127.0.0.1:4000/api/v2). Web proxies /api/v2 via V2_BACKEND_URL.'
+      );
+    }
+
     if (!res.ok) {
       let errorType = 'HttpError';
       let message = `HTTP ${res.status} ${res.statusText}`;
@@ -421,7 +431,14 @@ export class V2OrchestratedApiClient {
         if (typeof body.message === 'string') message = body.message;
         if (typeof body.reasonCode === 'string') reasonCode = body.reasonCode;
       } catch {
-        // Non-JSON response
+        // Non-JSON response — common when Next rewrite target (worker) is down
+        if (res.status === 502 || res.status === 503 || res.status === 504) {
+          throw new V2ApiError(
+            res.status,
+            'V2GatewayUnreachable',
+            'FixGuard V2 API Gateway is not reachable. Start it with: cd worker && npm run dev (http://127.0.0.1:4000/api/v2).'
+          );
+        }
       }
 
       throw new V2ApiError(res.status, errorType, message, reasonCode);

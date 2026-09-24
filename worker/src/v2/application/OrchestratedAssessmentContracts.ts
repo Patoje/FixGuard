@@ -18,6 +18,10 @@ import type { AttackSurfaceGraph } from '../attack-surface/AttackSurfaceContract
 import type { AttackPlan } from '../attack-planning/AttackPlanContracts.js';
 import type { AttackChain } from '../attack-chain/AttackChainContracts.js';
 import type {
+  GetAttackRecommendationsResult,
+  OperatorAttackRecommendation,
+} from '../attack-recommendation/AttackOperatorRecommendationContracts.js';
+import type {
   CredentialReference,
   PostExploitationState,
 } from '../post-exploitation/PostExploitationContracts.js';
@@ -334,6 +338,9 @@ export interface GetAttackPlansResult {
   readonly plans: readonly AttackPlan[];
   readonly lineage: AuthorizedActiveReconRequestLineage;
 }
+
+/** Operator A/B attack recommendations (deterministic; never auto-execute). */
+export type { GetAttackRecommendationsResult, OperatorAttackRecommendation };
 
 /** Milestone A6 — attack chain hypotheses aggregated from executed-step evidence. */
 export interface GetAttackChainsResult {

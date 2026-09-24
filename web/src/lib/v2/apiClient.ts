@@ -50,11 +50,11 @@ export class FixGuardV2ApiClient {
     let response: Response;
     try {
       response = await fetch(url, { ...options, headers });
-    } catch (networkErr) {
+    } catch {
       throw new V2ApiError(
         0,
-        'NetworkError',
-        `Failed to communicate with V2 API Gateway: ${(networkErr as Error).message}`
+        'V2GatewayUnreachable',
+        'FixGuard V2 API Gateway is not reachable. Start it with: cd worker && npm run dev (http://127.0.0.1:4000/api/v2). Web proxies /api/v2 via V2_BACKEND_URL.'
       );
     }
 
@@ -70,7 +70,13 @@ export class FixGuardV2ApiClient {
           safeError = errorJson;
         }
       } catch {
-        // Response was not JSON
+        if (response.status === 502 || response.status === 503 || response.status === 504) {
+          throw new V2ApiError(
+            response.status,
+            'V2GatewayUnreachable',
+            'FixGuard V2 API Gateway is not reachable. Start it with: cd worker && npm run dev (http://127.0.0.1:4000/api/v2).'
+          );
+        }
       }
 
       throw new V2ApiError(

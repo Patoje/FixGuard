@@ -79,7 +79,7 @@ export function PipelineStageTracker({
         <Activity className="mx-auto h-8 w-8 text-zinc-600 opacity-40 animate-pulse" />
         <p className="mt-3 text-sm font-medium text-zinc-400">No active assessment in progress</p>
         <p className="text-xs text-zinc-600 mt-1">
-          Launch an assessment above to observe live 5-stage orchestration progression.
+          Launch an assessment above to track pipeline progress.
         </p>
       </div>
     );
@@ -169,7 +169,7 @@ export function PipelineStageTracker({
       {/* Progress Stepper (5 Stages) */}
       <div className="space-y-3">
         <h4 className="text-xs font-mono uppercase tracking-wider text-zinc-400">
-          M73 Composite Orchestration Stages
+          Pipeline Stages
         </h4>
 
         <div className="grid grid-cols-1 md:grid-cols-5 gap-3">
@@ -256,7 +256,7 @@ export function PipelineStageTracker({
       <div className="rounded-xl border border-zinc-900 bg-black/50 p-4 space-y-2">
         <div className="flex items-center gap-2 text-xs font-semibold text-zinc-400">
           <Layers className="h-3.5 w-3.5 text-purple-400" />
-          <span>Continuous Lineage Tuple (ADR-001 Verified)</span>
+          <span>Lineage</span>
         </div>
         <div className="grid grid-cols-2 md:grid-cols-5 gap-2 text-[11px] font-mono">
           <div className="rounded bg-zinc-900/60 p-2 border border-zinc-800/60">

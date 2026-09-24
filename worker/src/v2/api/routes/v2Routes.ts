@@ -34,6 +34,11 @@ export function createV2Router(root: V2CompositionRoot): Router {
   router.get('/assessments/:assessmentId/attack-surface', orchestratedController.getAttackSurface);
   // Milestone A3 — Attack Plans read model (advisory only)
   router.get('/assessments/:assessmentId/attack-plans', orchestratedController.getAttackPlans);
+  // Operator A/B recommendations (deterministic; never auto-execute)
+  router.get(
+    '/assessments/:assessmentId/attack-recommendations',
+    orchestratedController.getAttackRecommendations
+  );
   // Milestone A6 — Attack Chain Tracker read model
   router.get('/assessments/:assessmentId/attack-chains', orchestratedController.getAttackChains);
   // Milestone A10 — Post-exploitation snapshot (no secrets)
@@ -68,6 +73,19 @@ export function createV2Router(root: V2CompositionRoot): Router {
     '/assessments/:assessmentId/attack-plans/:planId/execute',
     orchestratedController.executeAttackPlan
   );
+  // Etapa 2 · F1 — ActiveInvestigationRuntime (state, budget, cancel; no auto-execute)
+  router.post(
+    '/assessments/:assessmentId/investigations/start',
+    orchestratedController.startActiveInvestigation
+  );
+  router.get(
+    '/assessments/:assessmentId/investigations/:investigationId',
+    orchestratedController.getActiveInvestigation
+  );
+  router.post(
+    '/assessments/:assessmentId/investigations/:investigationId/cancel',
+    orchestratedController.cancelActiveInvestigation
+  );
 
   // Triage & Candidate Promotion endpoints (M61.1)
   router.get('/scans/:scanId/evidence-drafts', triageController.listEvidenceDrafts);
@@ -86,6 +104,10 @@ export function createV2Router(root: V2CompositionRoot): Router {
   router.get('/orchestrated/assessments/:assessmentId/evidence-drafts', orchestratedController.getEvidenceDrafts);
   router.get('/orchestrated/assessments/:assessmentId/attack-surface', orchestratedController.getAttackSurface);
   router.get('/orchestrated/assessments/:assessmentId/attack-plans', orchestratedController.getAttackPlans);
+  router.get(
+    '/orchestrated/assessments/:assessmentId/attack-recommendations',
+    orchestratedController.getAttackRecommendations
+  );
   router.get('/orchestrated/assessments/:assessmentId/attack-chains', orchestratedController.getAttackChains);
   router.get(
     '/orchestrated/assessments/:assessmentId/post-exploitation',

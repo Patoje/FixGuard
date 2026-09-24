@@ -517,36 +517,28 @@ async function runTests() {
   const record = await orchestrator.awaitAssessment(startRes.assessmentId);
   assert.ok(record, 'Assessment record must exist');
   assert.strictEqual(record.status, 'completed');
-  assert.ok((record.pendingEvidenceDrafts ?? []).length > 0, 'Must have pending drafts');
 
   const takeoverDraft = record.pendingEvidenceDrafts?.find(
     (d) => d.differentialContext?.detectionKind === 'subdomain_takeover'
   );
-  assert.ok(takeoverDraft, 'Must contain subdomain_takeover draft in pending drafts');
-  assert.strictEqual(takeoverDraft.differentialContext?.hostingProvider, 'github_pages');
-  assert.strictEqual(takeoverDraft.differentialContext?.subdomain, 'docs.example.com');
+  assert.equal(
+    takeoverDraft,
+    undefined,
+    'subdomain_takeover must auto-promote — should not remain as pending draft'
+  );
 
-  // Triage: Human operator approves the draft
-  const reviewRes = await orchestrator.reviewEvidenceDraft({
-    assessmentId: startRes.assessmentId,
-    draftId: takeoverDraft.draftId,
-    decision: 'approve_evidence',
-    reviewerId: 'authorized_sec_lead',
-    reviewedAt: new Date().toISOString(),
-    notes: 'Verified dangling CNAME pointing to unclaimed GitHub Pages repository',
-  });
-
-  assert.strictEqual(reviewRes.decision, 'approve_evidence');
-  assert.ok(reviewRes.findingCreated, 'Must have promoted finding');
-  assert.strictEqual(reviewRes.findingCreated.metadata.kind, 'subdomain_takeover_metadata');
-  assert.strictEqual(reviewRes.findingCreated.severity, 'high');
-
-  // Verify updated summary
-  const updatedSummary = await orchestrator.getSummary(startRes.assessmentId);
-  const foundInSummary = updatedSummary.findings.find(
+  const foundInSummary = record.findings.find(
     (f) => f.metadata.kind === 'subdomain_takeover_metadata'
   );
-  assert.ok(foundInSummary, 'Promoted Subdomain Takeover finding must be present in assessment findings');
+  assert.ok(foundInSummary, 'Confirmed subdomain takeover must auto-promote to Finding');
+  assert.strictEqual(foundInSummary.metadata.kind, 'subdomain_takeover_metadata');
+  if (foundInSummary.metadata.kind === 'subdomain_takeover_metadata') {
+    assert.strictEqual(foundInSummary.metadata.hostingProvider, 'github_pages');
+    assert.strictEqual(foundInSummary.metadata.subdomain, 'docs.example.com');
+  }
+  assert.strictEqual(foundInSummary.severity, 'high');
+
+  console.log('[milestoneP2_4_subdomain_takeover_smoke] Assertion 4 PASSED: Pipeline auto-promoted subdomain takeover Finding.');
 
   console.log('[milestoneP2_4_subdomain_takeover_smoke] Assertion 5 PASSED: Pipeline and human review triage lifecycle verified.');
 

@@ -478,35 +478,23 @@ async function runTests() {
   const record = await orchestrator.awaitAssessment(startRes.assessmentId);
   assert.ok(record, 'Assessment record must exist');
   assert.strictEqual(record.status, 'completed');
-  assert.ok((record.pendingEvidenceDrafts ?? []).length > 0, 'Must have pending drafts');
 
   const openRedirectDraft = record.pendingEvidenceDrafts?.find(
     (d) => d.differentialContext?.detectionKind === 'open_redirect'
   );
-  assert.ok(openRedirectDraft, 'Must contain open_redirect draft in pending drafts');
+  assert.equal(
+    openRedirectDraft,
+    undefined,
+    'open_redirect must auto-promote — should not remain as pending draft'
+  );
 
-  // Triage: Human operator approves the draft
-  const reviewRes = await orchestrator.reviewEvidenceDraft({
-    assessmentId: startRes.assessmentId,
-    draftId: openRedirectDraft.draftId,
-    decision: 'approve_evidence',
-    reviewerId: 'authorized_sec_lead',
-    reviewedAt: new Date().toISOString(),
-    notes: 'Verified canary redirection on redirect parameter',
-  });
-
-  assert.strictEqual(reviewRes.decision, 'approve_evidence');
-  assert.ok(reviewRes.findingCreated, 'Must have promoted finding');
-  assert.strictEqual(reviewRes.findingCreated.metadata.kind, 'open_redirect_metadata');
-
-  // Verify updated summary
-  const updatedSummary = await orchestrator.getSummary(startRes.assessmentId);
-  const foundInSummary = updatedSummary.findings.find(
+  const foundInSummary = record.findings.find(
     (f) => f.metadata.kind === 'open_redirect_metadata'
   );
-  assert.ok(foundInSummary, 'Promoted Open Redirect finding must be present in assessment findings');
+  assert.ok(foundInSummary, 'Confirmed open redirect must auto-promote to Finding');
+  assert.strictEqual(foundInSummary.metadata.kind, 'open_redirect_metadata');
 
-  console.log('[milestoneP2_2_open_redirect_smoke] Assertion 4 PASSED: Pipeline and human review triage lifecycle verified.');
+  console.log('[milestoneP2_2_open_redirect_smoke] Assertion 4 PASSED: Pipeline auto-promoted open redirect Finding.');
 
   console.log('----------------------------------------------------------------');
   console.log('[milestoneP2_2_open_redirect_smoke] ALL SMOKE TESTS PASSED (100%)');

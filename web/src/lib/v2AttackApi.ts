@@ -136,6 +136,40 @@ export interface GetAttackPlansResponse {
   readonly lineage: LineageTuple;
 }
 
+export type OperatorRecommendationRank = 'A' | 'B';
+export type OperatorRecommendationReasonKind = 'OBSERVED' | 'INFERRED';
+
+export interface OperatorAttackRecommendation {
+  readonly recommendationId: string;
+  readonly rank: OperatorRecommendationRank;
+  readonly capabilityKind: AttackCapabilityKind;
+  readonly humanLabel: string;
+  readonly suggestedFlags: Readonly<Record<string, string | number | boolean>>;
+  readonly commandSummary: string;
+  readonly executable: boolean;
+  readonly reasonKind: OperatorRecommendationReasonKind;
+  readonly reason: string;
+  readonly whyPreferred: string;
+  readonly disabilityReason?: string;
+  readonly planId?: string;
+  readonly sourceFindingId?: string;
+  readonly sourceFindingType?: string;
+  readonly score: number;
+}
+
+export interface GetAttackRecommendationsResponse {
+  readonly assessmentId: string;
+  readonly scanId: string;
+  readonly subjectFindingId?: string;
+  readonly subjectPlanId?: string;
+  readonly investigationId?: string;
+  readonly recommendationCount: number;
+  readonly recommendations: readonly OperatorAttackRecommendation[];
+  readonly rulesApplied: readonly string[];
+  readonly lineage: LineageTuple;
+  readonly generatedAt: string;
+}
+
 export type AttackAuthorizationLevel =
   | 'assessment_authorization'
   | 'hitl_plan_approval'
@@ -175,10 +209,21 @@ export interface AttackStepExecutionDto {
   readonly stepId: string;
   readonly outcome: AttackStepExecutionOutcome;
   readonly reasonCode: string;
+  readonly safeMessage?: string;
   readonly gatesPassed: true | string;
   readonly verificationStateBefore?: string;
   readonly verificationStateAfter?: string;
   readonly evidenceId?: string;
+  readonly commandSummary?: string;
+  readonly consoleLines?: readonly AttackConsoleLineDto[];
+}
+
+export type AttackConsoleStream = "stdout" | "stderr" | "event" | "command" | "verdict";
+
+export interface AttackConsoleLineDto {
+  readonly stream: AttackConsoleStream;
+  readonly text: string;
+  readonly at: string;
 }
 
 export interface AttackExecutionRecordDto {
@@ -464,6 +509,7 @@ export interface ExecuteAttackPlanParams {
   readonly dnsAnswers?: readonly string[];
   readonly primaryIdentity?: { readonly identityId: string; readonly headers?: Record<string, string> };
   readonly secondaryIdentity?: { readonly identityId: string; readonly headers?: Record<string, string> };
+  readonly investigationId?: string;
 }
 
 export interface ExecuteAttackPlanResponse {
@@ -745,7 +791,16 @@ export class V2AttackApiClient {
       }
     }
 
-    const res = await fetch(url, { ...options, headers });
+    let res: Response;
+    try {
+      res = await fetch(url, { ...options, headers });
+    } catch {
+      throw new V2ApiError(
+        0,
+        'V2GatewayUnreachable',
+        'FixGuard V2 API Gateway is not reachable. Start it with: cd worker && npm run dev (http://127.0.0.1:4000/api/v2). Web proxies /api/v2 via V2_BACKEND_URL.'
+      );
+    }
     if (!res.ok) {
       let errorType = 'HttpError';
       let message = `HTTP ${res.status} ${res.statusText}`;
@@ -757,7 +812,13 @@ export class V2AttackApiClient {
         if (typeof body.message === 'string') message = body.message;
         if (typeof body.reasonCode === 'string') reasonCode = body.reasonCode;
       } catch {
-        // Non-JSON response
+        if (res.status === 502 || res.status === 503 || res.status === 504) {
+          throw new V2ApiError(
+            res.status,
+            'V2GatewayUnreachable',
+            'FixGuard V2 API Gateway is not reachable. Start it with: cd worker && npm run dev (http://127.0.0.1:4000/api/v2).'
+          );
+        }
       }
 
       throw new V2ApiError(res.status, errorType, message, reasonCode);
@@ -770,6 +831,25 @@ export class V2AttackApiClient {
   public async getAttackPlans(assessmentId: string): Promise<GetAttackPlansResponse> {
     return this.request<GetAttackPlansResponse>(
       `/assessments/${encodeURIComponent(assessmentId)}/attack-plans`
+    );
+  }
+
+  /** GET /api/v2/assessments/:assessmentId/attack-recommendations */
+  public async getAttackRecommendations(
+    assessmentId: string,
+    params?: {
+      readonly findingId?: string;
+      readonly planId?: string;
+      readonly investigationId?: string;
+    }
+  ): Promise<GetAttackRecommendationsResponse> {
+    const qs = new URLSearchParams();
+    if (params?.findingId) qs.set('findingId', params.findingId);
+    if (params?.planId) qs.set('planId', params.planId);
+    if (params?.investigationId) qs.set('investigationId', params.investigationId);
+    const suffix = qs.toString() ? `?${qs.toString()}` : '';
+    return this.request<GetAttackRecommendationsResponse>(
+      `/assessments/${encodeURIComponent(assessmentId)}/attack-recommendations${suffix}`
     );
   }
 
@@ -816,6 +896,7 @@ export class V2AttackApiClient {
     if (params.dnsAnswers !== undefined) body.dnsAnswers = params.dnsAnswers;
     if (params.primaryIdentity !== undefined) body.primaryIdentity = params.primaryIdentity;
     if (params.secondaryIdentity !== undefined) body.secondaryIdentity = params.secondaryIdentity;
+    if (params.investigationId !== undefined) body.investigationId = params.investigationId;
 
     return this.request<ExecuteAttackPlanResponse>(
       `/assessments/${encodeURIComponent(assessmentId)}/attack-plans/${encodeURIComponent(planId)}/execute`,

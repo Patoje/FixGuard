@@ -1,11 +1,12 @@
 {
-  "name": "nombre-del-proyecto",
-  "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
+  "name": "fixguard",
+  "version": "2.0.0",
+  "private": true,
+  "description": "FixGuard V2 — authorized web security assessment",
   "scripts": {
-    "start": "node index.js"
+    "dev:web": "npm run dev --prefix web",
+    "dev:worker": "npm run dev --prefix worker",
+    "dev:v2": "npm run dev:worker & npm run dev:web; wait"
   },
-  "author": "",
-  "license": "ISC"
+  "license": "UNLICENSED"
 }

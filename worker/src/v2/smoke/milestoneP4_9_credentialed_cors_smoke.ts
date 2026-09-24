@@ -329,9 +329,9 @@ async function runTests(): Promise<void> {
   }
 
   // -------------------------------------------------------------------------
-  // Test 5: Full HITL triage lifecycle promotes drafts to formal Findings
+  // Test 5: Confirmed credentialed CORS auto-promotes to Finding (HITL not required)
   // -------------------------------------------------------------------------
-  console.log('--- Test 5: Full HITL triage lifecycle promotes drafts to formal Findings ---');
+  console.log('--- Test 5: Confirmed credentialed CORS auto-promotes to formal Finding ---');
   {
     const repository = new InMemoryOrchestratedAssessmentRepository();
     const availabilityService = new ReconToolAvailabilityService({
@@ -384,46 +384,26 @@ async function runTests(): Promise<void> {
     const corsDraft = draftsResponse.drafts.find(
       (d) => d.differentialContext?.detectionKind === 'credentialed_cors'
     );
-
-    if (!corsDraft) {
-      throw new Error(`Test 5 Failed: Expected pending Credentialed CORS draft, found: ${JSON.stringify(draftsResponse.drafts.map((d) => d.differentialContext?.detectionKind))}`);
-    }
-
-    if (corsDraft.differentialContext?.allowCredentialsHeader !== true) {
-      throw new Error(`Test 5 Failed: Expected allowCredentialsHeader true, got '${corsDraft.differentialContext?.allowCredentialsHeader}'`);
-    }
-
-    // Perform HITL review promotion
-    const reviewResult = await appService.reviewEvidenceDraft({
-      assessmentId: startRes.assessmentId,
-      draftId: corsDraft.draftId,
-      decision: 'approve_evidence',
-      reviewerId: 'usr_secops_lead',
-      reviewedAt: new Date().toISOString(),
-      notes: 'Confirmed credentialed CORS origin reflection against canary origin.',
-    });
-
-    if (reviewResult.decision !== 'approve_evidence' || !reviewResult.findingCreated) {
-      throw new Error(`Test 5 Failed: Review promotion failed: ${JSON.stringify(reviewResult)}`);
-    }
-
-    const promotedFinding = reviewResult.findingCreated;
-    if (promotedFinding.type !== 'SECURITY_MISCONFIGURATION') {
-      throw new Error(`Test 5 Failed: Expected finding type 'SECURITY_MISCONFIGURATION', got '${promotedFinding.type}'`);
-    }
-
-    const findingMeta = promotedFinding.metadata as CredentialedCorsMetadata;
-    if (findingMeta.kind !== 'credentialed_cors_metadata' || findingMeta.allowCredentialsHeader !== true) {
-      throw new Error(`Test 5 Failed: Invalid promoted finding metadata: ${JSON.stringify(findingMeta)}`);
+    if (corsDraft) {
+      throw new Error('Test 5 Failed: credentialed_cors must auto-promote — should not remain as pending draft');
     }
 
     const summary = await appService.getSummary(startRes.assessmentId);
-    const summaryFinding = summary.findings.find((f: Finding) => f.metadata?.kind === 'credentialed_cors_metadata');
+    const summaryFinding = summary.findings.find(
+      (f: Finding) => f.metadata?.kind === 'credentialed_cors_metadata'
+    );
     if (!summaryFinding) {
-      throw new Error('Test 5 Failed: Promoted Credentialed CORS finding not found in assessment summary');
+      throw new Error(
+        `Test 5 Failed: Expected auto-promoted Credentialed CORS finding, got findings=${JSON.stringify(summary.findings.map((f) => f.metadata?.kind))}`
+      );
     }
 
-    console.log('✓ Test 5 Passed: HITL review approved and promoted Credentialed CORS draft to formal Finding');
+    const findingMeta = summaryFinding.metadata as CredentialedCorsMetadata;
+    if (findingMeta.kind !== 'credentialed_cors_metadata' || findingMeta.allowCredentialsHeader !== true) {
+      throw new Error(`Test 5 Failed: Invalid auto-promoted finding metadata: ${JSON.stringify(findingMeta)}`);
+    }
+
+    console.log('✓ Test 5 Passed: Confirmed credentialed CORS auto-promoted to formal Finding');
   }
 
   console.log('\n[milestoneP4_9_credentialed_cors_smoke] ALL 5 TESTS PASSED SUCCESSFULLY! (100% compliant)');

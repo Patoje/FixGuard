@@ -28,6 +28,10 @@ import {
   type ProfileEndpointDto,
   generateHtmlReport
 } from "@/lib/v2Api";
+import {
+  presentSeverity,
+  severityFromDetectionKind,
+} from "@/lib/v2/severityPresentation";
 
 interface ExecutiveResultsPanelProps {
   summary: OrchestratedAssessmentSummaryResponse | null;
@@ -347,15 +351,23 @@ export function ExecutiveResultsPanel({ summary }: ExecutiveResultsPanelProps) {
             </div>
           ) : (
             <div className="space-y-3">
-              {findings.map((f) => (
+              {findings.map((f) => {
+                const severity = presentSeverity(
+                  severityFromDetectionKind(undefined, {
+                    findingSeverity: f.severity,
+                  })
+                );
+                return (
                 <div
                   key={f.id}
-                  className="rounded-xl border border-rose-500/30 bg-rose-500/5 p-4 space-y-2"
+                  className="rounded-xl border border-zinc-800 bg-zinc-900/40 p-4 space-y-2"
                 >
                   <div className="flex items-center justify-between gap-2">
                     <div className="flex items-center gap-2">
-                      <span className="rounded bg-rose-500 text-black px-2 py-0.5 text-[10px] font-bold uppercase font-mono">
-                        {f.severity}
+                      <span
+                        className={`rounded border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ${severity.badgeClass}`}
+                      >
+                        {severity.label}
                       </span>
                       <h4 className="text-xs font-semibold text-white">{f.title}</h4>
                     </div>
@@ -370,7 +382,8 @@ export function ExecutiveResultsPanel({ summary }: ExecutiveResultsPanelProps) {
                     <span>Line: {f.line}</span>
                   </div>
                 </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </div>

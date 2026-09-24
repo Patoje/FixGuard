@@ -63,6 +63,7 @@ import type {
   ContentDiscoveryResult,
   DiscoveredContentObservation,
 } from '../adapters/ContentDiscoveryContracts.js';
+import { resolveApiDiscoveryWordlistPath } from '../wordlists/resolveApiDiscoveryWordlist.js';
 import type {
   ParameterDiscoveryResult,
   DiscoveredParameterObservation,
@@ -1247,14 +1248,25 @@ export class CompositeActiveReconOrchestratorService {
             }
           }
 
-          // 2. Content discovery via Ffuf (if wordlist provided)
+          // 2. Content discovery via Ffuf when a wordlist is configured.
+          // Thin relative paths (api-endpoints / api_wordlist) resolve to the
+          // SecLists-backed gated list; deep list via FIXGUARD_API_WORDLIST_DEEP=1.
           if (request.config?.wordlistPath) {
+            const rawWl = request.config.wordlistPath.trim();
+            const useGatedDefault =
+              rawWl === 'default' ||
+              rawWl === 'api' ||
+              rawWl.endsWith('api-endpoints.txt') ||
+              rawWl.endsWith('api_wordlist.txt');
+            const wordlistPath = useGatedDefault
+              ? resolveApiDiscoveryWordlistPath({ explicitPath: undefined })
+              : resolveApiDiscoveryWordlistPath({ explicitPath: rawWl });
             const contentResult: ContentDiscoveryResult = await coordinator.execute(
               parsed.hostname,
               () =>
                 this.tools.contentTool.discoverContent({
                   targetUrl: rootUrl,
-                  wordlistPath: request.config!.wordlistPath!,
+                  wordlistPath,
                   verifiedAuthorizationDecision: request.verifiedAuthorizationDecision,
                   authorizedScopeGrant: request.authorizedScopeGrant,
                   lineage: request.lineage,

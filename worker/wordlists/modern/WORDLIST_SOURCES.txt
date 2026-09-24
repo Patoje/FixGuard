@@ -1,0 +1,8 @@
+
+# Source: SecLists (MIT)
+# https://github.com/danielmiessler/SecLists/blob/master/Discovery/Web-Content/api/api-endpoints.txt
+# seclists-api-endpoints.txt — Discovery/Web-Content/api/api-endpoints.txt
+# seclists-common-api-endpoints.txt — Discovery/Web-Content/common-api-endpoints-mazen160.txt
+# Use via FIXGUARD_API_WORDLIST_PATH or ContentDiscovery default gated path (discovery-only, in-scope).
+# seclists-api-endpoints-res.txt — Discovery/Web-Content/api/api-endpoints-res.txt (~10k tokens; deep fuzz)
+# api-discovery-gated.txt — merged unique paths from core/api-endpoints + SecLists api + mazen160 (default for ffuf API discovery)

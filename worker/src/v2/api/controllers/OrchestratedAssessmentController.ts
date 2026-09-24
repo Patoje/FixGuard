@@ -197,6 +197,65 @@ export class OrchestratedAssessmentController {
     }
   };
 
+  /**
+   * Operator A/B attack recommendations (deterministic; never auto-execute).
+   * Query: findingId?, planId?, investigationId?
+   */
+  public getAttackRecommendations = async (
+    req: Request,
+    res: Response,
+    next: NextFunction
+  ): Promise<void> => {
+    try {
+      const assessmentId = req.params.assessmentId;
+      if (!assessmentId || typeof assessmentId !== 'string' || !isStrictSafeId(assessmentId)) {
+        throw new ApiValidationError('Field assessmentId must satisfy strict identifier format');
+      }
+
+      const findingIdRaw = req.query.findingId;
+      const planIdRaw = req.query.planId;
+      const investigationIdRaw = req.query.investigationId;
+
+      const findingId =
+        findingIdRaw === undefined
+          ? undefined
+          : typeof findingIdRaw === 'string' && isStrictSafeId(findingIdRaw)
+            ? findingIdRaw
+            : null;
+      if (findingId === null) {
+        throw new ApiValidationError('Query findingId must satisfy strict identifier format');
+      }
+      const planId =
+        planIdRaw === undefined
+          ? undefined
+          : typeof planIdRaw === 'string' && isStrictSafeId(planIdRaw)
+            ? planIdRaw
+            : null;
+      if (planId === null) {
+        throw new ApiValidationError('Query planId must satisfy strict identifier format');
+      }
+      const investigationId =
+        investigationIdRaw === undefined
+          ? undefined
+          : typeof investigationIdRaw === 'string' && isStrictSafeId(investigationIdRaw)
+            ? investigationIdRaw
+            : null;
+      if (investigationId === null) {
+        throw new ApiValidationError('Query investigationId must satisfy strict identifier format');
+      }
+
+      const result = await this.service.getAttackRecommendations({
+        assessmentId,
+        ...(findingId ? { findingId } : {}),
+        ...(planId ? { planId } : {}),
+        ...(investigationId ? { investigationId } : {}),
+      });
+      res.status(200).json(result);
+    } catch (err) {
+      next(err);
+    }
+  };
+
   public getAttackChains = async (
     req: Request,
     res: Response,
@@ -632,6 +691,7 @@ export class OrchestratedAssessmentController {
         'dnsAnswers',
         'primaryIdentity',
         'secondaryIdentity',
+        'investigationId',
       ];
       for (const k of Object.keys(body)) {
         if (!allowedKeys.includes(k)) {
@@ -648,6 +708,17 @@ export class OrchestratedAssessmentController {
       }
       if (!isAuthorizedScopeGrant(body.scopeGrant)) {
         throw new ApiValidationError('Field scopeGrant shape is invalid');
+      }
+
+      const investigationIdRaw = body.investigationId;
+      const investigationId =
+        investigationIdRaw === undefined
+          ? null
+          : typeof investigationIdRaw === 'string' && isStrictSafeId(investigationIdRaw)
+            ? investigationIdRaw
+            : null;
+      if (investigationIdRaw !== undefined && investigationId === null) {
+        throw new ApiValidationError('Field investigationId must satisfy strict identifier format');
       }
 
       const findings =
@@ -694,6 +765,25 @@ export class OrchestratedAssessmentController {
           ? async () => hermeticDnsAnswers
           : assessmentDnsResolver;
 
+      let coordinator = new TargetExecutionCoordinator();
+      if (investigationId) {
+        const { gate, coordinator: investigationCoordinator } =
+          this.service.gateAttackExecutionUnderInvestigation({
+            assessmentId,
+            investigationId,
+            planId,
+            attackAuthorizationToken: token,
+            expectedRequestCost: 1,
+          });
+        if (gate.status !== 'authorized' || !investigationCoordinator) {
+          throw new UnauthorizedGatewayError(
+            gate.status === 'denied' ? gate.safeMessage : 'Investigation gate denied',
+            gate.status === 'denied' ? gate.reasonCode : 'investigation_gate_denied'
+          );
+        }
+        coordinator = investigationCoordinator;
+      }
+
       const result = await this.attackExecutionService.execute({
         contractVersion: ATTACK_EXECUTION_CONTRACT_VERSION,
         kind: 'attack_execution_request',
@@ -701,7 +791,7 @@ export class OrchestratedAssessmentController {
         assessmentId,
         token,
         scopeGrant,
-        coordinator: new TargetExecutionCoordinator(),
+        coordinator,
         dnsResolver,
         findings,
         operatorId,
@@ -712,6 +802,21 @@ export class OrchestratedAssessmentController {
           : {}),
         transport,
       });
+
+      if (investigationId) {
+        const executionId =
+          result.record && typeof result.record.executionId === 'string'
+            ? result.record.executionId
+            : planId;
+        this.service.recordInvestigationExecutionStep({
+          investigationId,
+          stepId: `exec_${executionId}`.replace(/[^A-Za-z0-9_\-.:]/g, '_').slice(0, 128),
+          requestCost:
+            result.status === 'completed'
+              ? Math.max(1, result.record.stepRecords.length)
+              : 0,
+        });
+      }
 
       if (result.status === 'preflight_denied') {
         throw new UnauthorizedGatewayError(result.safeMessage, result.reasonCode);
@@ -774,10 +879,13 @@ export class OrchestratedAssessmentController {
             stepId: s.stepId,
             outcome: s.outcome,
             reasonCode: s.reasonCode,
+            safeMessage: s.safeMessage,
             gatesPassed: s.gatesPassed,
             verificationStateBefore: s.verificationStateBefore,
             verificationStateAfter: s.verificationStateAfter,
             ...(s.evidenceId ? { evidenceId: s.evidenceId } : {}),
+            ...(s.commandSummary ? { commandSummary: s.commandSummary } : {}),
+            ...(s.consoleLines ? { consoleLines: s.consoleLines } : {}),
           })),
           updatedFindingStates: result.record.updatedFindings.map((f) => ({
             id: f.id,
@@ -786,6 +894,212 @@ export class OrchestratedAssessmentController {
         },
         ...(refresh ? { refresh } : {}),
       });
+    } catch (err) {
+      next(err);
+    }
+  };
+
+  /**
+   * Etapa 2 · F1 — start ActiveInvestigationRuntime (state + budget + auth bundle).
+   * Does not execute AttackPlans.
+   */
+  public startActiveInvestigation = async (
+    req: Request,
+    res: Response,
+    next: NextFunction
+  ): Promise<void> => {
+    try {
+      const assessmentId = req.params.assessmentId;
+      if (!assessmentId || typeof assessmentId !== 'string' || !isStrictSafeId(assessmentId)) {
+        throw new ApiValidationError('Field assessmentId must satisfy strict identifier format');
+      }
+      if (!req.body || typeof req.body !== 'object' || Array.isArray(req.body)) {
+        throw new ApiValidationError('Start investigation body must be a non-empty object');
+      }
+      const body = req.body as Record<string, unknown>;
+      const allowedKeys = ['investigationId', 'budget', 'openHypothesisRefs', 'startedAt'];
+      for (const k of Object.keys(body)) {
+        if (!allowedKeys.includes(k)) {
+          throw new ApiValidationError('Start investigation body contains unknown or forbidden field');
+        }
+      }
+      const investigationId = body.investigationId;
+      if (typeof investigationId !== 'string' || !isStrictSafeId(investigationId)) {
+        throw new ApiValidationError('Field investigationId must satisfy strict identifier format');
+      }
+
+      let budget:
+        | {
+            readonly maxRequests: number;
+            readonly maxDurationMs: number;
+            readonly maxConcurrentSteps?: number;
+            readonly requestsPerSecondCeiling?: number;
+            readonly maxConcurrencyCeiling?: number;
+          }
+        | undefined;
+      if (body.budget !== undefined) {
+        if (!body.budget || typeof body.budget !== 'object' || Array.isArray(body.budget)) {
+          throw new ApiValidationError('Field budget must be an object');
+        }
+        const rawBudget = body.budget as Record<string, unknown>;
+        const maxRequests = rawBudget.maxRequests;
+        const maxDurationMs = rawBudget.maxDurationMs;
+        if (typeof maxRequests !== 'number' || !Number.isInteger(maxRequests) || maxRequests < 1) {
+          throw new ApiValidationError('Field budget.maxRequests must be a positive integer');
+        }
+        if (
+          typeof maxDurationMs !== 'number' ||
+          !Number.isInteger(maxDurationMs) ||
+          maxDurationMs < 1
+        ) {
+          throw new ApiValidationError('Field budget.maxDurationMs must be a positive integer');
+        }
+        budget = {
+          maxRequests,
+          maxDurationMs,
+          ...(typeof rawBudget.maxConcurrentSteps === 'number'
+            ? { maxConcurrentSteps: rawBudget.maxConcurrentSteps }
+            : {}),
+          ...(typeof rawBudget.requestsPerSecondCeiling === 'number'
+            ? { requestsPerSecondCeiling: rawBudget.requestsPerSecondCeiling }
+            : {}),
+          ...(typeof rawBudget.maxConcurrencyCeiling === 'number'
+            ? { maxConcurrencyCeiling: rawBudget.maxConcurrencyCeiling }
+            : {}),
+        };
+      }
+
+      const openHypothesisRefs = body.openHypothesisRefs;
+      if (openHypothesisRefs !== undefined) {
+        if (
+          !Array.isArray(openHypothesisRefs) ||
+          !openHypothesisRefs.every((r) => typeof r === 'string' && isStrictSafeId(r))
+        ) {
+          throw new ApiValidationError(
+            'Field openHypothesisRefs must be an array of strict identifiers'
+          );
+        }
+      }
+
+      const result = await this.service.startActiveInvestigation({
+        assessmentId,
+        investigationId,
+        ...(budget ? { budget } : {}),
+        ...(openHypothesisRefs ? { openHypothesisRefs } : {}),
+        ...(typeof body.startedAt === 'string' ? { startedAt: body.startedAt } : {}),
+      });
+
+      if (result.status === 'denied') {
+        throw new UnauthorizedGatewayError(result.safeMessage, result.reasonCode);
+      }
+
+      res.status(201).json({
+        status: result.status,
+        reasonCode: result.reasonCode,
+        snapshot: result.snapshot,
+        authorizationBundle: {
+          investigationId: result.authorizationBundle.investigationId,
+          assessmentId: result.authorizationBundle.assessmentId,
+          sealedAt: result.authorizationBundle.sealedAt,
+          hasVerifiedAuthorizationDecision:
+            result.authorizationBundle.hasVerifiedAuthorizationDecision,
+          hasAttackAuthorizationToken: result.authorizationBundle.hasAttackAuthorizationToken,
+        },
+      });
+    } catch (err) {
+      next(err);
+    }
+  };
+
+  /**
+   * Etapa 2 · F1 — cancel or engage kill-switch on an active investigation.
+   */
+  public cancelActiveInvestigation = async (
+    req: Request,
+    res: Response,
+    next: NextFunction
+  ): Promise<void> => {
+    try {
+      const assessmentId = req.params.assessmentId;
+      const investigationId = req.params.investigationId;
+      if (!assessmentId || typeof assessmentId !== 'string' || !isStrictSafeId(assessmentId)) {
+        throw new ApiValidationError('Field assessmentId must satisfy strict identifier format');
+      }
+      if (
+        !investigationId ||
+        typeof investigationId !== 'string' ||
+        !isStrictSafeId(investigationId)
+      ) {
+        throw new ApiValidationError('Field investigationId must satisfy strict identifier format');
+      }
+      if (!req.body || typeof req.body !== 'object' || Array.isArray(req.body)) {
+        throw new ApiValidationError('Cancel investigation body must be a non-empty object');
+      }
+      const body = req.body as Record<string, unknown>;
+      const allowedKeys = ['operatorId', 'mode', 'cancelledAt'];
+      for (const k of Object.keys(body)) {
+        if (!allowedKeys.includes(k)) {
+          throw new ApiValidationError('Cancel investigation body contains unknown or forbidden field');
+        }
+      }
+      const operatorId = body.operatorId;
+      const mode = body.mode;
+      if (typeof operatorId !== 'string' || !isStrictSafeId(operatorId)) {
+        throw new ApiValidationError('Field operatorId must satisfy strict identifier format');
+      }
+      if (mode !== 'cancel' && mode !== 'kill_switch') {
+        throw new ApiValidationError('Field mode must be cancel or kill_switch');
+      }
+
+      const result = this.service.cancelActiveInvestigation({
+        assessmentId,
+        investigationId,
+        operatorId,
+        mode,
+        ...(typeof body.cancelledAt === 'string' ? { cancelledAt: body.cancelledAt } : {}),
+      });
+
+      if (result.status === 'denied') {
+        throw new UnauthorizedGatewayError(result.safeMessage, result.reasonCode);
+      }
+
+      res.status(200).json({
+        status: result.status,
+        reasonCode: result.reasonCode,
+        snapshot: result.snapshot,
+      });
+    } catch (err) {
+      next(err);
+    }
+  };
+
+  public getActiveInvestigation = async (
+    req: Request,
+    res: Response,
+    next: NextFunction
+  ): Promise<void> => {
+    try {
+      const assessmentId = req.params.assessmentId;
+      const investigationId = req.params.investigationId;
+      if (!assessmentId || typeof assessmentId !== 'string' || !isStrictSafeId(assessmentId)) {
+        throw new ApiValidationError('Field assessmentId must satisfy strict identifier format');
+      }
+      if (
+        !investigationId ||
+        typeof investigationId !== 'string' ||
+        !isStrictSafeId(investigationId)
+      ) {
+        throw new ApiValidationError('Field investigationId must satisfy strict identifier format');
+      }
+
+      const snapshot = this.service.getActiveInvestigationSnapshot(assessmentId, investigationId);
+      if (!snapshot) {
+        throw new SessionNotFoundError(
+          `Active investigation '${investigationId}' was not found`,
+          investigationId
+        );
+      }
+      res.status(200).json({ snapshot });
     } catch (err) {
       next(err);
     }

@@ -3,14 +3,8 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import Link from "next/link";
 import {
-  Shield,
-  Layers,
-  Activity,
   ArrowLeft,
-  Sparkles,
   Zap,
-  Terminal,
-  CheckCircle2
 } from "lucide-react";
 import {
   getOrchestratedAssessmentStatus,
@@ -144,20 +138,9 @@ export default function OrchestratedAssessmentsPage() {
             </div>
 
             <div>
-              <div className="flex items-center gap-2">
-                <h1 className="text-base font-bold tracking-tight text-white">
-                  FixGuard V2 — Orchestrated Assessments
-                </h1>
-                <span className="rounded bg-emerald-500/10 border border-emerald-500/30 px-2 py-0.5 text-[10px] font-mono font-semibold text-emerald-400">
-                  M73 / F4 / F5 / F6
-                </span>
-                <span className="rounded bg-purple-500/10 border border-purple-500/30 px-2 py-0.5 text-[10px] font-mono text-purple-300">
-                  Real Time
-                </span>
-              </div>
-              <p className="text-xs text-zinc-400">
-                End-to-End Orchestrated Pipeline: 5-Stage Recon, CORS &amp; Reflection Detection, TargetProfile &amp; Advisory Engine
-              </p>
+              <h1 className="text-base font-bold tracking-tight text-white">
+                Assessments
+              </h1>
             </div>
           </div>
 
@@ -166,13 +149,13 @@ export default function OrchestratedAssessmentsPage() {
               href={assessmentId ? `/v2/attack?assessmentId=${encodeURIComponent(assessmentId)}` : "/v2/attack"}
               className="rounded-lg border border-orange-500/40 bg-orange-500/10 hover:bg-orange-500/20 px-3 py-1.5 text-orange-300 font-semibold transition"
             >
-              Attack Mode (A13) &rarr;
+              Attack Mode &rarr;
             </Link>
             <Link
               href="/v2"
               className="rounded-lg border border-zinc-800 bg-zinc-900/60 hover:bg-zinc-900 px-3 py-1.5 text-zinc-400 hover:text-zinc-200 transition"
             >
-              View M62 Triage Board &rarr;
+              Triage Board &rarr;
             </Link>
           </div>
         </div>

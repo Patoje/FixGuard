@@ -346,38 +346,27 @@ async function runTests(): Promise<void> {
   const draftsResult = await service.getEvidenceDrafts(startRes.assessmentId);
   const authBypassDraft = draftsResult.drafts.find((d) => d.differentialContext?.detectionKind === 'auth_bypass');
 
-  if (!authBypassDraft) {
-    throw new Error('Test 4 Failed: Expected auth_bypass draft in pendingEvidenceDrafts');
-  }
-
-  // Operator Reviews & Approves Auth Bypass Draft
-  const triageApprove = await service.reviewEvidenceDraft({
-    assessmentId: startRes.assessmentId,
-    draftId: authBypassDraft.draftId,
-    decision: 'approve_evidence',
-    reviewerId: 'usr_lead_analyst',
-    reviewedAt: new Date().toISOString(),
-    notes: 'Confirmed authentication bypass on unprotected profile resource',
-  });
-
-  if (triageApprove.decision !== 'approve_evidence') {
-    throw new Error('Test 4 Failed: Triage approval failed');
+  if (authBypassDraft) {
+    throw new Error('Test 4 Failed: auth_bypass must auto-promote — should not remain as pending draft');
   }
 
   const summary = await service.getSummary(startRes.assessmentId);
   const bypassFinding = summary.findings.find((f: Finding) => f.type === 'BROKEN_AUTHENTICATION');
 
   if (!bypassFinding) {
-    throw new Error('Test 4 Failed: Finding not promoted to formal BROKEN_AUTHENTICATION');
+    throw new Error('Test 4 Failed: Expected auto-promoted BROKEN_AUTHENTICATION finding');
   }
+
+  if (bypassFinding.metadata.kind !== 'auth_bypass_metadata') {
+    throw new Error(`Test 4 Failed: Expected auth_bypass_metadata, got ${bypassFinding.metadata.kind}`);
+  }
+
+  console.log('✓ Test 4 Passed: Auth bypass confirmed signal auto-promoted to Finding');
   if (bypassFinding.severity !== 'high') {
     throw new Error(`Test 4 Failed: Expected severity high, got ${bypassFinding.severity}`);
   }
-  if (bypassFinding.metadata?.kind !== 'auth_bypass_metadata') {
-    throw new Error(`Test 4 Failed: Expected auth_bypass_metadata, got ${bypassFinding.metadata?.kind}`);
-  }
 
-  console.log('  [PASS] Full pipeline produced Auth Bypass draft and promoted to BROKEN_AUTHENTICATION finding on HITL approval.');
+  console.log('  [PASS] Full pipeline auto-promoted Auth Bypass to BROKEN_AUTHENTICATION finding.');
 
   console.log('[milestoneP4_1_auth_bypass_smoke] ALL SMOKE TESTS PASSED (100%)');
 }

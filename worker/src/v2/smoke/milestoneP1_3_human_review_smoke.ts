@@ -1,15 +1,16 @@
 /**
  * FixGuard V2 — Milestone P1-3 Smoke Test Suite
  *
- * Verifies Human-in-the-Loop (HITL) Evidence Review and Triage:
- * 1. GET /api/v2/orchestrated/assessments/:assessmentId/evidence-drafts retrieves pending drafts
- *    with full differential context (status codes, body hashes, reflected parameters).
- * 2. POST /api/v2/orchestrated/assessments/:assessmentId/evidence/:draftId/review with 'approve_evidence'
- *    promotes draft into a strongly-typed Finding on the assessment record.
- * 3. POST review with 'reject_evidence' cleanly discards the draft with 0 findings created.
- * 4. Server-Side Anti-Bypass Gate: Submitting banned synthetic reviewerId ('reviewer_lead_sec', 'synthetic_reviewer')
- *    fails immediately with HTTP 400 Bad Request.
- * 5. Lineage tuple is preserved unbroken throughout review and finding promotion.
+ * Product correction: confirmed attack-valuable detections auto-promote to Findings.
+ * HITL remains for leftover soft/cosmetic drafts and for AttackPlan execute.
+ *
+ * Verifies:
+ * 1. CORS + parameter reflection with confirmed signals auto-promote to Findings.
+ * 2. Soft drafts (e.g. missing security headers) remain pending for optional HITL.
+ * 3. GET evidence-drafts returns leftover drafts with differential context.
+ * 4. POST review approve_evidence promotes a soft draft to Finding.
+ * 5. POST review reject_evidence discards a draft with 0 additional findings.
+ * 6. Anti-bypass gate rejects synthetic reviewerIds with HTTP 400.
  */
 
 import assert from 'node:assert';
@@ -35,7 +36,6 @@ import { SECRET_DISCOVERY_NON_CLAIMS } from '../recon/adapters/SecretDiscoveryCo
 import type { IdorHttpProbeTransport } from '../detection/DetectionContracts.js';
 import type {
   GetEvidenceDraftsResult,
-  OrchestratedAssessmentRecord,
   ReviewEvidenceDraftResult,
 } from '../application/OrchestratedAssessmentContracts.js';
 
@@ -205,7 +205,7 @@ function createMockAdapters(): ReconToolAdapters {
 
 /**
  * Mock HTTP Transport that reflects CORS origin and reflects parameter 'q'
- * to produce real pending evidence drafts during detection.
+ * to produce confirmed attack-valuable signals (auto-Findings) plus soft header gaps.
  */
 const mockDetectionTransport: IdorHttpProbeTransport = async (req) => {
   const origin = req.headers['origin'];
@@ -289,9 +289,6 @@ async function runSmokeTests(): Promise<void> {
   const { server, baseUrl, orchestratedService, repository } = await startTestServer();
 
   try {
-    // -------------------------------------------------------------------------
-    // Phase 1: Launch Assessment & Complete Execution with Pending Drafts
-    // -------------------------------------------------------------------------
     console.log('[milestoneP1_3_human_review_smoke] Phase 1: Launching assessment...');
     const startRes = await fetch(`${baseUrl}/orchestrated/assessments/start`, {
       method: 'POST',
@@ -310,25 +307,69 @@ async function runSmokeTests(): Promise<void> {
     const assessmentId = startData.assessmentId;
     assert(assessmentId, 'assessmentId must be returned');
 
-    // Await pipeline completion
     const completedRecord = await orchestratedService.awaitAssessment(assessmentId);
     assert(completedRecord, 'Assessment record must exist');
     assert.strictEqual(completedRecord.status, 'completed', 'Assessment should complete cleanly');
 
-    // Verify pending evidence drafts were generated
+    const autoFindings = completedRecord.findings;
+    assert(
+      autoFindings.some(
+        (f) =>
+          f.metadata.kind === 'security_misconfiguration_metadata' ||
+          f.metadata.kind === 'credentialed_cors_metadata' ||
+          f.type === 'CORS_MISCONFIGURATION' ||
+          f.type === 'SECURITY_MISCONFIGURATION'
+      ),
+      'CORS confirmed signal must auto-promote to a Finding'
+    );
+    assert(
+      autoFindings.some(
+        (f) =>
+          f.metadata.kind === 'input_validation_flaw_metadata' ||
+          f.type === 'INPUT_VALIDATION_FLAW' ||
+          f.type === 'PARAMETER_REFLECTION'
+      ),
+      'Parameter reflection with canary must auto-promote to a Finding'
+    );
+    assert.ok(
+      autoFindings.every((f) => f.verificationState !== 'exploitability_confirmed'),
+      'Auto findings must not claim exploitability_confirmed'
+    );
+
     const pendingDrafts = completedRecord.pendingEvidenceDrafts ?? [];
-    assert(pendingDrafts.length >= 2, `Expected at least 2 pending drafts (CORS + Reflection), got ${pendingDrafts.length}`);
+    assert(
+      pendingDrafts.length >= 1,
+      `Expected at least 1 leftover soft draft for HITL, got ${pendingDrafts.length}`
+    );
+    assert(
+      !pendingDrafts.some((d) => d.differentialContext?.detectionKind === 'cors_misconfiguration'),
+      'CORS must not remain as pending draft after auto-promotion'
+    );
+    assert(
+      !pendingDrafts.some((d) => d.differentialContext?.detectionKind === 'parameter_reflection'),
+      'Parameter reflection must not remain as pending draft after auto-promotion'
+    );
 
-    const corsDraft = pendingDrafts.find((d) => d.differentialContext?.detectionKind === 'cors_misconfiguration');
-    const reflDraft = pendingDrafts.find((d) => d.differentialContext?.detectionKind === 'parameter_reflection');
+    const headerDraft = pendingDrafts.find(
+      (d) => d.differentialContext?.detectionKind === 'missing_security_headers'
+    );
+    assert(headerDraft, 'Must retain missing_security_headers draft for optional HITL');
+    const softDrafts = pendingDrafts.filter(
+      (d) =>
+        d.differentialContext?.detectionKind === 'missing_security_headers' ||
+        d.differentialContext?.detectionKind === 'wordpress_surface' ||
+        d.differentialContext?.detectionKind === 'graphql_surface' ||
+        d.differentialContext?.detectionKind === 'api_versioning_sprawl' ||
+        d.differentialContext?.detectionKind === 'manifest_exposure' ||
+        d.differentialContext?.detectionKind === 'information_disclosure'
+    );
+    assert(softDrafts.length >= 1, 'Need soft drafts for HITL approve/reject coverage');
+    const approveTarget = softDrafts[0]!;
 
-    assert(corsDraft, 'Must contain a CORS misconfiguration evidence draft');
-    assert(reflDraft, 'Must contain a Parameter Reflection evidence draft');
-    console.log(`[milestoneP1_3_human_review_smoke] Phase 1: Assessment completed with ${pendingDrafts.length} pending drafts.`);
+    console.log(
+      `[milestoneP1_3_human_review_smoke] Phase 1: ${autoFindings.length} auto findings, ${pendingDrafts.length} leftover drafts.`
+    );
 
-    // -------------------------------------------------------------------------
-    // Phase 2: GET /evidence-drafts with Differential Context
-    // -------------------------------------------------------------------------
     console.log('[milestoneP1_3_human_review_smoke] Phase 2: Fetching evidence drafts via API...');
     const getDraftsRes = await fetch(`${baseUrl}/orchestrated/assessments/${assessmentId}/evidence-drafts`, {
       method: 'GET',
@@ -343,24 +384,18 @@ async function runSmokeTests(): Promise<void> {
     assert.strictEqual(draftsData.draftCount, pendingDrafts.length);
     assert.strictEqual(draftsData.drafts.length, pendingDrafts.length);
 
-    // Verify differential context fields
-    const fetchedCorsDraft = draftsData.drafts.find((d) => d.draftId === corsDraft.draftId);
-    assert(fetchedCorsDraft, 'Fetched drafts must include CORS draft');
-    assert(fetchedCorsDraft.differentialContext, 'Draft must include differentialContext');
-    assert.strictEqual(fetchedCorsDraft.differentialContext.detectionKind, 'cors_misconfiguration');
-    assert.strictEqual(fetchedCorsDraft.differentialContext.baselineStatusCode, 200);
-    assert.strictEqual(fetchedCorsDraft.differentialContext.validationStatusCode, 200);
-    assert.strictEqual(fetchedCorsDraft.differentialContext.allowCredentials, true);
-    assert(fetchedCorsDraft.differentialContext.reflectedOrigin, 'Reflected origin must be present');
-    console.log('[milestoneP1_3_human_review_smoke] Phase 2: Differential context successfully verified.');
+    const fetchedHeaderDraft = draftsData.drafts.find((d) => d.draftId === headerDraft.draftId);
+    assert(fetchedHeaderDraft, 'Fetched drafts must include headers draft');
+    assert(fetchedHeaderDraft.differentialContext, 'Draft must include differentialContext');
+    assert.strictEqual(
+      fetchedHeaderDraft.differentialContext.detectionKind,
+      'missing_security_headers'
+    );
+    console.log('[milestoneP1_3_human_review_smoke] Phase 2: Leftover draft differential context verified.');
 
-    // -------------------------------------------------------------------------
-    // Phase 3: Server-Side Anti-Bypass Gate
-    // -------------------------------------------------------------------------
     console.log('[milestoneP1_3_human_review_smoke] Phase 3: Testing Anti-Bypass Gate against banned synthetic reviewer IDs...');
-    
-    // 3a. Banned reviewer_lead_sec
-    const bypassRes1 = await fetch(`${baseUrl}/orchestrated/assessments/${assessmentId}/evidence/${corsDraft.draftId}/review`, {
+
+    const bypassRes1 = await fetch(`${baseUrl}/orchestrated/assessments/${assessmentId}/evidence/${approveTarget.draftId}/review`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -376,8 +411,7 @@ async function runSmokeTests(): Promise<void> {
     const bypassErr1 = (await bypassRes1.json()) as { error: string; message: string };
     assert(bypassErr1.message.includes('forbidden synthetic or unauthenticated reviewer pattern'), 'Error must identify synthetic pattern');
 
-    // 3b. Banned synthetic_reviewer pattern
-    const bypassRes2 = await fetch(`${baseUrl}/orchestrated/assessments/${assessmentId}/evidence/${corsDraft.draftId}/review`, {
+    const bypassRes2 = await fetch(`${baseUrl}/orchestrated/assessments/${assessmentId}/evidence/${approveTarget.draftId}/review`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -392,11 +426,9 @@ async function runSmokeTests(): Promise<void> {
     assert.strictEqual(bypassRes2.status, 400, "Reviewer 'synthetic_operator_mock' must be rejected with HTTP 400");
     console.log('[milestoneP1_3_human_review_smoke] Phase 3: Anti-Bypass Gate strictly active and rejecting synthetic bypasses.');
 
-    // -------------------------------------------------------------------------
-    // Phase 4: POST review with 'approve_evidence' (Promote to Formal Finding)
-    // -------------------------------------------------------------------------
-    console.log('[milestoneP1_3_human_review_smoke] Phase 4: Approving CORS evidence draft with authorized operator...');
-    const approveRes = await fetch(`${baseUrl}/orchestrated/assessments/${assessmentId}/evidence/${corsDraft.draftId}/review`, {
+    console.log('[milestoneP1_3_human_review_smoke] Phase 4: Approving soft leftover draft with authorized operator...');
+    const findingsBeforeApprove = (await repository.findById(assessmentId))!.findings.length;
+    const approveRes = await fetch(`${baseUrl}/orchestrated/assessments/${assessmentId}/evidence/${approveTarget.draftId}/review`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -406,40 +438,75 @@ async function runSmokeTests(): Promise<void> {
         decision: 'approve_evidence',
         reviewerId: 'usr_secops_lead_auditor',
         reviewedAt: new Date().toISOString(),
-        notes: 'Verified origin reflection with credentials on test harness.',
+        notes: 'Operator reviewed soft leftover draft and approved promotion.',
       }),
     });
 
     assert.strictEqual(approveRes.status, 200, 'Approval must return HTTP 200 OK');
     const approveData = (await approveRes.json()) as ReviewEvidenceDraftResult;
     assert.strictEqual(approveData.decision, 'approve_evidence');
-    assert.strictEqual(approveData.draftId, corsDraft.draftId);
+    assert.strictEqual(approveData.draftId, approveTarget.draftId);
     assert.strictEqual(approveData.reviewerId, 'usr_secops_lead_auditor');
     assert(approveData.findingCreated, 'Promoted Finding must be returned');
+    assert.ok(approveData.findingCreated.id, 'Finding id required');
+    assert.ok(approveData.findingCreated.type, 'Finding type required');
 
-    const createdFinding = approveData.findingCreated;
-    assert.strictEqual(createdFinding.type, 'SECURITY_MISCONFIGURATION');
-    assert.strictEqual(createdFinding.severity, 'high');
-    assert.strictEqual(createdFinding.confidence, 1.0);
-    assert.strictEqual(createdFinding.metadata.kind, 'security_misconfiguration_metadata');
-
-    // Verify assessment record in repository updated
     const afterApproveRecord = await repository.findById(assessmentId);
     assert(afterApproveRecord, 'Record must exist');
-    assert.strictEqual(afterApproveRecord.findings.length, 1, 'Assessment findings must now contain 1 promoted finding');
-    assert.strictEqual(afterApproveRecord.findings[0].id, createdFinding.id);
     assert.strictEqual(
-      afterApproveRecord.pendingEvidenceDrafts?.some((d) => d.draftId === corsDraft.draftId),
+      afterApproveRecord.findings.length,
+      findingsBeforeApprove + 1,
+      'Assessment findings must include HITL-promoted finding'
+    );
+    assert.strictEqual(
+      afterApproveRecord.pendingEvidenceDrafts?.some((d) => d.draftId === approveTarget.draftId),
       false,
       'Approved draft must be removed from pending evidence drafts'
     );
-    console.log('[milestoneP1_3_human_review_smoke] Phase 4: Draft promoted to typed Finding and stored in assessment findings.');
+    console.log('[milestoneP1_3_human_review_smoke] Phase 4: Soft draft promoted to typed Finding via HITL.');
 
-    // -------------------------------------------------------------------------
-    // Phase 5: POST review with 'reject_evidence' (Clean Discard)
-    // -------------------------------------------------------------------------
-    console.log('[milestoneP1_3_human_review_smoke] Phase 5: Rejecting Reflection evidence draft...');
-    const rejectRes = await fetch(`${baseUrl}/orchestrated/assessments/${assessmentId}/evidence/${reflDraft.draftId}/review`, {
+    let rejectDraftId = (afterApproveRecord.pendingEvidenceDrafts ?? []).find(
+      (d) => d.draftId !== approveTarget.draftId
+    )?.draftId;
+
+    if (!rejectDraftId) {
+      const seededDraftId = 'dft_hitl_reject_seed_001';
+      await repository.update(assessmentId, (prev) => ({
+        ...prev,
+        pendingEvidenceDrafts: [
+          ...(prev.pendingEvidenceDrafts ?? []),
+          {
+            draftKind: 'non_persisted_comparison_evidence_draft',
+            draftId: seededDraftId,
+            suggestedEvidenceType: 'http_difference',
+            suggestedStrength: 'moderate',
+            sourceComparisonId: 'cmp_hitl_reject_seed',
+            sourceSnapshotIds: {
+              baselineSnapshotId: 'snp_hitl_reject_base',
+              validationSnapshotId: 'snp_hitl_reject_val',
+            },
+            requiresHumanReview: true,
+            notPersisted: true,
+            notARealFinding: true,
+            notConfirmedEvidence: true,
+            notForExternalDelivery: true,
+            notM45EvidenceRecord: true,
+            safeRationale: 'Seeded soft draft for HITL reject coverage',
+            differentialContext: {
+              endpointUrl: 'https://authorized-review-target.com/',
+              detectionKind: 'missing_security_headers',
+              missingHeaders: ['x-frame-options'],
+              presentHeaders: [],
+            },
+          },
+        ],
+      }));
+      rejectDraftId = seededDraftId;
+    }
+
+    console.log('[milestoneP1_3_human_review_smoke] Phase 5: Rejecting leftover soft evidence draft...');
+    const findingsBeforeReject = (await repository.findById(assessmentId))!.findings.length;
+    const rejectRes = await fetch(`${baseUrl}/orchestrated/assessments/${assessmentId}/evidence/${rejectDraftId}/review`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -449,34 +516,33 @@ async function runSmokeTests(): Promise<void> {
         decision: 'reject_evidence',
         reviewerId: 'usr_secops_lead_auditor',
         reviewedAt: new Date().toISOString(),
-        notes: 'Parameter reflection determined to be expected benign echo.',
+        notes: 'Soft signal determined not to warrant a finding.',
       }),
     });
 
     assert.strictEqual(rejectRes.status, 200, 'Rejection must return HTTP 200 OK');
     const rejectData = (await rejectRes.json()) as ReviewEvidenceDraftResult;
     assert.strictEqual(rejectData.decision, 'reject_evidence');
-    assert.strictEqual(rejectData.draftId, reflDraft.draftId);
+    assert.strictEqual(rejectData.draftId, rejectDraftId);
     assert.strictEqual(rejectData.findingCreated, undefined, 'No finding should be created on rejection');
 
-    // Verify repository state after rejection
     const afterRejectRecord = await repository.findById(assessmentId);
     assert(afterRejectRecord, 'Record must exist');
-    assert.strictEqual(afterRejectRecord.findings.length, 1, 'Findings count must remain 1 (no finding created for rejected draft)');
     assert.strictEqual(
-      afterRejectRecord.pendingEvidenceDrafts?.some((d) => d.draftId === reflDraft.draftId),
+      afterRejectRecord.findings.length,
+      findingsBeforeReject,
+      'Findings count must remain unchanged on rejection'
+    );
+    assert.strictEqual(
+      afterRejectRecord.pendingEvidenceDrafts?.some((d) => d.draftId === rejectDraftId),
       false,
       'Rejected draft must be removed from pending drafts'
     );
     console.log('[milestoneP1_3_human_review_smoke] Phase 5: Draft cleanly discarded with 0 additional findings.');
 
-    // -------------------------------------------------------------------------
-    // Phase 6: Edge Cases & Validation Failures
-    // -------------------------------------------------------------------------
     console.log('[milestoneP1_3_human_review_smoke] Phase 6: Testing validation edge cases...');
 
-    // 6a. Already reviewed draft not found
-    const notFoundDraftRes = await fetch(`${baseUrl}/orchestrated/assessments/${assessmentId}/evidence/${corsDraft.draftId}/review`, {
+    const notFoundDraftRes = await fetch(`${baseUrl}/orchestrated/assessments/${assessmentId}/evidence/${approveTarget.draftId}/review`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -490,7 +556,6 @@ async function runSmokeTests(): Promise<void> {
     });
     assert.strictEqual(notFoundDraftRes.status, 400, 'Reviewing already processed draft must fail');
 
-    // 6b. Invalid decision value
     const invalidDecisionRes = await fetch(`${baseUrl}/orchestrated/assessments/${assessmentId}/evidence/dft_unknown/review`, {
       method: 'POST',
       headers: {
@@ -505,7 +570,6 @@ async function runSmokeTests(): Promise<void> {
     });
     assert.strictEqual(invalidDecisionRes.status, 400, 'Invalid decision value must return HTTP 400');
 
-    // 6c. Missing required fields (closed-world failure)
     const missingFieldsRes = await fetch(`${baseUrl}/orchestrated/assessments/${assessmentId}/evidence/dft_unknown/review`, {
       method: 'POST',
       headers: {

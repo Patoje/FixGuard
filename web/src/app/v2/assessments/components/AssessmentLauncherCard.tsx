@@ -3,12 +3,10 @@
 import React, { useState } from "react";
 import {
   Globe,
-  Shield,
   AlertTriangle,
   ArrowRight,
   Loader2,
   CheckCircle2,
-  Terminal,
   Zap,
   Key,
   ChevronDown,
@@ -150,11 +148,22 @@ export function AssessmentLauncherCard({
           setError(
             `SSRF Egress Gatekeeper: Target domain '${cleaned}' resolves to a private or restricted IP address. Assessment aborted with strictly 0 stages dispatched.`
           );
+        } else if (err.errorType === "V2GatewayUnreachable" || err.status === 0) {
+          setError(
+            "V2 API Gateway unreachable. In a second terminal run: cd worker && npm run dev — then retry. (Web proxies /api/v2 → 127.0.0.1:4000)"
+          );
         } else {
           setError(`[${err.errorType}] ${err.message}`);
         }
       } else {
-        setError((err as Error).message || "Failed to initiate orchestrated assessment");
+        const msg = (err as Error).message || "Failed to initiate orchestrated assessment";
+        if (/Failed to fetch|NetworkError|ECONNREFUSED/i.test(msg)) {
+          setError(
+            "V2 API Gateway unreachable. In a second terminal run: cd worker && npm run dev — then retry."
+          );
+        } else {
+          setError(msg);
+        }
       }
     } finally {
       setLoading(false);
@@ -174,29 +183,10 @@ export function AssessmentLauncherCard({
             <Zap className="h-5 w-5" />
           </div>
           <div>
-            <div className="flex items-center gap-2">
-              <h2 className="text-sm font-semibold text-white tracking-wide">
-                Orchestrated Assessment Launcher
-              </h2>
-              <span className="rounded bg-emerald-500/10 border border-emerald-500/30 px-2 py-0.5 text-[10px] font-mono font-medium text-emerald-400">
-                Milestone 73 / F6
-              </span>
-            </div>
-            <p className="text-xs text-zinc-400 mt-0.5">
-              Automated 5-stage discovery, dual detection engines (CORS &amp; Reflection), and TargetProfile synthesis
-            </p>
+            <h2 className="text-sm font-semibold text-white tracking-wide">
+              Assessment Launcher
+            </h2>
           </div>
-        </div>
-
-        <div className="flex items-center gap-2 text-xs font-mono text-zinc-400">
-          <span className="flex items-center gap-1.5 rounded-full border border-zinc-800 bg-zinc-900/60 px-3 py-1">
-            <Shield className="h-3.5 w-3.5 text-emerald-400" />
-            <span>ADR-001 WeakSet Brand</span>
-          </span>
-          <span className="hidden sm:flex items-center gap-1.5 rounded-full border border-zinc-800 bg-zinc-900/60 px-3 py-1">
-            <Terminal className="h-3.5 w-3.5 text-blue-400" />
-            <span>Safe Transports Only</span>
-          </span>
         </div>
       </div>
 
@@ -408,6 +398,14 @@ export function AssessmentLauncherCard({
         {/* Target Presets */}
         <div className="flex flex-wrap items-center gap-2 pt-1 text-xs">
           <span className="text-zinc-500 font-mono text-[11px]">Quick Authorized Targets:</span>
+          <button
+            type="button"
+            onClick={() => setPreset("teclaaa.vercel.app")}
+            disabled={loading || isRunning}
+            className="rounded-lg border border-zinc-800 bg-zinc-900/70 hover:border-emerald-500/40 hover:bg-emerald-500/10 px-2.5 py-1 font-mono text-[11px] text-zinc-300 transition"
+          >
+            teclaaa.vercel.app
+          </button>
           <button
             type="button"
             onClick={() => setPreset("charmarket.vercel.app")}

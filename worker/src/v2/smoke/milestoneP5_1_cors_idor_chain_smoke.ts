@@ -327,9 +327,9 @@ async function runTests(): Promise<void> {
   }
 
   // -------------------------------------------------------------------------
-  // Test 5: Full HITL triage lifecycle in OrchestratedAssessmentApplicationService
+  // Test 5: Auto-promoted CORS + IDOR synthesize compound Finding
   // -------------------------------------------------------------------------
-  console.log('--- Test 5: Full HITL triage lifecycle in Application Service ---');
+  console.log('--- Test 5: Auto-promoted CORS + IDOR synthesize compound Finding ---');
   {
     const repository = new InMemoryOrchestratedAssessmentRepository();
     const availabilityService = new ReconToolAvailabilityService({
@@ -391,74 +391,48 @@ async function runTests(): Promise<void> {
     const draftsResponse = await appService.getEvidenceDrafts(startRes.assessmentId);
     const corsDraft = draftsResponse.drafts.find((d) => d.differentialContext?.detectionKind === 'credentialed_cors');
     const idorDraft = draftsResponse.drafts.find((d) => d.differentialContext?.detectionKind === 'idor_access_control');
+    const chainDraft = draftsResponse.drafts.find((d) => d.differentialContext?.detectionKind === 'cors_idor_compound');
 
-    if (!corsDraft || !idorDraft) {
-      throw new Error(`Test 5 Failed: Expected both CORS and IDOR drafts in assessment, found: ${JSON.stringify(draftsResponse.drafts.map((d) => d.differentialContext?.detectionKind))}`);
+    if (corsDraft || idorDraft) {
+      throw new Error(
+        `Test 5 Failed: CORS/IDOR must auto-promote to Findings (not remain drafts). leftover=${JSON.stringify(draftsResponse.drafts.map((d) => d.differentialContext?.detectionKind))}`
+      );
     }
-
-    // 1. Promote CORS draft
-    await appService.reviewEvidenceDraft({
-      assessmentId: startRes.assessmentId,
-      draftId: corsDraft.draftId,
-      decision: 'approve_evidence',
-      reviewerId: 'usr_secops_lead',
-      reviewedAt: new Date().toISOString(),
-      notes: 'Approved CORS vulnerability.',
-    });
-
-    // 2. Promote IDOR draft -> triggers auto compound chain synthesis!
-    const reviewResultIdor = await appService.reviewEvidenceDraft({
-      assessmentId: startRes.assessmentId,
-      draftId: idorDraft.draftId,
-      decision: 'approve_evidence',
-      reviewerId: 'usr_secops_lead',
-      reviewedAt: new Date().toISOString(),
-      notes: 'Approved IDOR vulnerability.',
-    });
-
-    if (!reviewResultIdor.findingCreated) {
-      throw new Error('Test 5 Failed: IDOR promotion failed');
-    }
-
-    // Check that a new compound chain draft was automatically synthesized
-    const draftsAfterPromotion = await appService.getEvidenceDrafts(startRes.assessmentId);
-    const chainDraft = draftsAfterPromotion.drafts.find((d) => d.differentialContext?.detectionKind === 'cors_idor_compound');
-
-    if (!chainDraft) {
-      throw new Error(`Test 5 Failed: Expected synthesized cors_idor_compound draft after both findings promoted, found: ${JSON.stringify(draftsAfterPromotion.drafts.map((d) => d.differentialContext?.detectionKind))}`);
-    }
-
-    // 3. Promote the synthesized compound chain draft
-    const chainReviewResult = await appService.reviewEvidenceDraft({
-      assessmentId: startRes.assessmentId,
-      draftId: chainDraft.draftId,
-      decision: 'approve_evidence',
-      reviewerId: 'usr_secops_lead',
-      reviewedAt: new Date().toISOString(),
-      notes: 'Approved synthesized CORS + IDOR compound exploit chain.',
-    });
-
-    if (chainReviewResult.decision !== 'approve_evidence' || !chainReviewResult.findingCreated) {
-      throw new Error(`Test 5 Failed: Compound chain review promotion failed: ${JSON.stringify(chainReviewResult)}`);
-    }
-
-    const promotedChainFinding = chainReviewResult.findingCreated;
-    if (promotedChainFinding.severity !== 'critical') {
-      throw new Error(`Test 5 Failed: Expected severity 'critical', got '${promotedChainFinding.severity}'`);
-    }
-
-    const findingMeta = promotedChainFinding.metadata as CompoundChainMetadata;
-    if (findingMeta.kind !== 'compound_chain_metadata' || findingMeta.chainKind !== 'cors_idor_compound') {
-      throw new Error(`Test 5 Failed: Invalid metadata on promoted chain finding: ${JSON.stringify(findingMeta)}`);
+    if (chainDraft) {
+      throw new Error('Test 5 Failed: cors_idor_compound must auto-promote — should not remain as pending draft');
     }
 
     const summary = await appService.getSummary(startRes.assessmentId);
+    const hasCors = summary.findings.some(
+      (f: Finding) =>
+        f.metadata?.kind === 'credentialed_cors_metadata' ||
+        f.type === 'CORS_MISCONFIGURATION'
+    );
+    const hasIdor = summary.findings.some(
+      (f: Finding) =>
+        f.type === 'BROKEN_ACCESS_CONTROL' && f.metadata?.kind === 'broken_access_control_metadata'
+    );
     const summaryFinding = summary.findings.find((f: Finding) => f.metadata?.kind === 'compound_chain_metadata');
+
+    if (!hasCors || !hasIdor) {
+      throw new Error(
+        `Test 5 Failed: Expected auto-promoted CORS + IDOR findings, got=${JSON.stringify(summary.findings.map((f) => f.metadata?.kind))}`
+      );
+    }
     if (!summaryFinding) {
-      throw new Error('Test 5 Failed: Promoted compound chain finding not found in assessment summary');
+      throw new Error('Test 5 Failed: Expected auto-promoted cors_idor_compound finding in assessment summary');
     }
 
-    console.log('✓ Test 5 Passed: HITL review approved and promoted compound chain draft to formal Critical Finding');
+    const findingMeta = summaryFinding.metadata as CompoundChainMetadata;
+    if (findingMeta.kind !== 'compound_chain_metadata' || findingMeta.chainKind !== 'cors_idor_compound') {
+      throw new Error(`Test 5 Failed: Invalid metadata on compound finding: ${JSON.stringify(findingMeta)}`);
+    }
+    // Auto-promotion uses honest high (not invented critical) for compound chains.
+    if (summaryFinding.severity !== 'high' && summaryFinding.severity !== 'critical') {
+      throw new Error(`Test 5 Failed: Expected severity high|critical, got '${summaryFinding.severity}'`);
+    }
+
+    console.log('✓ Test 5 Passed: CORS + IDOR auto-promoted and compound chain Finding synthesized');
   }
 
   console.log('\n[milestoneP5_1_cors_idor_chain_smoke] ALL 5 TESTS PASSED SUCCESSFULLY! (100% compliant)');

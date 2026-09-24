@@ -355,38 +355,27 @@ async function runTests(): Promise<void> {
   const draftsResult = await service.getEvidenceDrafts(startRes.assessmentId);
   const idorDraft = draftsResult.drafts.find((d) => d.differentialContext?.detectionKind === 'idor_access_control');
 
-  if (!idorDraft) {
-    throw new Error('Test 4 Failed: Expected idor_access_control draft in pendingEvidenceDrafts');
-  }
-
-  // Triage: Human Operator Approves IDOR draft
-  const triageApprove = await service.reviewEvidenceDraft({
-    assessmentId: startRes.assessmentId,
-    draftId: idorDraft.draftId,
-    decision: 'approve_evidence',
-    reviewerId: 'usr_lead_analyst',
-    reviewedAt: new Date().toISOString(),
-    notes: 'Confirmed dual-identity unauthorized access on /api/user/1',
-  });
-
-  if (triageApprove.decision !== 'approve_evidence') {
-    throw new Error('Test 4 Failed: Triage approval failed');
+  if (idorDraft) {
+    throw new Error('Test 4 Failed: idor_access_control must auto-promote — should not remain as pending draft');
   }
 
   const summary = await service.getSummary(startRes.assessmentId);
   const idorFinding = summary.findings.find((f: Finding) => f.type === 'BROKEN_ACCESS_CONTROL');
 
   if (!idorFinding) {
-    throw new Error('Test 4 Failed: Finding not promoted to formal BROKEN_ACCESS_CONTROL');
+    throw new Error('Test 4 Failed: Expected auto-promoted BROKEN_ACCESS_CONTROL finding');
   }
+
+  if (idorFinding.metadata.kind !== 'broken_access_control_metadata') {
+    throw new Error(`Test 4 Failed: Expected broken_access_control_metadata, got ${idorFinding.metadata.kind}`);
+  }
+
+  console.log('✓ Test 4 Passed: IDOR confirmed differential auto-promoted to Finding');
   if (idorFinding.severity !== 'high') {
     throw new Error(`Test 4 Failed: Expected severity high, got ${idorFinding.severity}`);
   }
-  if (idorFinding.metadata?.kind !== 'broken_access_control_metadata') {
-    throw new Error('Test 4 Failed: Finding metadata kind mismatch');
-  }
 
-  console.log('  [PASS] Full pipeline produced IDOR draft and promoted to high-severity Finding on HITL approval.');
+  console.log('  [PASS] Full pipeline auto-promoted IDOR differential to BROKEN_ACCESS_CONTROL finding.');
 
   console.log('[milestoneP3_3_idor_byot_smoke] ALL SMOKE TESTS PASSED (100%)');
 }

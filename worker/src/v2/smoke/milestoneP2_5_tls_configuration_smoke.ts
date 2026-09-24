@@ -416,36 +416,27 @@ async function runTests() {
   const record = await orchestrator.awaitAssessment(startRes.assessmentId);
   assert.ok(record, 'Assessment record must exist');
   assert.strictEqual(record.status, 'completed');
-  assert.ok((record.pendingEvidenceDrafts ?? []).length > 0, 'Must have pending drafts');
 
   const tlsDraft = record.pendingEvidenceDrafts?.find(
     (d) => d.differentialContext?.detectionKind === 'weak_tls_configuration'
   );
-  assert.ok(tlsDraft, 'Must contain weak_tls_configuration draft in pending drafts');
-  assert.strictEqual(tlsDraft.differentialContext?.targetHost, 'legacy-app.example.com');
-  assert.strictEqual(tlsDraft.differentialContext?.weakProtocols?.length, 2);
+  assert.equal(
+    tlsDraft,
+    undefined,
+    'weak_tls_configuration must auto-promote — should not remain as pending draft'
+  );
 
-  // Triage: Human operator approves the draft
-  const reviewRes = await orchestrator.reviewEvidenceDraft({
-    assessmentId: startRes.assessmentId,
-    draftId: tlsDraft.draftId,
-    decision: 'approve_evidence',
-    reviewerId: 'authorized_sec_lead',
-    reviewedAt: new Date().toISOString(),
-    notes: 'Verified SSLv3 and RC4 cipher supported on legacy endpoint',
-  });
-
-  assert.strictEqual(reviewRes.decision, 'approve_evidence');
-  assert.ok(reviewRes.findingCreated, 'Must have promoted finding');
-  assert.strictEqual(reviewRes.findingCreated.metadata.kind, 'weak_tls_metadata');
-  assert.strictEqual(reviewRes.findingCreated.severity, 'high');
-
-  // Verify updated summary
-  const updatedSummary = await orchestrator.getSummary(startRes.assessmentId);
-  const foundInSummary = updatedSummary.findings.find(
+  const foundInSummary = record.findings.find(
     (f) => f.metadata.kind === 'weak_tls_metadata'
   );
-  assert.ok(foundInSummary, 'Promoted Weak TLS finding must be present in assessment findings');
+  assert.ok(foundInSummary, 'Confirmed weak TLS must auto-promote to Finding');
+  assert.strictEqual(foundInSummary.metadata.kind, 'weak_tls_metadata');
+  if (foundInSummary.metadata.kind === 'weak_tls_metadata') {
+    assert.strictEqual(foundInSummary.metadata.targetHost, 'legacy-app.example.com');
+    assert.ok((foundInSummary.metadata.weakProtocols ?? []).length >= 2);
+  }
+
+  console.log('[milestoneP2_5_tls_configuration_smoke] Assertion 4 PASSED: Pipeline auto-promoted weak TLS Finding.');
 
   console.log('[milestoneP2_5_tls_configuration_smoke] Assertion 5 PASSED: Pipeline and human review triage lifecycle verified.');
 

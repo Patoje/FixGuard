@@ -14,6 +14,10 @@ import {
   type VerificationState,
 } from '../core/VerificationStateContracts.js';
 import { VerificationStateService } from '../core/VerificationStateService.js';
+import {
+  canMutateVerificationState,
+  evaluateTestValidityFromReasonCode,
+} from '../test-validity/TestValidityService.js';
 import type { AttackPlan } from '../attack-planning/AttackPlanContracts.js';
 import type { AttackPlanRepository } from '../attack-planning/AttackPlanRepository.js';
 import type { AttackAuthorizationToken } from '../attack-authorization/AttackAuthorizationContracts.js';
@@ -31,6 +35,7 @@ import {
   ATTACK_EXECUTION_CONTRACT_VERSION,
   isScopeAllowed,
   type AttackCapabilityIdentityRef,
+  type AttackConsoleLine,
   type AttackExecutionGateFailureCode,
   type AttackExecutionRecord,
   type AttackExecutionRequest,
@@ -83,6 +88,62 @@ function resolveTargetUrl(planTargetUrl: string | undefined, host: string): stri
     return planTargetUrl;
   }
   return `https://${host}/`;
+}
+
+function buildConsoleLines(args: {
+  readonly at: string;
+  readonly commandSummary: string;
+  readonly capabilityLines?: readonly AttackConsoleLine[];
+  readonly outcome: string;
+  readonly reasonCode: string;
+  readonly safeMessage: string;
+  readonly evidenceId?: string;
+  readonly verificationStateBefore?: VerificationState;
+  readonly verificationStateAfter?: VerificationState;
+  readonly interfered?: boolean;
+}): readonly AttackConsoleLine[] {
+  const lines: AttackConsoleLine[] = [
+    { stream: 'command', text: args.commandSummary, at: args.at },
+  ];
+  if (args.capabilityLines) {
+    for (const line of args.capabilityLines) {
+      lines.push(line);
+    }
+  }
+  lines.push({
+    stream: 'event',
+    text: `outcome=${args.outcome} reason=${args.reasonCode}`,
+    at: args.at,
+  });
+  lines.push({ stream: 'stdout', text: args.safeMessage, at: args.at });
+  if (args.evidenceId) {
+    lines.push({ stream: 'event', text: `evidenceId=${args.evidenceId}`, at: args.at });
+  }
+  if (args.verificationStateBefore || args.verificationStateAfter) {
+    lines.push({
+      stream: 'event',
+      text: `verification ${args.verificationStateBefore ?? '?'} → ${args.verificationStateAfter ?? '?'}`,
+      at: args.at,
+    });
+  }
+  const verdict =
+    args.interfered === true
+      ? 'interfered'
+      : args.outcome === 'succeeded' || args.outcome === 'observed'
+        ? 'worked'
+        : args.outcome === 'refuted'
+          ? 'refuted'
+          : args.outcome === 'preflight_denied'
+            ? 'blocked'
+            : args.outcome === 'capability_not_implemented'
+              ? 'blocked'
+              : 'failed';
+  lines.push({
+    stream: 'verdict',
+    text: `${verdict}: ${args.reasonCode}`,
+    at: args.at,
+  });
+  return Object.freeze(lines);
 }
 
 function deny(
@@ -408,6 +469,8 @@ export class AttackExecutionService {
       const completedAt = new Date().toISOString();
       let verificationStateBefore: AttackStepExecutionRecord['verificationStateBefore'];
       let verificationStateAfter: AttackStepExecutionRecord['verificationStateAfter'];
+      let stepInterference = false;
+      let stepInterferenceReason: string | undefined;
 
       const sourceFindingId = plan.sourceFindingIds[0];
       const findingIdx = sourceFindingId
@@ -462,22 +525,53 @@ export class AttackExecutionService {
       ) {
         const finding = findings[findingIdx]!;
         verificationStateBefore = finding.verificationState;
-        // Record REFUTED via transition reason — VerificationState taxonomy has no REFUTED label.
-        const refutedResult = VerificationStateService.refuteState(
-          finding,
-          finding.verificationState,
-          {
-            evidenceId: capabilityResult.evidenceId ?? `ev_a5_refute_${step.stepId}`,
-            reasonCode: 'REFUTED',
-          }
+        const validity = evaluateTestValidityFromReasonCode(
+          `${capabilityResult.reasonCode} ${capabilityResult.safeMessage}`,
+          { evaluatedAt: completedAt, targetHost }
         );
-        findings = [
-          ...findings.slice(0, findingIdx),
-          refutedResult.updatedFinding,
-          ...findings.slice(findingIdx + 1),
-        ];
-        verificationStateAfter = refutedResult.updatedFinding.verificationState;
+        // interfered ≠ safe: do not refute / advance when measurement was blocked.
+        if (canMutateVerificationState(validity)) {
+          const refutedResult = VerificationStateService.refuteState(
+            finding,
+            finding.verificationState,
+            {
+              evidenceId: capabilityResult.evidenceId ?? `ev_a5_refute_${step.stepId}`,
+              reasonCode: 'REFUTED',
+            }
+          );
+          findings = [
+            ...findings.slice(0, findingIdx),
+            refutedResult.updatedFinding,
+            ...findings.slice(findingIdx + 1),
+          ];
+          verificationStateAfter = refutedResult.updatedFinding.verificationState;
+        } else {
+          verificationStateAfter = finding.verificationState;
+          stepInterference = true;
+          stepInterferenceReason = validity.reasonCode;
+        }
       }
+
+      const commandSummary =
+        capabilityResult.commandSummary ??
+        `${plan.capability} ${targetUrl} blast=${step.blastRadiusClass}`;
+      const effectiveReasonCode = stepInterference
+        ? stepInterferenceReason ?? capabilityResult.reasonCode
+        : capabilityResult.reasonCode;
+      const consoleLines = buildConsoleLines({
+        at: completedAt,
+        commandSummary,
+        capabilityLines: capabilityResult.consoleLines,
+        outcome: capabilityResult.outcome,
+        reasonCode: effectiveReasonCode,
+        safeMessage: stepInterference
+          ? `Test interfered — ${capabilityResult.safeMessage} (verification unchanged)`
+          : capabilityResult.safeMessage,
+        evidenceId: capabilityResult.evidenceId,
+        verificationStateBefore,
+        verificationStateAfter,
+        interfered: stepInterference,
+      });
 
       stepRecords.push({
         stepId: step.stepId,
@@ -492,6 +586,8 @@ export class AttackExecutionService {
         ...(verificationStateBefore ? { verificationStateBefore } : {}),
         ...(verificationStateAfter ? { verificationStateAfter } : {}),
         ...(capabilityResult.evidenceId ? { evidenceId: capabilityResult.evidenceId } : {}),
+        commandSummary,
+        consoleLines,
         completedAt,
       });
 

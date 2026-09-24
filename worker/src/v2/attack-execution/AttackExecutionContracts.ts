@@ -55,11 +55,27 @@ export type AttackExecutionGateFailureCode =
   | 'target_host_invalid'
   | 'dns_resolution_failed';
 
+/**
+ * Safe console line for operator Attack Mode terminal panel.
+ * Never includes secrets, raw cookies, or Authorization headers.
+ */
+export type AttackConsoleStream = 'stdout' | 'stderr' | 'event' | 'command' | 'verdict';
+
+export interface AttackConsoleLine {
+  readonly stream: AttackConsoleStream;
+  readonly text: string;
+  readonly at: string;
+}
+
 export interface AttackCapabilityExecutionResult {
   readonly outcome: AttackStepExecutionOutcome;
   readonly reasonCode: string;
   readonly safeMessage: string;
   readonly evidenceId?: string;
+  /** Optional safe command summary emitted by the capability (e.g. nuclei argv). */
+  readonly commandSummary?: string;
+  /** Optional sanitized console lines from tool execution. */
+  readonly consoleLines?: readonly AttackConsoleLine[];
 }
 
 export interface AttackCapabilityIdentityRef {
@@ -122,6 +138,10 @@ export interface AttackStepExecutionRecord {
   readonly verificationStateAfter?: VerificationState;
   readonly evidenceId?: string;
   readonly completedAt: string;
+  /** Safe one-line command / capability invocation for operator console. */
+  readonly commandSummary?: string;
+  /** Sanitized stdout/stderr/event/verdict lines for Attack Mode console panel. */
+  readonly consoleLines?: readonly AttackConsoleLine[];
 }
 
 export interface AttackExecutionRecord {

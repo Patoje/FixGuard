@@ -164,6 +164,17 @@ import type { CredentialReference } from '../post-exploitation/PostExploitationC
 import type { ImpactAssessment } from '../reporting-boundary/ImpactAssessmentContracts.js';
 import { isForbiddenSyntheticReviewerId } from '../api/validation/ApiRequestValidators.js';
 import { applyFindingAutoPromotion } from '../finding-auto-promotion/FindingAutoPromotionService.js';
+import { isAttackPlanDraftEligible } from '../finding-auto-promotion/FindingAutoPromotionPolicy.js';
+import { ActiveInvestigationRuntimeService } from '../active-investigation/ActiveInvestigationRuntimeService.js';
+import {
+  ACTIVE_INVESTIGATION_CONTRACT_VERSION,
+  type ActiveInvestigationSnapshot,
+  type CancelActiveInvestigationResult,
+  type GateAuthorizedStepResult,
+  type InvestigationBudget,
+  type StartActiveInvestigationResult,
+} from '../active-investigation/ActiveInvestigationContracts.js';
+import type { AttackAuthorizationToken } from '../attack-authorization/AttackAuthorizationContracts.js';
 import { ReconToolAvailabilityService } from '../capabilities/ReconToolAvailabilityService.js';
 import type { ReconToolName } from '../capabilities/CapabilityStatusContracts.js';
 import { STAGE_REQUIRED_TOOLS } from '../capabilities/CapabilityStatusContracts.js';
@@ -224,7 +235,15 @@ import type {
   PromoteLateralTargetResult,
   EvaluateCredentialReuseCommand,
   EvaluateCredentialReuseHttpResult,
+  GetAttackRecommendationsResult,
 } from './OrchestratedAssessmentContracts.js';
+import { AttackRecommendationService } from '../attack-recommendation/AttackRecommendationService.js';
+import type {
+  OperatorPreconditions,
+  OperatorStackHints,
+} from '../attack-recommendation/AttackOperatorRecommendationContracts.js';
+import { AttackCapabilityRegistry } from '../attack-execution/AttackCapabilityRegistry.js';
+import type { AttackPlan } from '../attack-planning/AttackPlanContracts.js';
 import { ORCHESTRATED_ASSESSMENT_CONTRACT_VERSION } from './OrchestratedAssessmentContracts.js';
 import { validateAssessmentSeeds } from './AssessmentSeedValidation.js';
 import type { AttackPlanCredentialReuseContext } from '../attack-planning/AttackPlanContracts.js';
@@ -233,7 +252,6 @@ import {
   LateralMovementValidationError,
 } from '../attack-planning/LateralMovementService.js';
 import { isLateralMovementMechanism } from '../attack-planning/LateralMovementContracts.js';
-import type { AttackAuthorizationToken } from '../attack-authorization/AttackAuthorizationContracts.js';
 
 
 export interface OrchestratedAssessmentServiceDependencies {
@@ -251,6 +269,7 @@ export interface OrchestratedAssessmentServiceDependencies {
   readonly postExploitationService?: PostExploitationService;
   readonly lateralMovementService?: LateralMovementService;
   readonly impactAssessmentService?: ImpactAssessmentService;
+  readonly activeInvestigationRuntime?: ActiveInvestigationRuntimeService;
 }
 
 /** Pure helper exposed for tests / composition — builds query service over a graph. */
@@ -258,6 +277,83 @@ export function createAttackSurfaceQueryService(
   graph: AttackSurfaceGraph
 ): AttackSurfaceQueryService {
   return new AttackSurfaceQueryService(graph);
+}
+
+function deriveOperatorStackHints(
+  graph: AttackSurfaceGraph | undefined,
+  profile: TargetProfile | undefined
+): OperatorStackHints {
+  const technologyNames: string[] = [];
+  if (graph) {
+    for (const node of graph.nodes) {
+      if (node.kind === 'application' && Array.isArray(node.metadata.technologies)) {
+        for (const t of node.metadata.technologies) {
+          if (typeof t === 'string' && t.length > 0) technologyNames.push(t);
+        }
+      }
+    }
+  }
+  if (profile?.technologies) {
+    for (const t of profile.technologies) {
+      if (typeof t === 'string' && t.length > 0) technologyNames.push(t);
+    }
+  }
+  const lower = technologyNames.map((n) => n.toLowerCase());
+  const has = (re: RegExp): boolean => lower.some((n) => re.test(n));
+  return {
+    hasSpa: has(/react|vue|angular|nuxt|next|spa/),
+    hasNextJs: has(/next\.?js|nextjs/),
+    hasVercel: has(/vercel/),
+    hasPhpLegacy: has(/\bphp\b|wordpress|joomla|drupal|laravel/),
+    hasCms: has(/wordpress|joomla|drupal/),
+    spaFramework: has(/next/) ? 'nextjs' : has(/nuxt/) ? 'nuxtjs' : has(/react/) ? 'react' : undefined,
+    cmsType: has(/wordpress/) ? 'wordpress' : undefined,
+    technologyNames,
+  };
+}
+
+function deriveOperatorPreconditions(
+  plans: readonly AttackPlan[],
+  findings: readonly Finding[]
+): OperatorPreconditions {
+  const prereqs = plans.flatMap((p) => p.prerequisites);
+  const satisfied = (kind: string): boolean =>
+    prereqs.some((p) => p.kind === kind && p.satisfied);
+
+  let identityCount = 0;
+  if (satisfied('identity_count_at_least_2')) identityCount = 2;
+  else if (satisfied('identity_present')) identityCount = 1;
+
+  const hasJwtIdentity =
+    satisfied('identity_with_jwt') ||
+    findings.some((f) => f.metadata.kind === 'jwt_algorithm_confusion_metadata');
+
+  const hasCredentialedCorsSignal =
+    satisfied('credentialed_cors') ||
+    findings.some(
+      (f) =>
+        f.metadata.kind === 'credentialed_cors_metadata' ||
+        (f.metadata.kind === 'security_misconfiguration_metadata' &&
+          f.metadata.category === 'CORS_MISCONFIGURATION' &&
+          f.metadata.allowCredentials === true)
+    );
+
+  const hasObservedParameter =
+    satisfied('parameter_present') ||
+    findings.some((f) => {
+      const meta = f.metadata;
+      return 'parameterName' in meta && typeof meta.parameterName === 'string';
+    });
+
+  const hasCredentialReference = satisfied('credential_reference_present');
+
+  return {
+    identityCount,
+    hasJwtIdentity,
+    hasCredentialedCorsSignal,
+    hasObservedParameter,
+    hasCredentialReference,
+  };
 }
 
 function buildAttackPlanIdentities(
@@ -288,6 +384,10 @@ function buildDraftSignals(
   for (const draft of drafts) {
     const ctx = draft.differentialContext;
     if (!ctx || typeof ctx.endpointUrl !== 'string' || ctx.endpointUrl.length === 0) {
+      continue;
+    }
+    // Soft cosmetics / discovery noise must not flood Attack Mode as draft plans.
+    if (!isAttackPlanDraftEligible(ctx.detectionKind)) {
       continue;
     }
     signals.push({
@@ -788,6 +888,7 @@ export class OrchestratedAssessmentApplicationService {
   private readonly postExploitationService: PostExploitationService;
   private readonly lateralMovementService: LateralMovementService;
   private readonly impactAssessmentService: ImpactAssessmentService;
+  private readonly activeInvestigationRuntime: ActiveInvestigationRuntimeService;
   private readonly activeAssessments = new Map<string, Promise<void>>();
   /**
    * Process-local sealed VerifiedAuthorizationDecision refs (WeakSet-branded).
@@ -821,10 +922,17 @@ export class OrchestratedAssessmentApplicationService {
       deps.lateralMovementService ?? new LateralMovementService();
     this.impactAssessmentService =
       deps.impactAssessmentService ?? new ImpactAssessmentService();
+    this.activeInvestigationRuntime =
+      deps.activeInvestigationRuntime ?? new ActiveInvestigationRuntimeService();
     this.usingDefaultReconAdapters = deps.reconAdapters === undefined;
     this.reconAdapters =
       deps.reconAdapters ??
       createDefaultReconAdapters(this.dnsResolver, this.httpTransport);
+  }
+
+  /** Etapa 2 · F1 — process-local ActiveInvestigationRuntime. */
+  public getActiveInvestigationRuntime(): ActiveInvestigationRuntimeService {
+    return this.activeInvestigationRuntime;
   }
 
   /** Milestone A10 — process-local post-exploitation service (vault + state). */
@@ -1393,6 +1501,105 @@ export class OrchestratedAssessmentApplicationService {
   }
 
   /**
+   * Operator A/B attack recommendations — deterministic ranking for human authorize→execute.
+   * Never auto-executes. Optional findingId / planId / investigationId filters.
+   */
+  public async getAttackRecommendations(args: {
+    readonly assessmentId: string;
+    readonly findingId?: string;
+    readonly planId?: string;
+    readonly investigationId?: string;
+  }): Promise<GetAttackRecommendationsResult> {
+    const { assessmentId, findingId, planId, investigationId } = args;
+    if (!assessmentId || typeof assessmentId !== 'string' || !isStrictSafeId(assessmentId)) {
+      throw new ApiValidationError('Field assessmentId must satisfy strict identifier format');
+    }
+    if (findingId !== undefined && !isStrictSafeId(findingId)) {
+      throw new ApiValidationError('Field findingId must satisfy strict identifier format');
+    }
+    if (planId !== undefined && !isStrictSafeId(planId)) {
+      throw new ApiValidationError('Field planId must satisfy strict identifier format');
+    }
+    if (investigationId !== undefined && !isStrictSafeId(investigationId)) {
+      throw new ApiValidationError('Field investigationId must satisfy strict identifier format');
+    }
+
+    const record = await this.repository.findById(assessmentId);
+    if (!record) {
+      throw new SessionNotFoundError(
+        `Orchestrated assessment '${assessmentId}' was not found`,
+        assessmentId
+      );
+    }
+
+    const plans = await this.attackPlanRepository.listByAssessmentId(assessmentId);
+    const findings = record.findings;
+    const finding =
+      findingId !== undefined ? findings.find((f) => f.id === findingId) : undefined;
+    if (findingId !== undefined && !finding) {
+      throw new ApiValidationError(`Finding '${findingId}' was not found for assessment`);
+    }
+    const plan =
+      planId !== undefined ? plans.find((p) => p.planId === planId) : undefined;
+    if (planId !== undefined && !plan) {
+      throw new ApiValidationError(`Attack plan '${planId}' was not found for assessment`);
+    }
+
+    const registry = AttackCapabilityRegistry.createDefault();
+    const registeredCapabilities = new Set<AttackCapabilityKind>(
+      (
+        [
+          'idor_read_differential',
+          'cors_chain_exploit',
+          'auth_bypass_probe',
+          'jwt_alg_none_probe',
+          'lfi_path_traversal',
+          'sql_oracle_advancement',
+          'nuclei_xss_scan',
+          'sql_injection_verification',
+          'credential_reuse',
+        ] as const
+      ).filter((k) => registry.get(k) !== null)
+    );
+
+    const stackHints = deriveOperatorStackHints(record.attackSurfaceGraph, record.profile);
+    const preconditions = deriveOperatorPreconditions(plans, findings);
+    const service = new AttackRecommendationService();
+    const result = service.recommend({
+      assessmentId: record.assessmentId,
+      scanId: record.scanId,
+      ...(finding ? { finding } : {}),
+      ...(plan ? { plan } : {}),
+      findings,
+      plans,
+      stackHints,
+      preconditions,
+      registeredCapabilities,
+      lineage: {
+        assessmentId: record.lineage.assessmentId,
+        scanId: record.lineage.scanId,
+        authorizationGrantId: record.lineage.authorizationGrantId,
+        authorizationDecisionId: record.lineage.authorizationDecisionId,
+        actorId: record.lineage.actorId,
+      },
+      ...(investigationId ? { investigationId } : {}),
+    });
+
+    return {
+      assessmentId: result.assessmentId,
+      scanId: result.scanId,
+      ...(result.subjectFindingId ? { subjectFindingId: result.subjectFindingId } : {}),
+      ...(result.subjectPlanId ? { subjectPlanId: result.subjectPlanId } : {}),
+      ...(result.investigationId ? { investigationId: result.investigationId } : {}),
+      recommendationCount: result.recommendations.length,
+      recommendations: result.recommendations,
+      rulesApplied: result.rulesApplied,
+      lineage: result.lineage,
+      generatedAt: result.generatedAt,
+    };
+  }
+
+  /**
    * Milestone A6 — returns attack-chain hypotheses for an assessment.
    * Chains aggregate executed-step evidence; they never invent steps.
    */
@@ -1629,6 +1836,238 @@ export class OrchestratedAssessmentApplicationService {
     }
 
     return this.getAttackModeRefresh(assessmentId);
+  }
+
+  /**
+   * Etapa 2 · F1 — start a stateful ActiveInvestigation under the assessment's
+   * sealed VerifiedAuthorizationDecision. Does not execute AttackPlans.
+   */
+  public async startActiveInvestigation(args: {
+    readonly assessmentId: string;
+    readonly investigationId: string;
+    readonly budget?: InvestigationBudget;
+    readonly openHypothesisRefs?: readonly string[];
+    readonly attackAuthorizationToken?: AttackAuthorizationToken;
+    readonly startedAt?: string;
+  }): Promise<StartActiveInvestigationResult> {
+    const { assessmentId, investigationId } = args;
+    if (!assessmentId || typeof assessmentId !== 'string' || !isStrictSafeId(assessmentId)) {
+      throw new ApiValidationError('Field assessmentId must satisfy strict identifier format');
+    }
+    if (
+      !investigationId ||
+      typeof investigationId !== 'string' ||
+      !isStrictSafeId(investigationId)
+    ) {
+      throw new ApiValidationError('Field investigationId must satisfy strict identifier format');
+    }
+
+    const record = await this.repository.findById(assessmentId);
+    if (!record) {
+      throw new SessionNotFoundError(
+        `Orchestrated assessment '${assessmentId}' was not found`,
+        assessmentId
+      );
+    }
+
+    const decision = this.getRuntimeVerifiedAuthorizationDecision(assessmentId);
+    if (!decision) {
+      throw new UnauthorizedGatewayError(
+        'No runtime-branded verified authorization decision for this assessment',
+        'authorization_decision_missing'
+      );
+    }
+
+    return this.activeInvestigationRuntime.startInvestigation({
+      contractVersion: ACTIVE_INVESTIGATION_CONTRACT_VERSION,
+      kind: 'start_active_investigation_request',
+      investigationId,
+      lineage: {
+        assessmentId: record.lineage.assessmentId,
+        scanId: record.lineage.scanId,
+        authorizationGrantId: record.lineage.authorizationGrantId,
+        authorizationDecisionId: record.lineage.authorizationDecisionId,
+        actorId: record.lineage.actorId,
+      },
+      verifiedAuthorizationDecision: decision,
+      ...(args.budget ? { budget: args.budget } : {}),
+      ...(args.openHypothesisRefs ? { openHypothesisRefs: args.openHypothesisRefs } : {}),
+      ...(args.attackAuthorizationToken
+        ? { attackAuthorizationToken: args.attackAuthorizationToken }
+        : {}),
+      ...(args.startedAt ? { startedAt: args.startedAt } : {}),
+    });
+  }
+
+  /**
+   * Etapa 2 · F1 — cancel or kill-switch an active investigation (fail-closed for later steps).
+   */
+  public cancelActiveInvestigation(args: {
+    readonly assessmentId: string;
+    readonly investigationId: string;
+    readonly operatorId: string;
+    readonly mode: 'cancel' | 'kill_switch';
+    readonly cancelledAt?: string;
+  }): CancelActiveInvestigationResult {
+    const { assessmentId, investigationId, operatorId, mode } = args;
+    if (!assessmentId || typeof assessmentId !== 'string' || !isStrictSafeId(assessmentId)) {
+      throw new ApiValidationError('Field assessmentId must satisfy strict identifier format');
+    }
+    if (
+      !investigationId ||
+      typeof investigationId !== 'string' ||
+      !isStrictSafeId(investigationId)
+    ) {
+      throw new ApiValidationError('Field investigationId must satisfy strict identifier format');
+    }
+    if (!operatorId || typeof operatorId !== 'string' || !isStrictSafeId(operatorId)) {
+      throw new ApiValidationError('Field operatorId must satisfy strict identifier format');
+    }
+
+    const snapshot = this.activeInvestigationRuntime.getSnapshot(investigationId);
+    if (snapshot && snapshot.lineage.assessmentId !== assessmentId) {
+      throw new UnauthorizedGatewayError(
+        'Investigation assessment binding mismatch',
+        'assessment_mismatch'
+      );
+    }
+
+    return this.activeInvestigationRuntime.cancelInvestigation({
+      contractVersion: ACTIVE_INVESTIGATION_CONTRACT_VERSION,
+      kind: 'cancel_active_investigation_request',
+      investigationId,
+      operatorId,
+      mode,
+      ...(args.cancelledAt ? { cancelledAt: args.cancelledAt } : {}),
+    });
+  }
+
+  public getActiveInvestigationSnapshot(
+    assessmentId: string,
+    investigationId: string
+  ): ActiveInvestigationSnapshot | null {
+    if (!assessmentId || typeof assessmentId !== 'string' || !isStrictSafeId(assessmentId)) {
+      throw new ApiValidationError('Field assessmentId must satisfy strict identifier format');
+    }
+    if (
+      !investigationId ||
+      typeof investigationId !== 'string' ||
+      !isStrictSafeId(investigationId)
+    ) {
+      throw new ApiValidationError('Field investigationId must satisfy strict identifier format');
+    }
+    const snapshot = this.activeInvestigationRuntime.getSnapshot(investigationId);
+    if (!snapshot) return null;
+    if (snapshot.lineage.assessmentId !== assessmentId) {
+      throw new UnauthorizedGatewayError(
+        'Investigation assessment binding mismatch',
+        'assessment_mismatch'
+      );
+    }
+    return snapshot;
+  }
+
+  /**
+   * Etapa 2 · F1 — gate a human-authorized attack execute under investigation budget/cancel/timeout.
+   * Returns a TargetExecutionCoordinator with investigation ceilings when authorized.
+   * Does not execute the plan.
+   */
+  public gateAttackExecutionUnderInvestigation(args: {
+    readonly assessmentId: string;
+    readonly investigationId: string;
+    readonly planId: string;
+    readonly attackAuthorizationToken: AttackAuthorizationToken;
+    readonly expectedRequestCost?: number;
+    readonly targetHost?: string;
+    readonly gatedAt?: string;
+  }): {
+    readonly gate: GateAuthorizedStepResult;
+    readonly coordinator: TargetExecutionCoordinator | null;
+  } {
+    const { assessmentId, investigationId, planId, attackAuthorizationToken } = args;
+    if (!assessmentId || typeof assessmentId !== 'string' || !isStrictSafeId(assessmentId)) {
+      throw new ApiValidationError('Field assessmentId must satisfy strict identifier format');
+    }
+    if (
+      !investigationId ||
+      typeof investigationId !== 'string' ||
+      !isStrictSafeId(investigationId)
+    ) {
+      throw new ApiValidationError('Field investigationId must satisfy strict identifier format');
+    }
+    if (!planId || typeof planId !== 'string' || !isStrictSafeId(planId)) {
+      throw new ApiValidationError('Field planId must satisfy strict identifier format');
+    }
+
+    const bind = this.activeInvestigationRuntime.bindAttackAuthorization({
+      contractVersion: ACTIVE_INVESTIGATION_CONTRACT_VERSION,
+      kind: 'bind_attack_authorization_request',
+      investigationId,
+      attackAuthorizationToken,
+    });
+    if (bind.status === 'denied') {
+      return {
+        gate: {
+          status: 'denied',
+          reasonCode:
+            bind.reasonCode === 'attack_authorization_invalid'
+              ? 'attack_authorization_invalid'
+              : bind.reasonCode === 'assessment_mismatch'
+                ? 'assessment_mismatch'
+                : bind.reasonCode === 'investigation_not_found'
+                  ? 'investigation_not_found'
+                  : bind.reasonCode === 'investigation_not_running'
+                    ? 'investigation_not_running'
+                    : 'request_invalid',
+          safeMessage: bind.safeMessage,
+        },
+        coordinator: null,
+      };
+    }
+
+    const gate = this.activeInvestigationRuntime.gateAuthorizedStep({
+      contractVersion: ACTIVE_INVESTIGATION_CONTRACT_VERSION,
+      kind: 'gate_authorized_step_request',
+      investigationId,
+      assessmentId,
+      requireAttackAuthorization: true,
+      planId,
+      ...(args.expectedRequestCost !== undefined
+        ? { expectedRequestCost: args.expectedRequestCost }
+        : {}),
+      ...(args.gatedAt ? { gatedAt: args.gatedAt } : {}),
+    });
+
+    if (gate.status !== 'authorized') {
+      return { gate, coordinator: null };
+    }
+
+    const coordinator = this.activeInvestigationRuntime.createCoordinatorForInvestigation(
+      investigationId,
+      args.targetHost
+    );
+    return { gate, coordinator };
+  }
+
+  /**
+   * Etapa 2 · F1 — record request consumption after an authorized execute under investigation.
+   */
+  public recordInvestigationExecutionStep(args: {
+    readonly investigationId: string;
+    readonly stepId: string;
+    readonly requestCost?: number;
+    readonly producedFactIds?: readonly string[];
+    readonly recordedAt?: string;
+  }): ReturnType<ActiveInvestigationRuntimeService['recordStepOutcome']> {
+    return this.activeInvestigationRuntime.recordStepOutcome({
+      contractVersion: ACTIVE_INVESTIGATION_CONTRACT_VERSION,
+      kind: 'record_investigation_step_request',
+      investigationId: args.investigationId,
+      stepId: args.stepId,
+      ...(args.requestCost !== undefined ? { requestCost: args.requestCost } : {}),
+      ...(args.producedFactIds ? { producedFactIds: args.producedFactIds } : {}),
+      ...(args.recordedAt ? { recordedAt: args.recordedAt } : {}),
+    });
   }
 
   /**

@@ -508,35 +508,26 @@ async function runTests() {
   const record = await orchestrator.awaitAssessment(startRes.assessmentId);
   assert.ok(record, 'Assessment record must exist');
   assert.strictEqual(record.status, 'completed');
-  assert.ok((record.pendingEvidenceDrafts ?? []).length > 0, 'Must have pending drafts');
 
   const infoDiscDraft = record.pendingEvidenceDrafts?.find(
     (d) => d.differentialContext?.detectionKind === 'information_disclosure'
   );
-  assert.ok(infoDiscDraft, 'Must contain information_disclosure draft in pending drafts');
-  assert.strictEqual(infoDiscDraft.differentialContext?.disclosureKind, 'stack_trace');
+  assert.equal(
+    infoDiscDraft,
+    undefined,
+    'stack_trace information_disclosure must auto-promote — should not remain as pending draft'
+  );
 
-  // Triage: Human operator approves the draft
-  const reviewRes = await orchestrator.reviewEvidenceDraft({
-    assessmentId: startRes.assessmentId,
-    draftId: infoDiscDraft.draftId,
-    decision: 'approve_evidence',
-    reviewerId: 'authorized_sec_lead',
-    reviewedAt: new Date().toISOString(),
-    notes: 'Verified leaked Java stack trace on anomalous 404 endpoint',
-  });
-
-  assert.strictEqual(reviewRes.decision, 'approve_evidence');
-  assert.ok(reviewRes.findingCreated, 'Must have promoted finding');
-  assert.strictEqual(reviewRes.findingCreated.metadata.kind, 'information_disclosure_metadata');
-  assert.strictEqual(reviewRes.findingCreated.severity, 'low');
-
-  // Verify updated summary
-  const updatedSummary = await orchestrator.getSummary(startRes.assessmentId);
-  const foundInSummary = updatedSummary.findings.find(
+  const foundInSummary = record.findings.find(
     (f) => f.metadata.kind === 'information_disclosure_metadata'
   );
-  assert.ok(foundInSummary, 'Promoted Information Disclosure finding must be present in assessment findings');
+  assert.ok(foundInSummary, 'Confirmed stack_trace disclosure must auto-promote to Finding');
+  assert.strictEqual(foundInSummary.metadata.kind, 'information_disclosure_metadata');
+  if (foundInSummary.metadata.kind === 'information_disclosure_metadata') {
+    assert.strictEqual(foundInSummary.metadata.disclosureKind, 'stack_trace');
+  }
+
+  console.log('[milestoneP2_3_information_disclosure_smoke] Assertion 4 PASSED: Pipeline auto-promoted information disclosure Finding.');
 
   console.log('[milestoneP2_3_information_disclosure_smoke] Assertion 5 PASSED: Pipeline and human review triage lifecycle verified.');
 

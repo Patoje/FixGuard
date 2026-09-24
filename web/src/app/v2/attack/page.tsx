@@ -38,8 +38,11 @@ import { StepExecutionMonitor } from "./components/StepExecutionMonitor";
 import { AttackChainViewer } from "./components/AttackChainViewer";
 import { PostExploitationPanel } from "./components/PostExploitationPanel";
 import { ImpactAssessmentView } from "./components/ImpactAssessmentView";
+import { AttackRecommendationCards } from "./components/AttackRecommendationCards";
+import type { OperatorAttackRecommendation } from "@/lib/v2AttackApi";
 
 type WorkbenchTab =
+  | "recommend"
   | "plans"
   | "execution"
   | "chains"
@@ -100,8 +103,15 @@ function AttackModeContent() {
   );
   const [executionRecord, setExecutionRecord] = useState<AttackExecutionRecordDto | null>(null);
   const [executionError, setExecutionError] = useState<string | null>(null);
+  const [recommendations, setRecommendations] = useState<readonly OperatorAttackRecommendation[]>(
+    []
+  );
+  const [rulesApplied, setRulesApplied] = useState<readonly string[]>([]);
+  const [selectedRecRank, setSelectedRecRank] = useState<"A" | "B" | null>(null);
+  const [investigationId, setInvestigationId] = useState("");
+  const [authorizeThenExecute, setAuthorizeThenExecute] = useState(false);
 
-  const [tab, setTab] = useState<WorkbenchTab>("plans");
+  const [tab, setTab] = useState<WorkbenchTab>("recommend");
   const [isLoading, setIsLoading] = useState(false);
   const [busyPlanId, setBusyPlanId] = useState<string | null>(null);
   const [isAuthorizing, setIsAuthorizing] = useState(false);
@@ -148,6 +158,19 @@ function AttackModeContent() {
       setLineage(plansRes.lineage);
 
       try {
+        const recRes = await v2AttackApi.getAttackRecommendations(id, {
+          ...(investigationId && isStrictSafeId(investigationId)
+            ? { investigationId }
+            : {}),
+        });
+        setRecommendations(recRes.recommendations);
+        setRulesApplied(recRes.rulesApplied);
+      } catch {
+        setRecommendations([]);
+        setRulesApplied([]);
+      }
+
+      try {
         const summary = await getOrchestratedAssessmentSummary(id);
         setTargetDomain(summary.targetDomain);
       } catch {
@@ -166,7 +189,7 @@ function AttackModeContent() {
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }, [investigationId]);
 
   useEffect(() => {
     if (!assessmentIdFromQuery) return;
@@ -203,22 +226,29 @@ function AttackModeContent() {
       return;
     }
 
+    const planToAuth = authModalPlan;
+    const shouldExecute = authorizeThenExecute;
     setIsAuthorizing(true);
     setError(null);
     setSuccessMsg(null);
     try {
       const res = await v2AttackApi.authorizeAttackPlan(
         assessmentId,
-        authModalPlan.planId,
+        planToAuth.planId,
         { operatorId, blastRadiusClass }
       );
       setLastAuthMeta(res.token);
-      setAuthorizedPlanIds((prev) => new Set([...prev, authModalPlan.planId]));
+      setAuthorizedPlanIds((prev) => new Set([...prev, planToAuth.planId]));
       setSuccessMsg(
-        `Authorized ${authModalPlan.planId} · ${res.token.blastRadiusClass} · level ${res.token.authorizationLevel} (WeakSet brand sealed server-side)`
+        `Authorized ${planToAuth.planId} · ${res.token.blastRadiusClass} · level ${res.token.authorizationLevel} (WeakSet brand sealed server-side)`
       );
       setAuthModalPlan(null);
-      setTab("plans");
+      setAuthorizeThenExecute(false);
+      if (shouldExecute) {
+        await handleExecute(planToAuth);
+      } else {
+        setTab("plans");
+      }
     } catch (err) {
       if (err instanceof V2ApiError) {
         setError(`[${err.errorType}] ${err.message}${err.reasonCode ? ` (${err.reasonCode})` : ""}`);
@@ -255,6 +285,9 @@ function AttackModeContent() {
       const res = await v2AttackApi.executeAttackPlan(assessmentId, plan.planId, {
         operatorId,
         scopeGrant,
+        ...(investigationId && isStrictSafeId(investigationId)
+          ? { investigationId }
+          : {}),
       });
       setExecutionRecord(res.record);
       setCompletedPlanIds((prev) => new Set([...prev, plan.planId]));
@@ -281,6 +314,22 @@ function AttackModeContent() {
     } finally {
       setBusyPlanId(null);
     }
+  };
+
+  const handleRecommendAuthorizeRun = async (rec: OperatorAttackRecommendation) => {
+    if (!rec.planId) {
+      setError("Recommendation has no linked planId — load/generate attack plans first");
+      return;
+    }
+    const plan = displayPlans.find((p) => p.planId === rec.planId);
+    if (!plan) {
+      setError(`Linked plan ${rec.planId} not found in current assessment`);
+      return;
+    }
+    setSelectedRecRank(rec.rank);
+    setSelectedPlanId(plan.planId);
+    setAuthorizeThenExecute(true);
+    setAuthModalPlan(plan);
   };
 
   const handlePromote = async (hostname: string) => {
@@ -364,8 +413,9 @@ function AttackModeContent() {
   };
 
   const tabs: { id: WorkbenchTab; label: string }[] = [
+    { id: "recommend", label: "A / B" },
     { id: "plans", label: "Plans" },
-    { id: "execution", label: "Execution" },
+    { id: "execution", label: "Console" },
     { id: "chains", label: "Chains" },
     { id: "post_exploit", label: "Post-Exploit" },
     { id: "impact", label: "Impact" },
@@ -449,6 +499,19 @@ function AttackModeContent() {
               />
             </label>
           </div>
+          <div className="grid gap-3 sm:grid-cols-3">
+            <label className="block space-y-1 sm:col-span-1">
+              <span className="text-[10px] font-mono uppercase text-zinc-500">
+                Investigation ID (optional)
+              </span>
+              <input
+                value={investigationId}
+                onChange={(e) => setInvestigationId(e.target.value.trim())}
+                placeholder="inv_…"
+                className="w-full rounded-lg border border-zinc-800 bg-zinc-900 px-3 py-2 text-xs font-mono text-zinc-100 focus:outline-none focus:border-emerald-500/40"
+              />
+            </label>
+          </div>
           <div className="flex flex-wrap items-center gap-2">
             <button
               type="button"
@@ -513,6 +576,16 @@ function AttackModeContent() {
         </nav>
 
         <div className="rounded-xl border border-zinc-900 bg-zinc-950/60 p-4 min-h-[280px]">
+          {tab === "recommend" && (
+            <AttackRecommendationCards
+              recommendations={recommendations}
+              rulesApplied={rulesApplied}
+              selectedRank={selectedRecRank}
+              busy={busyPlanId !== null || isAuthorizing}
+              onSelect={(r) => setSelectedRecRank(r.rank)}
+              onAuthorizeRun={(r) => void handleRecommendAuthorizeRun(r)}
+            />
+          )}
           {tab === "plans" && (
             <AttackPlansList
               plans={displayPlans}
@@ -520,7 +593,10 @@ function AttackModeContent() {
               selectedPlanId={selectedPlanId}
               busyPlanId={busyPlanId}
               onSelectPlan={(p) => setSelectedPlanId(p.planId)}
-              onAuthorizeClick={(p) => setAuthModalPlan(p)}
+              onAuthorizeClick={(p) => {
+                setAuthorizeThenExecute(false);
+                setAuthModalPlan(p);
+              }}
               onExecuteClick={(p) => void handleExecute(p)}
             />
           )}
@@ -574,7 +650,10 @@ function AttackModeContent() {
           operatorId={operatorId}
           isSubmitting={isAuthorizing}
           onAuthorize={(c) => void handleAuthorize(c)}
-          onDecline={() => setAuthModalPlan(null)}
+          onDecline={() => {
+            setAuthorizeThenExecute(false);
+            setAuthModalPlan(null);
+          }}
         />
       )}
     </div>

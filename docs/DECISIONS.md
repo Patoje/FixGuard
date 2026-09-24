@@ -92,22 +92,25 @@
 ## ADR-005: Human-in-the-Loop Review Boundary for Evidence & Candidate Promotion
 
 - **ID:** ADR-005
-- **Status:** `ACCEPTED` (`CONFIRMED` in `HumanReviewedEvidencePromotionService.ts` and `ReviewedEvidenceFindingCandidatePromotionService.ts`)
+- **Status:** `AMENDED` (product correction: HITL for AttackPlan **execute**, not for blocking real vuln Findings)
 - **Context:**
-  Traditional automated DAST tools produce high volumes of false-positive vulnerability reports by automatically converting anomalies into findings without human triage.
+  Traditional automated DAST tools produce high volumes of false-positive vulnerability reports by automatically converting anomalies into findings without human triage. FixGuard initially required human review before any Finding. Operators clarified that authorization was intended for attack **execution**, while confirmed real vulnerabilities must surface as Findings automatically.
 - **Decision:**
-  1. Differential validation outputs are strictly classified as non-persisted drafts (`EvidenceDraftEnvelope`).
-  2. Promotion of a draft to an `EvidenceRecord` (M50) requires explicit human review (`approve_evidence`).
-  3. Grouping evidence into a formal finding candidate (M54) requires an explicit human triage decision (`approve_finding_candidate_promotion`).
-  4. Both promotion services enforce explicit non-claims: `noConfirmedVulnerability: true`, `noSeverityRiskOrImpactClaim: true`, `noRemediationAdvice: true`.
+  1. Differential validation outputs begin as non-persisted drafts (`EvidenceDraftEnvelope`).
+  2. **Auto-promote to Finding** when a detection has a confirmed/observed vuln signal with attack value (e.g. IDOR/BOLA access differential, credentialed CORS, confirmed auth bypass, reflected XSS canary, confirmed OOB interaction). See `FindingAutoPromotionPolicy.ts`.
+  3. **Never auto-promote** SPA/hydration/RSC/fingerprint/discovery-only noise, route trees, soft anomalies without differential, or abstained bridge results — keep as draft or drop.
+  4. Soft/cosmetic signals (e.g. missing security headers) may remain drafts for optional HITL; they do not mint Attack Plans.
+  5. Explicit human review (`approve_evidence` / triage) remains available for leftover drafts.
+  6. Formal finding-candidate promotion pipeline (M50–M54) non-claims still apply when that path is used.
+  7. **AttackPlan execute** remains human-authorized (F0 closed loop) — auto Findings feed plans; plans never auto-execute.
 - **Motive:**
-  Preserve the core philosophy: "Tools execute. Intelligence decides. Humans authorize." Protect clients from autonomous, unverified exploit or vulnerability claims.
+  Preserve "Tools execute. Intelligence decides. Humans authorize" for active attack execution, while showing operators real vulnerabilities without a HITL bottleneck that hid confirmed signals.
 - **Consequences:**
-  Automated routines can propose candidates, but cannot mark them as approved findings. Rejection by human review halts persistence and discards unapproved drafts.
+  Assessments show Findings when (and only when) real vuln signals exist. Teclaaa-like SPA targets with only discovery noise correctly remain findings=0.
 - **What NOT to do:**
-  - Never auto-promote evidence drafts without a human reviewer decision.
-  - Never allow an automated scanner to set `humanApprovedPromotion: true`.
-
+  - Never invent vulnerabilities or Critical/High severities without confirmed signal.
+  - Never auto-execute AttackPlans.
+  - Never promote discovery/fingerprint/hydration noise to Findings.
 ---
 
 ## ADR-006: Dual Architecture Segregation (Freezing V1 vs Developing V2)

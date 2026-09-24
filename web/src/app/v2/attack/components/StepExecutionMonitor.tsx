@@ -1,7 +1,19 @@
 "use client";
 
-import { Activity, CheckCircle2, XCircle, AlertOctagon, CircleDot } from "lucide-react";
-import type { AttackExecutionRecordDto, AttackStepExecutionDto } from "@/lib/v2AttackApi";
+import {
+  Activity,
+  CheckCircle2,
+  XCircle,
+  AlertOctagon,
+  CircleDot,
+  Terminal,
+} from "lucide-react";
+import type {
+  AttackConsoleLineDto,
+  AttackExecutionRecordDto,
+  AttackStepExecutionDto,
+} from "@/lib/v2AttackApi";
+import { consoleLineClassFromText } from "@/lib/v2/consoleLineTone";
 
 interface StepExecutionMonitorProps {
   readonly record: AttackExecutionRecordDto | null;
@@ -45,11 +57,50 @@ function outcomeLabel(outcome: DisplayOutcome, raw: string): string {
   return raw;
 }
 
+function ConsolePanel({
+  lines,
+  commandSummary,
+}: {
+  readonly lines: readonly AttackConsoleLineDto[];
+  readonly commandSummary?: string;
+}) {
+  return (
+    <div className="rounded-lg border border-zinc-800 bg-black overflow-hidden">
+      <div className="flex items-center gap-2 border-b border-zinc-900 bg-zinc-950 px-3 py-1.5 text-[10px] font-mono text-zinc-500">
+        <Terminal className="h-3 w-3 text-emerald-500" />
+        operator console
+      </div>
+      <pre className="max-h-64 overflow-auto p-3 text-[11px] font-mono leading-relaxed whitespace-pre-wrap break-all">
+        {commandSummary && lines.every((l) => l.stream !== "command") && (
+          <div className={consoleLineClassFromText(commandSummary)}>
+            $ {commandSummary}
+          </div>
+        )}
+        {lines.map((line, idx) => {
+          const display =
+            line.stream === "command" ? `$ ${line.text}` : line.text;
+          return (
+            <div
+              key={`${line.at}-${idx}`}
+              className={consoleLineClassFromText(display)}
+            >
+              {display}
+            </div>
+          );
+        })}
+        {lines.length === 0 && !commandSummary && (
+          <span className="text-zinc-600">No console lines recorded.</span>
+        )}
+      </pre>
+    </div>
+  );
+}
+
 export function StepExecutionMonitor({ record, lastError }: StepExecutionMonitorProps) {
   if (!record && !lastError) {
     return (
       <div className="rounded-lg border border-zinc-800 bg-zinc-950/60 p-4 text-xs text-zinc-500">
-        No execution yet. Authorize a plan, then execute to populate step outcomes.
+        No execution yet. Pick Attack A or B, authorize, then run to populate the console.
       </div>
     );
   }
@@ -84,62 +135,68 @@ export function StepExecutionMonitor({ record, lastError }: StepExecutionMonitor
             <span className="text-zinc-500">{record.capability}</span>
           </div>
 
-          <ul className="space-y-2">
+          <ul className="space-y-3">
             {record.stepRecords.map((step) => {
               const display = classifyOutcome(step);
+              const lines = step.consoleLines ?? [];
               return (
-                <li
-                  key={step.stepId}
-                  className={`rounded-lg border px-3 py-2 ${
-                    display === "refuted"
-                      ? "border-rose-500/40 bg-rose-950/20"
-                      : display === "circuit_broken"
-                        ? "border-orange-500/40 bg-orange-950/20"
-                        : display === "succeeded"
-                          ? "border-emerald-500/30 bg-emerald-950/10"
-                          : "border-zinc-800 bg-zinc-950/60"
-                  }`}
-                >
-                  <div className="flex items-start gap-2">
-                    <OutcomeIcon outcome={display} />
-                    <div className="min-w-0 flex-1 space-y-1">
-                      <div className="flex flex-wrap items-center gap-2 text-[11px] font-mono">
-                        <span className="text-zinc-200">{step.stepId}</span>
-                        <span
-                          className={`rounded border px-1.5 py-0.5 text-[10px] ${
-                            display === "succeeded"
-                              ? "border-emerald-500/40 text-emerald-400"
-                              : display === "refuted"
-                                ? "border-rose-500/40 text-rose-300"
-                                : display === "circuit_broken"
-                                  ? "border-orange-500/40 text-orange-300"
-                                  : "border-zinc-700 text-zinc-400"
-                          }`}
-                        >
-                          {outcomeLabel(display, step.outcome)}
-                        </span>
+                <li key={step.stepId} className="space-y-2">
+                  <div
+                    className={`rounded-lg border px-3 py-2 ${
+                      display === "refuted"
+                        ? "border-rose-500/40 bg-rose-950/20"
+                        : display === "circuit_broken"
+                          ? "border-orange-500/40 bg-orange-950/20"
+                          : display === "succeeded"
+                            ? "border-emerald-500/30 bg-emerald-950/10"
+                            : "border-zinc-800 bg-zinc-950/60"
+                    }`}
+                  >
+                    <div className="flex items-start gap-2">
+                      <OutcomeIcon outcome={display} />
+                      <div className="min-w-0 flex-1 space-y-1">
+                        <div className="flex flex-wrap items-center gap-2 text-[11px] font-mono">
+                          <span className="text-zinc-200">{step.stepId}</span>
+                          <span
+                            className={`rounded border px-1.5 py-0.5 text-[10px] ${
+                              display === "succeeded"
+                                ? "border-emerald-500/40 text-emerald-400"
+                                : display === "refuted"
+                                  ? "border-rose-500/40 text-rose-300"
+                                  : display === "circuit_broken"
+                                    ? "border-orange-500/40 text-orange-300"
+                                    : "border-zinc-700 text-zinc-400"
+                            }`}
+                          >
+                            {outcomeLabel(display, step.outcome)}
+                          </span>
+                        </div>
+                        <p className="text-[11px] text-zinc-500">
+                          reason: <span className="text-zinc-400">{step.reasonCode}</span>
+                        </p>
+                        {step.safeMessage && (
+                          <p className="text-[11px] text-zinc-400">{step.safeMessage}</p>
+                        )}
+                        {step.evidenceId && (
+                          <p className="text-[10px] font-mono text-zinc-600">
+                            evidenceId: {step.evidenceId}
+                          </p>
+                        )}
+                        {typeof step.gatesPassed === "string" && (
+                          <p className="text-[10px] font-mono text-amber-400/80">
+                            gate: {step.gatesPassed}
+                          </p>
+                        )}
+                        {(step.verificationStateBefore || step.verificationStateAfter) && (
+                          <p className="text-[10px] font-mono text-zinc-600">
+                            verification: {step.verificationStateBefore ?? "?"} →{" "}
+                            {step.verificationStateAfter ?? "?"}
+                          </p>
+                        )}
                       </div>
-                      <p className="text-[11px] text-zinc-500">
-                        reason: <span className="text-zinc-400">{step.reasonCode}</span>
-                      </p>
-                      {step.evidenceId && (
-                        <p className="text-[10px] font-mono text-zinc-600">
-                          evidenceId: {step.evidenceId}
-                        </p>
-                      )}
-                      {typeof step.gatesPassed === "string" && (
-                        <p className="text-[10px] font-mono text-amber-400/80">
-                          gate: {step.gatesPassed}
-                        </p>
-                      )}
-                      {(step.verificationStateBefore || step.verificationStateAfter) && (
-                        <p className="text-[10px] font-mono text-zinc-600">
-                          verification: {step.verificationStateBefore ?? "?"} →{" "}
-                          {step.verificationStateAfter ?? "?"}
-                        </p>
-                      )}
                     </div>
                   </div>
+                  <ConsolePanel lines={lines} commandSummary={step.commandSummary} />
                 </li>
               );
             })}
