@@ -27,6 +27,27 @@ import {
 /** Default reviewer for promote API — not shown in UI. */
 const DEFAULT_REVIEWER_ID = "op_lead_analyst_01";
 
+/** Soft/cosmetic kinds sorted below attack-relevant drafts. */
+const LOW_INFO_KIND_ORDER = new Set([
+  "missing_security_headers",
+  "wordpress_surface",
+  "graphql_surface",
+  "api_versioning_sprawl",
+  "manifest_exposure",
+  "object_mapping_anomaly",
+  "state_transition_anomaly",
+  "custom_difference",
+  "static_route_extraction",
+  "attack_surface_delta",
+  "sourcemap_exposure",
+]);
+
+function draftSortRank(draft: EvidenceDraftDto): number {
+  const kind = draft.differentialContext?.detectionKind;
+  if (kind && LOW_INFO_KIND_ORDER.has(kind)) return 1;
+  return 0;
+}
+
 interface EvidenceTriageBoardProps {
   assessmentId: string;
   scanId: string;
@@ -63,7 +84,13 @@ export function EvidenceTriageBoard({
     setError(null);
     try {
       const response = await getEvidenceDrafts(assessmentId);
-      setDrafts([...response.drafts]);
+      const sorted = [...response.drafts].sort((a, b) => {
+        const ra = draftSortRank(a);
+        const rb = draftSortRank(b);
+        if (ra !== rb) return ra - rb;
+        return a.draftId.localeCompare(b.draftId);
+      });
+      setDrafts(sorted);
     } catch (err) {
       if (err instanceof V2ApiError) {
         setError(err.message);
@@ -179,7 +206,10 @@ export function EvidenceTriageBoard({
             </p>
           </div>
         ) : (
-          drafts.map((draft) => {
+          (() => {
+            const primary = drafts.filter((d) => draftSortRank(d) === 0);
+            const lowInfo = drafts.filter((d) => draftSortRank(d) === 1);
+            const renderDraft = (draft: EvidenceDraftDto) => {
             const already = reviewedDraftIds.includes(draft.draftId);
             const reviewing = reviewingDraftId === draft.draftId;
             const kind = draft.differentialContext?.detectionKind;
@@ -197,7 +227,9 @@ export function EvidenceTriageBoard({
                 className={`rounded-lg border p-4 transition-all ${
                   already
                     ? "border-emerald-500/30 bg-emerald-950/10"
-                    : "border-zinc-800 bg-zinc-900/50 hover:border-zinc-700"
+                    : draftSortRank(draft) === 1
+                      ? "border-zinc-800/60 bg-zinc-950/40 opacity-90"
+                      : "border-zinc-800 bg-zinc-900/50 hover:border-zinc-700"
                 }`}
               >
                 <div className="flex flex-wrap items-start justify-between gap-3">
@@ -264,7 +296,22 @@ export function EvidenceTriageBoard({
                 </div>
               </div>
             );
-          })
+            };
+
+            return (
+              <>
+                {primary.map(renderDraft)}
+                {lowInfo.length > 0 && (
+                  <div className="pt-2 space-y-2">
+                    <p className="text-[10px] font-mono uppercase tracking-wide text-zinc-600">
+                      Low-info / cosmetic ({lowInfo.length}) — not Attack Mode primary
+                    </p>
+                    {lowInfo.map(renderDraft)}
+                  </div>
+                )}
+              </>
+            );
+          })()
         )}
       </div>
 

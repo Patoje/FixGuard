@@ -179,8 +179,49 @@ import { ReconToolAvailabilityService } from '../capabilities/ReconToolAvailabil
 import type { ReconToolName } from '../capabilities/CapabilityStatusContracts.js';
 import { STAGE_REQUIRED_TOOLS } from '../capabilities/CapabilityStatusContracts.js';
 import type { ReconStageName } from '../recon/orchestration/ActiveReconOrchestrationContracts.js';
+import {
+  ephemeralByotSessionStore,
+  type EphemeralByotIdentityMaterial,
+  type EphemeralByotSessionMeta,
+} from '../byot/EphemeralByotSessionStore.js';
 
 export const ASSESSMENT_GLOBAL_TIMEOUT_MS = 30 * 60 * 1000; // 30 minutes
+
+function byotIdentityToExecuteMaterial(identity: ByotIdentity): EphemeralByotIdentityMaterial {
+  const headers: Record<string, string> = {};
+  if (identity.injectHeaders) {
+    for (const [key, val] of Object.entries(identity.injectHeaders)) {
+      headers[key.toLowerCase()] = val;
+    }
+  }
+  if (identity.injectCookies && Object.keys(identity.injectCookies).length > 0) {
+    const cookieParts = Object.entries(identity.injectCookies).map(
+      ([k, v]) => `${k}=${v}`
+    );
+    const existing = headers['cookie'];
+    headers['cookie'] = existing
+      ? `${existing}; ${cookieParts.join('; ')}`
+      : cookieParts.join('; ');
+  }
+  return {
+    identityId: identity.identityId,
+    ...(Object.keys(headers).length > 0 ? { headers: Object.freeze(headers) } : {}),
+  };
+}
+
+function registerEphemeralByotSession(
+  assessmentId: string,
+  sessionIdentities: ByotSessionIdentityBundle | undefined
+): EphemeralByotSessionMeta | null {
+  if (!sessionIdentities) return null;
+  return ephemeralByotSessionStore.register({
+    assessmentId,
+    identityA: byotIdentityToExecuteMaterial(sessionIdentities.identityA),
+    ...(sessionIdentities.identityB
+      ? { identityB: byotIdentityToExecuteMaterial(sessionIdentities.identityB) }
+      : {}),
+  });
+}
 
 /**
  * Pure helper function mapping operator-provided ByotIdentity to frozen ProbeAuthContext
@@ -239,6 +280,7 @@ import type {
 } from './OrchestratedAssessmentContracts.js';
 import { AttackRecommendationService } from '../attack-recommendation/AttackRecommendationService.js';
 import type {
+  OperatorAttackRecommendation,
   OperatorPreconditions,
   OperatorStackHints,
 } from '../attack-recommendation/AttackOperatorRecommendationContracts.js';
@@ -314,7 +356,8 @@ function deriveOperatorStackHints(
 
 function deriveOperatorPreconditions(
   plans: readonly AttackPlan[],
-  findings: readonly Finding[]
+  findings: readonly Finding[],
+  byotMeta?: EphemeralByotSessionMeta | null
 ): OperatorPreconditions {
   const prereqs = plans.flatMap((p) => p.prerequisites);
   const satisfied = (kind: string): boolean =>
@@ -323,9 +366,14 @@ function deriveOperatorPreconditions(
   let identityCount = 0;
   if (satisfied('identity_count_at_least_2')) identityCount = 2;
   else if (satisfied('identity_present')) identityCount = 1;
+  if (byotMeta && byotMeta.identityCount > identityCount) {
+    identityCount = byotMeta.identityCount;
+  }
 
   const hasJwtIdentity =
     satisfied('identity_with_jwt') ||
+    byotMeta?.hasJwtA === true ||
+    byotMeta?.hasJwtB === true ||
     findings.some((f) => f.metadata.kind === 'jwt_algorithm_confusion_metadata');
 
   const hasCredentialedCorsSignal =
@@ -1265,6 +1313,9 @@ export class OrchestratedAssessmentApplicationService {
 
     await this.repository.save(initialRecord);
 
+    // Process-local BYOT only — never persisted on the assessment record.
+    registerEphemeralByotSession(assessmentId, command.sessionIdentities);
+
     // Launch pipeline in background
     const pipelinePromise = this.runPipeline(
       initialRecord,
@@ -1563,7 +1614,8 @@ export class OrchestratedAssessmentApplicationService {
     );
 
     const stackHints = deriveOperatorStackHints(record.attackSurfaceGraph, record.profile);
-    const preconditions = deriveOperatorPreconditions(plans, findings);
+    const byotMeta = ephemeralByotSessionStore.getMeta(assessmentId);
+    const preconditions = deriveOperatorPreconditions(plans, findings, byotMeta);
     const service = new AttackRecommendationService();
     const result = service.recommend({
       assessmentId: record.assessmentId,
@@ -1585,14 +1637,24 @@ export class OrchestratedAssessmentApplicationService {
       ...(investigationId ? { investigationId } : {}),
     });
 
+    const linkedRecommendations = await this.ensureExecutableRecommendationPlanLinks({
+      assessmentId: record.assessmentId,
+      scanId: record.scanId,
+      lineage: record.lineage,
+      findings,
+      plans,
+      recommendations: result.recommendations,
+      byotMeta,
+    });
+
     return {
       assessmentId: result.assessmentId,
       scanId: result.scanId,
       ...(result.subjectFindingId ? { subjectFindingId: result.subjectFindingId } : {}),
       ...(result.subjectPlanId ? { subjectPlanId: result.subjectPlanId } : {}),
       ...(result.investigationId ? { investigationId: result.investigationId } : {}),
-      recommendationCount: result.recommendations.length,
-      recommendations: result.recommendations,
+      recommendationCount: linkedRecommendations.length,
+      recommendations: linkedRecommendations,
       rulesApplied: result.rulesApplied,
       lineage: result.lineage,
       generatedAt: result.generatedAt,
@@ -2068,6 +2130,125 @@ export class OrchestratedAssessmentApplicationService {
       ...(args.producedFactIds ? { producedFactIds: args.producedFactIds } : {}),
       ...(args.recordedAt ? { recordedAt: args.recordedAt } : {}),
     });
+  }
+
+  /**
+   * Safe BYOT metadata for operator UI — never includes secrets.
+   */
+  public getEphemeralByotMeta(assessmentId: string): EphemeralByotSessionMeta | null {
+    if (!assessmentId || typeof assessmentId !== 'string' || !isStrictSafeId(assessmentId)) {
+      return null;
+    }
+    return ephemeralByotSessionStore.getMeta(assessmentId);
+  }
+
+  /**
+   * Process-local BYOT identities for Attack execute injection.
+   * Must never be serialized to API responses.
+   */
+  public getEphemeralByotExecuteIdentities(assessmentId: string): {
+    readonly primaryIdentity: EphemeralByotIdentityMaterial;
+    readonly secondaryIdentity?: EphemeralByotIdentityMaterial;
+  } | null {
+    if (!assessmentId || typeof assessmentId !== 'string' || !isStrictSafeId(assessmentId)) {
+      return null;
+    }
+    return ephemeralByotSessionStore.getExecuteIdentities(assessmentId);
+  }
+
+  /**
+   * For executable A/B recommendations missing planId, mint/link finding-backed plans
+   * so Authorize+Run can proceed when preconditions (e.g. BYOT) are satisfied.
+   * Never auto-executes.
+   */
+  private async ensureExecutableRecommendationPlanLinks(args: {
+    readonly assessmentId: string;
+    readonly scanId: string;
+    readonly lineage: OrchestratedAssessmentRecord['lineage'];
+    readonly findings: readonly Finding[];
+    readonly plans: readonly AttackPlan[];
+    readonly recommendations: readonly OperatorAttackRecommendation[];
+    readonly byotMeta: EphemeralByotSessionMeta | null;
+  }): Promise<readonly OperatorAttackRecommendation[]> {
+    const { assessmentId, scanId, lineage, findings, byotMeta } = args;
+    let plans = [...args.plans];
+    const out: OperatorAttackRecommendation[] = [];
+
+    for (const rec of args.recommendations) {
+      if (!rec.executable) {
+        out.push(rec);
+        continue;
+      }
+      if (rec.planId) {
+        out.push(rec);
+        continue;
+      }
+
+      const existing = plans.find(
+        (p) =>
+          p.capability === rec.capabilityKind &&
+          (rec.sourceFindingId === undefined ||
+            p.sourceFindingIds.includes(rec.sourceFindingId))
+      );
+      if (existing) {
+        out.push({ ...rec, planId: existing.planId });
+        continue;
+      }
+
+      const sourceFindings = findings.filter(
+        (f) =>
+          (rec.sourceFindingId !== undefined && f.id === rec.sourceFindingId) ||
+          (rec.sourceFindingId === undefined &&
+            (rec.sourceFindingType === undefined || f.type === rec.sourceFindingType))
+      );
+      if (sourceFindings.length === 0) {
+        out.push({
+          ...rec,
+          executable: false,
+          disabilityReason:
+            'plan_not_linked: no matching finding to mint AttackPlan for this recommendation',
+        });
+        continue;
+      }
+
+      const identities: AttackPlanIdentityContext[] = [];
+      if (byotMeta) {
+        identities.push({
+          identityId: byotMeta.identityAId,
+          hasJwt: byotMeta.hasJwtA,
+        });
+        if (byotMeta.identityBId) {
+          identities.push({
+            identityId: byotMeta.identityBId,
+            hasJwt: byotMeta.hasJwtB,
+          });
+        }
+      }
+
+      const generated = this.attackPlanGenerator.generate({
+        assessmentId,
+        scanId,
+        findings: sourceFindings,
+        identities,
+        lineage,
+      });
+      const matched = generated.plans.filter((p) => p.capability === rec.capabilityKind);
+      if (matched.length === 0) {
+        out.push({
+          ...rec,
+          executable: false,
+          disabilityReason:
+            'plan_not_linked: AttackPlanGenerator did not emit a plan for this capability',
+        });
+        continue;
+      }
+
+      await this.attackPlanRepository.savePlans(matched);
+      plans = [...plans, ...matched];
+      out.push({ ...rec, planId: matched[0]!.planId });
+    }
+
+    return Object.freeze(out);
   }
 
   /**

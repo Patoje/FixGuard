@@ -1,11 +1,24 @@
 "use client";
 
 import React, { useState } from "react";
-import { Globe, Shield, AlertCircle, ArrowRight, Loader2 } from "lucide-react";
+import {
+  Globe,
+  Shield,
+  AlertCircle,
+  ArrowRight,
+  Loader2,
+  Key,
+  ChevronDown,
+  ChevronRight,
+  Lock,
+  UserCheck,
+} from "lucide-react";
 import {
   startOrchestratedAssessment,
   V2ApiError,
   type StartOrchestratedAssessmentResponse,
+  type ByotIdentityDto,
+  type ByotSessionIdentityBundleDto,
 } from "@/lib/v2Api";
 
 interface TargetLaunchCardProps {
@@ -36,6 +49,18 @@ function isPrivateOrLoopbackHost(hostname: string): boolean {
   return false;
 }
 
+function parseCookieInput(cookieStr: string): Record<string, string> {
+  const cookies: Record<string, string> = {};
+  if (!cookieStr.trim()) return cookies;
+  if (cookieStr.includes("=")) {
+    const [k, ...v] = cookieStr.split("=");
+    cookies[k.trim()] = v.join("=").trim();
+  } else {
+    cookies["session"] = cookieStr.trim();
+  }
+  return cookies;
+}
+
 export function TargetLaunchCard({
   onAssessmentStarted,
   isRunning,
@@ -46,6 +71,15 @@ export function TargetLaunchCard({
   const [actorId, setActorId] = useState<string>("usr_secops_lead");
   const [loading, setLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
+
+  const [showByot, setShowByot] = useState(false);
+  const [identityAId, setIdentityAId] = useState("operator_identity_a");
+  const [identityAAuthHeader, setIdentityAAuthHeader] = useState("");
+  const [identityACookie, setIdentityACookie] = useState("");
+  const [enableIdentityB, setEnableIdentityB] = useState(false);
+  const [identityBId, setIdentityBId] = useState("operator_identity_b");
+  const [identityBAuthHeader, setIdentityBAuthHeader] = useState("");
+  const [identityBCookie, setIdentityBCookie] = useState("");
 
   const cleaned = cleanDomain(domainInput);
   const isValidFormat =
@@ -69,9 +103,42 @@ export function TargetLaunchCard({
     setError(null);
 
     try {
+      let sessionIdentities: ByotSessionIdentityBundleDto | undefined;
+      if (showByot && (identityAAuthHeader.trim() || identityACookie.trim())) {
+        const headersA: Record<string, string> = {};
+        if (identityAAuthHeader.trim()) {
+          headersA["authorization"] = identityAAuthHeader.trim();
+        }
+        const cookiesA = parseCookieInput(identityACookie);
+
+        let identityB: ByotIdentityDto | undefined;
+        if (enableIdentityB && (identityBAuthHeader.trim() || identityBCookie.trim())) {
+          const headersB: Record<string, string> = {};
+          if (identityBAuthHeader.trim()) {
+            headersB["authorization"] = identityBAuthHeader.trim();
+          }
+          const cookiesB = parseCookieInput(identityBCookie);
+          identityB = {
+            identityId: identityBId.trim() || "operator_identity_b",
+            ...(Object.keys(headersB).length > 0 ? { injectHeaders: headersB } : {}),
+            ...(Object.keys(cookiesB).length > 0 ? { injectCookies: cookiesB } : {}),
+          };
+        }
+
+        sessionIdentities = {
+          identityA: {
+            identityId: identityAId.trim() || "operator_identity_a",
+            ...(Object.keys(headersA).length > 0 ? { injectHeaders: headersA } : {}),
+            ...(Object.keys(cookiesA).length > 0 ? { injectCookies: cookiesA } : {}),
+          },
+          ...(identityB ? { identityB } : {}),
+        };
+      }
+
       const result = await startOrchestratedAssessment({
         targetDomain: cleaned,
         actorId: actorId.trim() || undefined,
+        ...(sessionIdentities ? { sessionIdentities } : {}),
       });
       onAssessmentStarted(result, cleaned);
     } catch (err) {
@@ -168,6 +235,104 @@ export function TargetLaunchCard({
               disabled={loading || isRunning}
             />
           </div>
+        </div>
+
+        <div className="rounded-lg border border-zinc-800/80 bg-zinc-900/40 overflow-hidden">
+          <button
+            type="button"
+            onClick={() => setShowByot(!showByot)}
+            className="w-full flex items-center justify-between p-3 text-xs text-left hover:bg-zinc-800/40 transition"
+          >
+            <div className="flex items-center gap-2 text-zinc-200 font-medium">
+              <Key className="h-3.5 w-3.5 text-amber-400" />
+              <span>BYOT dual identity (optional)</span>
+              <span className="text-[10px] font-mono text-zinc-500 uppercase tracking-wider">
+                IDOR A↔B
+              </span>
+            </div>
+            {showByot ? (
+              <ChevronDown className="h-4 w-4 text-zinc-400" />
+            ) : (
+              <ChevronRight className="h-4 w-4 text-zinc-400" />
+            )}
+          </button>
+          {showByot && (
+            <div className="p-3 pt-0 border-t border-zinc-800/60 space-y-3">
+              <div className="flex items-start gap-2 rounded-md border border-amber-500/20 bg-amber-500/5 p-2 text-[10px] text-amber-300 font-mono">
+                <Lock className="h-3 w-3 shrink-0 mt-0.5" />
+                Ephemeral only — never persisted to DB, logs, or reports.
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
+                <input
+                  type="text"
+                  value={identityAId}
+                  onChange={(e) => setIdentityAId(e.target.value)}
+                  placeholder="identity_a id"
+                  disabled={loading || isRunning}
+                  className="rounded-md border border-zinc-800 bg-zinc-950 px-2 py-1.5 text-xs font-mono text-white"
+                />
+                <input
+                  type="password"
+                  autoComplete="off"
+                  value={identityAAuthHeader}
+                  onChange={(e) => setIdentityAAuthHeader(e.target.value)}
+                  placeholder="Authorization header"
+                  disabled={loading || isRunning}
+                  className="rounded-md border border-zinc-800 bg-zinc-950 px-2 py-1.5 text-xs font-mono text-white"
+                />
+                <input
+                  type="password"
+                  autoComplete="off"
+                  value={identityACookie}
+                  onChange={(e) => setIdentityACookie(e.target.value)}
+                  placeholder="Cookie"
+                  disabled={loading || isRunning}
+                  className="rounded-md border border-zinc-800 bg-zinc-950 px-2 py-1.5 text-xs font-mono text-white"
+                />
+              </div>
+              <label className="flex items-center gap-2 text-xs text-zinc-400">
+                <input
+                  type="checkbox"
+                  checked={enableIdentityB}
+                  onChange={(e) => setEnableIdentityB(e.target.checked)}
+                  disabled={loading || isRunning}
+                  className="rounded border-zinc-700"
+                />
+                <UserCheck className="h-3.5 w-3.5 text-sky-400" />
+                Enable Identity B (differential IDOR)
+              </label>
+              {enableIdentityB && (
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
+                  <input
+                    type="text"
+                    value={identityBId}
+                    onChange={(e) => setIdentityBId(e.target.value)}
+                    placeholder="identity_b id"
+                    disabled={loading || isRunning}
+                    className="rounded-md border border-zinc-800 bg-zinc-950 px-2 py-1.5 text-xs font-mono text-white"
+                  />
+                  <input
+                    type="password"
+                    autoComplete="off"
+                    value={identityBAuthHeader}
+                    onChange={(e) => setIdentityBAuthHeader(e.target.value)}
+                    placeholder="Authorization header"
+                    disabled={loading || isRunning}
+                    className="rounded-md border border-zinc-800 bg-zinc-950 px-2 py-1.5 text-xs font-mono text-white"
+                  />
+                  <input
+                    type="password"
+                    autoComplete="off"
+                    value={identityBCookie}
+                    onChange={(e) => setIdentityBCookie(e.target.value)}
+                    placeholder="Cookie"
+                    disabled={loading || isRunning}
+                    className="rounded-md border border-zinc-800 bg-zinc-950 px-2 py-1.5 text-xs font-mono text-white"
+                  />
+                </div>
+              )}
+            </div>
+          )}
         </div>
 
         <div className="flex flex-wrap items-center gap-2 text-xs">

@@ -731,8 +731,29 @@ export class OrchestratedAssessmentController {
         throw new ApiValidationError('Field findings must be an array of Finding objects');
       }
 
-      const primaryIdentity = parseOptionalIdentity(body.primaryIdentity, 'primaryIdentity');
-      const secondaryIdentity = parseOptionalIdentity(body.secondaryIdentity, 'secondaryIdentity');
+      const clientPrimary = parseOptionalIdentity(body.primaryIdentity, 'primaryIdentity');
+      const clientSecondary = parseOptionalIdentity(body.secondaryIdentity, 'secondaryIdentity');
+      const ephemeralByot = this.service.getEphemeralByotExecuteIdentities(assessmentId);
+      const primaryIdentity =
+        clientPrimary ??
+        (ephemeralByot
+          ? {
+              identityId: ephemeralByot.primaryIdentity.identityId,
+              ...(ephemeralByot.primaryIdentity.headers
+                ? { headers: { ...ephemeralByot.primaryIdentity.headers } }
+                : {}),
+            }
+          : null);
+      const secondaryIdentity =
+        clientSecondary ??
+        (ephemeralByot?.secondaryIdentity
+          ? {
+              identityId: ephemeralByot.secondaryIdentity.identityId,
+              ...(ephemeralByot.secondaryIdentity.headers
+                ? { headers: { ...ephemeralByot.secondaryIdentity.headers } }
+                : {}),
+            }
+          : null);
 
       const token = this.attackAuthorizationService.getRuntimeToken(planId, assessmentId);
       if (!token) {
