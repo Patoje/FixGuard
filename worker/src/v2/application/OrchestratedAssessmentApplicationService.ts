@@ -104,6 +104,9 @@ import {
   identityHasJwtHeuristic,
 } from '../attack-planning/AttackPlanGeneratorService.js';
 import type { AttackPlanIdentityContext } from '../attack-planning/AttackPlanContracts.js';
+import type { AttackChainRepository } from '../attack-chain/AttackChainRepository.js';
+import { InMemoryAttackChainRepository } from '../attack-chain/InMemoryAttackChainRepository.js';
+import { AttackChainService } from '../attack-chain/AttackChainService.js';
 import { scanSourceFilesForSecrets } from '../sast/StaticSecretScanningService.js';
 import { scanManifestsForVulnerabilities } from '../sast/DependencyVulnerabilityScanService.js';
 import { scanFilesForStaticRoutes } from '../sast/StaticRouteExtractionService.js';
@@ -175,6 +178,7 @@ import type {
   StartOrchestratedAssessmentCommand,
   StartOrchestratedAssessmentResult,
   GetAttackPlansResult,
+  GetAttackChainsResult,
 } from './OrchestratedAssessmentContracts.js';
 import { ORCHESTRATED_ASSESSMENT_CONTRACT_VERSION } from './OrchestratedAssessmentContracts.js';
 
@@ -187,6 +191,8 @@ export interface OrchestratedAssessmentServiceDependencies {
   readonly availabilityService?: ReconToolAvailabilityService;
   readonly attackPlanRepository?: AttackPlanRepository;
   readonly attackPlanGenerator?: AttackPlanGeneratorService;
+  readonly attackChainRepository?: AttackChainRepository;
+  readonly attackChainService?: AttackChainService;
 }
 
 /** Pure helper exposed for tests / composition — builds query service over a graph. */
@@ -489,6 +495,8 @@ export class OrchestratedAssessmentApplicationService {
   private readonly availabilityService: ReconToolAvailabilityService;
   private readonly attackPlanRepository: AttackPlanRepository;
   private readonly attackPlanGenerator: AttackPlanGeneratorService;
+  private readonly attackChainRepository: AttackChainRepository;
+  private readonly attackChainService: AttackChainService;
   private readonly activeAssessments = new Map<string, Promise<void>>();
 
   constructor(deps: OrchestratedAssessmentServiceDependencies) {
@@ -498,6 +506,10 @@ export class OrchestratedAssessmentApplicationService {
     this.availabilityService = deps.availabilityService ?? new ReconToolAvailabilityService();
     this.attackPlanRepository = deps.attackPlanRepository ?? new InMemoryAttackPlanRepository();
     this.attackPlanGenerator = deps.attackPlanGenerator ?? new AttackPlanGeneratorService();
+    this.attackChainRepository =
+      deps.attackChainRepository ?? new InMemoryAttackChainRepository();
+    this.attackChainService =
+      deps.attackChainService ?? new AttackChainService(this.attackChainRepository);
     this.reconAdapters =
       deps.reconAdapters ??
       createDefaultReconAdapters(this.dnsResolver, this.httpTransport);
@@ -836,6 +848,33 @@ export class OrchestratedAssessmentApplicationService {
       scanId: record.scanId,
       planCount: plans.length,
       plans,
+      lineage: record.lineage,
+    };
+  }
+
+  /**
+   * Milestone A6 — returns attack-chain hypotheses for an assessment.
+   * Chains aggregate executed-step evidence; they never invent steps.
+   */
+  public async getAttackChains(assessmentId: string): Promise<GetAttackChainsResult> {
+    if (!assessmentId || typeof assessmentId !== 'string' || !isStrictSafeId(assessmentId)) {
+      throw new ApiValidationError('Field assessmentId must satisfy strict identifier format');
+    }
+
+    const record = await this.repository.findById(assessmentId);
+    if (!record) {
+      throw new SessionNotFoundError(
+        `Orchestrated assessment '${assessmentId}' was not found`,
+        assessmentId
+      );
+    }
+
+    const chains = await this.attackChainService.listByAssessmentId(assessmentId);
+    return {
+      assessmentId: record.assessmentId,
+      scanId: record.scanId,
+      chainCount: chains.length,
+      chains,
       lineage: record.lineage,
     };
   }

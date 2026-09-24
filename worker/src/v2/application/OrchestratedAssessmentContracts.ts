@@ -16,6 +16,7 @@ import type { EvidenceDraftEnvelope } from '../evidence-mapping/ComparisonEviden
 import type { ByotSessionIdentityBundle } from '../detection/DetectionContracts.js';
 import type { AttackSurfaceGraph } from '../attack-surface/AttackSurfaceContracts.js';
 import type { AttackPlan } from '../attack-planning/AttackPlanContracts.js';
+import type { AttackChain } from '../attack-chain/AttackChainContracts.js';
 
 export const ORCHESTRATED_ASSESSMENT_CONTRACT_VERSION =
   'fixguard-orchestrated-assessment/v0' as const;
@@ -290,6 +291,15 @@ export interface GetAttackPlansResult {
   readonly scanId: string;
   readonly planCount: number;
   readonly plans: readonly AttackPlan[];
+  readonly lineage: AuthorizedActiveReconRequestLineage;
+}
+
+/** Milestone A6 — attack chain hypotheses aggregated from executed-step evidence. */
+export interface GetAttackChainsResult {
+  readonly assessmentId: string;
+  readonly scanId: string;
+  readonly chainCount: number;
+  readonly chains: readonly AttackChain[];
   readonly lineage: AuthorizedActiveReconRequestLineage;
 }
 

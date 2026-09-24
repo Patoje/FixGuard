@@ -23,6 +23,9 @@ import { AttackPlanGeneratorService } from '../attack-planning/AttackPlanGenerat
 import { AttackAuthorizationService } from '../attack-authorization/AttackAuthorizationService.js';
 import { AttackCapabilityRegistry } from '../attack-execution/AttackCapabilityRegistry.js';
 import { AttackExecutionService } from '../attack-execution/AttackExecutionService.js';
+import type { AttackChainRepository } from '../attack-chain/AttackChainRepository.js';
+import { InMemoryAttackChainRepository } from '../attack-chain/InMemoryAttackChainRepository.js';
+import { AttackChainService } from '../attack-chain/AttackChainService.js';
 
 export interface V2CompositionDependencies {
   readonly assessmentRepository?: AssessmentRepository;
@@ -40,6 +43,8 @@ export interface V2CompositionDependencies {
   readonly attackAuthorizationService?: AttackAuthorizationService;
   readonly attackCapabilityRegistry?: AttackCapabilityRegistry;
   readonly attackExecutionService?: AttackExecutionService;
+  readonly attackChainRepository?: AttackChainRepository;
+  readonly attackChainService?: AttackChainService;
 }
 
 /**
@@ -63,6 +68,8 @@ export class V2CompositionRoot {
   public readonly attackAuthorizationService: AttackAuthorizationService;
   public readonly attackCapabilityRegistry: AttackCapabilityRegistry;
   public readonly attackExecutionService: AttackExecutionService;
+  public readonly attackChainRepository: AttackChainRepository;
+  public readonly attackChainService: AttackChainService;
 
   constructor(deps: V2CompositionDependencies = {}) {
     this.assessmentRepository = deps.assessmentRepository ?? new InMemoryAssessmentRepository();
@@ -84,6 +91,9 @@ export class V2CompositionRoot {
         planRepository: this.attackPlanRepository,
         capabilityRegistry: this.attackCapabilityRegistry,
       });
+    this.attackChainRepository = deps.attackChainRepository ?? new InMemoryAttackChainRepository();
+    this.attackChainService =
+      deps.attackChainService ?? new AttackChainService(this.attackChainRepository);
     this.orchestratedRepository =
       deps.orchestratedRepository ?? new InMemoryOrchestratedAssessmentRepository();
     this.orchestratedService =
@@ -93,6 +103,8 @@ export class V2CompositionRoot {
         availabilityService: this.availabilityService,
         attackPlanRepository: this.attackPlanRepository,
         attackPlanGenerator: this.attackPlanGenerator,
+        attackChainRepository: this.attackChainRepository,
+        attackChainService: this.attackChainService,
       });
   }
 
