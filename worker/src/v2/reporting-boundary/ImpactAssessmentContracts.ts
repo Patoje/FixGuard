@@ -12,26 +12,18 @@
 
 import type { EpistemicStatus } from '../attack-surface/AttackSurfaceContracts.js';
 import type { ImpactLevel } from '../attack-chain/AttackChainContracts.js';
-import { EPISTEMIC_RANK } from '../attack-chain/AttackChainContracts.js';
+import {
+  EPISTEMIC_RANK,
+  HIGH_IMPACT_LEVELS,
+  isHighImpactLevel,
+} from '../attack-chain/AttackChainContracts.js';
 
 export type ImpactAssessmentContractVersion = 'fixguard-impact-assessment/v0';
 export const IMPACT_ASSESSMENT_CONTRACT_VERSION: ImpactAssessmentContractVersion =
   'fixguard-impact-assessment/v0';
 
 export type { EpistemicStatus, ImpactLevel };
-
-/**
- * Impact classes that constitute "high impact" for the VERIFIED gate.
- * A factual claim at these levels with epistemic VERIFIED requires chain VERIFIED.
- */
-export const HIGH_IMPACT_LEVELS: ReadonlySet<ImpactLevel> = new Set([
-  'authentication_bypass',
-  'authorization_bypass',
-  'data_access',
-  'privilege_escalation',
-  'lateral_movement',
-  'rce_demonstrated',
-]);
+export { HIGH_IMPACT_LEVELS, isHighImpactLevel };
 
 export interface ImpactAssessment {
   readonly contractVersion: ImpactAssessmentContractVersion;
@@ -65,10 +57,6 @@ export function capEpistemicToChain(
  */
 export function permitsVerifiedHighImpact(chainOverall: EpistemicStatus): boolean {
   return chainOverall === 'VERIFIED';
-}
-
-export function isHighImpactLevel(level: ImpactLevel): boolean {
-  return HIGH_IMPACT_LEVELS.has(level);
 }
 
 /**

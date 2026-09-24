@@ -258,6 +258,147 @@ function findingPresentPrereq(finding: Finding, expectedType: string): AttackPre
   };
 }
 
+function hostInScopePrereq(hostname: string, inScope: boolean): AttackPrerequisite {
+  return {
+    kind: 'host_in_scope',
+    description: 'Requires the lateral destination host to be in authorized assessment scope',
+    satisfied: inScope,
+    detail: inScope ? `host=${hostname};in_scope=true` : `host=${hostname};in_scope=false`,
+  };
+}
+
+function credentialReferencePresentPrereq(
+  credentialId: string | undefined,
+  present: boolean
+): AttackPrerequisite {
+  return {
+    kind: 'credential_reference_present',
+    description: 'Requires a vault CredentialReference (metadata only; no secret in plan)',
+    satisfied: present,
+    detail: present ? `credentialId=${credentialId}` : 'credentialId=missing',
+  };
+}
+
+function normalizeHost(value: string): string {
+  return value.trim().toLowerCase();
+}
+
+function isHostInScopeSet(hostname: string, hosts: readonly string[]): boolean {
+  const normalized = normalizeHost(hostname);
+  return hosts.some((h) => normalizeHost(h) === normalized);
+}
+
+function buildCredentialReusePlan(args: {
+  assessmentId: string;
+  scanId: string;
+  sourceKey: string;
+  hostname: string;
+  credentialId: string | undefined;
+  hostInScope: boolean;
+  hasCredential: boolean;
+  lineage: AttackPlanGeneratorInput['lineage'];
+  createdAt: string;
+}): AttackPlan {
+  const prereqs: AttackPrerequisite[] = [
+    hostInScopePrereq(args.hostname, args.hostInScope),
+    credentialReferencePresentPrereq(args.credentialId, args.hasCredential),
+  ];
+  const status = resolveStatus(prereqs);
+  // Advisory plan-scope uses domain_wide; human authorization must mint
+  // AttackAuthorizationToken with BlastRadiusClass credential_use.
+  return {
+    contractVersion: ATTACK_PLANNING_CONTRACT_VERSION,
+    kind: 'attack_plan',
+    planId: stablePlanId(args.assessmentId, 'credential_reuse', args.sourceKey),
+    assessmentId: args.assessmentId,
+    scanId: args.scanId,
+    capability: 'credential_reuse',
+    title: 'Credential reuse lateral validation',
+    reasoning:
+      'Observed authorized lateral target and/or in-scope CredentialReference. Recommend human-authorized credential_reuse validation under blast-radius class credential_use. Advisory only — secrets remain vault-bound.',
+    status,
+    blastRadius: 'domain_wide',
+    capabilityGained: 'read_authenticated',
+    sourceFindingIds: [],
+    sourceFindingTypes: [],
+    prerequisites: prereqs,
+    steps: [
+      {
+        stepId: `${args.sourceKey}_cred_reuse_step_1`,
+        ordinal: 1,
+        title: 'Authorize credential reuse probe',
+        description:
+          'Human-authorized credential_reuse against an in-scope host using vault CredentialReference and credential_use brand. Zero raw secrets in plan DTOs.',
+        status: stepStatus(status),
+        requiredPermissions: ['active_http_get', 'credential_use'],
+      },
+    ],
+    targetUrl: `https://${args.hostname}/`,
+    lineage: { ...args.lineage },
+    createdAt: args.createdAt,
+    executable: false,
+  };
+}
+
+/**
+ * Emit credential_reuse plans from lateral / credential context.
+ * Plans are retained with prerequisite_missing when host is not yet in scope.
+ */
+function generateCredentialReusePlans(
+  input: AttackPlanGeneratorInput,
+  generatedAt: string
+): AttackPlan[] {
+  const ctx = input.credentialReuseContext;
+  if (!ctx) return [];
+
+  const authorizedHosts = (ctx.authorizedLateralHosts ?? []).map(normalizeHost);
+  const inScopeHosts = (ctx.inScopeHosts ?? []).map(normalizeHost);
+  const credentialHosts = ctx.credentialHosts ?? [];
+
+  const plans: AttackPlan[] = [];
+  const emitted = new Set<string>();
+
+  const consider = (hostnameRaw: string, credentialId: string | undefined): void => {
+    const hostname = normalizeHost(hostnameRaw);
+    if (hostname.length === 0) return;
+    const sourceKey = `credreuse_${hostname}_${credentialId ?? 'nocred'}`;
+    if (emitted.has(sourceKey)) return;
+    emitted.add(sourceKey);
+
+    const hostInScope =
+      isHostInScopeSet(hostname, authorizedHosts) ||
+      isHostInScopeSet(hostname, inScopeHosts);
+    const hasCredential = typeof credentialId === 'string' && credentialId.length > 0;
+
+    plans.push(
+      buildCredentialReusePlan({
+        assessmentId: input.assessmentId,
+        scanId: input.scanId,
+        sourceKey,
+        hostname,
+        credentialId,
+        hostInScope,
+        hasCredential,
+        lineage: input.lineage,
+        createdAt: generatedAt,
+      })
+    );
+  };
+
+  for (const host of authorizedHosts) {
+    const matchingCred = credentialHosts.find(
+      (c) => normalizeHost(c.associatedHostname) === host
+    );
+    consider(host, matchingCred?.credentialId);
+  }
+
+  for (const cred of credentialHosts) {
+    consider(cred.associatedHostname, cred.credentialId);
+  }
+
+  return plans;
+}
+
 /**
  * Infer whether an identity context carries a JWT-like credential (analytical only).
  */
@@ -662,6 +803,10 @@ export function generateAttackPlans(input: AttackPlanGeneratorInput): AttackPlan
       );
     }
   }
+
+  // Rule 11 (A11/A13): authorized lateral target OR CredentialReference for in-scope host
+  // → credential_reuse (blast-radius auth intent: credential_use). Missing scope → prerequisite_missing.
+  plans.push(...generateCredentialReusePlans(input, generatedAt));
 
   plans.sort((a, b) => a.planId.localeCompare(b.planId));
 

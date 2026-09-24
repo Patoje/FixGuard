@@ -46,6 +46,18 @@ export function createV2Router(root: V2CompositionRoot): Router {
     '/assessments/:assessmentId/lateral-movement',
     orchestratedController.getLateralMovement
   );
+  // Milestone A12/A13 — Structured impact assessments (no vault secrets)
+  router.get('/assessments/:assessmentId/impact', orchestratedController.getImpactAssessments);
+  // Milestone A13 — Lateral write: promote to authorized target (no secrets)
+  router.post(
+    '/assessments/:assessmentId/lateral-movement/promote-to-authorized-target',
+    orchestratedController.promoteLateralTarget
+  );
+  // Milestone A13 — Lateral write: evaluate credential reuse (credentialRefId only)
+  router.post(
+    '/assessments/:assessmentId/lateral-movement/evaluate-credential-reuse',
+    orchestratedController.evaluateCredentialReuse
+  );
   // Milestone A4 — Graduated attack-plan authorization (runtime brand; not execution)
   router.post(
     '/assessments/:assessmentId/attack-plans/:planId/authorize',
@@ -82,6 +94,18 @@ export function createV2Router(root: V2CompositionRoot): Router {
   router.get(
     '/orchestrated/assessments/:assessmentId/lateral-movement',
     orchestratedController.getLateralMovement
+  );
+  router.get(
+    '/orchestrated/assessments/:assessmentId/impact',
+    orchestratedController.getImpactAssessments
+  );
+  router.post(
+    '/orchestrated/assessments/:assessmentId/lateral-movement/promote-to-authorized-target',
+    orchestratedController.promoteLateralTarget
+  );
+  router.post(
+    '/orchestrated/assessments/:assessmentId/lateral-movement/evaluate-credential-reuse',
+    orchestratedController.evaluateCredentialReuse
   );
   router.post('/orchestrated/assessments/:assessmentId/evidence/:draftId/review', orchestratedController.reviewEvidenceDraft);
   router.post('/orchestrated/assessments/:assessmentId/report/html', orchestratedController.generateHtmlReport);

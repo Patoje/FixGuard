@@ -15,6 +15,7 @@
 import { isStrictSafeId } from '../reporting-boundary/DefensiveReportContracts.js';
 import {
   ATTACK_CHAIN_CONTRACT_VERSION,
+  boundImpactLevel,
   recalculateAttackChain,
   type AppendAttackChainStepInput,
   type AttackChain,
@@ -114,6 +115,13 @@ export class AttackChainService {
     }
 
     const createdAt = input.createdAt ?? new Date().toISOString();
+    const declaredImpactLevel = input.impactLevel;
+    const impactLevel = boundImpactLevel(
+      declaredImpactLevel,
+      'hypothesis',
+      'INFERRED',
+      []
+    );
 
     const chain: AttackChain = {
       contractVersion: ATTACK_CHAIN_CONTRACT_VERSION,
@@ -126,7 +134,8 @@ export class AttackChainService {
       steps: [],
       overallEpistemicStatus: 'INFERRED',
       status: 'hypothesis',
-      impactLevel: input.impactLevel,
+      impactLevel,
+      declaredImpactLevel,
       lineage: {
         assessmentId: input.lineage.assessmentId,
         scanId: input.lineage.scanId,

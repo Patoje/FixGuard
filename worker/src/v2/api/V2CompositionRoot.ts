@@ -101,12 +101,6 @@ export class V2CompositionRoot {
       deps.attackAuthorizationService ?? new AttackAuthorizationService(this.attackPlanRepository);
     this.attackCapabilityRegistry =
       deps.attackCapabilityRegistry ?? AttackCapabilityRegistry.createDefault();
-    this.attackExecutionService =
-      deps.attackExecutionService ??
-      new AttackExecutionService({
-        planRepository: this.attackPlanRepository,
-        capabilityRegistry: this.attackCapabilityRegistry,
-      });
     this.attackChainRepository = deps.attackChainRepository ?? new InMemoryAttackChainRepository();
     this.attackChainService =
       deps.attackChainService ?? new AttackChainService(this.attackChainRepository);
@@ -120,6 +114,13 @@ export class V2CompositionRoot {
         this.postExploitationRepository,
         this.credentialVaultService
       );
+    this.attackExecutionService =
+      deps.attackExecutionService ??
+      new AttackExecutionService({
+        planRepository: this.attackPlanRepository,
+        capabilityRegistry: this.attackCapabilityRegistry,
+        postExploitationService: this.postExploitationService,
+      });
     this.lateralMovementService =
       deps.lateralMovementService ?? new LateralMovementService();
     this.impactAssessmentService =

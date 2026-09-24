@@ -192,8 +192,21 @@ import type {
   GetAttackChainsResult,
   GetPostExploitationResult,
   GetLateralMovementResult,
+  GetImpactAssessmentsResult,
+  AttackModeRefreshDto,
+  PromoteLateralTargetCommand,
+  PromoteLateralTargetResult,
+  EvaluateCredentialReuseCommand,
+  EvaluateCredentialReuseHttpResult,
 } from './OrchestratedAssessmentContracts.js';
 import { ORCHESTRATED_ASSESSMENT_CONTRACT_VERSION } from './OrchestratedAssessmentContracts.js';
+import type { AttackPlanCredentialReuseContext } from '../attack-planning/AttackPlanContracts.js';
+import {
+  LateralMovementUnauthorizedError,
+  LateralMovementValidationError,
+} from '../attack-planning/LateralMovementService.js';
+import { isLateralMovementMechanism } from '../attack-planning/LateralMovementContracts.js';
+import type { AttackAuthorizationToken } from '../attack-authorization/AttackAuthorizationContracts.js';
 
 
 export interface OrchestratedAssessmentServiceDependencies {
@@ -1102,6 +1115,300 @@ export class OrchestratedAssessmentApplicationService {
       scanId: record.scanId,
       snapshot,
       lineage: record.lineage,
+    };
+  }
+
+  /**
+   * Milestone A12/A13 — structured ImpactAssessment[] (no vault secrets).
+   */
+  public async getImpactAssessments(
+    assessmentId: string
+  ): Promise<GetImpactAssessmentsResult> {
+    if (!assessmentId || typeof assessmentId !== 'string' || !isStrictSafeId(assessmentId)) {
+      throw new ApiValidationError('Field assessmentId must satisfy strict identifier format');
+    }
+
+    const record = await this.repository.findById(assessmentId);
+    if (!record) {
+      throw new SessionNotFoundError(
+        `Orchestrated assessment '${assessmentId}' was not found`,
+        assessmentId
+      );
+    }
+
+    const adversarial = await this.buildAdversarialReportContext(assessmentId);
+    return {
+      assessmentId: record.assessmentId,
+      scanId: record.scanId,
+      impactCount: adversarial.impactAssessments.length,
+      impactAssessments: adversarial.impactAssessments,
+      lineage: record.lineage,
+    };
+  }
+
+  /**
+   * Post-execute / Attack Mode refresh: chains + post-exploit + lateral + impact.
+   * Secret-free; prefer dedicated GETs for polling.
+   */
+  public async getAttackModeRefresh(assessmentId: string): Promise<AttackModeRefreshDto> {
+    if (!assessmentId || typeof assessmentId !== 'string' || !isStrictSafeId(assessmentId)) {
+      throw new ApiValidationError('Field assessmentId must satisfy strict identifier format');
+    }
+
+    const record = await this.repository.findById(assessmentId);
+    if (!record) {
+      throw new SessionNotFoundError(
+        `Orchestrated assessment '${assessmentId}' was not found`,
+        assessmentId
+      );
+    }
+
+    const adversarial = await this.buildAdversarialReportContext(assessmentId);
+    const lateral = this.lateralMovementService.getSnapshot(assessmentId);
+    return {
+      assessmentId: record.assessmentId,
+      scanId: record.scanId,
+      attackChains: adversarial.context.attackChains ?? [],
+      postExploitationState: adversarial.context.postExploitationState ?? null,
+      lateralMovementSnapshot: lateral,
+      impactAssessments: adversarial.impactAssessments,
+      lineage: record.lineage,
+    };
+  }
+
+  /**
+   * Milestone A13 — promote a host to AuthorizedLateralTarget under an explicit scope grant.
+   * Never accepts raw secrets.
+   */
+  public async promoteLateralTarget(
+    command: PromoteLateralTargetCommand
+  ): Promise<PromoteLateralTargetResult> {
+    if (
+      !command.assessmentId ||
+      typeof command.assessmentId !== 'string' ||
+      !isStrictSafeId(command.assessmentId)
+    ) {
+      throw new ApiValidationError('Field assessmentId must satisfy strict identifier format');
+    }
+    if (
+      !command.operatorId ||
+      typeof command.operatorId !== 'string' ||
+      !isStrictSafeId(command.operatorId)
+    ) {
+      throw new ApiValidationError('Field operatorId must satisfy strict identifier format');
+    }
+    if (typeof command.hostname !== 'string' || command.hostname.trim().length === 0) {
+      throw new ApiValidationError('Field hostname must be a non-empty string');
+    }
+
+    const record = await this.repository.findById(command.assessmentId);
+    if (!record) {
+      throw new SessionNotFoundError(
+        `Orchestrated assessment '${command.assessmentId}' was not found`,
+        command.assessmentId
+      );
+    }
+
+    // Ensure lateral state is bound to this assessment's scanId.
+    this.lateralMovementService.registerDiscoveredHost({
+      assessmentId: record.assessmentId,
+      scanId: record.scanId,
+      hostname: command.hostname,
+      discoveredInStepId: `promote_seed_${command.operatorId}`,
+    });
+
+    try {
+      const target = this.lateralMovementService.promoteToAuthorizedTarget({
+        assessmentId: record.assessmentId,
+        hostname: command.hostname,
+        scopeGrant: command.scopeGrant,
+        authorizedBy: command.operatorId,
+        ...(command.authorizedAt ? { authorizedAt: command.authorizedAt } : {}),
+      });
+      const snapshot = this.lateralMovementService.getSnapshot(record.assessmentId);
+      if (!snapshot) {
+        throw new ApiValidationError('Lateral movement snapshot missing after promote');
+      }
+      return {
+        assessmentId: record.assessmentId,
+        scanId: record.scanId,
+        target,
+        snapshot,
+        lineage: record.lineage,
+      };
+    } catch (err: unknown) {
+      if (err instanceof LateralMovementUnauthorizedError) {
+        throw new UnauthorizedGatewayError(err.message, err.reasonCode);
+      }
+      if (err instanceof LateralMovementValidationError) {
+        throw new ApiValidationError(err.message);
+      }
+      throw err;
+    }
+  }
+
+  /**
+   * Milestone A13 — evaluate credential reuse via credentialRefId (vault server-side).
+   * Request/response bodies never carry raw secrets.
+   */
+  public async evaluateCredentialReuseHttp(
+    command: EvaluateCredentialReuseCommand,
+    token: AttackAuthorizationToken
+  ): Promise<EvaluateCredentialReuseHttpResult> {
+    if (
+      !command.assessmentId ||
+      typeof command.assessmentId !== 'string' ||
+      !isStrictSafeId(command.assessmentId)
+    ) {
+      throw new ApiValidationError('Field assessmentId must satisfy strict identifier format');
+    }
+    if (!command.planId || typeof command.planId !== 'string' || !isStrictSafeId(command.planId)) {
+      throw new ApiValidationError('Field planId must satisfy strict identifier format');
+    }
+    if (
+      !command.credentialRefId ||
+      typeof command.credentialRefId !== 'string' ||
+      !isStrictSafeId(command.credentialRefId)
+    ) {
+      throw new ApiValidationError('Field credentialRefId must satisfy strict identifier format');
+    }
+    if (!isLateralMovementMechanism(command.mechanism)) {
+      throw new ApiValidationError('Field mechanism must be a closed LateralMovementMechanism');
+    }
+    if (typeof command.sourceHost !== 'string' || command.sourceHost.trim().length === 0) {
+      throw new ApiValidationError('Field sourceHost must be a non-empty string');
+    }
+    if (
+      typeof command.destinationHost !== 'string' ||
+      command.destinationHost.trim().length === 0
+    ) {
+      throw new ApiValidationError('Field destinationHost must be a non-empty string');
+    }
+
+    const record = await this.repository.findById(command.assessmentId);
+    if (!record) {
+      throw new SessionNotFoundError(
+        `Orchestrated assessment '${command.assessmentId}' was not found`,
+        command.assessmentId
+      );
+    }
+
+    const credentialRef = this.postExploitationService.getCredentialReference(
+      command.credentialRefId
+    );
+    if (!credentialRef) {
+      throw new ApiValidationError(
+        'credentialRefId does not resolve to a server-side CredentialReference'
+      );
+    }
+
+    try {
+      const result = await this.lateralMovementService.evaluateCredentialReuse({
+        assessmentId: record.assessmentId,
+        scanId: record.scanId,
+        sourceHost: command.sourceHost,
+        destinationHost: command.destinationHost,
+        mechanism: command.mechanism,
+        credentialRef,
+        vault: this.postExploitationService.getVault(),
+        token,
+        scopeGrant: command.scopeGrant,
+        lineage: {
+          assessmentId: record.lineage.assessmentId,
+          scanId: record.lineage.scanId,
+          authorizationGrantId: record.lineage.authorizationGrantId,
+          authorizationDecisionId: record.lineage.authorizationDecisionId,
+          actorId: record.lineage.actorId,
+        },
+        ...(command.targetUrl ? { targetUrl: command.targetUrl } : {}),
+        ...(command.recordedAt ? { recordedAt: command.recordedAt } : {}),
+        transport: this.httpTransport,
+        dnsResolver: this.dnsResolver,
+      });
+
+      // Honest evidence path: record acquired access metadata (no secrets).
+      if (result.status === 'access_confirmed' && result.reuse.outcome === 'access_confirmed') {
+        const evidenceId =
+          typeof result.reuse.evidenceId === 'string'
+            ? result.reuse.evidenceId
+            : result.record.evidence[0]?.evidenceId;
+        if (evidenceId) {
+          try {
+            await this.postExploitationService.recordAcquiredAccess({
+              accessId: `acc_reuse_${Date.now().toString(36)}`.slice(0, 64),
+              assessmentId: record.assessmentId,
+              scanId: record.scanId,
+              accessKind: 'authenticated_session',
+              description:
+                'Credential reuse access confirmed under authorized lateral target (metadata only)',
+              epistemicStatus: 'VERIFIED',
+              sourceStepId: `step_lat_${result.record.recordId}`
+                .replace(/[^A-Za-z0-9_-]/g, '_')
+                .slice(0, 64),
+              sourceChainId: `chain_lat_${record.assessmentId}`
+                .replace(/[^A-Za-z0-9_-]/g, '_')
+                .slice(0, 64),
+              credentialRefId: credentialRef.credentialId,
+              newlyReachableTargets: [command.destinationHost],
+            });
+          } catch {
+            // Duplicate accessId or isolation — non-fatal for lateral record path.
+          }
+        }
+      }
+
+      const snapshot = this.lateralMovementService.getSnapshot(record.assessmentId);
+      if (!snapshot) {
+        throw new ApiValidationError('Lateral movement snapshot missing after evaluate');
+      }
+
+      return {
+        assessmentId: record.assessmentId,
+        scanId: record.scanId,
+        status: result.status,
+        networkDispatched:
+          result.status === 'unauthorized' || result.status === 'access_denied'
+            ? result.networkDispatched
+            : true,
+        record: result.record,
+        snapshot,
+        lineage: record.lineage,
+      };
+    } catch (err: unknown) {
+      if (err instanceof LateralMovementUnauthorizedError) {
+        throw new UnauthorizedGatewayError(err.message, err.reasonCode);
+      }
+      if (err instanceof LateralMovementValidationError) {
+        throw new ApiValidationError(err.message);
+      }
+      throw err;
+    }
+  }
+
+  private async buildCredentialReusePlanContext(
+    assessmentId: string,
+    targetDomain: string
+  ): Promise<AttackPlanCredentialReuseContext> {
+    const state = await this.postExploitationService.getSnapshot(assessmentId);
+    const lateral = this.lateralMovementService.getSnapshot(assessmentId);
+    const authorizedLateralHosts = (lateral?.authorizedTargets ?? []).map((t) => t.hostname);
+    const credentialHosts: { credentialId: string; associatedHostname: string }[] = [];
+    if (state) {
+      for (const access of state.acquiredAccess) {
+        if (!access.credentialRefId) continue;
+        const ref = this.postExploitationService.getCredentialReference(access.credentialRefId);
+        if (ref?.associatedHostname) {
+          credentialHosts.push({
+            credentialId: ref.credentialId,
+            associatedHostname: ref.associatedHostname,
+          });
+        }
+      }
+    }
+    return {
+      authorizedLateralHosts,
+      credentialHosts,
+      inScopeHosts: [targetDomain],
     };
   }
 
@@ -2884,6 +3191,10 @@ export class OrchestratedAssessmentApplicationService {
           findings: [],
           identities: buildAttackPlanIdentities(sessionIdentities),
           lineage,
+          credentialReuseContext: await this.buildCredentialReusePlanContext(
+            record.assessmentId,
+            record.targetDomain
+          ),
         });
         await this.attackPlanRepository.deleteByAssessmentId(record.assessmentId);
         await this.attackPlanRepository.savePlans(attackPlanResult.plans);
@@ -4623,6 +4934,10 @@ export class OrchestratedAssessmentApplicationService {
         findings,
         identities: buildAttackPlanIdentities(sessionIdentities),
         lineage,
+        credentialReuseContext: await this.buildCredentialReusePlanContext(
+          record.assessmentId,
+          record.targetDomain
+        ),
       });
       await this.attackPlanRepository.deleteByAssessmentId(record.assessmentId);
       await this.attackPlanRepository.savePlans(attackPlanResult.plans);

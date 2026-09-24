@@ -25,6 +25,7 @@ function isAttackChainShape(value: unknown): value is AttackChain {
     typeof rec.overallEpistemicStatus === 'string' &&
     typeof rec.status === 'string' &&
     typeof rec.impactLevel === 'string' &&
+    typeof rec.declaredImpactLevel === 'string' &&
     typeof rec.lineage === 'object' &&
     rec.lineage !== null &&
     typeof rec.createdAt === 'string'

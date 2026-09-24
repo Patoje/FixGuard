@@ -301,7 +301,11 @@ async function runSmokeTests(): Promise<void> {
   assert.equal(inferredImpact.epistemicStatus, 'INFERRED');
   assert.equal(refutedImpact.epistemicStatus, 'REFUTED');
   assert.equal(verifiedImpact.impactLevel, 'data_access');
-  assert.equal(inferredImpact.impactLevel, 'privilege_escalation');
+  assert.equal(inferredImpact.impactLevel, 'information_exposure');
+  assert.equal(refutedImpact.impactLevel, 'information_exposure');
+  assert.equal(inferredChain.impactLevel, 'information_exposure');
+  assert.equal(inferredChain.declaredImpactLevel, 'privilege_escalation');
+  assert.equal(refutedChain.impactLevel, 'information_exposure');
   assert.ok(
     inferredImpact.impactDescription.includes('impact_confirmed') === true ||
       inferredImpact.impactDescription.includes('not verified') ||

@@ -48,6 +48,23 @@ export type ImpactLevel =
   | 'lateral_movement'
   | 'rce_demonstrated';
 
+/**
+ * Impact classes that constitute "high impact" for the VERIFIED gate.
+ * Non-VERIFIED / incomplete chains must not expose these as impactLevel.
+ */
+export const HIGH_IMPACT_LEVELS: ReadonlySet<ImpactLevel> = new Set([
+  'authentication_bypass',
+  'authorization_bypass',
+  'data_access',
+  'privilege_escalation',
+  'lateral_movement',
+  'rce_demonstrated',
+]);
+
+export function isHighImpactLevel(level: ImpactLevel): boolean {
+  return HIGH_IMPACT_LEVELS.has(level);
+}
+
 export type AttackChainStepOutcome = 'succeeded' | 'refuted' | 'failed';
 
 /**
@@ -84,7 +101,17 @@ export interface AttackChain {
   readonly steps: readonly AttackChainStep[];
   readonly overallEpistemicStatus: EpistemicStatus;
   readonly status: AttackChainStatus;
+  /**
+   * Honest impact class for consumers (reports/UI).
+   * High-impact values are permitted only when the chain is fully_validated,
+   * overallEpistemicStatus is VERIFIED, and step evidence supports the claim.
+   */
   readonly impactLevel: ImpactLevel;
+  /**
+   * Operator-declared hypothesis impact intent. Never treated as confirmed
+   * impact by itself — see boundImpactLevel / impactLevel.
+   */
+  readonly declaredImpactLevel: ImpactLevel;
   readonly lineage: AuthorizedExecutionLineageTuple;
   readonly createdAt: string;
   readonly completedAt?: string;
@@ -220,12 +247,68 @@ export function recalculateOverallEpistemicStatus(
 }
 
 /**
+ * True when recorded steps support a high-impact claim:
+ * at least one succeeded VERIFIED step with a non-none capability gained.
+ */
+export function stepsSupportHighImpactClaim(
+  steps: readonly AttackChainStep[]
+): boolean {
+  return steps.some(
+    (s) =>
+      s.outcome === 'succeeded' &&
+      s.epistemicStatus === 'VERIFIED' &&
+      s.capabilityGained !== 'none'
+  );
+}
+
+/**
+ * Bound high-impact claims so non-VERIFIED / incomplete chains cannot
+ * expose rce_demonstrated / privilege_escalation / etc. as confirmed impact.
+ * Aligns with ImpactAssessmentService: high impact requires chain VERIFIED.
+ */
+export function boundImpactLevel(
+  declared: ImpactLevel,
+  status: AttackChainStatus,
+  overallEpistemic: EpistemicStatus,
+  steps: readonly AttackChainStep[]
+): ImpactLevel {
+  if (!isHighImpactLevel(declared)) {
+    return declared;
+  }
+
+  const incomplete =
+    status === 'hypothesis' ||
+    status === 'partially_validated' ||
+    status === 'abandoned' ||
+    status === 'refuted';
+  const nonVerified = overallEpistemic !== 'VERIFIED';
+
+  if (incomplete || nonVerified) {
+    return 'information_exposure';
+  }
+
+  // fully_validated + VERIFIED still requires supporting step evidence
+  if (!stepsSupportHighImpactClaim(steps)) {
+    return 'information_exposure';
+  }
+
+  return declared;
+}
+
+/**
  * Pure recalculation of derived chain fields after step mutation.
  * Does not invent steps or inflate epistemic status.
  */
 export function recalculateAttackChain(chain: AttackChain, nowIso: string): AttackChain {
   const overallEpistemicStatus = recalculateOverallEpistemicStatus(chain.steps);
   const status = recalculateAttackChainStatus(chain.steps, chain.status);
+  const declaredImpactLevel = chain.declaredImpactLevel;
+  const impactLevel = boundImpactLevel(
+    declaredImpactLevel,
+    status,
+    overallEpistemicStatus,
+    chain.steps
+  );
 
   const base: AttackChain = {
     contractVersion: chain.contractVersion,
@@ -238,7 +321,8 @@ export function recalculateAttackChain(chain: AttackChain, nowIso: string): Atta
     steps: chain.steps,
     overallEpistemicStatus,
     status,
-    impactLevel: chain.impactLevel,
+    impactLevel,
+    declaredImpactLevel,
     lineage: chain.lineage,
     createdAt: chain.createdAt,
   };

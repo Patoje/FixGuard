@@ -12,6 +12,9 @@
  * - GET /api/v2/assessments/:assessmentId/attack-chains (Milestone A6)
  * - GET /api/v2/assessments/:assessmentId/post-exploitation (Milestone A10)
  * - GET /api/v2/assessments/:assessmentId/lateral-movement (Milestone A11)
+ * - GET /api/v2/assessments/:assessmentId/impact (Milestone A12/A13)
+ * - POST /api/v2/assessments/:assessmentId/lateral-movement/promote-to-authorized-target (A13)
+ * - POST /api/v2/assessments/:assessmentId/lateral-movement/evaluate-credential-reuse (A13)
  *
  * Responsibilities:
  * 1) Extract and validate path parameters and request body.
@@ -33,10 +36,12 @@ import {
 } from '../validation/ApiRequestValidators.js';
 import { isStrictSafeId } from '../../reporting-boundary/DefensiveReportContracts.js';
 import { ApiValidationError, UnauthorizedGatewayError } from '../ApiErrors.js';
+import { SessionNotFoundError } from '../../storage/StorageErrors.js';
 import { TargetExecutionCoordinator } from '../../runtime/TargetExecutionCoordinator.js';
 import type { Finding } from '../../core/Evidence.js';
 import type { AuthorizedScopeGrant } from '../../scope/AuthorizedScopeContracts.js';
 import type { AttackCapabilityIdentityRef } from '../../attack-execution/AttackExecutionContracts.js';
+import { isLateralMovementMechanism } from '../../attack-planning/LateralMovementContracts.js';
 
 function isAuthorizedScopeGrant(value: object): value is AuthorizedScopeGrant {
   return (
@@ -240,6 +245,192 @@ export class OrchestratedAssessmentController {
       }
 
       const result = await this.service.getLateralMovement(assessmentId);
+      res.status(200).json(result);
+    } catch (err) {
+      next(err);
+    }
+  };
+
+  public getImpactAssessments = async (
+    req: Request,
+    res: Response,
+    next: NextFunction
+  ): Promise<void> => {
+    try {
+      const assessmentId = req.params.assessmentId;
+      if (!assessmentId || typeof assessmentId !== 'string' || !isStrictSafeId(assessmentId)) {
+        throw new ApiValidationError('Field assessmentId must satisfy strict identifier format');
+      }
+
+      const result = await this.service.getImpactAssessments(assessmentId);
+      res.status(200).json(result);
+    } catch (err) {
+      next(err);
+    }
+  };
+
+  /**
+   * Milestone A13 — promote host to AuthorizedLateralTarget.
+   * Exact-key body: hostname, operatorId, scopeGrant [, authorizedAt]. No secrets.
+   */
+  public promoteLateralTarget = async (
+    req: Request,
+    res: Response,
+    next: NextFunction
+  ): Promise<void> => {
+    try {
+      const assessmentId = req.params.assessmentId;
+      if (!assessmentId || typeof assessmentId !== 'string' || !isStrictSafeId(assessmentId)) {
+        throw new ApiValidationError('Field assessmentId must satisfy strict identifier format');
+      }
+      if (!req.body || typeof req.body !== 'object' || Array.isArray(req.body)) {
+        throw new ApiValidationError('Promote request body must be a non-empty object');
+      }
+      const body = req.body as Record<string, unknown>;
+      const allowedKeys = ['hostname', 'operatorId', 'scopeGrant', 'authorizedAt'];
+      for (const k of Object.keys(body)) {
+        if (!allowedKeys.includes(k)) {
+          throw new ApiValidationError('Promote request contains unknown or forbidden field');
+        }
+      }
+      for (const required of ['hostname', 'operatorId', 'scopeGrant'] as const) {
+        if (!(required in body)) {
+          throw new ApiValidationError(`Field ${required} is required`);
+        }
+      }
+      if (typeof body.hostname !== 'string' || body.hostname.trim().length === 0) {
+        throw new ApiValidationError('Field hostname must be a non-empty string');
+      }
+      if (typeof body.operatorId !== 'string' || !isStrictSafeId(body.operatorId)) {
+        throw new ApiValidationError('Field operatorId must satisfy strict identifier format');
+      }
+      if (!body.scopeGrant || typeof body.scopeGrant !== 'object' || Array.isArray(body.scopeGrant)) {
+        throw new ApiValidationError('Field scopeGrant is required');
+      }
+      if (!isAuthorizedScopeGrant(body.scopeGrant)) {
+        throw new ApiValidationError('Field scopeGrant shape is invalid');
+      }
+      if (body.authorizedAt !== undefined && typeof body.authorizedAt !== 'string') {
+        throw new ApiValidationError('Field authorizedAt must be a string when provided');
+      }
+
+      const result = await this.service.promoteLateralTarget({
+        assessmentId,
+        hostname: body.hostname,
+        operatorId: body.operatorId,
+        scopeGrant: body.scopeGrant,
+        ...(typeof body.authorizedAt === 'string' ? { authorizedAt: body.authorizedAt } : {}),
+      });
+      res.status(201).json(result);
+    } catch (err) {
+      next(err);
+    }
+  };
+
+  /**
+   * Milestone A13 — evaluate credential reuse by credentialRefId (vault server-side).
+   * Exact-key body; never accepts raw secrets.
+   */
+  public evaluateCredentialReuse = async (
+    req: Request,
+    res: Response,
+    next: NextFunction
+  ): Promise<void> => {
+    try {
+      if (!this.attackAuthorizationService) {
+        throw new ApiValidationError('Attack authorization service is not configured');
+      }
+
+      const assessmentId = req.params.assessmentId;
+      if (!assessmentId || typeof assessmentId !== 'string' || !isStrictSafeId(assessmentId)) {
+        throw new ApiValidationError('Field assessmentId must satisfy strict identifier format');
+      }
+      if (!req.body || typeof req.body !== 'object' || Array.isArray(req.body)) {
+        throw new ApiValidationError('Credential-reuse request body must be a non-empty object');
+      }
+      const body = req.body as Record<string, unknown>;
+      const allowedKeys = [
+        'planId',
+        'sourceHost',
+        'destinationHost',
+        'mechanism',
+        'credentialRefId',
+        'operatorId',
+        'scopeGrant',
+        'targetUrl',
+        'recordedAt',
+      ];
+      for (const k of Object.keys(body)) {
+        if (!allowedKeys.includes(k)) {
+          throw new ApiValidationError(
+            'Credential-reuse request contains unknown or forbidden field'
+          );
+        }
+      }
+      for (const required of [
+        'planId',
+        'sourceHost',
+        'destinationHost',
+        'mechanism',
+        'credentialRefId',
+        'operatorId',
+        'scopeGrant',
+      ] as const) {
+        if (!(required in body)) {
+          throw new ApiValidationError(`Field ${required} is required`);
+        }
+      }
+      if (typeof body.planId !== 'string' || !isStrictSafeId(body.planId)) {
+        throw new ApiValidationError('Field planId must satisfy strict identifier format');
+      }
+      if (typeof body.operatorId !== 'string' || !isStrictSafeId(body.operatorId)) {
+        throw new ApiValidationError('Field operatorId must satisfy strict identifier format');
+      }
+      if (typeof body.credentialRefId !== 'string' || !isStrictSafeId(body.credentialRefId)) {
+        throw new ApiValidationError('Field credentialRefId must satisfy strict identifier format');
+      }
+      if (typeof body.sourceHost !== 'string' || body.sourceHost.trim().length === 0) {
+        throw new ApiValidationError('Field sourceHost must be a non-empty string');
+      }
+      if (typeof body.destinationHost !== 'string' || body.destinationHost.trim().length === 0) {
+        throw new ApiValidationError('Field destinationHost must be a non-empty string');
+      }
+      if (!isLateralMovementMechanism(body.mechanism)) {
+        throw new ApiValidationError('Field mechanism must be a closed LateralMovementMechanism');
+      }
+      if (!body.scopeGrant || typeof body.scopeGrant !== 'object' || Array.isArray(body.scopeGrant)) {
+        throw new ApiValidationError('Field scopeGrant is required');
+      }
+      if (!isAuthorizedScopeGrant(body.scopeGrant)) {
+        throw new ApiValidationError('Field scopeGrant shape is invalid');
+      }
+      if ('secret' in body || 'password' in body || 'token' in body) {
+        throw new ApiValidationError('Raw secrets are forbidden in credential-reuse requests');
+      }
+
+      const token = this.attackAuthorizationService.getRuntimeToken(body.planId, assessmentId);
+      if (!token) {
+        throw new UnauthorizedGatewayError(
+          'No runtime-branded attack authorization token for this plan',
+          'token_missing'
+        );
+      }
+
+      const result = await this.service.evaluateCredentialReuseHttp(
+        {
+          assessmentId,
+          planId: body.planId,
+          sourceHost: body.sourceHost,
+          destinationHost: body.destinationHost,
+          mechanism: body.mechanism,
+          credentialRefId: body.credentialRefId,
+          operatorId: body.operatorId,
+          scopeGrant: body.scopeGrant,
+          ...(typeof body.targetUrl === 'string' ? { targetUrl: body.targetUrl } : {}),
+          ...(typeof body.recordedAt === 'string' ? { recordedAt: body.recordedAt } : {}),
+        },
+        token
+      );
       res.status(200).json(result);
     } catch (err) {
       next(err);
@@ -510,6 +701,30 @@ export class OrchestratedAssessmentController {
         throw new ApiValidationError(result.safeMessage);
       }
 
+      let refresh:
+        | {
+            readonly attackChains: unknown;
+            readonly postExploitationState: unknown;
+            readonly lateralMovementSnapshot: unknown;
+            readonly impactAssessments: unknown;
+          }
+        | undefined;
+      try {
+        const payload = await this.service.getAttackModeRefresh(assessmentId);
+        refresh = {
+          attackChains: payload.attackChains,
+          postExploitationState: payload.postExploitationState,
+          lateralMovementSnapshot: payload.lateralMovementSnapshot,
+          impactAssessments: payload.impactAssessments,
+        };
+      } catch (err: unknown) {
+        // Hermetic execute paths may lack an orchestrated assessment record;
+        // UI can still re-GET dedicated endpoints when the assessment exists.
+        if (!(err instanceof SessionNotFoundError)) {
+          throw err;
+        }
+      }
+
       res.status(200).json({
         status: result.status,
         reasonCode: result.reasonCode,
@@ -526,12 +741,14 @@ export class OrchestratedAssessmentController {
             gatesPassed: s.gatesPassed,
             verificationStateBefore: s.verificationStateBefore,
             verificationStateAfter: s.verificationStateAfter,
+            ...(s.evidenceId ? { evidenceId: s.evidenceId } : {}),
           })),
           updatedFindingStates: result.record.updatedFindings.map((f) => ({
             id: f.id,
             verificationState: f.verificationState,
           })),
         },
+        ...(refresh ? { refresh } : {}),
       });
     } catch (err) {
       next(err);

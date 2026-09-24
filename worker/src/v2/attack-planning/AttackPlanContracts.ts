@@ -81,7 +81,9 @@ export type AttackPrerequisiteKind =
   | 'identity_with_jwt'
   | 'parameter_present'
   | 'credentialed_cors'
-  | 'finding_present';
+  | 'finding_present'
+  | 'host_in_scope'
+  | 'credential_reference_present';
 
 export interface AttackPrerequisite {
   readonly kind: AttackPrerequisiteKind;
@@ -129,6 +131,20 @@ export interface AttackPlanIdentityContext {
   readonly hasJwt: boolean;
 }
 
+/**
+ * Optional post-exploitation / lateral snapshot for credential_reuse plan generation.
+ * Secrets are never accepted — CredentialReference metadata and authorized hosts only.
+ */
+export interface AttackPlanCredentialReuseContext {
+  readonly authorizedLateralHosts?: readonly string[];
+  readonly credentialHosts?: readonly {
+    readonly credentialId: string;
+    readonly associatedHostname: string;
+  }[];
+  /** Hosts already permitted under assessment scope (e.g. target domain). */
+  readonly inScopeHosts?: readonly string[];
+}
+
 export interface AttackPlanGeneratorInput {
   readonly assessmentId: string;
   readonly scanId: string;
@@ -136,6 +152,8 @@ export interface AttackPlanGeneratorInput {
   readonly identities: readonly AttackPlanIdentityContext[];
   readonly lineage: AuthorizedExecutionLineageTuple;
   readonly generatedAt?: string;
+  /** Milestone A11/A13 — optional lateral / credential context for credential_reuse plans. */
+  readonly credentialReuseContext?: AttackPlanCredentialReuseContext;
 }
 
 export interface AttackPlanGeneratorResult {

@@ -22,7 +22,13 @@ import type {
   PostExploitationState,
 } from '../post-exploitation/PostExploitationContracts.js';
 import type { ImpactAssessment } from '../reporting-boundary/ImpactAssessmentContracts.js';
-import type { LateralMovementSnapshot } from '../attack-planning/LateralMovementContracts.js';
+import type {
+  AuthorizedLateralTarget,
+  LateralMovementMechanism,
+  LateralMovementRecord,
+  LateralMovementSnapshot,
+} from '../attack-planning/LateralMovementContracts.js';
+import type { AuthorizedScopeGrant } from '../scope/AuthorizedScopeContracts.js';
 
 export const ORCHESTRATED_ASSESSMENT_CONTRACT_VERSION =
   'fixguard-orchestrated-assessment/v0' as const;
@@ -330,6 +336,70 @@ export interface GetLateralMovementResult {
   readonly assessmentId: string;
   readonly scanId: string;
   readonly snapshot: LateralMovementSnapshot | null;
+  readonly lineage: AuthorizedActiveReconRequestLineage;
+}
+
+/** Milestone A12/A13 — structured impact assessments (no vault secrets). */
+export interface GetImpactAssessmentsResult {
+  readonly assessmentId: string;
+  readonly scanId: string;
+  readonly impactCount: number;
+  readonly impactAssessments: readonly ImpactAssessment[];
+  readonly lineage: AuthorizedActiveReconRequestLineage;
+}
+
+/**
+ * Minimal post-execute refresh payload for Attack Mode UI (A13 readiness).
+ * Secret-free; clients may also re-GET dedicated endpoints.
+ */
+export interface AttackModeRefreshDto {
+  readonly assessmentId: string;
+  readonly scanId: string;
+  readonly attackChains: readonly AttackChain[];
+  readonly postExploitationState: PostExploitationState | null;
+  readonly lateralMovementSnapshot: LateralMovementSnapshot | null;
+  readonly impactAssessments: readonly ImpactAssessment[];
+  readonly lineage: AuthorizedActiveReconRequestLineage;
+}
+
+/** Milestone A13 — promote discovered/known host to AuthorizedLateralTarget (no secrets). */
+export interface PromoteLateralTargetCommand {
+  readonly assessmentId: string;
+  readonly hostname: string;
+  readonly operatorId: string;
+  readonly scopeGrant: AuthorizedScopeGrant;
+  readonly authorizedAt?: string;
+}
+
+export interface PromoteLateralTargetResult {
+  readonly assessmentId: string;
+  readonly scanId: string;
+  readonly target: AuthorizedLateralTarget;
+  readonly snapshot: LateralMovementSnapshot;
+  readonly lineage: AuthorizedActiveReconRequestLineage;
+}
+
+/** Milestone A13 — evaluate credential reuse (credentialRefId only; vault server-side). */
+export interface EvaluateCredentialReuseCommand {
+  readonly assessmentId: string;
+  readonly planId: string;
+  readonly sourceHost: string;
+  readonly destinationHost: string;
+  readonly mechanism: LateralMovementMechanism;
+  readonly credentialRefId: string;
+  readonly operatorId: string;
+  readonly scopeGrant: AuthorizedScopeGrant;
+  readonly targetUrl?: string;
+  readonly recordedAt?: string;
+}
+
+export interface EvaluateCredentialReuseHttpResult {
+  readonly assessmentId: string;
+  readonly scanId: string;
+  readonly status: 'access_confirmed' | 'access_denied' | 'unauthorized';
+  readonly networkDispatched: boolean;
+  readonly record: LateralMovementRecord;
+  readonly snapshot: LateralMovementSnapshot;
   readonly lineage: AuthorizedActiveReconRequestLineage;
 }
 

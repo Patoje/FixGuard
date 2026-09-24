@@ -39,6 +39,7 @@ import {
   type AttackStepExecutionRecord,
 } from './AttackExecutionContracts.js';
 import type { AttackCapabilityRegistry } from './AttackCapabilityRegistry.js';
+import type { PostExploitationService } from '../post-exploitation/PostExploitationService.js';
 
 /** OBSERVED-only capabilities (e.g. nuclei) may advance at most to this state. */
 const OBSERVED_OUTCOME_VERIFICATION_CAP: VerificationState = 'suspected_vulnerability';
@@ -176,15 +177,19 @@ function isBrandedVerifiedAuthorizationDecision(
 export interface AttackExecutionServiceDependencies {
   readonly planRepository: AttackPlanRepository;
   readonly capabilityRegistry: AttackCapabilityRegistry;
+  /** Optional: record acquired access on credential_reuse success with evidence. */
+  readonly postExploitationService?: PostExploitationService;
 }
 
 export class AttackExecutionService {
   private readonly planRepository: AttackPlanRepository;
   private readonly capabilityRegistry: AttackCapabilityRegistry;
+  private readonly postExploitationService: PostExploitationService | undefined;
 
   constructor(deps: AttackExecutionServiceDependencies) {
     this.planRepository = deps.planRepository;
     this.capabilityRegistry = deps.capabilityRegistry;
+    this.postExploitationService = deps.postExploitationService;
   }
 
   public async execute(request: unknown): Promise<AttackExecutionResult> {
@@ -474,6 +479,33 @@ export class AttackExecutionService {
         ...(capabilityResult.evidenceId ? { evidenceId: capabilityResult.evidenceId } : {}),
         completedAt,
       });
+
+      // A13 readiness: when credential_reuse succeeds with honest evidence, record access metadata.
+      if (
+        this.postExploitationService &&
+        plan.capability === 'credential_reuse' &&
+        capabilityResult.outcome === 'succeeded' &&
+        typeof capabilityResult.evidenceId === 'string'
+      ) {
+        try {
+          await this.postExploitationService.recordAcquiredAccess({
+            accessId: `acc_exec_${capabilityResult.evidenceId}`
+              .replace(/[^A-Za-z0-9_-]/g, '_')
+              .slice(0, 64),
+            assessmentId: plan.assessmentId,
+            scanId: plan.scanId,
+            accessKind: 'authenticated_session',
+            description:
+              'Credential reuse step succeeded with recorded evidence (metadata only; no vault secret)',
+            epistemicStatus: 'VERIFIED',
+            sourceStepId: step.stepId,
+            sourceChainId: `exec_${plan.planId}`.replace(/[^A-Za-z0-9_-]/g, '_').slice(0, 64),
+            newlyReachableTargets: [targetHost],
+          });
+        } catch {
+          // Non-fatal: execution record remains authoritative.
+        }
+      }
 
       if (capabilityResult.outcome === 'capability_not_implemented') {
         const completedAtFail = new Date().toISOString();

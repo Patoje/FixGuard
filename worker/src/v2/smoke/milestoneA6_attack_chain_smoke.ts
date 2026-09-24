@@ -77,6 +77,12 @@ async function runSmokeTests(): Promise<void> {
   assert.equal(chain.status, 'hypothesis');
   assert.equal(chain.overallEpistemicStatus, 'INFERRED');
   assert.equal(chain.steps.length, 0);
+  assert.equal(chain.declaredImpactLevel, 'data_access');
+  assert.equal(
+    chain.impactLevel,
+    'information_exposure',
+    'Hypothesis must bound high impactLevel until VERIFIED evidence'
+  );
 
   chain = await service1.appendExecutedStep({
     chainId: chain.chainId,
@@ -99,6 +105,11 @@ async function runSmokeTests(): Promise<void> {
   assert.equal(chain.overallEpistemicStatus, 'VERIFIED');
   assert.equal(chain.steps.length, 1);
   assert.equal(chain.steps[0]?.outcome, 'succeeded');
+  assert.equal(
+    chain.impactLevel,
+    'information_exposure',
+    'partially_validated must still bound high impactLevel'
+  );
 
   chain = await service1.appendExecutedStep({
     chainId: chain.chainId,
@@ -122,6 +133,11 @@ async function runSmokeTests(): Promise<void> {
   assert.equal(chain.overallEpistemicStatus, 'VERIFIED');
   assert.equal(chain.steps.length, 2);
   assert.ok(typeof chain.completedAt === 'string');
+  assert.equal(
+    chain.impactLevel,
+    'data_access',
+    'fully_validated + VERIFIED restores declared high impact'
+  );
 
   console.log('✓ Test 1 Passed: Step1 partial → Step2 fully_validated');
 
