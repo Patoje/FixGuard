@@ -628,6 +628,51 @@ export class AttackExecutionService {
         }
       }
 
+      // P6: on exploitability_confirmed, register AcquiredAccess + INFERRED lateral
+      // hypotheses that require human re-authorization (never auto-attack).
+      if (
+        this.postExploitationService &&
+        verificationStateAfter === 'exploitability_confirmed' &&
+        verificationStateBefore !== 'exploitability_confirmed'
+      ) {
+        try {
+          // isStrictSafeId rejects unsafe substrings (idor/sqli/exploit/token/…).
+          const rawSeed = `${plan.planId}_${step.stepId}_${capabilityResult.evidenceId ?? 'ev'}`;
+          const safeSeed = rawSeed
+            .replace(/[^A-Za-z0-9_-]/g, '_')
+            .replace(
+              /idor|sqli|bola|exploit|token|secret|password|cookie|bearer|authorization|vulnerable/gi,
+              'x'
+            )
+            .replace(/_+/g, '_')
+            .slice(0, 40);
+          const chainId = `chn_${safeSeed}`.slice(0, 64);
+          await this.postExploitationService.recordAcquiredAccess({
+            accessId: `acc_${safeSeed}`.slice(0, 64),
+            assessmentId: plan.assessmentId,
+            scanId: plan.scanId,
+            accessKind: 'authenticated_session',
+            description:
+              'Authorized step reached exploitability_confirmed (metadata only; no vault secret)',
+            epistemicStatus: 'VERIFIED',
+            sourceStepId: step.stepId,
+            sourceChainId: chainId,
+            newlyReachableTargets: [targetHost],
+          });
+          await this.postExploitationService.registerLateralMovementHypothesis({
+            hypothesisId: `hyp_${safeSeed}`.slice(0, 64),
+            assessmentId: plan.assessmentId,
+            scanId: plan.scanId,
+            mechanism:
+              'INFERRED lateral reuse of confirmed access — requires human re-authorization before any further probe',
+            targetHost,
+            discoveredInStepId: step.stepId,
+          });
+        } catch {
+          // Non-fatal: execution record remains authoritative.
+        }
+      }
+
       if (capabilityResult.outcome === 'capability_not_implemented') {
         const completedAtFail = new Date().toISOString();
         return {

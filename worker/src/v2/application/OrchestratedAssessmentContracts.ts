@@ -126,6 +126,8 @@ export interface DifferentialEvidenceContext {
   readonly reflectedCanary?: string;
   readonly resourceParamName?: string;
   readonly baselineResourceId?: string;
+  /** Pair kind when IDOR ran via multi-identity authz matrix. */
+  readonly authzMatrixPair?: 'identity_a_vs_b' | 'unauth_vs_a' | 'unauth_vs_b';
   readonly missingHeaders?: readonly string[];
   readonly presentHeaders?: readonly string[];
   readonly injectedCanary?: string;

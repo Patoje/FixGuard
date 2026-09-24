@@ -65,7 +65,7 @@ import type {
 import { DETECTION_CONTRACT_VERSION } from '../detection/DetectionContracts.js';
 import { runCorsMisconfigurationDetection } from '../detection/CorsMisconfigurationDetectionService.js';
 import { runParameterReflectionDetection } from '../detection/ParameterReflectionDetectionService.js';
-import { runIdorDifferentialDetection } from '../detection/IdorDifferentialDetectionService.js';
+import { runMultiIdentityAuthzMatrix } from '../detection/MultiIdentityAuthzMatrixService.js';
 import { buildDetectionTargetsFromRecon } from '../detection/DetectionTargetBridge.js';
 import type { DetectionSuppressionRecord } from '../detection/DetectionTargetBridge.js';
 import { runSecurityHeaderDetection } from '../detection/SecurityHeaderDetectionService.js';
@@ -4582,13 +4582,12 @@ export class OrchestratedAssessmentApplicationService {
           });
         }
 
-        for (const candidate of candidateEndpoints.slice(0, 5)) {
+        for (const candidate of candidateEndpoints.slice(0, 3)) {
           if (coordinator.isCircuitOpen(record.targetDomain)) break;
           try {
-            const idorResult = await runIdorDifferentialDetection({
+            const matrixResult = await runMultiIdentityAuthzMatrix({
               contractVersion: DETECTION_CONTRACT_VERSION,
-              kind: 'idor_differential_detection_request',
-              detectionId: `det_diff_${record.assessmentId.slice(-8)}_${candidate.resourceParamName.replace(/[^a-zA-Z0-9]/g, '')}`,
+              detectionIdPrefix: `det_diff_${record.assessmentId.slice(-8)}_${candidate.resourceParamName.replace(/[^a-zA-Z0-9]/g, '')}`,
               assessmentId: lineage.assessmentId,
               scanId: lineage.scanId,
               authorizationGrantId: lineage.authorizationGrantId,
@@ -4603,32 +4602,36 @@ export class OrchestratedAssessmentApplicationService {
               scopeGrant,
               transport: this.httpTransport,
               dnsResolver: this.dnsResolver,
+              maxPairs: 3,
             });
 
-            if (idorResult.status === 'vulnerability_detected' && idorResult.finding) {
-              findings.push(idorResult.finding);
-            } else if (idorResult.status === 'pending_human_review' && idorResult.evidenceDraft) {
-              const enrichedDraft: EnrichedEvidenceDraft = {
-                ...idorResult.evidenceDraft,
-                differentialContext: {
-                  endpointUrl: candidate.endpointUrl,
-                  detectionKind: 'idor_access_control',
-                  baselineStatusCode: idorResult.baselineSnapshot?.statusCode,
-                  baselineBodyHash: idorResult.baselineSnapshot?.bodyHash,
-                  validationStatusCode: idorResult.validationSnapshot?.statusCode,
-                  validationBodyHash: idorResult.validationSnapshot?.bodyHash,
-                  resourceParamName: candidate.resourceParamName,
-                  baselineResourceId: candidate.baselineResourceId,
-                },
-              };
-              pendingEvidenceDrafts.push(enrichedDraft);
-            } else if (idorResult.status === 'secure_target_abstained') {
-              detectionSuppressions.push({
-                detectorKind: 'idor_access_control',
-                reasonCode: idorResult.reasonCode,
-                rationale: `IDOR abstained: ${idorResult.reasonCode}`,
-                url: candidate.endpointUrl,
-              });
+            for (const { pairKind, result: idorResult } of matrixResult.pairResults) {
+              if (idorResult.status === 'vulnerability_detected' && idorResult.finding) {
+                findings.push(idorResult.finding);
+              } else if (idorResult.status === 'pending_human_review' && idorResult.evidenceDraft) {
+                const enrichedDraft: EnrichedEvidenceDraft = {
+                  ...idorResult.evidenceDraft,
+                  differentialContext: {
+                    endpointUrl: candidate.endpointUrl,
+                    detectionKind: 'idor_access_control',
+                    baselineStatusCode: idorResult.baselineSnapshot?.statusCode,
+                    baselineBodyHash: idorResult.baselineSnapshot?.bodyHash,
+                    validationStatusCode: idorResult.validationSnapshot?.statusCode,
+                    validationBodyHash: idorResult.validationSnapshot?.bodyHash,
+                    resourceParamName: candidate.resourceParamName,
+                    baselineResourceId: candidate.baselineResourceId,
+                    authzMatrixPair: pairKind,
+                  },
+                };
+                pendingEvidenceDrafts.push(enrichedDraft);
+              } else if (idorResult.status === 'secure_target_abstained') {
+                detectionSuppressions.push({
+                  detectorKind: 'idor_access_control',
+                  reasonCode: idorResult.reasonCode,
+                  rationale: `IDOR abstained (${pairKind}): ${idorResult.reasonCode}`,
+                  url: candidate.endpointUrl,
+                });
+              }
             }
           } catch {
             // Safe error containment

@@ -6,6 +6,7 @@ import { AuthorizationController } from '../controllers/AuthorizationController.
 import { TriageController } from '../controllers/TriageController.js';
 import { OrchestratedAssessmentController } from '../controllers/OrchestratedAssessmentController.js';
 import { CapabilityStatusController } from '../controllers/CapabilityStatusController.js';
+import { OobCallbackController } from '../controllers/OobCallbackController.js';
 
 export function createV2Router(root: V2CompositionRoot): Router {
   const router = Router();
@@ -20,9 +21,15 @@ export function createV2Router(root: V2CompositionRoot): Router {
     root.attackExecutionService
   );
   const capabilityController = new CapabilityStatusController(root.availabilityService);
+  const oobController = new OobCallbackController();
 
   // Capability Status endpoint (Milestone P0-3)
   router.get('/capabilities/status', capabilityController.getStatus);
+
+  // P6 — OOB callback / interactsh-poll ingest (canary match only; no secrets)
+  router.get('/oob/status', oobController.getStatus);
+  router.post('/oob/callback', oobController.receiveCallback);
+  router.post('/oob/ingest', oobController.ingestPollEvents);
 
   // Assessment endpoints
   router.post('/assessments', assessmentController.createAssessment);

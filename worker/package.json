@@ -126,6 +126,7 @@
     "smoke:v2:authorized-comparison-validation": "tsx src/v2/smoke/milestone49_authorized_comparison_validation_smoke.ts",
     "smoke:v2:recon-foundation-hardening": "tsx src/v2/smoke/milestone_recon_foundation_hardening_smoke.ts",
     "smoke:v2:milestone-a10-post-exploitation": "tsx src/v2/smoke/milestoneA10_post_exploitation_smoke.ts",
+    "smoke:v2:p6-confirmation-slice": "tsx src/v2/smoke/milestone_p6_confirmation_slice_smoke.ts",
     "smoke:v2:milestone-a11-lateral-movement": "tsx src/v2/smoke/milestoneA11_lateral_movement_smoke.ts",
     "smoke:v2:milestone-a12-impact-report": "tsx src/v2/smoke/milestoneA12_impact_report_smoke.ts",
     "smoke:v2:milestone-a12-remediation": "tsx src/v2/smoke/milestoneA12_remediation_smoke.ts",
