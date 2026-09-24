@@ -213,7 +213,7 @@ function validateChainStep(value: unknown): boolean {
         'capabilityGained',
         'outcome',
       ],
-      ['sourceStepId']
+      ['sourceStepId', 'hypothesisRef', 'producedFacts', 'proofCapsuleRef']
     )
   ) {
     return false;
@@ -234,7 +234,12 @@ function validateChainStep(value: unknown): boolean {
 
 export function validateAttackPlan(value: unknown): value is AttackPlan {
   if (
-    !isExactKeyObject(value, PLAN_REQUIRED_KEYS, ['targetUrl', 'parameterName'])
+    !isExactKeyObject(value, PLAN_REQUIRED_KEYS, [
+      'targetUrl',
+      'parameterName',
+      'planOrigin',
+      'sourceDraftIds',
+    ])
   ) {
     return false;
   }

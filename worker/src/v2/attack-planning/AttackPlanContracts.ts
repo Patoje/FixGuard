@@ -83,7 +83,20 @@ export type AttackPrerequisiteKind =
   | 'credentialed_cors'
   | 'finding_present'
   | 'host_in_scope'
-  | 'credential_reference_present';
+  | 'credential_reference_present'
+  /** True when a pending HITL draft (not a validated Finding) backs this plan. */
+  | 'pending_evidence_draft'
+  /** True when an OBSERVED surface endpoint (not a Finding) backs this plan. */
+  | 'observed_surface_signal';
+
+/**
+ * Honest plan provenance. Investigation plans from drafts/surface are advisory
+ * and must never be presented as confirmed vulnerabilities.
+ */
+export type AttackPlanOrigin =
+  | 'validated_finding'
+  | 'pending_draft'
+  | 'observed_surface';
 
 export interface AttackPrerequisite {
   readonly kind: AttackPrerequisiteKind;
@@ -119,6 +132,14 @@ export interface AttackPlan {
   readonly steps: readonly AttackStep[];
   readonly targetUrl?: string;
   readonly parameterName?: string;
+  /**
+   * Provenance of the plan signal. Defaults to validated_finding when omitted
+   * (legacy finding-backed plans). pending_draft / observed_surface are
+   * investigation advisories — not confirmed vulns.
+   */
+  readonly planOrigin?: AttackPlanOrigin;
+  /** Pending HITL draft ids when planOrigin is pending_draft. */
+  readonly sourceDraftIds?: readonly string[];
   readonly lineage: AuthorizedExecutionLineageTuple;
   readonly createdAt: string;
   /** Explicit non-executability: plans remain advisory until separate human authorization. */
@@ -145,6 +166,28 @@ export interface AttackPlanCredentialReuseContext {
   readonly inScopeHosts?: readonly string[];
 }
 
+/**
+ * Pending HITL evidence draft signal for investigation plan generation.
+ * Not a Finding — never auto-promoted to validated vulnerability.
+ */
+export interface AttackPlanDraftSignal {
+  readonly draftId: string;
+  readonly detectionKind: string;
+  readonly endpointUrl: string;
+  readonly parameterName?: string;
+  readonly allowCredentials?: boolean;
+  readonly resourceParamName?: string;
+}
+
+/**
+ * High-signal OBSERVED surface hint (auth paths, etc.) for investigation plans.
+ */
+export interface AttackPlanSurfaceHint {
+  readonly endpointUrl: string;
+  readonly path: string;
+  readonly signalKind: 'auth_surface';
+}
+
 export interface AttackPlanGeneratorInput {
   readonly assessmentId: string;
   readonly scanId: string;
@@ -154,6 +197,13 @@ export interface AttackPlanGeneratorInput {
   readonly generatedAt?: string;
   /** Milestone A11/A13 — optional lateral / credential context for credential_reuse plans. */
   readonly credentialReuseContext?: AttackPlanCredentialReuseContext;
+  /**
+   * Pending HITL drafts (not findings). Emit investigation/advisory plans only —
+   * never claim confirmed vulns or auto-promote drafts.
+   */
+  readonly draftSignals?: readonly AttackPlanDraftSignal[];
+  /** OBSERVED high-signal endpoints (e.g. /login) for investigation hypotheses. */
+  readonly surfaceHints?: readonly AttackPlanSurfaceHint[];
 }
 
 export interface AttackPlanGeneratorResult {

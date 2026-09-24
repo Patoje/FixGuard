@@ -121,6 +121,8 @@ export interface AttackPlan {
   readonly steps: readonly AttackStep[];
   readonly targetUrl?: string;
   readonly parameterName?: string;
+  readonly planOrigin?: 'validated_finding' | 'pending_draft' | 'observed_surface';
+  readonly sourceDraftIds?: readonly string[];
   readonly lineage: LineageTuple;
   readonly createdAt: string;
   readonly executable: false;

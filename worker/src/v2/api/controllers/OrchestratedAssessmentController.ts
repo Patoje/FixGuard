@@ -729,7 +729,11 @@ export class OrchestratedAssessmentController {
           }
         | undefined;
       try {
-        const payload = await this.service.getAttackModeRefresh(assessmentId);
+        const payload = await this.service.recordAttackExecutionOutcome({
+          assessmentId,
+          planId,
+          executionRecord: result.record,
+        });
         refresh = {
           attackChains: payload.attackChains,
           postExploitationState: payload.postExploitationState,
@@ -738,9 +742,22 @@ export class OrchestratedAssessmentController {
         };
       } catch (err: unknown) {
         // Hermetic execute paths may lack an orchestrated assessment record;
-        // UI can still re-GET dedicated endpoints when the assessment exists.
+        // fall back to refresh-only when assessment exists without chain write.
         if (!(err instanceof SessionNotFoundError)) {
           throw err;
+        }
+        try {
+          const payload = await this.service.getAttackModeRefresh(assessmentId);
+          refresh = {
+            attackChains: payload.attackChains,
+            postExploitationState: payload.postExploitationState,
+            lateralMovementSnapshot: payload.lateralMovementSnapshot,
+            impactAssessments: payload.impactAssessments,
+          };
+        } catch (refreshErr: unknown) {
+          if (!(refreshErr instanceof SessionNotFoundError)) {
+            throw refreshErr;
+          }
         }
       }
 

@@ -31,6 +31,8 @@ import {
   type AttackPrerequisite,
   type AttackStep,
   type AttackPlanScopeClass,
+  type AttackPlanDraftSignal,
+  type AttackPlanSurfaceHint,
   type CapabilityGained,
 } from './AttackPlanContracts.js';
 
@@ -196,6 +198,60 @@ function buildPlan(args: {
     steps,
     ...(args.targetUrl ? { targetUrl: args.targetUrl } : {}),
     ...(args.parameterName ? { parameterName: args.parameterName } : {}),
+    planOrigin: 'validated_finding',
+    lineage: { ...args.lineage },
+    createdAt: args.createdAt,
+    executable: false,
+  };
+}
+
+function buildInvestigationPlan(args: {
+  assessmentId: string;
+  scanId: string;
+  capability: AttackCapabilityKind;
+  sourceKey: string;
+  title: string;
+  reasoning: string;
+  blastRadius: AttackPlanScopeClass;
+  capabilityGained: CapabilityGained;
+  sourceFindingTypes: readonly string[];
+  prerequisites: readonly AttackPrerequisite[];
+  steps: readonly Omit<AttackStep, 'status'>[];
+  lineage: AttackPlanGeneratorInput['lineage'];
+  createdAt: string;
+  planOrigin: 'pending_draft' | 'observed_surface';
+  sourceDraftIds?: readonly string[];
+  targetUrl?: string;
+  parameterName?: string;
+}): AttackPlan {
+  const status = resolveStatus(args.prerequisites);
+  const steps: AttackStep[] = args.steps.map((s) => ({
+    ...s,
+    status: stepStatus(status),
+  }));
+
+  return {
+    contractVersion: ATTACK_PLANNING_CONTRACT_VERSION,
+    kind: 'attack_plan',
+    planId: stablePlanId(args.assessmentId, args.capability, args.sourceKey),
+    assessmentId: args.assessmentId,
+    scanId: args.scanId,
+    capability: args.capability,
+    title: args.title,
+    reasoning: args.reasoning,
+    status,
+    blastRadius: args.blastRadius,
+    capabilityGained: args.capabilityGained,
+    sourceFindingIds: [],
+    sourceFindingTypes: [...args.sourceFindingTypes],
+    prerequisites: [...args.prerequisites],
+    steps,
+    ...(args.targetUrl ? { targetUrl: args.targetUrl } : {}),
+    ...(args.parameterName ? { parameterName: args.parameterName } : {}),
+    planOrigin: args.planOrigin,
+    ...(args.sourceDraftIds && args.sourceDraftIds.length > 0
+      ? { sourceDraftIds: [...args.sourceDraftIds] }
+      : {}),
     lineage: { ...args.lineage },
     createdAt: args.createdAt,
     executable: false,
@@ -336,6 +392,7 @@ function buildCredentialReusePlan(args: {
     targetUrl: `https://${args.hostname}/`,
     lineage: { ...args.lineage },
     createdAt: args.createdAt,
+    planOrigin: 'observed_surface',
     executable: false,
   };
 }
@@ -394,6 +451,410 @@ function generateCredentialReusePlans(
 
   for (const cred of credentialHosts) {
     consider(cred.associatedHostname, cred.credentialId);
+  }
+
+  return plans;
+}
+
+function pendingDraftPrereq(draftId: string): AttackPrerequisite {
+  return {
+    kind: 'pending_evidence_draft',
+    description:
+      'Backed by a pending HITL evidence draft — not a validated Finding; investigation advisory only',
+    satisfied: true,
+    detail: `draftId=${draftId};notARealFinding=true`,
+  };
+}
+
+function observedSurfacePrereq(path: string): AttackPrerequisite {
+  return {
+    kind: 'observed_surface_signal',
+    description:
+      'Backed by an OBSERVED surface endpoint — no validated Finding; investigation hypothesis only',
+    satisfied: true,
+    detail: `path=${path};epistemic=OBSERVED`,
+  };
+}
+
+/**
+ * Map pending HITL draft detectionKind → investigation capability.
+ * Returns null when no honest capability mapping exists.
+ * Header cosmetics / discovery noise must not mint Attack Plans (auto-findings preferred).
+ */
+function draftCapabilityMapping(
+  signal: AttackPlanDraftSignal
+): {
+  readonly capability: AttackCapabilityKind;
+  readonly title: string;
+  readonly blastRadius: AttackPlanScopeClass;
+  readonly capabilityGained: CapabilityGained;
+  readonly findingTypeLabel: string;
+  readonly extraPrereqs: readonly AttackPrerequisite[];
+  readonly stepTitle: string;
+  readonly stepDescription: string;
+  readonly requiredPermissions: readonly string[];
+} | null {
+  const kind = signal.detectionKind;
+
+  // Prefer auto-findings for attack-relevant kinds; leftover drafts may still advise.
+  // Soft cosmetics and discovery noise never become plans.
+  if (
+    kind === 'missing_security_headers' ||
+    kind === 'static_route_extraction' ||
+    kind === 'attack_surface_delta' ||
+    kind === 'wordpress_surface' ||
+    kind === 'graphql_surface' ||
+    kind === 'api_versioning_sprawl' ||
+    kind === 'manifest_exposure' ||
+    kind === 'object_mapping_anomaly' ||
+    kind === 'state_transition_anomaly'
+  ) {
+    return null;
+  }
+
+  const parameterName = signal.parameterName ?? signal.resourceParamName;
+
+  if (kind === 'cors_misconfiguration' || kind === 'credentialed_cors') {
+    const credentialed =
+      kind === 'credentialed_cors' || signal.allowCredentials === true;
+    return {
+      capability: 'cors_chain_exploit',
+      title: 'Investigate credentialed CORS draft',
+      blastRadius: 'cross_origin_third_party',
+      capabilityGained: 'read_escalated',
+      findingTypeLabel: 'CORS_MISCONFIGURATION',
+      extraPrereqs: [
+        {
+          kind: 'credentialed_cors',
+          description: 'Requires credentialed CORS signal on the pending draft',
+          satisfied: credentialed,
+          detail: credentialed ? 'allowCredentials=true' : 'allowCredentials=false',
+        },
+        identityPresentPrereq([]), // replaced by caller with real identities
+      ],
+      stepTitle: 'Authorize CORS investigation probe',
+      stepDescription:
+        'Human-authorized cross-origin credentialed request validation from a pending draft signal. Not a confirmed vulnerability.',
+      requiredPermissions: ['active_http_get', 'cross_origin_probe'],
+    };
+  }
+
+  if (kind === 'parameter_reflection' || kind === 'blind_xss') {
+    return {
+      capability: kind === 'blind_xss' ? 'nuclei_xss_scan' : 'parameter_reflection_probe',
+      title:
+        kind === 'blind_xss'
+          ? 'Investigate blind XSS draft'
+          : 'Investigate parameter reflection draft',
+      blastRadius: 'single_parameter',
+      capabilityGained: 'active_validation',
+      findingTypeLabel: kind === 'blind_xss' ? 'CROSS_SITE_SCRIPTING' : 'INPUT_VALIDATION_FLAW',
+      extraPrereqs: [parameterPresentPrereq(parameterName)],
+      stepTitle: 'Authorize reflection investigation probe',
+      stepDescription:
+        'Human-authorized canary reflection / XSS investigation from a pending draft. Hits remain OBSERVED — not automatic verified vulns.',
+      requiredPermissions:
+        kind === 'blind_xss'
+          ? ['active_http_get', 'active_validation']
+          : ['active_http_get'],
+    };
+  }
+
+  if (kind === 'idor_access_control') {
+    return {
+      capability: 'idor_read_differential',
+      title: 'Investigate IDOR access-control draft',
+      blastRadius: 'single_resource',
+      capabilityGained: 'read_escalated',
+      findingTypeLabel: 'BROKEN_ACCESS_CONTROL',
+      extraPrereqs: [identityCountPrereq([])], // replaced by caller
+      stepTitle: 'Authorize IDOR differential investigation',
+      stepDescription:
+        'Human-authorized dual-identity differential read from a pending draft. Not a confirmed vulnerability.',
+      requiredPermissions: ['active_http_get'],
+    };
+  }
+
+  if (kind === 'auth_bypass') {
+    return {
+      capability: 'auth_bypass_probe',
+      title: 'Investigate authentication bypass draft',
+      blastRadius: 'single_endpoint',
+      capabilityGained: 'read_authenticated',
+      findingTypeLabel: 'BROKEN_AUTHENTICATION',
+      extraPrereqs: [identityPresentPrereq([])],
+      stepTitle: 'Authorize auth bypass investigation',
+      stepDescription:
+        'Human-authorized auth bypass investigation from a pending draft. Not a confirmed vulnerability.',
+      requiredPermissions: ['active_http_get'],
+    };
+  }
+
+  if (kind === 'sql_error_oracle') {
+    return {
+      capability: 'sql_error_oracle_probe',
+      title: 'Investigate SQL error oracle draft',
+      blastRadius: 'single_parameter',
+      capabilityGained: 'read_authenticated',
+      findingTypeLabel: 'INFORMATION_DISCLOSURE',
+      extraPrereqs: [parameterPresentPrereq(parameterName)],
+      stepTitle: 'Authorize SQL oracle investigation',
+      stepDescription:
+        'Human-authorized inert SQL error oracle investigation from a pending draft. Not a confirmed vulnerability.',
+      requiredPermissions: ['active_http_get'],
+    };
+  }
+
+  if (kind === 'jwt_algorithm_confusion') {
+    return {
+      capability: 'jwt_alg_none_probe',
+      title: 'Investigate JWT algorithm confusion draft',
+      blastRadius: 'user_scoped',
+      capabilityGained: 'read_escalated',
+      findingTypeLabel: 'BROKEN_AUTHENTICATION',
+      extraPrereqs: [identityWithJwtPrereq([])],
+      stepTitle: 'Authorize JWT alg=none investigation',
+      stepDescription:
+        'Human-authorized JWT algorithm confusion investigation from a pending draft. Not a confirmed vulnerability.',
+      requiredPermissions: ['active_http_get'],
+    };
+  }
+
+  if (kind === 'parameter_integrity') {
+    return {
+      capability: 'lfi_path_traversal',
+      title: 'Investigate parameter integrity / LFI draft',
+      blastRadius: 'single_parameter',
+      capabilityGained: 'read_escalated',
+      findingTypeLabel: 'PARAMETER_INTEGRITY',
+      extraPrereqs: [parameterPresentPrereq(parameterName)],
+      stepTitle: 'Authorize LFI investigation',
+      stepDescription:
+        'Human-authorized allowlisted LFI canary investigation from a pending draft. Not a confirmed vulnerability.',
+      requiredPermissions: ['active_http_get'],
+    };
+  }
+
+  if (kind === 'http_method_manipulation') {
+    return {
+      capability: 'method_manipulation_probe',
+      title: 'Investigate HTTP method manipulation draft',
+      blastRadius: 'single_endpoint',
+      capabilityGained: 'active_validation',
+      findingTypeLabel: 'HTTP_METHOD_MANIPULATION',
+      extraPrereqs: [],
+      stepTitle: 'Authorize method manipulation investigation',
+      stepDescription:
+        'Human-authorized method manipulation investigation from a pending draft. Not a confirmed vulnerability.',
+      requiredPermissions: ['active_http_get'],
+    };
+  }
+
+  return null;
+}
+
+function withIdentityPrereqs(
+  mappingExtra: readonly AttackPrerequisite[],
+  identities: readonly AttackPlanIdentityContext[],
+  capability: AttackCapabilityKind
+): AttackPrerequisite[] {
+  const rebuilt: AttackPrerequisite[] = [];
+  for (const p of mappingExtra) {
+    if (p.kind === 'identity_present') {
+      rebuilt.push(identityPresentPrereq(identities));
+    } else if (p.kind === 'identity_count_at_least_2') {
+      rebuilt.push(identityCountPrereq(identities));
+    } else if (p.kind === 'identity_with_jwt') {
+      rebuilt.push(identityWithJwtPrereq(identities));
+    } else {
+      rebuilt.push(p);
+    }
+  }
+  // Ensure identity-required capabilities get a real identity prereq even if mapping used placeholders.
+  if (
+    (capability === 'cors_chain_exploit' ||
+      capability === 'auth_bypass_probe' ||
+      capability === 'jwt_alg_none_probe') &&
+    !rebuilt.some((p) => p.kind === 'identity_present' || p.kind === 'identity_with_jwt')
+  ) {
+    rebuilt.push(
+      capability === 'jwt_alg_none_probe'
+        ? identityWithJwtPrereq(identities)
+        : identityPresentPrereq(identities)
+    );
+  }
+  if (
+    capability === 'idor_read_differential' &&
+    !rebuilt.some((p) => p.kind === 'identity_count_at_least_2')
+  ) {
+    rebuilt.push(identityCountPrereq(identities));
+  }
+  return rebuilt;
+}
+
+/**
+ * Investigation/advisory plans from pending HITL drafts.
+ * Never claims confirmed vulns; executable remains false until separate authorization.
+ */
+function generateDraftInvestigationPlans(
+  input: AttackPlanGeneratorInput,
+  generatedAt: string
+): AttackPlan[] {
+  const signals = input.draftSignals ?? [];
+  if (signals.length === 0) return [];
+
+  const plans: AttackPlan[] = [];
+  const emitted = new Set<string>();
+
+  for (const signal of signals) {
+    const mapping = draftCapabilityMapping(signal);
+    if (!mapping) continue;
+
+    const sourceKey = `draft_${signal.draftId}_${mapping.capability}`;
+    if (emitted.has(sourceKey)) continue;
+    emitted.add(sourceKey);
+
+    const parameterName = signal.parameterName ?? signal.resourceParamName;
+    const prereqs: AttackPrerequisite[] = [
+      pendingDraftPrereq(signal.draftId),
+      ...withIdentityPrereqs(mapping.extraPrereqs, input.identities, mapping.capability),
+    ];
+
+    plans.push(
+      buildInvestigationPlan({
+        assessmentId: input.assessmentId,
+        scanId: input.scanId,
+        capability: mapping.capability,
+        sourceKey,
+        title: mapping.title,
+        reasoning: `PENDING EVIDENCE DRAFT (HITL; not a validated Finding). detectionKind=${signal.detectionKind}. Investigation advisory only — does not claim a confirmed vulnerability. Approve the draft via human review before treating outcomes as validated findings.`,
+        blastRadius: mapping.blastRadius,
+        capabilityGained: mapping.capabilityGained,
+        sourceFindingTypes: [mapping.findingTypeLabel],
+        prerequisites: prereqs,
+        steps: [
+          {
+            stepId: `${sourceKey}_step_1`,
+            ordinal: 1,
+            title: mapping.stepTitle,
+            description: mapping.stepDescription,
+            requiredPermissions: [...mapping.requiredPermissions],
+          },
+        ],
+        lineage: input.lineage,
+        createdAt: generatedAt,
+        planOrigin: 'pending_draft',
+        sourceDraftIds: [signal.draftId],
+        targetUrl: signal.endpointUrl,
+        parameterName,
+      })
+    );
+
+    // Reflection drafts also get a nuclei XSS investigation when parameter is known.
+    if (signal.detectionKind === 'parameter_reflection' && parameterName) {
+      const nucleiKey = `draft_${signal.draftId}_nuclei_xss_scan`;
+      if (!emitted.has(nucleiKey)) {
+        emitted.add(nucleiKey);
+        plans.push(
+          buildInvestigationPlan({
+            assessmentId: input.assessmentId,
+            scanId: input.scanId,
+            capability: 'nuclei_xss_scan',
+            sourceKey: nucleiKey,
+            title: 'Investigate reflection draft via nuclei XSS',
+            reasoning: `PENDING EVIDENCE DRAFT (HITL; not a validated Finding). detectionKind=parameter_reflection. Nuclei XSS investigation advisory — template hits remain OBSERVED, not automatic verified vulns.`,
+            blastRadius: 'single_parameter',
+            capabilityGained: 'active_validation',
+            sourceFindingTypes: ['INPUT_VALIDATION_FLAW'],
+            prerequisites: [
+              pendingDraftPrereq(signal.draftId),
+              parameterPresentPrereq(parameterName),
+            ],
+            steps: [
+              {
+                stepId: `${nucleiKey}_step_1`,
+                ordinal: 1,
+                title: 'Authorize nuclei XSS investigation',
+                description:
+                  'Human-authorized allowlisted nuclei XSS templates from a pending reflection draft. Advisory only.',
+                requiredPermissions: ['active_http_get', 'active_validation'],
+              },
+            ],
+            lineage: input.lineage,
+            createdAt: generatedAt,
+            planOrigin: 'pending_draft',
+            sourceDraftIds: [signal.draftId],
+            targetUrl: signal.endpointUrl,
+            parameterName,
+          })
+        );
+      }
+    }
+  }
+
+  return plans;
+}
+
+const AUTH_SURFACE_PATH_RE =
+  /^\/(login|signin|sign-in|auth|authenticate|api\/auth|api\/login|session|oauth)(\/|$)/i;
+
+/**
+ * Investigation hypotheses from OBSERVED auth-surface endpoints (no Finding required).
+ */
+function generateSurfaceInvestigationPlans(
+  input: AttackPlanGeneratorInput,
+  generatedAt: string
+): AttackPlan[] {
+  const hints = input.surfaceHints ?? [];
+  if (hints.length === 0) return [];
+
+  const plans: AttackPlan[] = [];
+  const emitted = new Set<string>();
+
+  for (const hint of hints) {
+    if (hint.signalKind !== 'auth_surface') continue;
+    if (!AUTH_SURFACE_PATH_RE.test(hint.path) && !AUTH_SURFACE_PATH_RE.test(hint.endpointUrl)) {
+      // Allow explicit auth_surface hints even if path regex misses.
+      if (!/login|signin|auth|session|oauth/i.test(hint.path)) continue;
+    }
+
+    const sourceKey = `surface_auth_${sha256Short(hint.endpointUrl)}`;
+    if (emitted.has(sourceKey)) continue;
+    emitted.add(sourceKey);
+
+    const prereqs: AttackPrerequisite[] = [
+      observedSurfacePrereq(hint.path),
+      identityPresentPrereq(input.identities),
+    ];
+
+    plans.push(
+      buildInvestigationPlan({
+        assessmentId: input.assessmentId,
+        scanId: input.scanId,
+        capability: 'auth_bypass_probe',
+        sourceKey,
+        title: 'Investigate OBSERVED auth surface',
+        reasoning: `OBSERVED auth-surface endpoint (${hint.path}). No validated Finding. Investigation hypothesis only — does not claim authentication bypass. Requires human authorization before any active probe.`,
+        blastRadius: 'single_endpoint',
+        capabilityGained: 'read_authenticated',
+        sourceFindingTypes: ['BROKEN_AUTHENTICATION'],
+        prerequisites: prereqs,
+        steps: [
+          {
+            stepId: `${sourceKey}_step_1`,
+            ordinal: 1,
+            title: 'Authorize auth-surface investigation',
+            description:
+              'Human-authorized comparison of authenticated vs stripped-auth responses on an OBSERVED auth surface. Hypothesis only.',
+            requiredPermissions: ['active_http_get'],
+          },
+        ],
+        lineage: input.lineage,
+        createdAt: generatedAt,
+        planOrigin: 'observed_surface',
+        targetUrl: hint.endpointUrl,
+      })
+    );
   }
 
   return plans;
@@ -807,6 +1268,12 @@ export function generateAttackPlans(input: AttackPlanGeneratorInput): AttackPlan
   // Rule 11 (A11/A13): authorized lateral target OR CredentialReference for in-scope host
   // → credential_reuse (blast-radius auth intent: credential_use). Missing scope → prerequisite_missing.
   plans.push(...generateCredentialReusePlans(input, generatedAt));
+
+  // Rule 12: pending HITL drafts → investigation/advisory plans (not confirmed vulns).
+  plans.push(...generateDraftInvestigationPlans(input, generatedAt));
+
+  // Rule 13: OBSERVED high-signal surface (auth paths) → investigation hypotheses.
+  plans.push(...generateSurfaceInvestigationPlans(input, generatedAt));
 
   plans.sort((a, b) => a.planId.localeCompare(b.planId));
 

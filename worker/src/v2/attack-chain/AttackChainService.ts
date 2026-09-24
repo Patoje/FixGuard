@@ -205,6 +205,13 @@ export class AttackChainService {
       capabilityGained: input.capabilityGained,
       outcome: input.outcome,
       ...(input.sourceStepId !== undefined ? { sourceStepId: input.sourceStepId } : {}),
+      ...(input.hypothesisRef !== undefined ? { hypothesisRef: input.hypothesisRef } : {}),
+      ...(input.producedFacts !== undefined && input.producedFacts.length > 0
+        ? { producedFacts: [...input.producedFacts] }
+        : {}),
+      ...(input.proofCapsuleRef !== undefined
+        ? { proofCapsuleRef: input.proofCapsuleRef }
+        : {}),
     };
 
     const withStep: AttackChain = {

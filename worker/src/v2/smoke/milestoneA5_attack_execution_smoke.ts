@@ -27,6 +27,8 @@ import {
 } from '../attack-execution/AttackExecutionContracts.js';
 import { AttackExecutionService } from '../attack-execution/AttackExecutionService.js';
 import { TargetExecutionCoordinator } from '../runtime/TargetExecutionCoordinator.js';
+import { InMemoryOrchestratedAssessmentRepository } from '../storage/InMemoryOrchestratedAssessmentRepository.js';
+import { ORCHESTRATED_ASSESSMENT_CONTRACT_VERSION } from '../application/OrchestratedAssessmentContracts.js';
 import { V2CompositionRoot } from '../api/V2CompositionRoot.js';
 import { OrchestratedAssessmentController } from '../api/controllers/OrchestratedAssessmentController.js';
 import { ControlledActiveVerificationService } from '../verification/ControlledActiveVerificationService.js';
@@ -419,6 +421,8 @@ async function runSmokeTests(): Promise<void> {
       })
     ),
   ]);
+  // Hermetic execute (no assessment record) then close epistemic loop via
+  // recordAttackExecutionOutcome against a seeded assessment.
   const root = V2CompositionRoot.withDependencies({
     attackCapabilityRegistry: hermeticRegistry,
   });
@@ -493,12 +497,105 @@ async function runSmokeTests(): Promise<void> {
   assert.equal(execStatus, 200);
   const body = execBody as {
     status: string;
-    record: { stepRecords: Array<{ outcome: string; gatesPassed: boolean }> };
+    record: {
+      executionId: string;
+      stepRecords: Array<{
+        stepId: string;
+        outcome: string;
+        gatesPassed: boolean;
+        reasonCode: string;
+        safeMessage?: string;
+        evidenceId?: string;
+        verificationStateBefore?: string;
+        verificationStateAfter?: string;
+        completedAt?: string;
+      }>;
+    };
   };
   assert.equal(body.status, 'completed');
   assert.equal(body.record.stepRecords[0]!.outcome, 'succeeded');
   assert.equal(body.record.stepRecords[0]!.gatesPassed, true);
-  console.log('[+] Test 5: composition + HTTP execute path OK');
+
+  // Close the loop: seed assessment + append chain from execution record.
+  const orchRepo = new InMemoryOrchestratedAssessmentRepository();
+  await orchRepo.save({
+    contractVersion: ORCHESTRATED_ASSESSMENT_CONTRACT_VERSION,
+    assessmentId,
+    scanId: 'scn_smoke_a5_001',
+    targetDomain: host,
+    status: 'completed',
+    lineage: {
+      assessmentId,
+      scanId: 'scn_smoke_a5_001',
+      authorizationGrantId: scopeGrant.grantId,
+      authorizationDecisionId: 'dec_smoke_a5_001',
+      actorId: operatorId,
+    },
+    stages: [],
+    timing: {
+      startedAt: '2026-09-23T19:00:00.000Z',
+      completedAt: '2026-09-23T19:00:01.000Z',
+      durationMs: 1,
+    },
+    errorCount: 0,
+    warningCount: 0,
+    findings: [finding],
+    recommendations: [],
+  });
+  const loopRoot = V2CompositionRoot.withDependencies({
+    attackCapabilityRegistry: hermeticRegistry,
+    orchestratedRepository: orchRepo,
+    attackPlanRepository: root.attackPlanRepository,
+  });
+  const step0 = body.record.stepRecords[0]!;
+  const refresh = await loopRoot.orchestratedService.recordAttackExecutionOutcome({
+    assessmentId,
+    planId: httpPlanId,
+    executionRecord: {
+      contractVersion: ATTACK_EXECUTION_CONTRACT_VERSION,
+      kind: 'attack_execution_record',
+      executionId: body.record.executionId,
+      planId: httpPlanId,
+      assessmentId,
+      capability: 'idor_read_differential',
+      operatorId,
+      startedAt: '2026-09-23T19:00:00.000Z',
+      completedAt: '2026-09-23T19:00:01.000Z',
+      status: 'completed',
+      stepRecords: [
+        {
+          stepId: step0.stepId,
+          ordinal: 1,
+          capability: 'idor_read_differential',
+          blastRadiusClass: 'read_escalated',
+          targetHost: host,
+          outcome: 'succeeded',
+          reasonCode: step0.reasonCode,
+          safeMessage: step0.safeMessage ?? 'Hermetic IDOR step succeeded',
+          gatesPassed: true,
+          completedAt: step0.completedAt ?? '2026-09-23T19:00:01.000Z',
+          ...(step0.evidenceId ? { evidenceId: step0.evidenceId } : {}),
+          ...(step0.verificationStateBefore
+            ? { verificationStateBefore: step0.verificationStateBefore as 'validated_vulnerability' }
+            : {}),
+          ...(step0.verificationStateAfter
+            ? { verificationStateAfter: step0.verificationStateAfter as 'exploitability_confirmed' }
+            : {}),
+        },
+      ],
+      updatedFindings: [finding],
+    },
+  });
+  assert.ok(refresh.attackChains.length >= 1, 'refresh must include attack chain');
+  assert.ok(
+    refresh.attackChains.some((c) => c.steps.length >= 1),
+    'chain must contain executed step (epistemic loop closed)'
+  );
+  assert.ok(
+    refresh.impactAssessments.length >= 1,
+    'impact assessment must be derivable after execute→chain'
+  );
+  console.log('[+] Test 5: composition + HTTP execute→chain→impact loop OK');
 
   console.log('=== Milestone A5: ALL CHECKS PASSED ===');
 }

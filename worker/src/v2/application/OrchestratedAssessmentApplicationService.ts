@@ -105,6 +105,7 @@ import { correlateCrossFindingChains } from '../intelligence/correlation/CrossFi
 
 
 import { buildTargetProfile } from '../intelligence/TargetProfileBuilder.js';
+import type { TargetProfile } from '../intelligence/IntelligenceContracts.js';
 import { correlateTargetProfile } from '../intelligence/TargetRecommendationEngine.js';
 import { analyzeAttackSurfaceDelta } from '../intelligence/analysis/AttackSurfaceDeltaAnalysisService.js';
 import { AttackSurfaceGraphBuilder } from '../attack-surface/AttackSurfaceGraphBuilder.js';
@@ -116,7 +117,19 @@ import {
   AttackPlanGeneratorService,
   identityHasJwtHeuristic,
 } from '../attack-planning/AttackPlanGeneratorService.js';
-import type { AttackPlanIdentityContext } from '../attack-planning/AttackPlanContracts.js';
+import type {
+  AttackPlanIdentityContext,
+  AttackPlanDraftSignal,
+  AttackPlanSurfaceHint,
+  AttackCapabilityKind,
+} from '../attack-planning/AttackPlanContracts.js';
+import type {
+  AttackChainStepOutcome,
+  ChainObjectiveKind,
+  EpistemicStatus,
+  ImpactLevel,
+} from '../attack-chain/AttackChainContracts.js';
+import type { AttackExecutionRecord } from '../attack-execution/AttackExecutionContracts.js';
 import type { AttackChainRepository } from '../attack-chain/AttackChainRepository.js';
 import { InMemoryAttackChainRepository } from '../attack-chain/InMemoryAttackChainRepository.js';
 import { AttackChainService } from '../attack-chain/AttackChainService.js';
@@ -150,6 +163,7 @@ import { ImpactAssessmentService } from '../reporting-boundary/ImpactAssessmentS
 import type { CredentialReference } from '../post-exploitation/PostExploitationContracts.js';
 import type { ImpactAssessment } from '../reporting-boundary/ImpactAssessmentContracts.js';
 import { isForbiddenSyntheticReviewerId } from '../api/validation/ApiRequestValidators.js';
+import { applyFindingAutoPromotion } from '../finding-auto-promotion/FindingAutoPromotionService.js';
 import { ReconToolAvailabilityService } from '../capabilities/ReconToolAvailabilityService.js';
 import type { ReconToolName } from '../capabilities/CapabilityStatusContracts.js';
 import { STAGE_REQUIRED_TOOLS } from '../capabilities/CapabilityStatusContracts.js';
@@ -265,6 +279,144 @@ function buildAttackPlanIdentities(
     });
   }
   return identities;
+}
+
+function buildDraftSignals(
+  drafts: readonly EnrichedEvidenceDraft[]
+): readonly AttackPlanDraftSignal[] {
+  const signals: AttackPlanDraftSignal[] = [];
+  for (const draft of drafts) {
+    const ctx = draft.differentialContext;
+    if (!ctx || typeof ctx.endpointUrl !== 'string' || ctx.endpointUrl.length === 0) {
+      continue;
+    }
+    signals.push({
+      draftId: draft.draftId,
+      detectionKind: ctx.detectionKind,
+      endpointUrl: ctx.endpointUrl,
+      ...(typeof ctx.parameterName === 'string' ? { parameterName: ctx.parameterName } : {}),
+      ...(typeof ctx.resourceParamName === 'string'
+        ? { resourceParamName: ctx.resourceParamName }
+        : {}),
+      ...(typeof ctx.allowCredentials === 'boolean'
+        ? { allowCredentials: ctx.allowCredentials }
+        : typeof ctx.allowCredentialsHeader === 'boolean'
+          ? { allowCredentials: ctx.allowCredentialsHeader }
+          : {}),
+    });
+  }
+  return signals;
+}
+
+const AUTH_SURFACE_PATH_HINT_RE =
+  /^\/(login|signin|sign-in|auth|authenticate|api\/auth|api\/login|session|oauth)(\/|$)/i;
+
+function buildSurfaceHintsFromProfile(
+  profile: TargetProfile | undefined
+): readonly AttackPlanSurfaceHint[] {
+  if (!profile) return [];
+  const hints: AttackPlanSurfaceHint[] = [];
+  const seen = new Set<string>();
+  for (const ep of profile.endpoints ?? []) {
+    const path = typeof ep.path === 'string' ? ep.path : '/';
+    if (!AUTH_SURFACE_PATH_HINT_RE.test(path) && !/login|signin|auth|session|oauth/i.test(path)) {
+      continue;
+    }
+    const endpointUrl =
+      typeof ep.url === 'string' && ep.url.length > 0
+        ? ep.url
+        : `https://${profile.targetHost}${path.startsWith('/') ? path : `/${path}`}`;
+    if (seen.has(endpointUrl)) continue;
+    seen.add(endpointUrl);
+    hints.push({
+      endpointUrl,
+      path,
+      signalKind: 'auth_surface',
+    });
+  }
+  return hints;
+}
+
+function chainIdForPlan(planId: string): string {
+  return `chn_exec_${planId}`.replace(/[^A-Za-z0-9_-]/g, '_').slice(0, 64);
+}
+
+function objectiveForCapability(capability: AttackCapabilityKind): ChainObjectiveKind {
+  switch (capability) {
+    case 'idor_read_differential':
+      return 'privilege_escalation';
+    case 'cors_chain_exploit':
+      return 'data_access';
+    case 'auth_bypass_probe':
+    case 'jwt_alg_none_probe':
+    case 'session_fixation_probe':
+      return 'authentication_bypass';
+    case 'credential_reuse':
+      return 'lateral_movement';
+    case 'sql_error_oracle_probe':
+    case 'sql_oracle_advancement':
+    case 'sql_injection_verification':
+    case 'parameter_reflection_probe':
+    case 'nuclei_xss_scan':
+    case 'lfi_path_traversal':
+    case 'method_manipulation_probe':
+    default:
+      return 'information_disclosure';
+  }
+}
+
+function declaredImpactForCapability(capability: AttackCapabilityKind): ImpactLevel {
+  switch (capability) {
+    case 'idor_read_differential':
+      return 'authorization_bypass';
+    case 'auth_bypass_probe':
+    case 'jwt_alg_none_probe':
+      return 'authentication_bypass';
+    case 'credential_reuse':
+      return 'lateral_movement';
+    case 'sql_injection_verification':
+    case 'sql_oracle_advancement':
+      return 'data_access';
+    default:
+      return 'information_exposure';
+  }
+}
+
+function mapExecutionOutcomeToChain(
+  outcome: string
+): {
+  readonly outcome: AttackChainStepOutcome;
+  readonly epistemicStatus: EpistemicStatus;
+} | null {
+  if (outcome === 'succeeded') {
+    return { outcome: 'succeeded', epistemicStatus: 'VERIFIED' };
+  }
+  if (outcome === 'observed') {
+    return { outcome: 'succeeded', epistemicStatus: 'OBSERVED' };
+  }
+  if (outcome === 'refuted') {
+    return { outcome: 'refuted', epistemicStatus: 'REFUTED' };
+  }
+  if (outcome === 'failed' || outcome === 'capability_not_implemented') {
+    return { outcome: 'failed', epistemicStatus: 'INFERRED' };
+  }
+  // preflight_denied / unknown — do not append
+  return null;
+}
+
+function producedFactsFromStep(step: {
+  readonly verificationStateBefore?: string;
+  readonly verificationStateAfter?: string;
+  readonly outcome: string;
+  readonly reasonCode: string;
+}): readonly string[] {
+  const facts: string[] = [`outcome=${step.outcome}`, `reason=${step.reasonCode}`];
+  if (step.verificationStateBefore && step.verificationStateAfter) {
+    facts.push(
+      `verification:${step.verificationStateBefore}->${step.verificationStateAfter}`
+    );
+  }
+  return facts;
 }
 
 /** Refs/ids only — never embed live session token material into the ASG. */
@@ -1379,6 +1531,104 @@ export class OrchestratedAssessmentApplicationService {
       impactAssessments: adversarial.impactAssessments,
       lineage: record.lineage,
     };
+  }
+
+  /**
+   * Close the epistemic loop after a successful AttackExecutionService run:
+   * create/append AttackChain steps from executed outcomes, then return refresh
+   * with recomputed impact assessments. Does not invent steps or inflate epistemic status.
+   */
+  public async recordAttackExecutionOutcome(args: {
+    readonly assessmentId: string;
+    readonly planId: string;
+    readonly executionRecord: AttackExecutionRecord;
+  }): Promise<AttackModeRefreshDto> {
+    const { assessmentId, planId, executionRecord } = args;
+    if (!assessmentId || typeof assessmentId !== 'string' || !isStrictSafeId(assessmentId)) {
+      throw new ApiValidationError('Field assessmentId must satisfy strict identifier format');
+    }
+    if (!planId || typeof planId !== 'string' || !isStrictSafeId(planId)) {
+      throw new ApiValidationError('Field planId must satisfy strict identifier format');
+    }
+
+    const record = await this.repository.findById(assessmentId);
+    if (!record) {
+      throw new SessionNotFoundError(
+        `Orchestrated assessment '${assessmentId}' was not found`,
+        assessmentId
+      );
+    }
+
+    const plan = await this.attackPlanRepository.getPlan(planId);
+    if (!plan || plan.assessmentId !== assessmentId) {
+      throw new ApiValidationError(`Attack plan '${planId}' was not found for assessment`);
+    }
+
+    const chainId = chainIdForPlan(plan.planId);
+    let chain = await this.attackChainRepository.getChain(chainId);
+    if (!chain) {
+      chain = await this.attackChainService.initHypothesis({
+        chainId,
+        assessmentId: record.assessmentId,
+        scanId: record.scanId,
+        hypothesis: `Execution hypothesis for plan ${plan.planId} (${plan.capability}): ${plan.title}`,
+        objectiveKind: objectiveForCapability(plan.capability),
+        impactLevel: declaredImpactForCapability(plan.capability),
+        lineage: {
+          assessmentId: record.lineage.assessmentId,
+          scanId: record.lineage.scanId,
+          authorizationGrantId: record.lineage.authorizationGrantId,
+          authorizationDecisionId: record.lineage.authorizationDecisionId,
+          actorId: record.lineage.actorId,
+        },
+      });
+    }
+
+    let priorStepId: string | undefined =
+      chain.steps.length > 0 ? chain.steps[chain.steps.length - 1]?.stepId : undefined;
+
+    for (const stepRec of executionRecord.stepRecords) {
+      const mapped = mapExecutionOutcomeToChain(stepRec.outcome);
+      if (!mapped) continue;
+
+      const stepId = `cst_${executionRecord.executionId}_${stepRec.stepId}`
+        .replace(/[^A-Za-z0-9_-]/g, '_')
+        .slice(0, 64);
+
+      // Skip duplicates on refresh/retry
+      if (chain.steps.some((s) => s.stepId === stepId)) {
+        priorStepId = stepId;
+        continue;
+      }
+
+      const producedFacts = producedFactsFromStep(stepRec);
+      const proofCapsuleRef = stepRec.evidenceId;
+
+      chain = await this.attackChainService.appendExecutedStep({
+        chainId: chain.chainId,
+        assessmentId: record.assessmentId,
+        scanId: record.scanId,
+        stepId,
+        capabilityKind: plan.capability,
+        epistemicStatus: mapped.epistemicStatus,
+        capabilityGained: plan.capabilityGained,
+        outcome: mapped.outcome,
+        ...(priorStepId ? { sourceStepId: priorStepId } : {}),
+        hypothesisRef: plan.planId,
+        producedFacts,
+        ...(proofCapsuleRef ? { proofCapsuleRef } : {}),
+        evidence: {
+          ...(proofCapsuleRef ? { evidenceId: proofCapsuleRef } : {}),
+          reasonCode: stepRec.reasonCode,
+          safeMessage: stepRec.safeMessage,
+          recordedAt: stepRec.completedAt,
+        },
+        recordedAt: stepRec.completedAt,
+      });
+      priorStepId = stepId;
+    }
+
+    return this.getAttackModeRefresh(assessmentId);
   }
 
   /**
@@ -3214,12 +3464,63 @@ export class OrchestratedAssessmentApplicationService {
         findings: updatedFindings,
         pendingEvidenceDrafts: [...remainingDrafts, ...newCompoundDrafts],
       }));
+
+      // Refresh advisory plans so Attack Mode reflects promoted findings + remaining drafts.
+      const refreshed = await this.repository.findById(assessmentId);
+      if (refreshed) {
+        const attackPlanResult = this.attackPlanGenerator.generate({
+          assessmentId: refreshed.assessmentId,
+          scanId: refreshed.scanId,
+          findings: refreshed.findings,
+          identities: [],
+          lineage: {
+            assessmentId: refreshed.lineage.assessmentId,
+            scanId: refreshed.lineage.scanId,
+            authorizationGrantId: refreshed.lineage.authorizationGrantId,
+            authorizationDecisionId: refreshed.lineage.authorizationDecisionId,
+            actorId: refreshed.lineage.actorId,
+          },
+          draftSignals: buildDraftSignals(refreshed.pendingEvidenceDrafts ?? []),
+          surfaceHints: buildSurfaceHintsFromProfile(refreshed.profile),
+          credentialReuseContext: await this.buildCredentialReusePlanContext(
+            refreshed.assessmentId,
+            refreshed.targetDomain
+          ),
+        });
+        await this.attackPlanRepository.deleteByAssessmentId(refreshed.assessmentId);
+        await this.attackPlanRepository.savePlans(attackPlanResult.plans);
+      }
     } else {
       // reject_evidence
       await this.repository.update(assessmentId, (prev) => ({
         ...prev,
         pendingEvidenceDrafts: remainingDrafts,
       }));
+
+      const refreshed = await this.repository.findById(assessmentId);
+      if (refreshed) {
+        const attackPlanResult = this.attackPlanGenerator.generate({
+          assessmentId: refreshed.assessmentId,
+          scanId: refreshed.scanId,
+          findings: refreshed.findings,
+          identities: [],
+          lineage: {
+            assessmentId: refreshed.lineage.assessmentId,
+            scanId: refreshed.lineage.scanId,
+            authorizationGrantId: refreshed.lineage.authorizationGrantId,
+            authorizationDecisionId: refreshed.lineage.authorizationDecisionId,
+            actorId: refreshed.lineage.actorId,
+          },
+          draftSignals: buildDraftSignals(refreshed.pendingEvidenceDrafts ?? []),
+          surfaceHints: buildSurfaceHintsFromProfile(refreshed.profile),
+          credentialReuseContext: await this.buildCredentialReusePlanContext(
+            refreshed.assessmentId,
+            refreshed.targetDomain
+          ),
+        });
+        await this.attackPlanRepository.deleteByAssessmentId(refreshed.assessmentId);
+        await this.attackPlanRepository.savePlans(attackPlanResult.plans);
+      }
     }
 
     return {
@@ -3440,6 +3741,7 @@ export class OrchestratedAssessmentApplicationService {
             record.assessmentId,
             record.targetDomain
           ),
+          surfaceHints: buildSurfaceHintsFromProfile(profile),
         });
         await this.attackPlanRepository.deleteByAssessmentId(record.assessmentId);
         await this.attackPlanRepository.savePlans(attackPlanResult.plans);
@@ -3479,7 +3781,7 @@ export class OrchestratedAssessmentApplicationService {
           ? detectionBridge.primaryProbeUrls
           : [targetUrl];
       const findings: Finding[] = [];
-      const pendingEvidenceDrafts: EnrichedEvidenceDraft[] = [];
+      let pendingEvidenceDrafts: EnrichedEvidenceDraft[] = [];
 
       for (const probeUrl of surfaceProbeUrls) {
         if (coordinator.isCircuitOpen(record.targetDomain)) break;
@@ -4886,6 +5188,23 @@ export class OrchestratedAssessmentApplicationService {
           }
         }
 
+        // Auto-promote confirmed vuln drafts → Findings before compound correlation
+        // so CORS+IDOR / cross-finding chains can see real findings (not empty HITL queue).
+        {
+          const autoPromotion = applyFindingAutoPromotion({
+            drafts: pendingEvidenceDrafts,
+            assessmentId: lineage.assessmentId,
+            scanId: lineage.scanId,
+            targetDomain: record.targetDomain,
+            actorId: lineage.actorId,
+            evaluatedAt: new Date().toISOString(),
+          });
+          for (const f of autoPromotion.findings) {
+            findings.push(f);
+          }
+          pendingEvidenceDrafts = [...autoPromotion.remainingDrafts];
+        }
+
         // Compound Chain Correlation (Milestone P5-1: CORS + IDOR Compound Exploit Chain)
         try {
           const chainResult = correlateCorsIdorChains({
@@ -5160,6 +5479,23 @@ export class OrchestratedAssessmentApplicationService {
         }
       }
 
+      // Second auto-promote pass: compound drafts, SAST secrets, OOB interactions, etc.
+      // Drops discovery noise (static routes / surface delta); keeps soft cosmetics as drafts.
+      {
+        const autoPromotion = applyFindingAutoPromotion({
+          drafts: pendingEvidenceDrafts,
+          assessmentId: lineage.assessmentId,
+          scanId: lineage.scanId,
+          targetDomain: record.targetDomain,
+          actorId: lineage.actorId,
+          evaluatedAt: new Date().toISOString(),
+        });
+        for (const f of autoPromotion.findings) {
+          findings.push(f);
+        }
+        pendingEvidenceDrafts = [...autoPromotion.remainingDrafts];
+      }
+
       // 3. F5 Intelligence Synthesis (TargetProfile & Recommendations)
       const rawObservations = [
         ...reconResult.aggregatedObservations.webObservations,
@@ -5244,6 +5580,8 @@ export class OrchestratedAssessmentApplicationService {
           record.assessmentId,
           record.targetDomain
         ),
+        draftSignals: buildDraftSignals(pendingEvidenceDrafts),
+        surfaceHints: buildSurfaceHintsFromProfile(profile),
       });
       await this.attackPlanRepository.deleteByAssessmentId(record.assessmentId);
       await this.attackPlanRepository.savePlans(attackPlanResult.plans);

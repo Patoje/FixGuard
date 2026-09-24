@@ -71,6 +71,14 @@ function PlanRow({
               </span>
             </div>
             <p className="text-[11px] text-zinc-500 line-clamp-2">{plan.reasoning}</p>
+            {plan.planOrigin && plan.planOrigin !== "validated_finding" && (
+              <p className="text-[10px] font-mono text-amber-400/90">
+                origin: {plan.planOrigin}
+                {plan.planOrigin === "pending_draft"
+                  ? " — HITL draft signal (not a validated finding)"
+                  : " — OBSERVED surface hypothesis (not a validated finding)"}
+              </p>
+            )}
             {plan.targetUrl && (
               <p className="text-[10px] font-mono text-zinc-600 truncate">target: {plan.targetUrl}</p>
             )}

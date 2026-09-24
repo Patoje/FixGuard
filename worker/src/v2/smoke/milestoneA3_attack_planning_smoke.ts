@@ -465,6 +465,75 @@ async function runSmokeTests(): Promise<void> {
 
   console.log('✓ Test 4 Passed: Plans stored and retrievable via application/API path');
 
+  // --- Test 5: Pending drafts + OBSERVED auth surface → investigation plans (honest, not findings) ---
+  const draftResult = generateAttackPlans({
+    assessmentId: 'asm_smoke_a3_draft',
+    scanId: 'scn_smoke_a3_draft',
+    findings: [],
+    identities: [{ identityId: 'id_a', hasJwt: false }],
+    lineage: {
+      ...lineage,
+      assessmentId: 'asm_smoke_a3_draft',
+      scanId: 'scn_smoke_a3_draft',
+    },
+    generatedAt: nowIso,
+    draftSignals: [
+      {
+        draftId: 'draft_smoke_reflect_001',
+        detectionKind: 'parameter_reflection',
+        endpointUrl: 'https://app.example.com/search',
+        parameterName: 'q',
+      },
+      {
+        draftId: 'draft_smoke_headers_001',
+        detectionKind: 'missing_security_headers',
+        endpointUrl: 'https://app.example.com/',
+      },
+    ],
+    surfaceHints: [
+      {
+        endpointUrl: 'https://app.example.com/login',
+        path: '/login',
+        signalKind: 'auth_surface',
+      },
+    ],
+  });
+  assert.ok(draftResult.plans.length >= 2, 'draft/surface signals must produce investigation plans');
+  assert.ok(
+    draftResult.plans.every((p) => p.executable === false),
+    'investigation plans must remain non-executable'
+  );
+  assert.ok(
+    draftResult.plans.every(
+      (p) => p.planOrigin === 'pending_draft' || p.planOrigin === 'observed_surface'
+    ),
+    'plans must declare draft/surface origin'
+  );
+  assert.ok(
+    draftResult.plans.every((p) => p.sourceFindingIds.length === 0),
+    'draft/surface plans must not claim source findings'
+  );
+  const reflectPlan = draftResult.plans.find((p) => p.capability === 'parameter_reflection_probe');
+  assert.ok(reflectPlan, 'parameter_reflection draft must map to reflection probe');
+  assert.equal(reflectPlan!.planOrigin, 'pending_draft');
+  assert.ok(
+    reflectPlan!.reasoning.includes('PENDING EVIDENCE DRAFT'),
+    'reasoning must declare HITL draft epistemic honesty'
+  );
+  const headersPlan = draftResult.plans.find((p) =>
+    p.reasoning.includes('missing_security_headers')
+  );
+  assert.equal(
+    headersPlan,
+    undefined,
+    'missing_security_headers must NOT mint Attack Plans (cosmetic; not attack-relevant)'
+  );
+  const authSurfacePlan = draftResult.plans.find(
+    (p) => p.planOrigin === 'observed_surface' && p.capability === 'auth_bypass_probe'
+  );
+  assert.ok(authSurfacePlan, 'OBSERVED /login surface must emit auth investigation plan');
+  console.log('✓ Test 5 Passed: Draft/surface investigation plans (honest, non-finding)');
+
   console.log('=== Milestone A3 Attack Planning: ALL TESTS PASSED ===');
 }
 

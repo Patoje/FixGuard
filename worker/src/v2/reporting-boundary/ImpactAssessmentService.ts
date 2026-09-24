@@ -23,18 +23,23 @@ export interface DeriveImpactAssessmentsInput {
 
 /**
  * A chain is "completed" for impact assessment when it reached a terminal
- * status (fully_validated / refuted / abandoned) or has completedAt set.
- * Incomplete hypotheses without terminal evidence produce no assessment.
+ * status (fully_validated / refuted / abandoned), has completedAt set, OR has
+ * recorded step progress (partially_validated). Incomplete empty hypotheses
+ * produce no assessment. High-impact claims remain bounded by chain epistemic.
  */
 export function isCompletedAttackChain(chain: AttackChain): boolean {
   if (typeof chain.completedAt === 'string' && chain.completedAt.length > 0) {
     return true;
   }
-  return (
+  if (
     chain.status === 'fully_validated' ||
     chain.status === 'refuted' ||
     chain.status === 'abandoned'
-  );
+  ) {
+    return true;
+  }
+  // Honest partial snapshot after execute→chain append (open-loop closed).
+  return chain.status === 'partially_validated' && chain.steps.length > 0;
 }
 
 function collectEvidenceIds(chain: AttackChain): readonly string[] {

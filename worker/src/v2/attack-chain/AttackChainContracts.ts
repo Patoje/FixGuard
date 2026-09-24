@@ -88,6 +88,12 @@ export interface AttackChainStep {
   readonly outcome: AttackChainStepOutcome;
   /** Prior step this depends on (chain linkage); omitted for the first step. */
   readonly sourceStepId?: string;
+  /** Advisory plan id that produced this executed step (hypothesis linkage). */
+  readonly hypothesisRef?: string;
+  /** Safe, non-secret fact labels produced by the step (e.g. verification transitions). */
+  readonly producedFacts?: readonly string[];
+  /** Evidence / proof capsule reference (typically evidenceId). */
+  readonly proofCapsuleRef?: string;
 }
 
 export interface AttackChain {
@@ -142,6 +148,9 @@ export interface AppendAttackChainStepInput {
   readonly outcome: AttackChainStepOutcome;
   readonly sourceStepId?: string;
   readonly recordedAt?: string;
+  readonly hypothesisRef?: string;
+  readonly producedFacts?: readonly string[];
+  readonly proofCapsuleRef?: string;
 }
 
 export interface RecordAttackChainStepOutcomeInput {
