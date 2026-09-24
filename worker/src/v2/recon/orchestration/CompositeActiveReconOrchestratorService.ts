@@ -328,7 +328,8 @@ export class CompositeActiveReconOrchestratorService {
     const secrets: DiscoveredSecretObservation[] = [];
     const spaObservations: DiscoveredSpaObservation[] = [];
 
-    // Phase D1 — inject pre-validated assessment seeds as live OBSERVED URL inventory.
+    // Phase D1 — inject pre-validated assessment seeds as inventory hints.
+    // Provenance is assessment_seed / inferred until an HTTP probe observes them.
     if (request.seedUrls && request.seedUrls.length > 0) {
       const seedObservedAt = new Date().toISOString();
       for (const seedUrl of request.seedUrls) {
@@ -344,8 +345,8 @@ export class CompositeActiveReconOrchestratorService {
             sources: Object.freeze(['assessment_seed']),
             discoveredAt: seedObservedAt,
             collectedAt: seedObservedAt,
-            freshness: 'live',
-            sourceReliability: 'direct_observation',
+            freshness: 'unknown',
+            sourceReliability: 'inferred_relationship',
           });
         } catch {
           // Seeds are pre-validated; skip any residual parse failure fail-closed without aborting recon.
@@ -743,6 +744,23 @@ export class CompositeActiveReconOrchestratorService {
             if (webResult.status === 'success') {
               for (const obs of webResult.observations) {
                 webObservations.push(obs);
+              }
+              // Upgrade matching assessment_seed URL provenance to direct_observation after HTTP.
+              const observedAt = new Date().toISOString();
+              for (let i = 0; i < urls.length; i++) {
+                const existing = urls[i]!;
+                if (
+                  existing.url === targetUrl &&
+                  existing.sources.includes('assessment_seed') &&
+                  existing.sourceReliability !== 'direct_observation'
+                ) {
+                  urls[i] = {
+                    ...existing,
+                    freshness: 'live',
+                    sourceReliability: 'direct_observation',
+                    collectedAt: observedAt,
+                  };
+                }
               }
             } else if (webResult.status === 'preflight_denied' || webResult.status === 'execution_failed') {
               stage3Warnings.push(

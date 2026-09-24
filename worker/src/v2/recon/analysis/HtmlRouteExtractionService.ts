@@ -5,9 +5,10 @@
  * from <a href>, <form action>, <script src>, <link href>, and fetch('/…')
  * string literals. Zero network I/O.
  *
- * Fail-closed: media assets and out-of-scope / egress-denied URLs are dropped
- * before registration. Next.js bundle paths (/_next/static/...) are retained
- * as discovered URLs but classified separately from app endpoints.
+ * Fail-closed: media assets and out-of-scope / egress-denied / path-pattern-denied
+ * URLs are dropped before registration. Next.js bundle paths (/_next/static/...) are
+ * retained as discovered URLs but classified separately from app endpoints.
+ * Path-pattern checks mirror seed validation and isBrowserUrlAllowed.
  *
  * Hop depth is enforced by callers (orchestrator): hop-1 from seeds/roots,
  * hop-2 from app_endpoint bodies only, never a third hop.
@@ -16,6 +17,7 @@
 import { isScopeAllowed } from '../../attack-execution/AttackExecutionContracts.js';
 import { deriveM30EgressScope } from '../../authorization/VerifiedAuthorizationDecisionService.js';
 import type { AuthorizedScopeGrant } from '../../scope/AuthorizedScopeContracts.js';
+import { isPathAllowedByScopeBoundaries } from '../../scope/AuthorizedScopePolicyService.js';
 import { evaluateEgressPolicy } from '../policy/PassiveEgressPolicy.js';
 import { WEB_OBSERVATION_BODY_CHUNK_MAX_BYTES } from '../adapters/WebInspectionContracts.js';
 
@@ -267,6 +269,11 @@ export class HtmlRouteExtractionService {
       }
 
       if (!isScopeAllowed(host, input.authorizedScopeGrant)) {
+        rejectedOutOfScopeCount += 1;
+        continue;
+      }
+
+      if (!isPathAllowedByScopeBoundaries(pathname, input.authorizedScopeGrant)) {
         rejectedOutOfScopeCount += 1;
         continue;
       }

@@ -362,15 +362,7 @@ function collectObservedUrls(
     }
   }
 
-  // Always ensure origin root is available when domain is known.
-  if (!byPath.has('/')) {
-    byPath.set('/', {
-      url: `https://${domain}/`,
-      path: '/',
-      parameters: new Set(),
-    });
-  }
-
+  // Do NOT invent synthetic origin root `/` as OBSERVED when recon never produced it.
   return byPath;
 }
 

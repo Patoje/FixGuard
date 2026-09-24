@@ -4,19 +4,20 @@
  * Validates:
  * 1. Mocked hydrated DOM + RSC hints yield in-scope routes with sources
  *    playwright_spa / rsc_discovery (OBSERVED provenance).
- * 2. Out-of-scope / SSRF URLs are fail-closed (Gate 1 preflight, Gate 2 route,
- *    Gate 3 route registration).
- * 3. SPA network mining: mock page emits fetch to /api/foo in-scope → registered
- *    as playwright_network; external.com rejected; token query sanitized.
+ * 2. Gate 2: OOS CDN script allow-to-load; OOS API xhr abort; SSRF abort.
+ * 3. SPA network mining: in-scope xhr/fetch + _rsc/_next/data; OOS CDN never mined;
+ *    OOS API never registered; token query sanitized.
  * 4. Orchestrator opt-in: disabled by default without seeds/Next signals;
  *    enabled with seeds; caps pages; loud degrade on browser_unavailable.
+ * 5. Path-pattern rejection aligned across isBrowserUrlAllowed + HTML extract.
+ * 6. Detection bridge does not invent synthetic root `/`.
  */
 
 import assert from 'node:assert';
 import { establishVerifiedAuthorizationDecision } from '../authorization/VerifiedAuthorizationDecisionService.js';
 import type { AuthorizedScopeGrant } from '../scope/AuthorizedScopeContracts.js';
 import type { AuthorizedActiveReconRequestLineage } from '../lineage/AuthorizedExecutionLineageContracts.js';
-import { PlaywrightSpaAdapter, isBrowserUrlAllowed, sanitizeDiscoveredNetworkUrl } from '../recon/adapters/PlaywrightSpaAdapter.js';
+import { PlaywrightSpaAdapter, isBrowserUrlAllowed, sanitizeDiscoveredNetworkUrl, classifyBrowserRouteLoad } from '../recon/adapters/PlaywrightSpaAdapter.js';
 import {
   PLAYWRIGHT_NETWORK_SOURCE,
   PLAYWRIGHT_SPA_SOURCE,
@@ -31,8 +32,13 @@ import {
   type ResponseInstance,
   type NetworkRequestInstance,
 } from '../recon/adapters/BrowserAutomationContracts.js';
+import { HtmlRouteExtractionService } from '../recon/analysis/HtmlRouteExtractionService.js';
+import { buildDetectionTargetsFromRecon } from '../detection/DetectionTargetBridge.js';
 import { CompositeActiveReconOrchestratorService } from '../recon/orchestration/CompositeActiveReconOrchestratorService.js';
-import type { ReconToolAdapters } from '../recon/orchestration/ActiveReconOrchestrationContracts.js';
+import type {
+  AggregatedReconObservations,
+  ReconToolAdapters,
+} from '../recon/orchestration/ActiveReconOrchestrationContracts.js';
 import { SUBDOMAIN_DISCOVERY_NON_CLAIMS } from '../recon/adapters/SubdomainDiscoveryContracts.js';
 import { DNS_RESOLUTION_NON_CLAIMS } from '../recon/adapters/DnsResolutionContracts.js';
 import { PORT_DISCOVERY_NON_CLAIMS } from '../recon/adapters/PortDiscoveryContracts.js';
@@ -505,7 +511,7 @@ async function runSmokeTests() {
       'Metadata helper must deny'
     );
 
-    // Gate 2: after successful discover, OOS fetch aborted
+    // Gate 2: OOS CDN script allow-to-load; OOS API fetch abort; never-mine CDN
     const okLauncher = new MockPlaywrightLauncher('x', {
       links: [],
       forms: [],
@@ -524,19 +530,51 @@ async function runSmokeTests() {
     const page = okLauncher.lastCreatedBrowser?.lastCreatedContext?.lastCreatedPage;
     assert.ok(page?.routeHandler);
 
-    let aborted = false;
+    let cdnAborted = false;
+    let cdnContinued = false;
     await page!.routeHandler!({
-      request: () => ({ url: () => 'https://cdn.evil.net/x.js', method: () => 'GET' }),
+      request: () => ({
+        url: () => 'https://cdn.evil.net/x.js',
+        method: () => 'GET',
+        resourceType: () => 'script',
+      }),
       abort: async () => {
-        aborted = true;
+        cdnAborted = true;
       },
       continue: async () => {
-        aborted = false;
+        cdnContinued = true;
       },
     });
-    assert.strictEqual(aborted, true, 'Gate 2 must abort OOS subresource');
+    assert.strictEqual(cdnAborted, false, 'OOS CDN script must be allow-to-load');
+    assert.strictEqual(cdnContinued, true, 'OOS CDN script must continue');
+
+    let apiAborted = false;
+    let apiContinued = false;
+    await page!.routeHandler!({
+      request: () => ({
+        url: () => 'https://api.evil.net/v1/users',
+        method: () => 'GET',
+        resourceType: () => 'xhr',
+      }),
+      abort: async () => {
+        apiAborted = true;
+      },
+      continue: async () => {
+        apiContinued = true;
+      },
+    });
+    assert.strictEqual(apiAborted, true, 'OOS API xhr must abort-navigation');
+    assert.strictEqual(apiContinued, false, 'OOS API xhr must not continue');
+
+    const cdnClass = classifyBrowserRouteLoad({
+      url: 'https://cdn.jsdelivr.net/npm/react@18/umd/react.production.min.js',
+      resourceType: 'script',
+      authorizedScopeGrant: scopeGrant,
+    });
+    assert.strictEqual(cdnClass.decision, 'continue');
+    assert.strictEqual(cdnClass.reason, 'allow_to_load_static_cdn');
   }
-  console.log('  [PASS] Preflight + scope/egress helper + Gate 2 OOS abort.');
+  console.log('  [PASS] Preflight + helper + Gate 2 CDN allow-to-load / OOS API abort.');
 
   // =========================================================================
   // 3. Loud degrade when Chromium missing
@@ -607,6 +645,26 @@ async function runSmokeTests() {
           method: 'GET',
           resourceType: 'fetch',
         },
+        {
+          url: 'https://cdn.example.net/npm/vendor.js',
+          method: 'GET',
+          resourceType: 'script',
+        },
+        {
+          url: 'https://api.external.net/v1/secret',
+          method: 'GET',
+          resourceType: 'xhr',
+        },
+        {
+          url: `https://${target}/_next/data/build123/carrera/93kpw.json`,
+          method: 'GET',
+          resourceType: 'document',
+        },
+        {
+          url: `https://${target}/carrera/93kpw?_rsc=1abc`,
+          method: 'GET',
+          resourceType: 'fetch',
+        },
       ]
     );
     const adapter = new PlaywrightSpaAdapter(launcher, async () => ['93.184.216.34']);
@@ -625,13 +683,33 @@ async function runSmokeTests() {
     assert.ok(!paths.some((p) => p.includes('leak')), 'external.com must be rejected');
     assert.ok(!paths.includes('/static/logo.png'), 'Images must not be mined');
     assert.ok(!paths.includes('/styles.css'), 'Stylesheets must not be mined');
+    assert.ok(
+      !result.routes.some((r) => r.url.includes('cdn.example.net')),
+      'OOS CDN script must never be mined even if allow-to-load'
+    );
+    assert.ok(
+      !result.routes.some((r) => r.url.includes('api.external.net')),
+      'OOS API xhr must never be registered'
+    );
+    assert.ok(
+      paths.some((p) => p.includes('/_next/data/')),
+      'In-scope /_next/data document hint must be mineable'
+    );
+    assert.ok(
+      result.routes.some((r) => r.path === '/carrera/93kpw' && r.url.includes('_rsc')),
+      'In-scope _rsc fetch hint must be mineable'
+    );
 
     const networkRoutes = result.routes.filter((r) => r.source === PLAYWRIGHT_NETWORK_SOURCE);
     assert.ok(networkRoutes.length >= 2, 'Must emit playwright_network provenance');
     assert.ok(
       networkRoutes.every((r) => r.routeType === 'api_fetch'),
-      'Network routes must be api_fetch'
+      'Network xhr/fetch routes must be api_fetch'
     );
+    const rscNetwork = result.routes.filter(
+      (r) => r.source === RSC_DISCOVERY_SOURCE && (r.path.includes('/_next/data/') || r.url.includes('_rsc'))
+    );
+    assert.ok(rscNetwork.length >= 1, 'Must emit rsc_discovery for _rsc/_next/data network hints');
 
     const fooRoute = networkRoutes.find((r) => r.path === '/api/foo');
     assert.ok(fooRoute, 'Sanitized /api/foo route required');
@@ -787,6 +865,94 @@ async function runSmokeTests() {
     );
   }
   console.log('  [PASS] Opt-in, caps, and loud chromium degrade verified.');
+
+  // =========================================================================
+  // 6. Path-pattern rejection hermetic (HTML extract + isBrowserUrlAllowed)
+  // =========================================================================
+  console.log('-> Test 6: Path-scope asymmetry aligned (allowedPathPatterns fail-closed)...');
+  {
+    const target = 'spa.example.com';
+    const baseGrant = createScopeGrant(target);
+    const pathGrant: AuthorizedScopeGrant = {
+      ...baseGrant,
+      boundaries: {
+        ...baseGrant.boundaries,
+        allowedPathPatterns: [{ match: 'prefix', pathTemplate: '/api' }],
+      },
+    };
+
+    assert.strictEqual(
+      isBrowserUrlAllowed(`https://${target}/api/v1/me`, pathGrant),
+      true,
+      '/api prefix must allow /api/v1/me'
+    );
+    assert.strictEqual(
+      isBrowserUrlAllowed(`https://${target}/login`, pathGrant),
+      false,
+      '/login must be rejected when allowedPathPatterns=/api'
+    );
+    assert.strictEqual(
+      isBrowserUrlAllowed(`https://${target}/apiary`, pathGrant),
+      false,
+      '/apiary must not match prefix /api'
+    );
+
+    const extractor = new HtmlRouteExtractionService();
+    const extracted = extractor.extract({
+      bodyText:
+        '<a href="/api/ok">ok</a><a href="/dashboard">dash</a><a href="/apiary">no</a>',
+      baseUrl: `https://${target}/`,
+      targetDomain: target,
+      authorizedScopeGrant: pathGrant,
+    });
+    const extractedPaths = extracted.accepted.map((c) => c.path);
+    assert.ok(extractedPaths.includes('/api/ok'), 'HTML extract must keep in-path /api/ok');
+    assert.ok(!extractedPaths.includes('/dashboard'), 'HTML extract must drop OOS path /dashboard');
+    assert.ok(!extractedPaths.includes('/apiary'), 'HTML extract must drop /apiary (prefix asymmetry)');
+  }
+  console.log('  [PASS] Path patterns gate browser + HTML extraction fail-closed.');
+
+  // =========================================================================
+  // 7. Bridge must not invent synthetic root OBSERVED when / absent
+  // =========================================================================
+  console.log('-> Test 7: Bridge does not invent synthetic root /...');
+  {
+    const now = new Date().toISOString();
+    const aggregated: AggregatedReconObservations = {
+      subdomains: [],
+      dnsRecords: [],
+      ports: [],
+      webObservations: [],
+      tlsCertificates: [],
+      urls: [
+        {
+          url: 'https://example.com/login',
+          host: 'example.com',
+          path: '/login',
+          sources: ['html_link_extraction'],
+          freshness: 'live',
+          sourceReliability: 'direct_observation',
+          discoveredAt: now,
+        },
+      ],
+      content: [],
+      parameters: [],
+      secrets: [],
+    };
+    const bridge = buildDetectionTargetsFromRecon({
+      targetDomain: 'example.com',
+      aggregatedObservations: aggregated,
+    });
+    assert.ok(
+      !bridge.appEndpoints.some((e) => e.path === '/'),
+      'Must not invent synthetic root / as OBSERVED'
+    );
+    assert.ok(
+      bridge.appEndpoints.some((e) => e.path === '/login'),
+      'Must retain real OBSERVED /login'
+    );
+  }
+  console.log('  [PASS] No synthetic root OBSERVED when recon never produced /.');
 
   console.log('\n--- ALL PHASE D1 PLAYWRIGHT SPA/RSC ASSERTIONS PASSED ---');
 }

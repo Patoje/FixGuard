@@ -33,6 +33,12 @@ export const SPA_DISCOVERY_MAX_ROUTES_PER_PAGE = 40;
 export const SPA_DISCOVERY_MAX_NETWORK_URLS_PER_PAGE = 40;
 /** Default navigation + hydration timeout. */
 export const SPA_DISCOVERY_DEFAULT_TIMEOUT_MS = 15_000;
+/** Default post-domcontentloaded hydration settle wait (capped by MAX). */
+export const SPA_DISCOVERY_DEFAULT_HYDRATION_WAIT_MS = 2_000;
+/** Hard cap on explicit waitForHydrationMs. */
+export const SPA_DISCOVERY_MAX_HYDRATION_WAIT_MS = 5_000;
+/** Soft networkidle settle after hydration wait (best-effort, capped). */
+export const SPA_DISCOVERY_NETWORKIDLE_WAIT_MS = 2_000;
 
 export type BrowserUnavailableReasonCode = 'browser_unavailable';
 
@@ -99,7 +105,7 @@ export interface DiscoveredSpaObservation {
 }
 
 export interface RouteInstance {
-  request(): { url(): string; method(): string };
+  request(): { url(): string; method(): string; resourceType(): string };
   abort(errorCode?: string): Promise<void>;
   continue(): Promise<void>;
 }

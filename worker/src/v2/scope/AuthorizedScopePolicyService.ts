@@ -546,13 +546,38 @@ export function deriveRequiredPermissionForAction(
  * prefix: request path must equal pattern OR start with pattern + "/" —
  *         ensuring /api does NOT match /apiary.
  */
-function matchPath(requestPath: string, pattern: PathScopePattern): boolean {
+export function matchPath(requestPath: string, pattern: PathScopePattern): boolean {
   const p = pattern.pathTemplate;
   if (pattern.match === 'exact') return requestPath === p;
   // prefix
   if (requestPath === p) return true;
   const sep = p.endsWith('/') ? p : `${p}/`;
   return requestPath.startsWith(sep);
+}
+
+/**
+ * Fail-closed path-boundary check shared by seed validation, HTML extraction,
+ * and browser URL gating. Denied patterns win. When allowedPathPatterns is
+ * non-empty, the path must match at least one.
+ */
+export function isPathAllowedByScopeBoundaries(
+  pathname: string,
+  grant: AuthorizedScopeGrant
+): boolean {
+  const path = pathname && pathname.length > 0 ? pathname : '/';
+  const denied = grant.boundaries.deniedPathPatterns;
+  if (denied && denied.length > 0) {
+    for (const pattern of denied) {
+      if (matchPath(path, pattern)) {
+        return false;
+      }
+    }
+  }
+  const allowed = grant.boundaries.allowedPathPatterns;
+  if (allowed && allowed.length > 0) {
+    return allowed.some((pattern) => matchPath(path, pattern));
+  }
+  return true;
 }
 
 // ---------------------------------------------------------------------------

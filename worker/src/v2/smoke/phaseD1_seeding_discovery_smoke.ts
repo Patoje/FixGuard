@@ -2,7 +2,7 @@
  * Phase D1 — Discovery Depth & URL Seeding + Next.js fingerprint + HTML route extraction smoke suite.
  *
  * Hermetic assertions:
- * 1. Deep seed URL lands in ASG as OBSERVED (direct_observation / live).
+ * 1. Deep seed URL lands in ASG as INFERRED (assessment_seed) until HTTP observes it.
  * 2. Out-of-scope seed fails closed with seed_out_of_scope before recon network.
  * 3. Vary: RSC header fingerprints Next.js with high confidence (unit).
  * 4. Seed HTTP probe with Vary: RSC / X-Matched-Path → TargetProfile Next.js high confidence.
@@ -279,9 +279,10 @@ async function runPhaseD1Smoke(): Promise<void> {
   console.log('[phaseD1_seeding_discovery_smoke] Starting Phase D1 seeding + Next.js fingerprint suite...');
 
   // ---------------------------------------------------------------------------
-  // 1. Deep seed URL → ASG endpoint with OBSERVED provenance
+  // 1. Deep seed URL → ASG endpoint with assessment_seed provenance (INFERRED
+  //    until HTTP observes; this test skips stage_3 so no upgrade).
   // ---------------------------------------------------------------------------
-  console.log('-> Test 1: Deep seed URL appears in ASG as OBSERVED...');
+  console.log('-> Test 1: Deep seed URL appears in ASG as INFERRED (assessment_seed)...');
   const inv1 = { count: 0 };
   const service1 = createService(inv1);
   const start1 = await service1.startAssessment({
@@ -314,8 +315,8 @@ async function runPhaseD1Smoke(): Promise<void> {
   assert.ok(deepEndpoint, `ASG must contain seeded endpoint ${DEEP_SEED}`);
   assert.strictEqual(
     deepEndpoint.epistemicStatus,
-    'OBSERVED',
-    `Seeded endpoint must be OBSERVED, got ${deepEndpoint.epistemicStatus}`
+    'INFERRED',
+    `Pre-HTTP seed must be INFERRED (assessment_seed), got ${deepEndpoint.epistemicStatus}`
   );
   assert.strictEqual(deepEndpoint.provenance.sourceKind, 'recon_observation');
   assert.strictEqual(deepEndpoint.provenance.sourceId, DEEP_SEED);
@@ -325,11 +326,11 @@ async function runPhaseD1Smoke(): Promise<void> {
       n.kind === 'endpoint' && n.metadata.url === 'https://example.com/deep/from-path'
   );
   assert.ok(pathSeedEndpoint, 'ASG must contain path-derived seed endpoint');
-  assert.strictEqual(pathSeedEndpoint.epistemicStatus, 'OBSERVED');
+  assert.strictEqual(pathSeedEndpoint.epistemicStatus, 'INFERRED');
 
   const profileHasDeep = record1.profile?.endpoints.some((e) => e.url === DEEP_SEED);
   assert.ok(profileHasDeep, 'TargetProfile endpoints must include deep seed URL');
-  console.log('  [PASS] Deep seed URL and seedPath are OBSERVED endpoints in ASG + profile.');
+  console.log('  [PASS] Deep seed URL and seedPath are INFERRED until HTTP observes.');
 
   // ---------------------------------------------------------------------------
   // 2. Out-of-scope seed → fail-closed before recon network

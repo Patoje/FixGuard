@@ -5,8 +5,11 @@
  * Out-of-scope / egress-denied seeds abort atomically with reasonCode seed_out_of_scope.
  */
 
-import type { AuthorizedScopeGrant, PathScopePattern } from '../scope/AuthorizedScopeContracts.js';
-import { evaluateScopePolicy } from '../scope/AuthorizedScopePolicyService.js';
+import type { AuthorizedScopeGrant } from '../scope/AuthorizedScopeContracts.js';
+import {
+  evaluateScopePolicy,
+  isPathAllowedByScopeBoundaries,
+} from '../scope/AuthorizedScopePolicyService.js';
 import { deriveM30EgressScope } from '../authorization/VerifiedAuthorizationDecisionService.js';
 import { evaluateEgressPolicy } from '../recon/policy/PassiveEgressPolicy.js';
 import type { AssessmentSeed } from './OrchestratedAssessmentContracts.js';
@@ -22,14 +25,6 @@ export type AssessmentSeedValidationResult =
       readonly reason: string;
       readonly offendingSeed?: string;
     };
-
-function matchPath(requestPath: string, pattern: PathScopePattern): boolean {
-  const p = pattern.pathTemplate;
-  if (pattern.match === 'exact') return requestPath === p;
-  if (requestPath === p) return true;
-  const sep = p.endsWith('/') ? p : `${p}/`;
-  return requestPath.startsWith(sep);
-}
 
 /**
  * Combine a relative seed path with the authorized target domain into an absolute HTTPS URL.
@@ -172,31 +167,13 @@ export function validateAssessmentSeeds(
     }
 
     const pathname = parsed.pathname || '/';
-    const deniedPatterns = scopeGrant.boundaries.deniedPathPatterns;
-    if (deniedPatterns && deniedPatterns.length > 0) {
-      for (const pattern of deniedPatterns) {
-        if (matchPath(pathname, pattern)) {
-          return {
-            status: 'denied',
-            reasonCode: 'seed_out_of_scope',
-            reason: `seed path '${pathname}' is explicitly denied by scope`,
-            offendingSeed: candidate,
-          };
-        }
-      }
-    }
-
-    const allowedPatterns = scopeGrant.boundaries.allowedPathPatterns;
-    if (allowedPatterns && allowedPatterns.length > 0) {
-      const matched = allowedPatterns.some((p) => matchPath(pathname, p));
-      if (!matched) {
-        return {
-          status: 'denied',
-          reasonCode: 'seed_out_of_scope',
-          reason: `seed path '${pathname}' is not within allowed path patterns`,
-          offendingSeed: candidate,
-        };
-      }
+    if (!isPathAllowedByScopeBoundaries(pathname, scopeGrant)) {
+      return {
+        status: 'denied',
+        reasonCode: 'seed_out_of_scope',
+        reason: `seed path '${pathname}' is outside allowed path patterns or explicitly denied`,
+        offendingSeed: candidate,
+      };
     }
 
     const origin = `${parsed.protocol}//${parsed.host}`;

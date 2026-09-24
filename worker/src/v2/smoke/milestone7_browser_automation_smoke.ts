@@ -528,6 +528,7 @@ async function runSmokeTests() {
         request: () => ({
           url: () => blockedUrl,
           method: () => 'GET',
+          resourceType: () => 'fetch',
         }),
         abort: async (code) => {
           abortCalled = true;
@@ -553,6 +554,7 @@ async function runSmokeTests() {
       request: () => ({
         url: () => `https://${target}/_next/static/chunks/main.js`,
         method: () => 'GET',
+        resourceType: () => 'script',
       }),
       abort: async () => {
         legitimateAbort = true;
@@ -566,26 +568,63 @@ async function runSmokeTests() {
     assert.strictEqual(legitimateAbort, false, 'Same-origin asset must NOT be aborted');
     assert.strictEqual(legitimateContinue, true, 'Same-origin asset must continue');
 
-    // Out-of-scope public CDN must be fail-closed (scope + egress), not only SSRF.
-    let oosAbort = false;
-    let oosContinue = false;
-    const oosRoute: RouteInstance = {
+    // Out-of-scope public CDN static script: allow-to-load for hydration, never mined.
+    let oosCdnAbort = false;
+    let oosCdnContinue = false;
+    const oosCdnRoute: RouteInstance = {
       request: () => ({
         url: () => 'https://cdn.example.com/assets/app.js',
         method: () => 'GET',
+        resourceType: () => 'script',
       }),
       abort: async () => {
-        oosAbort = true;
+        oosCdnAbort = true;
       },
       continue: async () => {
-        oosContinue = true;
+        oosCdnContinue = true;
       },
     };
-    await page!.routeHandler!(oosRoute);
-    assert.strictEqual(oosAbort, true, 'Out-of-scope CDN must be aborted');
-    assert.strictEqual(oosContinue, false, 'Out-of-scope CDN must not continue');
+    await page!.routeHandler!(oosCdnRoute);
+    assert.strictEqual(oosCdnAbort, false, 'OOS CDN script must be allow-to-load (not aborted)');
+    assert.strictEqual(oosCdnContinue, true, 'OOS CDN script must continue for hydration');
+
+    // Out-of-scope API xhr/fetch must still abort-navigation.
+    let oosApiAbort = false;
+    let oosApiContinue = false;
+    const oosApiRoute: RouteInstance = {
+      request: () => ({
+        url: () => 'https://api.evil.net/v1/data',
+        method: () => 'GET',
+        resourceType: () => 'fetch',
+      }),
+      abort: async () => {
+        oosApiAbort = true;
+      },
+      continue: async () => {
+        oosApiContinue = true;
+      },
+    };
+    await page!.routeHandler!(oosApiRoute);
+    assert.strictEqual(oosApiAbort, true, 'OOS API fetch must be aborted');
+    assert.strictEqual(oosApiContinue, false, 'OOS API fetch must not continue');
+
+    // OOS document navigation must abort.
+    let oosNavAbort = false;
+    const oosNavRoute: RouteInstance = {
+      request: () => ({
+        url: () => 'https://evil.net/login',
+        method: () => 'GET',
+        resourceType: () => 'document',
+      }),
+      abort: async () => {
+        oosNavAbort = true;
+      },
+      continue: async () => {},
+    };
+    await page!.routeHandler!(oosNavRoute);
+    assert.strictEqual(oosNavAbort, true, 'OOS document navigation must be aborted');
   }
-  console.log('✓ Assertion 4 passed: In-browser subresource gate aborts SSRF + OOS (scope/egress)');
+  console.log('✓ Assertion 4 passed: Gate 2 allow-to-load CDN vs abort OOS API/nav + SSRF');
 
   console.log('\n--- ALL 4 MILESTONE 7 ASSERTIONS PASSED SUCCESSFULLY ---');
 }

@@ -4,17 +4,23 @@
  * Implements headless browser crawling, dynamic JavaScript hydration wait,
  * DOM/RSC route mining, SPA network (XHR/fetch) mining, and form/parameter extraction.
  *
- * Egress model (fail-closed, same gates as HTML extraction / other adapters):
+ * Egress / load model (fail-closed, documented split):
  * 1. Gate 1 — runAdapterPreflight before browser launch:
  *    verified auth brand, lineage, permissions, host scope, static SSRF, DNS rebind.
  * 2. Gate 2 — page.route interceptor for EVERY navigation and subresource:
- *    isInternalOrSsrfTarget OR !isScopeAllowed OR evaluateEgressPolicy !== allow → abort.
+ *    - abort-navigation: SSRF targets; OOS document navigations; OOS xhr/fetch/websocket
+ *      (and other non-static resource types) → route.abort('blockedbyclient').
+ *    - allow-to-load: clearly static CDN/OOS subresources (script/stylesheet/font/image/media)
+ *      needed for SPA hydration → route.continue(); NEVER registered as mined routes.
+ *    - in-scope → continue (subject to circuit breaker).
  * 3. Gate 3 — discovered route registration (DOM + network):
- *    same scope + egress filters before emitting OBSERVED routes (OOS dropped).
+ *    same host scope + path-pattern + egress filters before emitting OBSERVED routes
+ *    (OOS / path-denied dropped; CDN allow-to-load URLs are never mined).
  *
- * Network mining: page.on('request') captures in-scope xhr/fetch URLs while the
- * seed/app page renders — critical for SPAs where the DOM has no extra links.
+ * Network mining: page.on('request') captures in-scope xhr/fetch (plus in-scope
+ * `_rsc` / `/_next/data` document/fetch hints) while the seed/app page renders.
  * Caps: maxRoutes / maxNetworkUrls per page. Loud degrade → browser_unavailable.
+ * Never persists response bodies/headers.
  *
  * Invariants:
  * 1. Layer 6 Tool Adapter: Observes and extracts; makes 0 vulnerability claims.
@@ -26,6 +32,7 @@
 import { chromium } from 'playwright';
 import { isScopeAllowed } from '../../attack-execution/AttackExecutionContracts.js';
 import { deriveM30EgressScope } from '../../authorization/VerifiedAuthorizationDecisionService.js';
+import { isPathAllowedByScopeBoundaries } from '../../scope/AuthorizedScopePolicyService.js';
 import { evaluateEgressPolicy, isInternalOrSsrfTarget } from '../policy/PassiveEgressPolicy.js';
 import {
   runAdapterPreflight,
@@ -57,15 +64,26 @@ import {
   PLAYWRIGHT_NETWORK_SOURCE,
   PLAYWRIGHT_SPA_SOURCE,
   RSC_DISCOVERY_SOURCE,
+  SPA_DISCOVERY_DEFAULT_HYDRATION_WAIT_MS,
   SPA_DISCOVERY_DEFAULT_TIMEOUT_MS,
+  SPA_DISCOVERY_MAX_HYDRATION_WAIT_MS,
   SPA_DISCOVERY_MAX_NETWORK_URLS_PER_PAGE,
   SPA_DISCOVERY_MAX_ROUTES_PER_PAGE,
+  SPA_DISCOVERY_NETWORKIDLE_WAIT_MS,
   type NetworkRequestInstance,
   type SpaRouteDiscoverySource,
 } from './BrowserAutomationContracts.js';
 
-/** Playwright resource types mined as OBSERVED discovery endpoints. */
+/** Playwright resource types mined as OBSERVED discovery endpoints by default. */
 const MINEABLE_NETWORK_RESOURCE_TYPES = Object.freeze(new Set(['xhr', 'fetch']));
+
+/**
+ * OOS static subresource types allowed to load for SPA hydration (never mined).
+ * Document / xhr / fetch / websocket to OOS hosts remain abort-navigation.
+ */
+const ALLOW_TO_LOAD_OOS_RESOURCE_TYPES = Object.freeze(
+  new Set(['script', 'stylesheet', 'font', 'image', 'media'])
+);
 
 /** Static media extensions dropped from network mining (mirrors HTML extractor). */
 const REJECTED_NETWORK_MEDIA_EXTENSIONS = Object.freeze([
@@ -90,6 +108,21 @@ const REJECTED_NETWORK_MEDIA_EXTENSIONS = Object.freeze([
 const SENSITIVE_QUERY_KEY_PATTERN =
   /^(?:access[_-]?token|refresh[_-]?token|id[_-]?token|api[_-]?key|apikey|auth(?:orization)?|password|passwd|secret|session(?:id)?|sid|jwt|bearer|token|key|credential|sig|signature|code|otp)$/i;
 
+/** Browser route load decision for Gate 2 (distinct from mining Gate 3). */
+export type BrowserRouteLoadDecision = 'continue' | 'abort';
+
+export type BrowserRouteLoadReason =
+  | 'in_scope'
+  | 'allow_to_load_static_cdn'
+  | 'abort_ssrf'
+  | 'abort_oos_navigation_or_api'
+  | 'abort_malformed';
+
+export interface BrowserRouteLoadClassification {
+  readonly decision: BrowserRouteLoadDecision;
+  readonly reason: BrowserRouteLoadReason;
+}
+
 class PlaywrightPageWrapper implements PageInstance {
   constructor(private readonly rawPage: import('playwright').Page) {}
 
@@ -106,6 +139,7 @@ class PlaywrightPageWrapper implements PageInstance {
         request: () => ({
           url: () => rawRoute.request().url(),
           method: () => rawRoute.request().method(),
+          resourceType: () => rawRoute.request().resourceType(),
         }),
         abort: async (errorCode?: string) => {
           await rawRoute.abort(errorCode);
@@ -221,8 +255,9 @@ interface RawDomEvaluationResult {
 }
 
 /**
- * Fail-closed URL acceptance for browser navigations, subresources, and mined routes.
- * Mirrors HtmlRouteExtractionService: scope host check + evaluateEgressPolicy.
+ * Fail-closed URL acceptance for browser navigations and mined routes (Gate 3).
+ * Host scope + allowed/denied path patterns + evaluateEgressPolicy.
+ * Never used alone to decide allow-to-load for OOS static CDN assets (see classifyBrowserRouteLoad).
  */
 export function isBrowserUrlAllowed(
   absoluteUrl: string,
@@ -248,6 +283,11 @@ export function isBrowserUrlAllowed(
     return false;
   }
 
+  const pathname = parsed.pathname || '/';
+  if (!isPathAllowedByScopeBoundaries(pathname, authorizedScopeGrant)) {
+    return false;
+  }
+
   const egressScope = deriveM30EgressScope(authorizedScopeGrant);
   const egressDecision = evaluateEgressPolicy({
     targetUrl: absoluteUrl,
@@ -255,6 +295,43 @@ export function isBrowserUrlAllowed(
     capabilityId: 'recon.playwright_spa_discovery',
   });
   return egressDecision.decision === 'allow';
+}
+
+/**
+ * Gate 2 load decision: allow-to-load vs abort-navigation.
+ * Mining remains gated separately by isBrowserUrlAllowed (never-mine for OOS).
+ */
+export function classifyBrowserRouteLoad(input: {
+  readonly url: string;
+  readonly resourceType: string;
+  readonly authorizedScopeGrant: AuthorizedScopeGrant;
+}): BrowserRouteLoadClassification {
+  let parsed: URL;
+  try {
+    parsed = new URL(input.url);
+  } catch {
+    return { decision: 'abort', reason: 'abort_malformed' };
+  }
+
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+    return { decision: 'abort', reason: 'abort_malformed' };
+  }
+
+  const host = parsed.hostname.trim().toLowerCase().replace(/\.$/, '');
+  if (!host || isInternalOrSsrfTarget(host)) {
+    return { decision: 'abort', reason: 'abort_ssrf' };
+  }
+
+  if (isBrowserUrlAllowed(input.url, input.authorizedScopeGrant)) {
+    return { decision: 'continue', reason: 'in_scope' };
+  }
+
+  const resourceType = (input.resourceType || 'other').trim().toLowerCase();
+  if (ALLOW_TO_LOAD_OOS_RESOURCE_TYPES.has(resourceType)) {
+    return { decision: 'continue', reason: 'allow_to_load_static_cdn' };
+  }
+
+  return { decision: 'abort', reason: 'abort_oos_navigation_or_api' };
 }
 
 function isRejectedNetworkMediaPath(pathname: string): boolean {
@@ -296,8 +373,30 @@ export function sanitizeDiscoveredNetworkUrl(absoluteUrl: string): string | null
   return `${parsed.protocol}//${parsed.host}${parsed.pathname}${parsed.search}`;
 }
 
-function isMineableNetworkResourceType(resourceType: string): boolean {
-  return MINEABLE_NETWORK_RESOURCE_TYPES.has(resourceType.trim().toLowerCase());
+function isRscOrNextDataHint(pathname: string, search: string): boolean {
+  const path = pathname.toLowerCase();
+  if (path.includes('/_next/data/')) {
+    return true;
+  }
+  if (search.includes('_rsc')) {
+    return true;
+  }
+  return false;
+}
+
+/**
+ * Mineable network requests: xhr/fetch always; document/fetch `_rsc` / `/_next/data` hints.
+ * Still requires Gate 3 scope+egress via isBrowserUrlAllowed before retention.
+ */
+function isMineableNetworkRequest(resourceType: string, pathname: string, search: string): boolean {
+  const rt = resourceType.trim().toLowerCase();
+  if (MINEABLE_NETWORK_RESOURCE_TYPES.has(rt)) {
+    return true;
+  }
+  if ((rt === 'document' || rt === 'fetch') && isRscOrNextDataHint(pathname, search)) {
+    return true;
+  }
+  return false;
 }
 
 function isBrowserUnavailableError(err: unknown): boolean {
@@ -311,6 +410,14 @@ function isBrowserUnavailableError(err: unknown): boolean {
     /chromium.*missing/i.test(msg) ||
     /ENOENT/i.test(msg)
   );
+}
+
+function resolveHydrationWaitMs(requested: number | undefined): number {
+  const raw =
+    typeof requested === 'number' && Number.isFinite(requested) && requested >= 0
+      ? Math.floor(requested)
+      : SPA_DISCOVERY_DEFAULT_HYDRATION_WAIT_MS;
+  return Math.min(raw, SPA_DISCOVERY_MAX_HYDRATION_WAIT_MS);
 }
 
 export class PlaywrightSpaAdapter implements BrowserAutomationTool {
@@ -388,7 +495,7 @@ export class PlaywrightSpaAdapter implements BrowserAutomationTool {
     let page: PageInstance | null = null;
 
     const timeoutMs = request.timeoutMs ?? SPA_DISCOVERY_DEFAULT_TIMEOUT_MS;
-    const hydrationWaitMs = request.waitForHydrationMs ?? 1_000;
+    const hydrationWaitMs = resolveHydrationWaitMs(request.waitForHydrationMs);
     const maxNetworkUrls = SPA_DISCOVERY_MAX_NETWORK_URLS_PER_PAGE;
     const minedNetworkRoutes: DiscoveredSpaRouteObservation[] = [];
     const seenNetworkKeys = new Set<string>();
@@ -420,21 +527,26 @@ export class PlaywrightSpaAdapter implements BrowserAutomationTool {
 
       // -----------------------------------------------------------------------
       // Gate 2 — In-Browser Navigation & Subresource Interception
-      // SSRF + scope + egress (fail-closed OOS). Same policy as HTML extraction.
+      // allow-to-load (static CDN) vs abort-navigation (OOS API/document) vs SSRF abort.
+      // Mining never registers OOS URLs (Gate 3 / never-mine).
       // -----------------------------------------------------------------------
       await page.route('**/*', async (route) => {
-        const reqUrl = route.request().url();
-        let isBlocked = false;
+        const req = route.request();
+        const reqUrl = req.url();
+        const resourceType = req.resourceType();
 
+        let classification: BrowserRouteLoadClassification;
         try {
-          if (!isBrowserUrlAllowed(reqUrl, request.authorizedScopeGrant)) {
-            isBlocked = true;
-          }
+          classification = classifyBrowserRouteLoad({
+            url: reqUrl,
+            resourceType,
+            authorizedScopeGrant: request.authorizedScopeGrant,
+          });
         } catch {
-          isBlocked = true;
+          classification = { decision: 'abort', reason: 'abort_malformed' };
         }
 
-        if (isBlocked) {
+        if (classification.decision === 'abort') {
           await route.abort('blockedbyclient');
           return;
         }
@@ -460,11 +572,10 @@ export class PlaywrightSpaAdapter implements BrowserAutomationTool {
         }
       });
 
-      // SPA network mining: capture in-scope xhr/fetch while the page renders.
-      // Path+query only; Gate 3 scope/egress before retention; never headers/bodies.
+      // SPA network mining: in-scope xhr/fetch + _rsc /_next/data hints.
+      // Path+query only; Gate 3 scope/egress/path before retention; never headers/bodies.
       page.on('request', (networkReq) => {
         if (minedNetworkRoutes.length >= maxNetworkUrls) return;
-        if (!isMineableNetworkResourceType(networkReq.resourceType())) return;
 
         try {
           const rawUrl = networkReq.url();
@@ -473,6 +584,9 @@ export class PlaywrightSpaAdapter implements BrowserAutomationTool {
 
           const parsed = new URL(sanitized);
           if (isRejectedNetworkMediaPath(parsed.pathname)) return;
+          if (!isMineableNetworkRequest(networkReq.resourceType(), parsed.pathname, parsed.search)) {
+            return;
+          }
           if (!isBrowserUrlAllowed(sanitized, request.authorizedScopeGrant)) return;
 
           const method = (networkReq.method() || 'GET').toUpperCase();
@@ -480,12 +594,13 @@ export class PlaywrightSpaAdapter implements BrowserAutomationTool {
           if (seenNetworkKeys.has(key)) return;
           seenNetworkKeys.add(key);
 
+          const isRscHint = isRscOrNextDataHint(parsed.pathname, parsed.search);
           minedNetworkRoutes.push({
             url: sanitized,
             path: parsed.pathname,
             method,
-            routeType: 'api_fetch',
-            source: PLAYWRIGHT_NETWORK_SOURCE,
+            routeType: isRscHint ? 'rsc_hint' : 'api_fetch',
+            source: isRscHint ? RSC_DISCOVERY_SOURCE : PLAYWRIGHT_NETWORK_SOURCE,
             discoveredAt: new Date().toISOString(),
           });
         } catch {
@@ -522,9 +637,16 @@ export class PlaywrightSpaAdapter implements BrowserAutomationTool {
         };
       }
 
-      // Await DOM hydration
+      // Await DOM hydration (capped fixed wait + best-effort networkidle).
       if (hydrationWaitMs > 0) {
         await page.waitForTimeout(hydrationWaitMs);
+      }
+      try {
+        await page.waitForLoadState('networkidle', {
+          timeout: Math.min(SPA_DISCOVERY_NETWORKIDLE_WAIT_MS, timeoutMs),
+        });
+      } catch {
+        // Best-effort; proceed with whatever hydrated state is available.
       }
 
       const pageTitle = await page.title().catch(() => '');

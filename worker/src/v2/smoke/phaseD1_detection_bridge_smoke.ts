@@ -566,6 +566,38 @@ async function runPhaseD1DetectionBridgeSmoke(): Promise<void> {
   );
   console.log('  [PASS] Orchestrated detection received OBSERVED endpoints; PHPSESSID gated.');
 
+  // -------------------------------------------------------------------------
+  // 5. No synthetic root OBSERVED when recon never produced /
+  // -------------------------------------------------------------------------
+  console.log('-> Test 5: Bridge does not invent synthetic root /...');
+  {
+    const now = new Date().toISOString();
+    const noRoot: AggregatedReconObservations = {
+      ...emptyAggregated(),
+      urls: [
+        {
+          url: 'https://example.com/perfil',
+          host: 'example.com',
+          path: '/perfil',
+          sources: ['html_link_extraction'],
+          freshness: 'live',
+          sourceReliability: 'direct_observation',
+          discoveredAt: now,
+        },
+      ],
+    };
+    const noRootBridge = buildDetectionTargetsFromRecon({
+      targetDomain: 'example.com',
+      aggregatedObservations: noRoot,
+    });
+    assert.ok(
+      !noRootBridge.appEndpoints.some((e) => e.path === '/'),
+      'Must not invent synthetic root / as OBSERVED'
+    );
+    assert.ok(noRootBridge.appEndpoints.some((e) => e.path === '/perfil'));
+  }
+  console.log('  [PASS] No synthetic root when endpoints empty of /.');
+
   console.log('\n[✔] ALL phaseD1_detection_bridge_smoke ASSERTIONS PASSED.');
 }
 
