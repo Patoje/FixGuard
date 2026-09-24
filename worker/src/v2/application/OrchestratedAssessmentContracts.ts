@@ -18,6 +18,7 @@ import type { AttackSurfaceGraph } from '../attack-surface/AttackSurfaceContract
 import type { AttackPlan } from '../attack-planning/AttackPlanContracts.js';
 import type { AttackChain } from '../attack-chain/AttackChainContracts.js';
 import type { PostExploitationState } from '../post-exploitation/PostExploitationContracts.js';
+import type { LateralMovementSnapshot } from '../attack-planning/LateralMovementContracts.js';
 
 export const ORCHESTRATED_ASSESSMENT_CONTRACT_VERSION =
   'fixguard-orchestrated-assessment/v0' as const;
@@ -309,6 +310,14 @@ export interface GetPostExploitationResult {
   readonly assessmentId: string;
   readonly scanId: string;
   readonly state: PostExploitationState | null;
+  readonly lineage: AuthorizedActiveReconRequestLineage;
+}
+
+/** Milestone A11 — lateral-movement snapshot (discovery ≠ authorization). */
+export interface GetLateralMovementResult {
+  readonly assessmentId: string;
+  readonly scanId: string;
+  readonly snapshot: LateralMovementSnapshot | null;
   readonly lineage: AuthorizedActiveReconRequestLineage;
 }
 

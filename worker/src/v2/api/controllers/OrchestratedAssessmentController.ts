@@ -11,6 +11,7 @@
  * - POST /api/v2/assessments/:assessmentId/attack-plans/:planId/execute (Milestone A5)
  * - GET /api/v2/assessments/:assessmentId/attack-chains (Milestone A6)
  * - GET /api/v2/assessments/:assessmentId/post-exploitation (Milestone A10)
+ * - GET /api/v2/assessments/:assessmentId/lateral-movement (Milestone A11)
  *
  * Responsibilities:
  * 1) Extract and validate path parameters and request body.
@@ -221,6 +222,24 @@ export class OrchestratedAssessmentController {
       }
 
       const result = await this.service.getPostExploitation(assessmentId);
+      res.status(200).json(result);
+    } catch (err) {
+      next(err);
+    }
+  };
+
+  public getLateralMovement = async (
+    req: Request,
+    res: Response,
+    next: NextFunction
+  ): Promise<void> => {
+    try {
+      const assessmentId = req.params.assessmentId;
+      if (!assessmentId || typeof assessmentId !== 'string' || !isStrictSafeId(assessmentId)) {
+        throw new ApiValidationError('Field assessmentId must satisfy strict identifier format');
+      }
+
+      const result = await this.service.getLateralMovement(assessmentId);
       res.status(200).json(result);
     } catch (err) {
       next(err);

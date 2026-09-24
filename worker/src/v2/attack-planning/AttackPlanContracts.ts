@@ -48,7 +48,8 @@ export type AttackCapabilityKind =
   | 'lfi_path_traversal'
   | 'sql_oracle_advancement'
   | 'nuclei_xss_scan'
-  | 'sql_injection_verification';
+  | 'sql_injection_verification'
+  | 'credential_reuse';
 
 /**
  * Capability expected if a human later authorizes a defensive validation step.

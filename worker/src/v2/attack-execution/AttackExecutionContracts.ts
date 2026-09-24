@@ -16,6 +16,8 @@ import type { TargetExecutionCoordinator } from '../runtime/TargetExecutionCoord
 import type { PreSpawnDnsResolver } from '../recon/adapters/AdapterPreflightPipeline.js';
 import type { VerifiedAuthorizationDecision } from '../authorization/VerifiedAuthorizationDecisionContracts.js';
 import type { IdorHttpProbeTransport } from '../detection/DetectionContracts.js';
+import type { CredentialReference } from '../post-exploitation/PostExploitationContracts.js';
+import type { CredentialVaultService } from '../post-exploitation/CredentialVaultService.js';
 
 export type AttackExecutionContractVersion = 'fixguard-attack-execution/v0';
 export const ATTACK_EXECUTION_CONTRACT_VERSION: AttackExecutionContractVersion =
@@ -90,6 +92,10 @@ export interface AttackCapabilityInvocationContext {
   readonly transport?: IdorHttpProbeTransport;
   /** Optional DNS resolver for detection preflight. */
   readonly dnsResolver?: PreSpawnDnsResolver;
+  /** Milestone A11 — credential reference for credential_reuse capability. */
+  readonly credentialReference?: CredentialReference;
+  /** Milestone A11 — vault override for credential_reuse (else capability-bound). */
+  readonly credentialVaultService?: CredentialVaultService;
 }
 
 /**

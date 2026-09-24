@@ -23,6 +23,8 @@ import { createSqlInjectionVerificationCapability } from './capabilities/SqlInje
 import { createCorsChainExploitCapability } from './capabilities/CorsChainExploitCapability.js';
 import { createAuthBypassProbeCapability } from './capabilities/AuthBypassProbeCapability.js';
 import { createJwtAlgNoneProbeCapability } from './capabilities/JwtAlgNoneProbeCapability.js';
+import { createCredentialReuseCapability } from './capabilities/CredentialReuseCapability.js';
+import { CredentialVaultService } from '../post-exploitation/CredentialVaultService.js';
 
 function succeeded(reasonCode: string, safeMessage: string, evidenceId?: string): AttackCapabilityExecutionResult {
   return {
@@ -122,6 +124,7 @@ export class AttackCapabilityRegistry {
         createSqlOracleAdvancementCapability(),
         createNucleiXssScanCapability(),
         createSqlInjectionVerificationCapability(),
+        createCredentialReuseCapability({ vault: new CredentialVaultService() }),
       ] as const);
     for (const port of initial) {
       this.ports.set(port.capability, port);
@@ -163,3 +166,7 @@ export { createLfiPathTraversalCapability } from './capabilities/LFIPathTraversa
 export { createSqlOracleAdvancementCapability } from './capabilities/SqlOracleAdvancementCapability.js';
 export { createNucleiXssScanCapability } from './capabilities/NucleiXssScanCapability.js';
 export { createSqlInjectionVerificationCapability } from './capabilities/SqlInjectionVerificationCapability.js';
+export {
+  createCredentialReuseCapability,
+  attemptCredentialReuse,
+} from './capabilities/CredentialReuseCapability.js';

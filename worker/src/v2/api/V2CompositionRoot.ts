@@ -30,6 +30,7 @@ import type { PostExploitationRepository } from '../post-exploitation/PostExploi
 import { InMemoryPostExploitationRepository } from '../post-exploitation/InMemoryPostExploitationRepository.js';
 import { CredentialVaultService } from '../post-exploitation/CredentialVaultService.js';
 import { PostExploitationService } from '../post-exploitation/PostExploitationService.js';
+import { LateralMovementService } from '../attack-planning/LateralMovementService.js';
 
 export interface V2CompositionDependencies {
   readonly assessmentRepository?: AssessmentRepository;
@@ -52,6 +53,7 @@ export interface V2CompositionDependencies {
   readonly postExploitationRepository?: PostExploitationRepository;
   readonly credentialVaultService?: CredentialVaultService;
   readonly postExploitationService?: PostExploitationService;
+  readonly lateralMovementService?: LateralMovementService;
 }
 
 /**
@@ -80,6 +82,7 @@ export class V2CompositionRoot {
   public readonly postExploitationRepository: PostExploitationRepository;
   public readonly credentialVaultService: CredentialVaultService;
   public readonly postExploitationService: PostExploitationService;
+  public readonly lateralMovementService: LateralMovementService;
 
   constructor(deps: V2CompositionDependencies = {}) {
     this.assessmentRepository = deps.assessmentRepository ?? new InMemoryAssessmentRepository();
@@ -114,6 +117,8 @@ export class V2CompositionRoot {
         this.postExploitationRepository,
         this.credentialVaultService
       );
+    this.lateralMovementService =
+      deps.lateralMovementService ?? new LateralMovementService();
     this.orchestratedRepository =
       deps.orchestratedRepository ?? new InMemoryOrchestratedAssessmentRepository();
     this.orchestratedService =
@@ -128,6 +133,7 @@ export class V2CompositionRoot {
         postExploitationRepository: this.postExploitationRepository,
         credentialVaultService: this.credentialVaultService,
         postExploitationService: this.postExploitationService,
+        lateralMovementService: this.lateralMovementService,
       });
   }
 

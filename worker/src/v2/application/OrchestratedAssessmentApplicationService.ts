@@ -111,6 +111,7 @@ import type { PostExploitationRepository } from '../post-exploitation/PostExploi
 import { InMemoryPostExploitationRepository } from '../post-exploitation/InMemoryPostExploitationRepository.js';
 import { CredentialVaultService } from '../post-exploitation/CredentialVaultService.js';
 import { PostExploitationService } from '../post-exploitation/PostExploitationService.js';
+import { LateralMovementService } from '../attack-planning/LateralMovementService.js';
 import { scanSourceFilesForSecrets } from '../sast/StaticSecretScanningService.js';
 import { scanManifestsForVulnerabilities } from '../sast/DependencyVulnerabilityScanService.js';
 import { scanFilesForStaticRoutes } from '../sast/StaticRouteExtractionService.js';
@@ -184,6 +185,7 @@ import type {
   GetAttackPlansResult,
   GetAttackChainsResult,
   GetPostExploitationResult,
+  GetLateralMovementResult,
 } from './OrchestratedAssessmentContracts.js';
 import { ORCHESTRATED_ASSESSMENT_CONTRACT_VERSION } from './OrchestratedAssessmentContracts.js';
 
@@ -201,6 +203,7 @@ export interface OrchestratedAssessmentServiceDependencies {
   readonly postExploitationRepository?: PostExploitationRepository;
   readonly credentialVaultService?: CredentialVaultService;
   readonly postExploitationService?: PostExploitationService;
+  readonly lateralMovementService?: LateralMovementService;
 }
 
 /** Pure helper exposed for tests / composition — builds query service over a graph. */
@@ -533,6 +536,7 @@ export class OrchestratedAssessmentApplicationService {
   private readonly postExploitationRepository: PostExploitationRepository;
   private readonly credentialVaultService: CredentialVaultService;
   private readonly postExploitationService: PostExploitationService;
+  private readonly lateralMovementService: LateralMovementService;
   private readonly activeAssessments = new Map<string, Promise<void>>();
   /**
    * Process-local sealed VerifiedAuthorizationDecision refs (WeakSet-branded).
@@ -562,6 +566,8 @@ export class OrchestratedAssessmentApplicationService {
         this.postExploitationRepository,
         this.credentialVaultService
       );
+    this.lateralMovementService =
+      deps.lateralMovementService ?? new LateralMovementService();
     this.reconAdapters =
       deps.reconAdapters ??
       createDefaultReconAdapters(this.dnsResolver, this.httpTransport);
@@ -570,6 +576,11 @@ export class OrchestratedAssessmentApplicationService {
   /** Milestone A10 — process-local post-exploitation service (vault + state). */
   public getPostExploitationService(): PostExploitationService {
     return this.postExploitationService;
+  }
+
+  /** Milestone A11 — process-local lateral-movement service. */
+  public getLateralMovementService(): LateralMovementService {
+    return this.lateralMovementService;
   }
 
   /**
@@ -983,6 +994,34 @@ export class OrchestratedAssessmentApplicationService {
       assessmentId: record.assessmentId,
       scanId: record.scanId,
       state,
+      lineage: record.lineage,
+    };
+  }
+
+  /**
+   * Milestone A11 — lateral-movement snapshot for an assessment.
+   * Discovered hosts remain inScope=false; never auto-authorized.
+   */
+  public async getLateralMovement(
+    assessmentId: string
+  ): Promise<GetLateralMovementResult> {
+    if (!assessmentId || typeof assessmentId !== 'string' || !isStrictSafeId(assessmentId)) {
+      throw new ApiValidationError('Field assessmentId must satisfy strict identifier format');
+    }
+
+    const record = await this.repository.findById(assessmentId);
+    if (!record) {
+      throw new SessionNotFoundError(
+        `Orchestrated assessment '${assessmentId}' was not found`,
+        assessmentId
+      );
+    }
+
+    const snapshot = this.lateralMovementService.getSnapshot(assessmentId);
+    return {
+      assessmentId: record.assessmentId,
+      scanId: record.scanId,
+      snapshot,
       lineage: record.lineage,
     };
   }

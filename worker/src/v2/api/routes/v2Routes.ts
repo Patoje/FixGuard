@@ -41,6 +41,11 @@ export function createV2Router(root: V2CompositionRoot): Router {
     '/assessments/:assessmentId/post-exploitation',
     orchestratedController.getPostExploitation
   );
+  // Milestone A11 — Lateral movement snapshot (discovery ≠ authorization)
+  router.get(
+    '/assessments/:assessmentId/lateral-movement',
+    orchestratedController.getLateralMovement
+  );
   // Milestone A4 — Graduated attack-plan authorization (runtime brand; not execution)
   router.post(
     '/assessments/:assessmentId/attack-plans/:planId/authorize',
@@ -73,6 +78,10 @@ export function createV2Router(root: V2CompositionRoot): Router {
   router.get(
     '/orchestrated/assessments/:assessmentId/post-exploitation',
     orchestratedController.getPostExploitation
+  );
+  router.get(
+    '/orchestrated/assessments/:assessmentId/lateral-movement',
+    orchestratedController.getLateralMovement
   );
   router.post('/orchestrated/assessments/:assessmentId/evidence/:draftId/review', orchestratedController.reviewEvidenceDraft);
   router.post('/orchestrated/assessments/:assessmentId/report/html', orchestratedController.generateHtmlReport);
