@@ -42,6 +42,8 @@ import type {
   IdorHttpProbeTransport,
 } from '../detection/DetectionContracts.js';
 import { UnauthorizedGatewayError } from '../api/ApiErrors.js';
+import { establishVerifiedAuthorizationDecision } from '../authorization/VerifiedAuthorizationDecisionService.js';
+import { VERIFIED_AUTHORIZATION_DECISION_CONTRACT_VERSION } from '../authorization/VerifiedAuthorizationDecisionContracts.js';
 
 const SECRET_MARKER = 'remediation-hermetic-secret-never-in-dto';
 
@@ -50,8 +52,13 @@ function fail(message: string): never {
   process.exit(1);
 }
 
-function createScopeGrant(host: string, allowCredentialUse: boolean): AuthorizedScopeGrant {
+function createScopeGrant(
+  hosts: readonly string[],
+  allowCredentialUse: boolean
+): AuthorizedScopeGrant {
   const now = Date.now();
+  const primary = hosts[0]!;
+  const apex = primary.includes('.') ? primary.split('.').slice(-2).join('.') : primary;
   return {
     contractVersion: 'fixguard-authorized-scope-policy/v0',
     kind: 'authorized_scope_grant',
@@ -60,8 +67,8 @@ function createScopeGrant(host: string, allowCredentialUse: boolean): Authorized
     issuedAt: new Date(now - 3600_000).toISOString(),
     expiresAt: new Date(now + 86400_000).toISOString(),
     subject: {
-      targetKind: 'origin',
-      normalizedOrigin: `https://${host}`,
+      targetKind: 'domain',
+      domain: apex,
     },
     authorizationBasis: {
       basisKind: 'internal_asset_record',
@@ -81,9 +88,9 @@ function createScopeGrant(host: string, allowCredentialUse: boolean): Authorized
       destructiveOperations: false,
     },
     boundaries: {
-      allowedDomains: [host],
-      allowedHosts: [host],
-      allowedOrigins: [`https://${host}`],
+      allowedDomains: [apex],
+      allowedHosts: [...hosts],
+      allowedOrigins: hosts.map((h) => `https://${h}`),
       allowedMethods: ['GET', 'HEAD', 'POST'],
     },
     constraints: {
@@ -347,6 +354,28 @@ async function runSmokeTests(): Promise<void> {
     impactAssessmentService: impactService,
   });
 
+  const sealedScope = createScopeGrant(
+    ['example.com', 'api.example.com', 'app.example.com'],
+    true
+  );
+  const sealedDecision = establishVerifiedAuthorizationDecision(
+    {
+      contractVersion: VERIFIED_AUTHORIZATION_DECISION_CONTRACT_VERSION,
+      kind: 'establish_verified_authorization_decision_request',
+      assessmentId,
+      scanId,
+      authorizationDecisionId: 'dec_remed_a12_001',
+      authorizedActor: { actorId: 'act_remed_a12', actorType: 'human' },
+      decision: 'authorized',
+      decidedAt: nowIso,
+      scopeGrant: sealedScope,
+    },
+    nowIso
+  );
+  assert.equal(sealedDecision.status, 'established');
+  if (sealedDecision.status !== 'established') fail('sealed decision must establish');
+  appService.registerRuntimeVerifiedAuthorizationDecision(assessmentId, sealedDecision.decision);
+
   const impactResult = await appService.getImpactAssessments(assessmentId);
   assert.ok(impactResult.impactCount >= 1);
   for (const impact of impactResult.impactAssessments) {
@@ -406,8 +435,20 @@ async function runSmokeTests(): Promise<void> {
     secret: SECRET_MARKER,
   });
 
-  // Unauthorized promote (host not in scope grant)
+  // Unauthorized promote — client expands hosts beyond sealed grant
   let promoteDenied = false;
+  let promoteDenyCode: string | undefined;
+  const expandedClientGrant: AuthorizedScopeGrant = {
+    ...sealedScope,
+    boundaries: {
+      ...sealedScope.boundaries,
+      allowedHosts: [...(sealedScope.boundaries.allowedHosts ?? []), evilHost],
+      allowedOrigins: [
+        ...(sealedScope.boundaries.allowedOrigins ?? []),
+        `https://${evilHost}`,
+      ],
+    },
+  };
   try {
     await controller.promoteLateralTarget(
       {
@@ -415,7 +456,7 @@ async function runSmokeTests(): Promise<void> {
         body: {
           hostname: evilHost,
           operatorId: 'act_remed_a12',
-          scopeGrant: createScopeGrant(destHost, true),
+          scopeGrant: expandedClientGrant,
         },
       } as unknown as Request,
       {
@@ -429,18 +470,22 @@ async function runSmokeTests(): Promise<void> {
       ((err?: unknown) => {
         if (err instanceof UnauthorizedGatewayError) {
           promoteDenied = true;
+          promoteDenyCode = err.reasonCode;
           return;
         }
         if (err) fail(`unexpected promote error: ${String(err)}`);
       }) as NextFunction
     );
   } catch (err: unknown) {
-    if (err instanceof UnauthorizedGatewayError) promoteDenied = true;
-    else throw err;
+    if (err instanceof UnauthorizedGatewayError) {
+      promoteDenied = true;
+      promoteDenyCode = err.reasonCode;
+    } else throw err;
   }
   assert.equal(promoteDenied, true, 'Promote out-of-scope host must fail closed');
+  assert.equal(promoteDenyCode, 'scope_violation', 'Expansion must report scope_violation');
 
-  // Authorized promote
+  // Authorized promote (in-scope host; client grant is a subset of sealed)
   let promoteStatus = 0;
   let promoteBody: unknown;
   await controller.promoteLateralTarget(
@@ -449,7 +494,7 @@ async function runSmokeTests(): Promise<void> {
       body: {
         hostname: destHost,
         operatorId: 'act_remed_a12',
-        scopeGrant: createScopeGrant(destHost, true),
+        scopeGrant: createScopeGrant(['api.example.com'], true),
         authorizedAt: nowIso,
       },
     } as unknown as Request,
@@ -483,7 +528,7 @@ async function runSmokeTests(): Promise<void> {
         mechanism: 'credential_reuse',
         credentialRefId: 'cred_remed_001',
         operatorId: 'act_remed_a12',
-        scopeGrant: createScopeGrant(destHost, true),
+        scopeGrant: createScopeGrant(['api.example.com', 'app.example.com'], true),
       },
     } as unknown as Request,
     {
@@ -537,6 +582,10 @@ async function runSmokeTests(): Promise<void> {
     httpTransport: hermeticTransport,
     dnsResolver: async () => ['93.184.216.34'],
   });
+  appWithTransport.registerRuntimeVerifiedAuthorizationDecision(
+    assessmentId,
+    sealedDecision.decision
+  );
   const controller2 = new OrchestratedAssessmentController(appWithTransport, authService);
 
   let reuseStatus = 0;
@@ -551,7 +600,7 @@ async function runSmokeTests(): Promise<void> {
         mechanism: 'credential_reuse',
         credentialRefId: 'cred_remed_001',
         operatorId: 'act_remed_a12',
-        scopeGrant: createScopeGrant(destHost, true),
+        scopeGrant: createScopeGrant(['api.example.com', 'app.example.com'], true),
         targetUrl: `https://${destHost}/`,
         recordedAt: nowIso,
       },

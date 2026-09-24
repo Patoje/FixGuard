@@ -52,7 +52,8 @@ export type AttackExecutionGateFailureCode =
   | 'token_not_branded'
   | 'capability_not_registered'
   | 'request_invalid'
-  | 'target_host_invalid';
+  | 'target_host_invalid'
+  | 'dns_resolution_failed';
 
 export interface AttackCapabilityExecutionResult {
   readonly outcome: AttackStepExecutionOutcome;

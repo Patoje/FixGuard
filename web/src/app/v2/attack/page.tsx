@@ -181,7 +181,10 @@ function AttackModeContent() {
       if (!lineage) {
         throw new Error("Lineage not loaded — refresh assessment first");
       }
-      const domain = targetDomain.trim() || "example.com";
+      const domain = targetDomain.trim();
+      if (!domain) {
+        throw new Error("Target domain required — load an assessment first");
+      }
       return buildWorkbenchScopeGrant({
         grantId: lineage.authorizationGrantId,
         scanId: lineage.scanId,

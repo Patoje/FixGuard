@@ -591,6 +591,12 @@ export class OrchestratedAssessmentController {
    * Exact-key body: operatorId, scopeGrant, findings (optional), dnsAnswers (optional hermetic),
    * primaryIdentity / secondaryIdentity (optional differential identities).
    *
+   * When dnsAnswers is omitted, the assessment-configured DNS resolver resolves the target host
+   * dynamically (fail closed with dns_resolution_failed). Never defaults to example.com.
+   *
+   * scopeGrant from the client is re-bound against the sealed assessment grant (scope_violation
+   * on host expansion / permission escalation).
+   *
    * verifiedAuthorizationDecision is NEVER accepted from the HTTP body (not forgeable).
    * Resolved server-side via OrchestratedAssessmentApplicationService
    * getRuntimeVerifiedAuthorizationDecision (A4 getRuntimeToken pattern).
@@ -670,10 +676,23 @@ export class OrchestratedAssessmentController {
         this.service.getRuntimeVerifiedAuthorizationDecision(assessmentId);
       const transport = this.service.getRuntimeHttpTransport();
 
-      const dnsAnswers =
+      // Re-bind client scopeGrant against sealed assessment grant (fail closed on escalation).
+      const scopeGrant = await this.service.rebindScopeGrantForAssessment(
+        assessmentId,
+        body.scopeGrant
+      );
+
+      // Hermetic dnsAnswers override when provided; otherwise resolve via assessment DNS.
+      // Never fall back to a hardcoded example.com IP.
+      const hermeticDnsAnswers =
         Array.isArray(body.dnsAnswers) && body.dnsAnswers.every((ip) => typeof ip === 'string')
           ? body.dnsAnswers
-          : ['93.184.216.34'];
+          : null;
+      const assessmentDnsResolver = this.service.getRuntimeDnsResolver();
+      const dnsResolver =
+        hermeticDnsAnswers !== null
+          ? async () => hermeticDnsAnswers
+          : assessmentDnsResolver;
 
       const result = await this.attackExecutionService.execute({
         contractVersion: ATTACK_EXECUTION_CONTRACT_VERSION,
@@ -681,9 +700,9 @@ export class OrchestratedAssessmentController {
         planId,
         assessmentId,
         token,
-        scopeGrant: body.scopeGrant,
+        scopeGrant,
         coordinator: new TargetExecutionCoordinator(),
-        dnsResolver: async () => dnsAnswers,
+        dnsResolver,
         findings,
         operatorId,
         ...(primaryIdentity ? { primaryIdentity } : {}),

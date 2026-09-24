@@ -121,7 +121,8 @@
     "smoke:v2:milestone-a10-post-exploitation": "tsx src/v2/smoke/milestoneA10_post_exploitation_smoke.ts",
     "smoke:v2:milestone-a11-lateral-movement": "tsx src/v2/smoke/milestoneA11_lateral_movement_smoke.ts",
     "smoke:v2:milestone-a12-impact-report": "tsx src/v2/smoke/milestoneA12_impact_report_smoke.ts",
-    "smoke:v2:milestone-a12-remediation": "tsx src/v2/smoke/milestoneA12_remediation_smoke.ts"
+    "smoke:v2:milestone-a12-remediation": "tsx src/v2/smoke/milestoneA12_remediation_smoke.ts",
+    "live:orchestrated-charmarket": "tsx scripts/live_orchestrated_charmarket.ts"
   },
   "keywords": [],
   "author": "",

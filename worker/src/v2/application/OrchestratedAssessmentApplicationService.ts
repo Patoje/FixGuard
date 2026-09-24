@@ -14,10 +14,16 @@
 import dns from 'node:dns/promises';
 
 import { isInternalOrSsrfTarget } from '../recon/policy/PassiveEgressPolicy.js';
-import { establishVerifiedAuthorizationDecision } from '../authorization/VerifiedAuthorizationDecisionService.js';
+import {
+  establishVerifiedAuthorizationDecision,
+  isRuntimeEstablishedVerifiedAuthorizationDecision,
+} from '../authorization/VerifiedAuthorizationDecisionService.js';
 import type { AuthorizedScopeGrant } from '../scope/AuthorizedScopeContracts.js';
+import { rebindClientScopeGrantAgainstSealed } from '../scope/ScopeGrantRebinding.js';
+import { isScopeAllowed } from '../attack-execution/AttackExecutionContracts.js';
 import type { AuthorizedActiveReconRequestLineage } from '../lineage/AuthorizedExecutionLineageContracts.js';
 import type { VerifiedAuthorizationDecision } from '../authorization/VerifiedAuthorizationDecisionContracts.js';
+import type { PreSpawnDnsResolver } from '../recon/adapters/AdapterPreflightPipeline.js';
 import { TargetExecutionCoordinator } from '../runtime/TargetExecutionCoordinator.js';
 import { TargetInstabilityError } from '../runtime/CircuitBreakerContracts.js';
 
@@ -903,6 +909,70 @@ export class OrchestratedAssessmentApplicationService {
   }
 
   /**
+   * Composition/test hook: register a runtime-branded VerifiedAuthorizationDecision
+   * already produced by establishVerifiedAuthorizationDecision. Rejects lookalikes.
+   */
+  public registerRuntimeVerifiedAuthorizationDecision(
+    assessmentId: string,
+    decision: VerifiedAuthorizationDecision
+  ): void {
+    if (!assessmentId || typeof assessmentId !== 'string' || !isStrictSafeId(assessmentId)) {
+      throw new ApiValidationError('Field assessmentId must satisfy strict identifier format');
+    }
+    if (!isRuntimeEstablishedVerifiedAuthorizationDecision(decision)) {
+      throw new UnauthorizedGatewayError(
+        'VerifiedAuthorizationDecision is missing or not runtime-branded',
+        'authorization_decision_missing'
+      );
+    }
+    this.sealedVerifiedDecisions.set(assessmentId, decision);
+  }
+
+  /**
+   * Assessment-configured DNS resolver (live resolve4 by default).
+   * Never returns a hardcoded example.com IP.
+   */
+  public getRuntimeDnsResolver(): PreSpawnDnsResolver {
+    return this.dnsResolver;
+  }
+
+  /**
+   * Re-bind a client-supplied scopeGrant against the assessment's sealed grant.
+   * Returns the sealed grant on success. Client grant alone never authorizes new hosts.
+   *
+   * When no sealed decision exists:
+   * - assessment record present → fail closed (corrupt / incomplete start)
+   * - no assessment record → hermetic execute path; return client grant unchanged
+   */
+  public async rebindScopeGrantForAssessment(
+    assessmentId: string,
+    clientGrant: AuthorizedScopeGrant
+  ): Promise<AuthorizedScopeGrant> {
+    if (!assessmentId || typeof assessmentId !== 'string' || !isStrictSafeId(assessmentId)) {
+      throw new ApiValidationError('Field assessmentId must satisfy strict identifier format');
+    }
+
+    const sealed = this.sealedVerifiedDecisions.get(assessmentId);
+    if (sealed) {
+      const rebound = rebindClientScopeGrantAgainstSealed(clientGrant, sealed.scopeGrant);
+      if (!rebound.ok) {
+        throw new UnauthorizedGatewayError(rebound.safeMessage, rebound.reasonCode);
+      }
+      return rebound.scopeGrant;
+    }
+
+    const record = await this.repository.findById(assessmentId);
+    if (record) {
+      throw new UnauthorizedGatewayError(
+        'Assessment is missing a sealed verified authorization decision',
+        'authorization_decision_missing'
+      );
+    }
+
+    return clientGrant;
+  }
+
+  /**
    * In-process HTTP transport used by detection-backed attack capabilities.
    */
   public getRuntimeHttpTransport(): IdorHttpProbeTransport {
@@ -1209,6 +1279,18 @@ export class OrchestratedAssessmentApplicationService {
       );
     }
 
+    const scopeGrant = await this.rebindScopeGrantForAssessment(
+      command.assessmentId,
+      command.scopeGrant
+    );
+
+    if (!isScopeAllowed(command.hostname, scopeGrant)) {
+      throw new UnauthorizedGatewayError(
+        'hostname is not permitted under the sealed assessment scope grant',
+        'scope_violation'
+      );
+    }
+
     // Ensure lateral state is bound to this assessment's scanId.
     this.lateralMovementService.registerDiscoveredHost({
       assessmentId: record.assessmentId,
@@ -1221,7 +1303,7 @@ export class OrchestratedAssessmentApplicationService {
       const target = this.lateralMovementService.promoteToAuthorizedTarget({
         assessmentId: record.assessmentId,
         hostname: command.hostname,
-        scopeGrant: command.scopeGrant,
+        scopeGrant,
         authorizedBy: command.operatorId,
         ...(command.authorizedAt ? { authorizedAt: command.authorizedAt } : {}),
       });
@@ -1293,6 +1375,24 @@ export class OrchestratedAssessmentApplicationService {
       );
     }
 
+    const scopeGrant = await this.rebindScopeGrantForAssessment(
+      command.assessmentId,
+      command.scopeGrant
+    );
+
+    if (!isScopeAllowed(command.destinationHost, scopeGrant)) {
+      throw new UnauthorizedGatewayError(
+        'destinationHost is not permitted under the sealed assessment scope grant',
+        'scope_violation'
+      );
+    }
+    if (!isScopeAllowed(command.sourceHost, scopeGrant)) {
+      throw new UnauthorizedGatewayError(
+        'sourceHost is not permitted under the sealed assessment scope grant',
+        'scope_violation'
+      );
+    }
+
     const credentialRef = this.postExploitationService.getCredentialReference(
       command.credentialRefId
     );
@@ -1312,7 +1412,7 @@ export class OrchestratedAssessmentApplicationService {
         credentialRef,
         vault: this.postExploitationService.getVault(),
         token,
-        scopeGrant: command.scopeGrant,
+        scopeGrant,
         lineage: {
           assessmentId: record.lineage.assessmentId,
           scanId: record.lineage.scanId,

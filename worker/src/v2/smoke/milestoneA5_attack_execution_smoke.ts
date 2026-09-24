@@ -359,6 +359,40 @@ async function runSmokeTests(): Promise<void> {
   );
   console.log('[+] Test 4d: DNS rebinding gate fail-closed OK');
 
+  // --- Test 4e: Empty DNS resolution fails closed (no example.com fallback) ---
+  const dnsMissPlanId = 'plan_smoke_a5_dns_miss';
+  await planRepo.savePlan({
+    ...buildPlan(dnsMissPlanId, assessmentId, findingId),
+    planId: dnsMissPlanId,
+  });
+  const dnsMissAuth = await authService.authorizePlan(
+    dnsMissPlanId,
+    assessmentId,
+    'read_escalated',
+    operatorId
+  );
+  assertTrue(dnsMissAuth.status === 'established', 'DNS-miss plan must authorize');
+  if (dnsMissAuth.status !== 'established') fail('unreachable');
+
+  const dnsMissExec = await executionService.execute({
+    contractVersion: ATTACK_EXECUTION_CONTRACT_VERSION,
+    kind: 'attack_execution_request',
+    planId: dnsMissPlanId,
+    assessmentId,
+    token: dnsMissAuth.token,
+    scopeGrant,
+    coordinator: new TargetExecutionCoordinator(),
+    dnsResolver: async () => [],
+    findings: [finding],
+    operatorId,
+  });
+  assertTrue(
+    dnsMissExec.status === 'preflight_denied' &&
+      dnsMissExec.reasonCode === 'dns_resolution_failed',
+    `Empty DNS must fail closed with dns_resolution_failed, got ${JSON.stringify(dnsMissExec)}`
+  );
+  console.log('[+] Test 4e: dns_resolution_failed fail-closed OK');
+
   // --- Test 5: CompositionRoot + HTTP execute path (hermetic real IDOR) ---
   const hermeticResponses = [
     {

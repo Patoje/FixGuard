@@ -321,8 +321,23 @@ export class AttackExecutionService {
         );
       }
 
-      // Gate 5: DNS rebinding
-      const dnsCheck = await validateDnsRebinding(targetHost, req.dnsResolver);
+      // Gate 5: DNS resolution (fail-closed) + rebinding / private-IP check
+      const resolvedIps = await req.dnsResolver(targetHost);
+      if (!Array.isArray(resolvedIps) || resolvedIps.length === 0) {
+        return this.gateFail(
+          executionId,
+          plan,
+          req,
+          startedAt,
+          stepRecords,
+          findings,
+          step,
+          targetHost,
+          'dns_resolution_failed',
+          'Safety gate 5 failed: DNS resolution failed for target host'
+        );
+      }
+      const dnsCheck = await validateDnsRebinding(targetHost, async () => resolvedIps);
       if (!dnsCheck.ok) {
         return this.gateFail(
           executionId,
