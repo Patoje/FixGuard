@@ -76,9 +76,11 @@ import type {
   DiscoveredSpaObservation,
 } from '../adapters/BrowserAutomationContracts.js';
 import {
+  PLAYWRIGHT_NETWORK_SOURCE,
   PLAYWRIGHT_SPA_SOURCE,
   RSC_DISCOVERY_SOURCE,
   SPA_DISCOVERY_MAX_PAGES,
+  SPA_NETWORK_SOURCE,
 } from '../adapters/BrowserAutomationContracts.js';
 import type { AuthorizedScopeGrant } from '../../scope/AuthorizedScopeContracts.js';
 import {
@@ -1339,7 +1341,10 @@ export class CompositeActiveReconOrchestratorService {
                     const source =
                       route.source === RSC_DISCOVERY_SOURCE
                         ? RSC_DISCOVERY_SOURCE
-                        : PLAYWRIGHT_SPA_SOURCE;
+                        : route.source === PLAYWRIGHT_NETWORK_SOURCE ||
+                            route.source === SPA_NETWORK_SOURCE
+                          ? PLAYWRIGHT_NETWORK_SOURCE
+                          : PLAYWRIGHT_SPA_SOURCE;
                     urls.push({
                       url: route.url,
                       host: parsedRoute.hostname,

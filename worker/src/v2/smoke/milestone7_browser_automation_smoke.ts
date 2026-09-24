@@ -32,6 +32,7 @@ import type {
   PlaywrightBrowserLauncher,
   RouteInstance,
   ResponseInstance,
+  NetworkRequestInstance,
 } from '../recon/adapters/BrowserAutomationContracts.js';
 import { BROWSER_AUTOMATION_NON_CLAIMS } from '../recon/adapters/BrowserAutomationContracts.js';
 
@@ -132,6 +133,7 @@ class MockPage implements PageInstance {
   public navigatedUrl = '';
   public routeHandler?: (route: RouteInstance) => Promise<void>;
   public responseHandler?: (response: ResponseInstance) => void;
+  public requestHandler?: (request: NetworkRequestInstance) => void;
 
   constructor(
     private readonly titleValue: string,
@@ -160,9 +162,14 @@ class MockPage implements PageInstance {
     this.routeHandler = handler;
   }
 
-  on(event: 'response', handler: (response: ResponseInstance) => void): void {
+  on(
+    event: 'response' | 'request',
+    handler: ((response: ResponseInstance) => void) | ((request: NetworkRequestInstance) => void)
+  ): void {
     if (event === 'response') {
-      this.responseHandler = handler;
+      this.responseHandler = handler as (response: ResponseInstance) => void;
+    } else if (event === 'request') {
+      this.requestHandler = handler as (request: NetworkRequestInstance) => void;
     }
   }
 

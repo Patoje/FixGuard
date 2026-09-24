@@ -6,7 +6,9 @@
  *    playwright_spa / rsc_discovery (OBSERVED provenance).
  * 2. Out-of-scope / SSRF URLs are fail-closed (Gate 1 preflight, Gate 2 route,
  *    Gate 3 route registration).
- * 3. Orchestrator opt-in: disabled by default without seeds/Next signals;
+ * 3. SPA network mining: mock page emits fetch to /api/foo in-scope → registered
+ *    as playwright_network; external.com rejected; token query sanitized.
+ * 4. Orchestrator opt-in: disabled by default without seeds/Next signals;
  *    enabled with seeds; caps pages; loud degrade on browser_unavailable.
  */
 
@@ -14,8 +16,9 @@ import assert from 'node:assert';
 import { establishVerifiedAuthorizationDecision } from '../authorization/VerifiedAuthorizationDecisionService.js';
 import type { AuthorizedScopeGrant } from '../scope/AuthorizedScopeContracts.js';
 import type { AuthorizedActiveReconRequestLineage } from '../lineage/AuthorizedExecutionLineageContracts.js';
-import { PlaywrightSpaAdapter, isBrowserUrlAllowed } from '../recon/adapters/PlaywrightSpaAdapter.js';
+import { PlaywrightSpaAdapter, isBrowserUrlAllowed, sanitizeDiscoveredNetworkUrl } from '../recon/adapters/PlaywrightSpaAdapter.js';
 import {
+  PLAYWRIGHT_NETWORK_SOURCE,
   PLAYWRIGHT_SPA_SOURCE,
   RSC_DISCOVERY_SOURCE,
   SPA_DISCOVERY_MAX_PAGES,
@@ -26,6 +29,7 @@ import {
   type PlaywrightBrowserLauncher,
   type RouteInstance,
   type ResponseInstance,
+  type NetworkRequestInstance,
 } from '../recon/adapters/BrowserAutomationContracts.js';
 import { CompositeActiveReconOrchestratorService } from '../recon/orchestration/CompositeActiveReconOrchestratorService.js';
 import type { ReconToolAdapters } from '../recon/orchestration/ActiveReconOrchestrationContracts.js';
@@ -140,17 +144,35 @@ type DomPayload = {
   nextDataPage?: string;
 };
 
+type MockNetworkRequest = {
+  readonly url: string;
+  readonly method?: string;
+  readonly resourceType?: string;
+};
+
 class MockPage implements PageInstance {
   public closed = false;
   public routeHandler?: (route: RouteInstance) => Promise<void>;
   public responseHandler?: (response: ResponseInstance) => void;
+  public requestHandler?: (request: NetworkRequestInstance) => void;
 
   constructor(
     private readonly titleValue: string,
-    private readonly domPayload: DomPayload
+    private readonly domPayload: DomPayload,
+    private readonly networkRequests: readonly MockNetworkRequest[] = []
   ) {}
 
   async goto(_url: string): Promise<unknown> {
+    // Emit network requests during navigation (mirrors Playwright page.on('request')).
+    if (this.requestHandler) {
+      for (const req of this.networkRequests) {
+        this.requestHandler({
+          url: () => req.url,
+          method: () => req.method ?? 'GET',
+          resourceType: () => req.resourceType ?? 'fetch',
+        });
+      }
+    }
     return null;
   }
 
@@ -158,8 +180,15 @@ class MockPage implements PageInstance {
     this.routeHandler = handler;
   }
 
-  on(event: 'response', handler: (response: ResponseInstance) => void): void {
-    if (event === 'response') this.responseHandler = handler;
+  on(
+    event: 'response' | 'request',
+    handler: ((response: ResponseInstance) => void) | ((request: NetworkRequestInstance) => void)
+  ): void {
+    if (event === 'response') {
+      this.responseHandler = handler as (response: ResponseInstance) => void;
+    } else if (event === 'request') {
+      this.requestHandler = handler as (request: NetworkRequestInstance) => void;
+    }
   }
 
   async waitForLoadState(): Promise<void> {}
@@ -187,11 +216,12 @@ class MockBrowserContext implements BrowserContextInstance {
 
   constructor(
     private readonly titleValue: string,
-    private readonly domPayload: DomPayload
+    private readonly domPayload: DomPayload,
+    private readonly networkRequests: readonly MockNetworkRequest[] = []
   ) {}
 
   async newPage(): Promise<PageInstance> {
-    const page = new MockPage(this.titleValue, this.domPayload);
+    const page = new MockPage(this.titleValue, this.domPayload, this.networkRequests);
     this.lastCreatedPage = page;
     return page;
   }
@@ -207,11 +237,12 @@ class MockBrowser implements BrowserInstance {
 
   constructor(
     private readonly titleValue: string,
-    private readonly domPayload: DomPayload
+    private readonly domPayload: DomPayload,
+    private readonly networkRequests: readonly MockNetworkRequest[] = []
   ) {}
 
   async newContext(): Promise<BrowserContextInstance> {
-    const ctx = new MockBrowserContext(this.titleValue, this.domPayload);
+    const ctx = new MockBrowserContext(this.titleValue, this.domPayload, this.networkRequests);
     this.lastCreatedContext = ctx;
     return ctx;
   }
@@ -227,12 +258,13 @@ class MockPlaywrightLauncher implements PlaywrightBrowserLauncher {
 
   constructor(
     private readonly titleValue: string,
-    private readonly domPayload: DomPayload
+    private readonly domPayload: DomPayload,
+    private readonly networkRequests: readonly MockNetworkRequest[] = []
   ) {}
 
   async launch(): Promise<BrowserInstance> {
     this.launchCallCount += 1;
-    const browser = new MockBrowser(this.titleValue, this.domPayload);
+    const browser = new MockBrowser(this.titleValue, this.domPayload, this.networkRequests);
     this.lastCreatedBrowser = browser;
     return browser;
   }
@@ -529,9 +561,106 @@ async function runSmokeTests() {
   console.log('  [PASS] Missing Chromium → browser_unavailable.');
 
   // =========================================================================
-  // 4. Orchestrator opt-in + caps + degrade notice
+  // 4. SPA network mining (xhr/fetch) — in-scope registered, OOS rejected
   // =========================================================================
-  console.log('-> Test 4: Orchestrator opt-in, caps, degrade...');
+  console.log('-> Test 4: SPA network mining (in-scope /api/foo, OOS external.com)...');
+  {
+    const target = 'spa.example.com';
+    const { scopeGrant, decision, lineage } = setupAuthorizedContext(target);
+    const launcher = new MockPlaywrightLauncher(
+      'Empty DOM SPA',
+      {
+        links: [],
+        forms: [],
+        frameworks: ['React'],
+        scripts: [],
+        rscPaths: [],
+      },
+      [
+        {
+          url: `https://${target}/api/foo?user=alice&access_token=supersecret`,
+          method: 'GET',
+          resourceType: 'fetch',
+        },
+        {
+          url: `https://${target}/api/bar`,
+          method: 'POST',
+          resourceType: 'xhr',
+        },
+        {
+          url: 'https://external.com/leak',
+          method: 'GET',
+          resourceType: 'fetch',
+        },
+        {
+          url: `https://${target}/static/logo.png`,
+          method: 'GET',
+          resourceType: 'image',
+        },
+        {
+          url: `https://${target}/styles.css`,
+          method: 'GET',
+          resourceType: 'stylesheet',
+        },
+        {
+          url: `https://${target}/api/foo?user=alice&access_token=different`,
+          method: 'GET',
+          resourceType: 'fetch',
+        },
+      ]
+    );
+    const adapter = new PlaywrightSpaAdapter(launcher, async () => ['93.184.216.34']);
+    const result = await adapter.discoverSpa({
+      targetUrlOrDomain: `https://${target}/`,
+      verifiedAuthorizationDecision: decision,
+      authorizedScopeGrant: scopeGrant,
+      lineage,
+    });
+
+    assert.strictEqual(result.status, 'success');
+    assert.ok(result.status === 'success');
+    const paths = result.routes.map((r) => r.path);
+    assert.ok(paths.includes('/api/foo'), 'In-scope fetch /api/foo must be registered');
+    assert.ok(paths.includes('/api/bar'), 'In-scope xhr /api/bar must be registered');
+    assert.ok(!paths.some((p) => p.includes('leak')), 'external.com must be rejected');
+    assert.ok(!paths.includes('/static/logo.png'), 'Images must not be mined');
+    assert.ok(!paths.includes('/styles.css'), 'Stylesheets must not be mined');
+
+    const networkRoutes = result.routes.filter((r) => r.source === PLAYWRIGHT_NETWORK_SOURCE);
+    assert.ok(networkRoutes.length >= 2, 'Must emit playwright_network provenance');
+    assert.ok(
+      networkRoutes.every((r) => r.routeType === 'api_fetch'),
+      'Network routes must be api_fetch'
+    );
+
+    const fooRoute = networkRoutes.find((r) => r.path === '/api/foo');
+    assert.ok(fooRoute, 'Sanitized /api/foo route required');
+    assert.ok(
+      fooRoute.url.includes('access_token=%5BREDACTED%5D') ||
+        fooRoute.url.includes('access_token=[REDACTED]'),
+      `Token query must be redacted, got ${fooRoute.url}`
+    );
+    assert.ok(!fooRoute.url.includes('supersecret'), 'Raw token must never appear in URL');
+    assert.strictEqual(
+      networkRoutes.filter((r) => r.path === '/api/foo').length,
+      1,
+      'Dedupe must collapse duplicate /api/foo after sanitization'
+    );
+
+    const sanitized = sanitizeDiscoveredNetworkUrl(
+      `https://${target}/api/z?token=abc&q=ok`
+    );
+    assert.ok(sanitized);
+    assert.ok(sanitized!.includes('token=%5BREDACTED%5D') || sanitized!.includes('token=[REDACTED]'));
+    assert.ok(sanitized!.includes('q=ok'));
+    assert.ok(!sanitized!.includes('abc'));
+  }
+  console.log('  [PASS] Network mining registers in-scope xhr/fetch; OOS/media dropped; tokens redacted.');
+
+  // =========================================================================
+  // 5. Orchestrator opt-in + caps + degrade notice
+  // =========================================================================
+  console.log('-> Test 5: Orchestrator opt-in, caps, degrade...');
   {
     const target = 'spa.example.com';
     const { scopeGrant, decision, lineage } = setupAuthorizedContext(target);
@@ -614,7 +743,12 @@ async function runSmokeTests() {
     assert.ok(pageTracker.includes(seedA) || pageTracker.includes(seedB));
 
     const spaUrls = onResult.aggregatedObservations.urls.filter((u) =>
-      u.sources.some((s) => s === PLAYWRIGHT_SPA_SOURCE || s === RSC_DISCOVERY_SOURCE)
+      u.sources.some(
+        (s) =>
+          s === PLAYWRIGHT_SPA_SOURCE ||
+          s === RSC_DISCOVERY_SOURCE ||
+          s === PLAYWRIGHT_NETWORK_SOURCE
+      )
     );
     assert.ok(spaUrls.length >= 1, 'SPA/RSC routes must register into URL inventory');
     assert.ok(

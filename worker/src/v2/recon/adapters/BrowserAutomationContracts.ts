@@ -20,11 +20,17 @@ export const BROWSER_AUTOMATION_CONTRACT_VERSION: BrowserAutomationContractVersi
 export const PLAYWRIGHT_SPA_SOURCE = 'playwright_spa' as const;
 /** Provenance for Next.js / RSC signals mined from hydrated page state (OBSERVED). */
 export const RSC_DISCOVERY_SOURCE = 'rsc_discovery' as const;
+/** Provenance for in-scope XHR/fetch URLs captured during Playwright render (OBSERVED). */
+export const PLAYWRIGHT_NETWORK_SOURCE = 'playwright_network' as const;
+/** Alternate provenance label for SPA network mining (OBSERVED). */
+export const SPA_NETWORK_SOURCE = 'spa_network' as const;
 
 /** Hard cap: pages rendered per recon stage (seeds + app endpoints). */
 export const SPA_DISCOVERY_MAX_PAGES = 5;
 /** Hard cap: accepted in-scope routes retained per rendered page. */
 export const SPA_DISCOVERY_MAX_ROUTES_PER_PAGE = 40;
+/** Hard cap: accepted in-scope network (XHR/fetch) URLs retained per rendered page. */
+export const SPA_DISCOVERY_MAX_NETWORK_URLS_PER_PAGE = 40;
 /** Default navigation + hydration timeout. */
 export const SPA_DISCOVERY_DEFAULT_TIMEOUT_MS = 15_000;
 
@@ -54,12 +60,19 @@ export const BROWSER_AUTOMATION_NON_CLAIMS: BrowserAutomationExplicitNonClaims =
 
 export type SpaRouteType = 'dom_link' | 'api_fetch' | 'form_action' | 'history_push' | 'rsc_hint';
 
+export type SpaRouteDiscoverySource =
+  | typeof PLAYWRIGHT_SPA_SOURCE
+  | typeof RSC_DISCOVERY_SOURCE
+  | typeof PLAYWRIGHT_NETWORK_SOURCE
+  | typeof SPA_NETWORK_SOURCE
+  | string;
+
 export interface DiscoveredSpaRouteObservation {
   readonly url: string;
   readonly path: string;
   readonly method?: string;
   readonly routeType: SpaRouteType;
-  readonly source: typeof PLAYWRIGHT_SPA_SOURCE | typeof RSC_DISCOVERY_SOURCE | string;
+  readonly source: SpaRouteDiscoverySource;
   readonly discoveredAt: string;
 }
 
@@ -96,10 +109,18 @@ export interface ResponseInstance {
   url(): string;
 }
 
+/** Subset of Playwright Request used for network mining (URL/method/type only — no headers/body). */
+export interface NetworkRequestInstance {
+  url(): string;
+  method(): string;
+  resourceType(): string;
+}
+
 export interface PageInstance {
   goto(url: string, options?: { waitUntil?: 'load' | 'domcontentloaded' | 'networkidle'; timeout?: number }): Promise<unknown>;
   route(urlPattern: string, handler: (route: RouteInstance) => Promise<void>): Promise<void>;
   on(event: 'response', handler: (response: ResponseInstance) => void): void;
+  on(event: 'request', handler: (request: NetworkRequestInstance) => void): void;
   waitForLoadState(state?: 'load' | 'domcontentloaded' | 'networkidle', options?: { timeout?: number }): Promise<void>;
   waitForTimeout(ms: number): Promise<void>;
   evaluate<T>(fn: () => T | Promise<T>): Promise<T>;

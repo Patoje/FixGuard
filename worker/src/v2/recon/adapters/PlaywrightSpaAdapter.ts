@@ -2,23 +2,25 @@
  * Milestone 7 / Phase D1 — Browser Automation Engine for SPA & RSC Discovery (Playwright)
  *
  * Implements headless browser crawling, dynamic JavaScript hydration wait,
- * DOM/RSC route mining, and form/parameter extraction.
+ * DOM/RSC route mining, SPA network (XHR/fetch) mining, and form/parameter extraction.
  *
  * Egress model (fail-closed, same gates as HTML extraction / other adapters):
  * 1. Gate 1 — runAdapterPreflight before browser launch:
  *    verified auth brand, lineage, permissions, host scope, static SSRF, DNS rebind.
  * 2. Gate 2 — page.route interceptor for EVERY navigation and subresource:
  *    isInternalOrSsrfTarget OR !isScopeAllowed OR evaluateEgressPolicy !== allow → abort.
- * 3. Gate 3 — discovered route registration:
+ * 3. Gate 3 — discovered route registration (DOM + network):
  *    same scope + egress filters before emitting OBSERVED routes (OOS dropped).
  *
- * Caps: maxRoutes per page (default SPA_DISCOVERY_MAX_ROUTES_PER_PAGE).
- * Loud degrade: chromium/playwright launch failures → reasonCode browser_unavailable.
+ * Network mining: page.on('request') captures in-scope xhr/fetch URLs while the
+ * seed/app page renders — critical for SPAs where the DOM has no extra links.
+ * Caps: maxRoutes / maxNetworkUrls per page. Loud degrade → browser_unavailable.
  *
  * Invariants:
  * 1. Layer 6 Tool Adapter: Observes and extracts; makes 0 vulnerability claims.
  * 2. Guaranteed Cleanup: Context and browser closed in finally (0 zombie processes).
  * 3. Strictly zero type bypass policy.
+ * 4. Network mining stores path+query only; never headers/bodies; strips token-like query keys.
  */
 
 import { chromium } from 'playwright';
@@ -52,11 +54,41 @@ import type {
 import {
   BROWSER_AUTOMATION_CONTRACT_VERSION,
   BROWSER_AUTOMATION_NON_CLAIMS,
+  PLAYWRIGHT_NETWORK_SOURCE,
   PLAYWRIGHT_SPA_SOURCE,
   RSC_DISCOVERY_SOURCE,
   SPA_DISCOVERY_DEFAULT_TIMEOUT_MS,
+  SPA_DISCOVERY_MAX_NETWORK_URLS_PER_PAGE,
   SPA_DISCOVERY_MAX_ROUTES_PER_PAGE,
+  type NetworkRequestInstance,
+  type SpaRouteDiscoverySource,
 } from './BrowserAutomationContracts.js';
+
+/** Playwright resource types mined as OBSERVED discovery endpoints. */
+const MINEABLE_NETWORK_RESOURCE_TYPES = Object.freeze(new Set(['xhr', 'fetch']));
+
+/** Static media extensions dropped from network mining (mirrors HTML extractor). */
+const REJECTED_NETWORK_MEDIA_EXTENSIONS = Object.freeze([
+  '.png',
+  '.jpg',
+  '.jpeg',
+  '.gif',
+  '.svg',
+  '.webp',
+  '.ico',
+  '.woff',
+  '.woff2',
+  '.ttf',
+  '.eot',
+  '.css',
+  '.mp4',
+  '.webm',
+  '.mp3',
+] as const);
+
+/** Query keys whose values must never be retained in discovered URLs. */
+const SENSITIVE_QUERY_KEY_PATTERN =
+  /^(?:access[_-]?token|refresh[_-]?token|id[_-]?token|api[_-]?key|apikey|auth(?:orization)?|password|passwd|secret|session(?:id)?|sid|jwt|bearer|token|key|credential|sig|signature|code|otp)$/i;
 
 class PlaywrightPageWrapper implements PageInstance {
   constructor(private readonly rawPage: import('playwright').Page) {}
@@ -86,12 +118,25 @@ class PlaywrightPageWrapper implements PageInstance {
     });
   }
 
-  on(event: 'response', handler: (response: ResponseInstance) => void): void {
+  on(
+    event: 'response' | 'request',
+    handler: ((response: ResponseInstance) => void) | ((request: NetworkRequestInstance) => void)
+  ): void {
     if (event === 'response') {
       this.rawPage.on('response', (rawRes) => {
-        handler({
+        (handler as (response: ResponseInstance) => void)({
           status: () => rawRes.status(),
           url: () => rawRes.url(),
+        });
+      });
+      return;
+    }
+    if (event === 'request') {
+      this.rawPage.on('request', (rawReq) => {
+        (handler as (request: NetworkRequestInstance) => void)({
+          url: () => rawReq.url(),
+          method: () => rawReq.method(),
+          resourceType: () => rawReq.resourceType(),
         });
       });
     }
@@ -212,6 +257,49 @@ export function isBrowserUrlAllowed(
   return egressDecision.decision === 'allow';
 }
 
+function isRejectedNetworkMediaPath(pathname: string): boolean {
+  const lower = pathname.toLowerCase();
+  return REJECTED_NETWORK_MEDIA_EXTENSIONS.some((ext) => lower.endsWith(ext));
+}
+
+/**
+ * Normalize URL to protocol+host+path+sanitized-query.
+ * Strips hash and redacts token-like query parameter values (never retains secrets).
+ */
+export function sanitizeDiscoveredNetworkUrl(absoluteUrl: string): string | null {
+  let parsed: URL;
+  try {
+    parsed = new URL(absoluteUrl);
+  } catch {
+    return null;
+  }
+
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+    return null;
+  }
+
+  parsed.hash = '';
+  if (parsed.search.length > 1) {
+    const params = new URLSearchParams(parsed.search);
+    const sanitizedParams = new URLSearchParams();
+    for (const [key, value] of params.entries()) {
+      if (SENSITIVE_QUERY_KEY_PATTERN.test(key)) {
+        sanitizedParams.append(key, '[REDACTED]');
+      } else {
+        sanitizedParams.append(key, value);
+      }
+    }
+    const qs = sanitizedParams.toString();
+    parsed.search = qs.length > 0 ? `?${qs}` : '';
+  }
+
+  return `${parsed.protocol}//${parsed.host}${parsed.pathname}${parsed.search}`;
+}
+
+function isMineableNetworkResourceType(resourceType: string): boolean {
+  return MINEABLE_NETWORK_RESOURCE_TYPES.has(resourceType.trim().toLowerCase());
+}
+
 function isBrowserUnavailableError(err: unknown): boolean {
   const msg = err instanceof Error ? err.message : String(err);
   return (
@@ -301,7 +389,9 @@ export class PlaywrightSpaAdapter implements BrowserAutomationTool {
 
     const timeoutMs = request.timeoutMs ?? SPA_DISCOVERY_DEFAULT_TIMEOUT_MS;
     const hydrationWaitMs = request.waitForHydrationMs ?? 1_000;
-    const networkApiHints: string[] = [];
+    const maxNetworkUrls = SPA_DISCOVERY_MAX_NETWORK_URLS_PER_PAGE;
+    const minedNetworkRoutes: DiscoveredSpaRouteObservation[] = [];
+    const seenNetworkKeys = new Set<string>();
 
     try {
       // Launch browser — loud degrade when Chromium/Playwright missing
@@ -357,27 +447,49 @@ export class PlaywrightSpaAdapter implements BrowserAutomationTool {
         await route.continue();
       });
 
-      // Feed telemetry + capture in-scope XHR/fetch URLs as API hints
+      // Telemetry only — never mine from response bodies/headers.
       page.on('response', (response) => {
         try {
           const resUrl = response.url();
           const parsed = new URL(resUrl);
-          if (parsed.hostname === targetHost) {
-            if (coordinator) {
-              coordinator.recordTargetResponse(targetHost, response.status());
-            }
-            const pathLower = parsed.pathname.toLowerCase();
-            if (
-              pathLower.startsWith('/api/') ||
-              pathLower.includes('/_next/data/') ||
-              pathLower.includes('?_rsc=') ||
-              parsed.search.includes('_rsc=')
-            ) {
-              networkApiHints.push(resUrl);
-            }
+          if (parsed.hostname === targetHost && coordinator) {
+            coordinator.recordTargetResponse(targetHost, response.status());
           }
         } catch {
           // Ignore malformed response URLs
+        }
+      });
+
+      // SPA network mining: capture in-scope xhr/fetch while the page renders.
+      // Path+query only; Gate 3 scope/egress before retention; never headers/bodies.
+      page.on('request', (networkReq) => {
+        if (minedNetworkRoutes.length >= maxNetworkUrls) return;
+        if (!isMineableNetworkResourceType(networkReq.resourceType())) return;
+
+        try {
+          const rawUrl = networkReq.url();
+          const sanitized = sanitizeDiscoveredNetworkUrl(rawUrl);
+          if (!sanitized) return;
+
+          const parsed = new URL(sanitized);
+          if (isRejectedNetworkMediaPath(parsed.pathname)) return;
+          if (!isBrowserUrlAllowed(sanitized, request.authorizedScopeGrant)) return;
+
+          const method = (networkReq.method() || 'GET').toUpperCase();
+          const key = `${method}:${parsed.pathname}${parsed.search}`;
+          if (seenNetworkKeys.has(key)) return;
+          seenNetworkKeys.add(key);
+
+          minedNetworkRoutes.push({
+            url: sanitized,
+            path: parsed.pathname,
+            method,
+            routeType: 'api_fetch',
+            source: PLAYWRIGHT_NETWORK_SOURCE,
+            discoveredAt: new Date().toISOString(),
+          });
+        } catch {
+          // Ignore malformed request URLs
         }
       });
 
@@ -530,7 +642,7 @@ export class PlaywrightSpaAdapter implements BrowserAutomationTool {
       const tryAddRoute = (
         rawHref: string,
         routeType: SpaRouteType,
-        source: typeof PLAYWRIGHT_SPA_SOURCE | typeof RSC_DISCOVERY_SOURCE,
+        source: SpaRouteDiscoverySource,
         method: string
       ): void => {
         if (discoveredRoutes.length >= maxRoutes) return;
@@ -556,6 +668,24 @@ export class PlaywrightSpaAdapter implements BrowserAutomationTool {
           // Ignore invalid URLs
         }
       };
+
+      // Prefer network-mined xhr/fetch first — the unblocker when DOM has no links.
+      for (const networkRoute of minedNetworkRoutes) {
+        if (discoveredRoutes.length >= maxRoutes) break;
+        let search = '';
+        try {
+          search = new URL(networkRoute.url).search;
+        } catch {
+          search = '';
+        }
+        const key = `${networkRoute.method ?? 'GET'}:${networkRoute.path}${search}`;
+        if (seenRoutes.has(key)) continue;
+        seenRoutes.add(key);
+        discoveredRoutes.push({
+          ...networkRoute,
+          discoveredAt: nowIso,
+        });
+      }
 
       for (const link of evalResult.links) {
         tryAddRoute(link, 'dom_link', PLAYWRIGHT_SPA_SOURCE, 'GET');
@@ -594,10 +724,6 @@ export class PlaywrightSpaAdapter implements BrowserAutomationTool {
 
       if (evalResult.nextDataPage) {
         tryAddRoute(evalResult.nextDataPage, 'rsc_hint', RSC_DISCOVERY_SOURCE, 'GET');
-      }
-
-      for (const apiHint of networkApiHints) {
-        tryAddRoute(apiHint, 'api_fetch', PLAYWRIGHT_SPA_SOURCE, 'GET');
       }
 
       const observation: DiscoveredSpaObservation = {
