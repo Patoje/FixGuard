@@ -76,6 +76,11 @@ import type {
   DiscoveredSpaObservation,
 } from '../adapters/BrowserAutomationContracts.js';
 import type { AuthorizedScopeGrant } from '../../scope/AuthorizedScopeContracts.js';
+import {
+  HTML_LINK_EXTRACTION_SOURCE,
+  HTML_ROUTE_EXTRACTION_MAX_PER_STAGE,
+  HtmlRouteExtractionService,
+} from '../analysis/HtmlRouteExtractionService.js';
 
 function sanitizeToSafeId(raw: string): string {
   const cleaned = raw.replace(/[^A-Za-z0-9]/g, '').slice(0, 16);
@@ -625,6 +630,10 @@ export class CompositeActiveReconOrchestratorService {
         }
       }
 
+      // Phase D1 Step 3 — snapshot primary inspect set (seeds + roots). Extraction is 1-hop only:
+      // links are mined from these bodies; extracted pages are never re-mined in this stage.
+      const stage3PrimaryInspectUrls = new Set<string>(urlsToInspect);
+
       for (const targetUrl of urlsToInspect) {
         let currentHost = request.targetDomain;
         try {
@@ -709,6 +718,118 @@ export class CompositeActiveReconOrchestratorService {
               }
             }
           }
+        }
+      }
+
+      // -----------------------------------------------------------------
+      // Phase D1 Step 3 — Passive HTML link & route extraction (1 hop, max 25)
+      // Hermetic: only bodies from stage3PrimaryInspectUrls. Scope+egress already
+      // enforced inside HtmlRouteExtractionService (fail-closed OOS drop).
+      // -----------------------------------------------------------------
+      const htmlExtractor = new HtmlRouteExtractionService();
+      const knownUrlInventory = new Set<string>(urls.map((u) => u.url));
+      for (const primary of stage3PrimaryInspectUrls) {
+        knownUrlInventory.add(primary);
+      }
+      const hop1ExtractedUrls: string[] = [];
+      const htmlExtractedAt = new Date().toISOString();
+
+      for (const webObs of webObservations) {
+        if (hop1ExtractedUrls.length >= HTML_ROUTE_EXTRACTION_MAX_PER_STAGE) {
+          break;
+        }
+        if (!stage3PrimaryInspectUrls.has(webObs.url)) {
+          continue;
+        }
+        if (typeof webObs.bodyText !== 'string' || webObs.bodyText.length === 0) {
+          continue;
+        }
+
+        const remaining = HTML_ROUTE_EXTRACTION_MAX_PER_STAGE - hop1ExtractedUrls.length;
+        const extracted = htmlExtractor.extract({
+          bodyText: webObs.bodyText,
+          baseUrl: webObs.url,
+          targetDomain: request.targetDomain,
+          authorizedScopeGrant: request.authorizedScopeGrant,
+          maxResults: remaining,
+        });
+
+        for (const candidate of extracted.accepted) {
+          if (hop1ExtractedUrls.length >= HTML_ROUTE_EXTRACTION_MAX_PER_STAGE) {
+            break;
+          }
+          if (knownUrlInventory.has(candidate.url)) {
+            continue;
+          }
+          knownUrlInventory.add(candidate.url);
+          hop1ExtractedUrls.push(candidate.url);
+
+          urls.push({
+            url: candidate.url,
+            host: candidate.host,
+            path: candidate.path,
+            ...(candidate.query !== undefined ? { query: candidate.query } : {}),
+            sources: Object.freeze([HTML_LINK_EXTRACTION_SOURCE]),
+            discoveredAt: htmlExtractedAt,
+            collectedAt: htmlExtractedAt,
+            freshness: 'live',
+            sourceReliability: 'direct_observation',
+          });
+
+          // Enqueue for one-hop HTTP probe (no further HTML mining from these pages).
+          urlsToInspect.add(candidate.url);
+        }
+      }
+
+      // One-hop probe of HTML-extracted URLs (inventory already registered above).
+      for (const extractedUrl of hop1ExtractedUrls) {
+        if (httpInspectedUrls.has(extractedUrl)) {
+          continue;
+        }
+        let currentHost = request.targetDomain;
+        try {
+          const parsed = new URL(extractedUrl);
+          currentHost = parsed.hostname;
+          httpInspectedUrls.add(extractedUrl);
+          httpInspectedHosts.add(parsed.hostname);
+
+          const webResult: WebInspectionResult = await coordinator.execute(
+            parsed.hostname,
+            () =>
+              this.tools.webTool.inspectWeb({
+                targetUrl: extractedUrl,
+                verifiedAuthorizationDecision: request.verifiedAuthorizationDecision,
+                authorizedScopeGrant: request.authorizedScopeGrant,
+                lineage: request.lineage,
+                timeoutMs: request.config?.timeoutMs,
+              })
+          );
+
+          if (webResult.status === 'success') {
+            for (const obs of webResult.observations) {
+              webObservations.push(obs);
+            }
+          } else if (webResult.status === 'preflight_denied' || webResult.status === 'execution_failed') {
+            stage3Warnings.push(
+              `HTML-extracted URL inspection ${webResult.status} on ${extractedUrl}: ${webResult.reasonCode}`
+            );
+          }
+        } catch (err) {
+          if (err instanceof TargetInstabilityError || coordinator.isCircuitOpen(currentHost)) {
+            createDraft('stage_3_web_tls', request.targetDomain, 'web_technologies', webObservations.length);
+            createDraft('stage_3_web_tls', request.targetDomain, 'tls_certificates', tlsCertificates.length);
+            await recordStageResult({
+              stage: 'stage_3_web_tls',
+              status: 'partial_failure',
+              durationMs: Date.now() - stage3Start,
+              observationsCount: webObservations.length + tlsCertificates.length,
+              warnings: [`Circuit breaker tripped on ${currentHost}`],
+            });
+            return buildCircuitBrokenResult(currentHost);
+          }
+          stage3Warnings.push(
+            `HTML-extracted URL inspection error on ${extractedUrl}: ${err instanceof Error ? err.message : String(err)}`
+          );
         }
       }
 
