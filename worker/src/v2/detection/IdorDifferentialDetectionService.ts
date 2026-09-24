@@ -44,6 +44,7 @@ import type { Finding } from '../core/Evidence.js';
 import { validateSessionHealth } from '../core/SessionLifecycleService.js';
 import { pruneTransientEvidence } from '../evidence/EvidenceRetentionService.js';
 import { sanitizeEvidenceFragment } from '../core/EvidenceSanitizer.js';
+import { isIdenticalErrorDifferential, probeAuthContextHasCredentials, shouldAbstainIdorWithoutAccessDifferential } from './DetectionTargetBridge.js';
 
 const SENSITIVE_HEADER_NAMES = new Set([
   'authorization',
@@ -404,6 +405,47 @@ export async function runIdorDifferentialDetection(
   );
 
   // 5. Differential Access Control Evaluation
+  // Identical error pages (e.g. both 404 + same body hash) are not access-control evidence.
+  // Anonymous dual-probes with identical substance also abstain: identity-label authStateHash
+  // churn alone must not mint IDOR drafts.
+  if (
+    shouldAbstainIdorWithoutAccessDifferential({
+      baselineStatusCode: baselineSnapshot.statusCode,
+      validationStatusCode: validationSnapshot.statusCode,
+      baselineBodyHash: baselineSnapshot.bodyHash,
+      validationBodyHash: validationSnapshot.bodyHash,
+      identityAHasCredentials: probeAuthContextHasCredentials(request.identityA),
+      identityBHasCredentials: probeAuthContextHasCredentials(request.identityB),
+      identityAId: request.identityA.identityId,
+      identityBId: request.identityB.identityId,
+    })
+  ) {
+    const reasonCode = isIdenticalErrorDifferential({
+      baselineStatusCode: baselineSnapshot.statusCode,
+      validationStatusCode: validationSnapshot.statusCode,
+      baselineBodyHash: baselineSnapshot.bodyHash,
+      validationBodyHash: validationSnapshot.bodyHash,
+    })
+      ? 'identical_error_responses_no_differential'
+      : 'identical_responses_no_access_differential';
+    const abstainedIdentical: IdorDifferentialDetectionResult = {
+      contractVersion: DETECTION_CONTRACT_VERSION,
+      kind: 'idor_differential_detection_result',
+      detectionId: request.detectionId,
+      scanId: request.scanId,
+      assessmentId: request.assessmentId,
+      authorizationGrantId: request.authorizationGrantId,
+      authorizationDecisionId: request.authorizationDecisionId,
+      actorId: request.actorId,
+      status: 'secure_target_abstained',
+      reasonCode,
+      lineage,
+      baselineSnapshot,
+      validationSnapshot,
+    };
+    return pruneTransientEvidence(abstainedIdentical, nowIso);
+  }
+
   // Secure Target Check: If Identity B receives 401, 403, or 404 while Identity A receives 200
   const isIdentityASuccess = probeResponseA.statusCode >= 200 && probeResponseA.statusCode < 300;
   const isIdentityBDenied =

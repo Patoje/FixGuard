@@ -62,6 +62,8 @@ import { DETECTION_CONTRACT_VERSION } from '../detection/DetectionContracts.js';
 import { runCorsMisconfigurationDetection } from '../detection/CorsMisconfigurationDetectionService.js';
 import { runParameterReflectionDetection } from '../detection/ParameterReflectionDetectionService.js';
 import { runIdorDifferentialDetection } from '../detection/IdorDifferentialDetectionService.js';
+import { buildDetectionTargetsFromRecon } from '../detection/DetectionTargetBridge.js';
+import type { DetectionSuppressionRecord } from '../detection/DetectionTargetBridge.js';
 import { runSecurityHeaderDetection } from '../detection/SecurityHeaderDetectionService.js';
 import { runOpenRedirectDetection } from '../detection/OpenRedirectDetectionService.js';
 import { runInformationDisclosureDetection } from '../detection/InformationDisclosureDetectionService.js';
@@ -3465,22 +3467,40 @@ export class OrchestratedAssessmentApplicationService {
       }
 
       // 2. F4 Vulnerability Detection Verticals (CORS & Parameter Reflection)
+      // Phase D1 bridge: feed OBSERVED app endpoints into detection (exclude /_next/static heavy probes).
+      const detectionBridge = buildDetectionTargetsFromRecon({
+        targetDomain: record.targetDomain,
+        aggregatedObservations: reconResult.aggregatedObservations,
+      });
+      const detectionSuppressions: DetectionSuppressionRecord[] = [...detectionBridge.suppressions];
       const targetUrl = `https://${record.targetDomain}/`;
+      const surfaceProbeUrls =
+        detectionBridge.primaryProbeUrls.length > 0
+          ? detectionBridge.primaryProbeUrls
+          : [targetUrl];
       const findings: Finding[] = [];
       const pendingEvidenceDrafts: EnrichedEvidenceDraft[] = [];
 
-      if (!coordinator.isCircuitOpen(record.targetDomain)) {
+      for (const probeUrl of surfaceProbeUrls) {
+        if (coordinator.isCircuitOpen(record.targetDomain)) break;
         try {
+          const pathKey = (() => {
+            try {
+              return new URL(probeUrl).pathname.replace(/[^a-zA-Z0-9]/g, '').slice(0, 12) || 'root';
+            } catch {
+              return 'root';
+            }
+          })();
           const corsResult = await runCorsMisconfigurationDetection({
             contractVersion: DETECTION_CONTRACT_VERSION,
             kind: 'cors_misconfiguration_detection_request',
-            detectionId: `det_cors_${record.assessmentId.slice(-8)}`,
+            detectionId: `det_cors_${record.assessmentId.slice(-8)}_${pathKey}`,
             assessmentId: lineage.assessmentId,
             scanId: lineage.scanId,
             authorizationGrantId: lineage.authorizationGrantId,
             authorizationDecisionId: lineage.authorizationDecisionId,
             actorId: lineage.actorId,
-            endpointUrl: targetUrl,
+            endpointUrl: probeUrl,
             verifiedAuthorizationDecision: verifiedDecision,
             scopeGrant,
             coordinator,
@@ -3494,7 +3514,7 @@ export class OrchestratedAssessmentApplicationService {
             const enrichedDraft: EnrichedEvidenceDraft = {
               ...corsResult.evidenceDraft,
               differentialContext: {
-                endpointUrl: targetUrl,
+                endpointUrl: probeUrl,
                 detectionKind: 'cors_misconfiguration',
                 baselineStatusCode: corsResult.baselineSnapshot?.statusCode,
                 baselineBodyHash: corsResult.baselineSnapshot?.bodyHash,
@@ -3511,18 +3531,26 @@ export class OrchestratedAssessmentApplicationService {
         }
       }
 
-      if (!coordinator.isCircuitOpen(record.targetDomain)) {
+      for (const probeUrl of surfaceProbeUrls) {
+        if (coordinator.isCircuitOpen(record.targetDomain)) break;
         try {
+          const pathKey = (() => {
+            try {
+              return new URL(probeUrl).pathname.replace(/[^a-zA-Z0-9]/g, '').slice(0, 12) || 'root';
+            } catch {
+              return 'root';
+            }
+          })();
           const reflectionResult = await runParameterReflectionDetection({
             contractVersion: DETECTION_CONTRACT_VERSION,
             kind: 'parameter_reflection_detection_request',
-            detectionId: `det_refl_${record.assessmentId.slice(-8)}`,
+            detectionId: `det_refl_${record.assessmentId.slice(-8)}_${pathKey}`,
             assessmentId: lineage.assessmentId,
             scanId: lineage.scanId,
             authorizationGrantId: lineage.authorizationGrantId,
             authorizationDecisionId: lineage.authorizationDecisionId,
             actorId: lineage.actorId,
-            endpointUrl: targetUrl,
+            endpointUrl: probeUrl,
             parameterName: 'q',
             verifiedAuthorizationDecision: verifiedDecision,
             scopeGrant,
@@ -3537,7 +3565,7 @@ export class OrchestratedAssessmentApplicationService {
             const enrichedDraft: EnrichedEvidenceDraft = {
               ...reflectionResult.evidenceDraft,
               differentialContext: {
-                endpointUrl: targetUrl,
+                endpointUrl: probeUrl,
                 detectionKind: 'parameter_reflection',
                 baselineStatusCode: reflectionResult.baselineSnapshot?.statusCode,
                 baselineBodyHash: reflectionResult.baselineSnapshot?.bodyHash,
@@ -3556,54 +3584,36 @@ export class OrchestratedAssessmentApplicationService {
 
       // Multi-Identity Differential IDOR Detection with BYOT (Milestone P3-3)
       if (!coordinator.isCircuitOpen(record.targetDomain)) {
-        const candidateEndpoints: Array<{ endpointUrl: string; resourceParamName: string; baselineResourceId: string }> = [];
+        const candidateEndpoints: Array<{
+          endpointUrl: string;
+          resourceParamName: string;
+          baselineResourceId: string;
+        }> = detectionBridge.idorCandidates.map((c) => ({
+          endpointUrl: c.endpointUrl,
+          resourceParamName: c.resourceParamName,
+          baselineResourceId: c.baselineResourceId,
+        }));
 
-        // Check discovered parameters from recon
-        if (reconResult?.aggregatedObservations?.parameters) {
-          for (const paramObs of reconResult.aggregatedObservations.parameters) {
-            const pName = paramObs.parameterName.toLowerCase();
-            if (
-              pName === 'id' ||
-              pName === 'user_id' ||
-              pName === 'userid' ||
-              pName === 'account_id' ||
-              pName === 'order_id' ||
-              pName === 'doc_id' ||
-              pName === 'item_id'
-            ) {
-              candidateEndpoints.push({
-                endpointUrl: paramObs.url,
-                resourceParamName: paramObs.parameterName,
-                baselineResourceId: '1',
-              });
-            }
-          }
-        }
-
-        // Also check discovered URLs for RESTful ID patterns (e.g. /users/1, /api/orders/123)
-        if (reconResult?.aggregatedObservations?.urls) {
-          for (const urlObs of reconResult.aggregatedObservations.urls) {
-            const match = urlObs.url.match(/\/(users|orders|accounts|items|documents|api\/users|api\/orders|api\/accounts)\/([0-9a-zA-Z_-]+)$/i);
-            if (match && match[2]) {
-              candidateEndpoints.push({
-                endpointUrl: urlObs.url,
-                resourceParamName: match[1],
-                baselineResourceId: match[2],
-              });
-            }
-          }
-        }
-
-        // Fallback default endpoint candidate if none was explicitly crawled
-        if (candidateEndpoints.length === 0) {
+        // Legacy fallback only when zero OBSERVED app endpoints exist at all.
+        if (
+          candidateEndpoints.length === 0 &&
+          detectionBridge.appEndpoints.filter((e) => e.path !== '/').length === 0
+        ) {
           candidateEndpoints.push({
             endpointUrl: `https://${record.targetDomain}/api/user/1`,
             resourceParamName: 'id',
             baselineResourceId: '1',
           });
+        } else if (candidateEndpoints.length === 0) {
+          detectionSuppressions.push({
+            detectorKind: 'idor_access_control',
+            reasonCode: 'idor_abstained_no_resource_candidates_with_observed_surface',
+            rationale:
+              'OBSERVED app endpoints present but no IDOR resource candidates; fabricated /api/user/1 suppressed',
+          });
         }
 
-        for (const candidate of candidateEndpoints.slice(0, 3)) {
+        for (const candidate of candidateEndpoints.slice(0, 5)) {
           if (coordinator.isCircuitOpen(record.targetDomain)) break;
           try {
             const idorResult = await runIdorDifferentialDetection({
@@ -3643,6 +3653,13 @@ export class OrchestratedAssessmentApplicationService {
                 },
               };
               pendingEvidenceDrafts.push(enrichedDraft);
+            } else if (idorResult.status === 'secure_target_abstained') {
+              detectionSuppressions.push({
+                detectorKind: 'idor_access_control',
+                reasonCode: idorResult.reasonCode,
+                rationale: `IDOR abstained: ${idorResult.reasonCode}`,
+                url: candidate.endpointUrl,
+              });
             }
           } catch {
             // Safe error containment
@@ -3651,7 +3668,7 @@ export class OrchestratedAssessmentApplicationService {
 
         // Authentication Bypass Detection with BYOT (Milestone P4-1)
         if (!coordinator.isCircuitOpen(record.targetDomain) && sessionIdentities?.identityA) {
-          for (const candidate of candidateEndpoints.slice(0, 3)) {
+          for (const candidate of candidateEndpoints.slice(0, 5)) {
             if (coordinator.isCircuitOpen(record.targetDomain)) break;
             try {
               const authBypassResult = await runAuthBypassDetection({
@@ -3699,18 +3716,26 @@ export class OrchestratedAssessmentApplicationService {
         }
       }
 
-      if (!coordinator.isCircuitOpen(record.targetDomain)) {
+      for (const probeUrl of surfaceProbeUrls) {
+        if (coordinator.isCircuitOpen(record.targetDomain)) break;
         try {
+          const pathKey = (() => {
+            try {
+              return new URL(probeUrl).pathname.replace(/[^a-zA-Z0-9]/g, '').slice(0, 12) || 'root';
+            } catch {
+              return 'root';
+            }
+          })();
           const headerResult = await runSecurityHeaderDetection({
             contractVersion: DETECTION_CONTRACT_VERSION,
             kind: 'security_header_detection_request',
-            detectionId: `det_sh_${record.assessmentId.slice(-8)}`,
+            detectionId: `det_sh_${record.assessmentId.slice(-8)}_${pathKey}`,
             assessmentId: lineage.assessmentId,
             scanId: lineage.scanId,
             authorizationGrantId: lineage.authorizationGrantId,
             authorizationDecisionId: lineage.authorizationDecisionId,
             actorId: lineage.actorId,
-            endpointUrl: targetUrl,
+            endpointUrl: probeUrl,
             verifiedAuthorizationDecision: verifiedDecision,
             scopeGrant,
             coordinator,
@@ -3724,7 +3749,7 @@ export class OrchestratedAssessmentApplicationService {
             const enrichedDraft: EnrichedEvidenceDraft = {
               ...headerResult.evidenceDraft,
               differentialContext: {
-                endpointUrl: targetUrl,
+                endpointUrl: probeUrl,
                 detectionKind: 'missing_security_headers',
                 missingHeaders: headerResult.missingHeaders,
                 presentHeaders: headerResult.presentHeaders,
@@ -3737,18 +3762,26 @@ export class OrchestratedAssessmentApplicationService {
         }
       }
 
-      if (!coordinator.isCircuitOpen(record.targetDomain)) {
+      for (const probeUrl of surfaceProbeUrls) {
+        if (coordinator.isCircuitOpen(record.targetDomain)) break;
         try {
+          const pathKey = (() => {
+            try {
+              return new URL(probeUrl).pathname.replace(/[^a-zA-Z0-9]/g, '').slice(0, 12) || 'root';
+            } catch {
+              return 'root';
+            }
+          })();
           const redirectResult = await runOpenRedirectDetection({
             contractVersion: DETECTION_CONTRACT_VERSION,
             kind: 'open_redirect_detection_request',
-            detectionId: `det_redir_${record.assessmentId.slice(-8)}`,
+            detectionId: `det_redir_${record.assessmentId.slice(-8)}_${pathKey}`,
             assessmentId: lineage.assessmentId,
             scanId: lineage.scanId,
             authorizationGrantId: lineage.authorizationGrantId,
             authorizationDecisionId: lineage.authorizationDecisionId,
             actorId: lineage.actorId,
-            endpointUrl: targetUrl,
+            endpointUrl: probeUrl,
             verifiedAuthorizationDecision: verifiedDecision,
             scopeGrant,
             coordinator,
@@ -3762,7 +3795,7 @@ export class OrchestratedAssessmentApplicationService {
             const enrichedDraft: EnrichedEvidenceDraft = {
               ...redirectResult.evidenceDraft,
               differentialContext: {
-                endpointUrl: targetUrl,
+                endpointUrl: probeUrl,
                 detectionKind: 'open_redirect',
                 parameterName: redirectResult.parameterName,
                 injectedCanary: redirectResult.injectedCanary,
@@ -3777,18 +3810,26 @@ export class OrchestratedAssessmentApplicationService {
         }
       }
 
-      if (!coordinator.isCircuitOpen(record.targetDomain)) {
+      for (const probeUrl of surfaceProbeUrls) {
+        if (coordinator.isCircuitOpen(record.targetDomain)) break;
         try {
+          const pathKey = (() => {
+            try {
+              return new URL(probeUrl).pathname.replace(/[^a-zA-Z0-9]/g, '').slice(0, 12) || 'root';
+            } catch {
+              return 'root';
+            }
+          })();
           const infoDiscResult = await runInformationDisclosureDetection({
             contractVersion: DETECTION_CONTRACT_VERSION,
             kind: 'information_disclosure_detection_request',
-            detectionId: `det_infodisc_${record.assessmentId.slice(-8)}`,
+            detectionId: `det_infodisc_${record.assessmentId.slice(-8)}_${pathKey}`,
             assessmentId: lineage.assessmentId,
             scanId: lineage.scanId,
             authorizationGrantId: lineage.authorizationGrantId,
             authorizationDecisionId: lineage.authorizationDecisionId,
             actorId: lineage.actorId,
-            endpointUrl: targetUrl,
+            endpointUrl: probeUrl,
             verifiedAuthorizationDecision: verifiedDecision,
             scopeGrant,
             coordinator,
@@ -3803,7 +3844,7 @@ export class OrchestratedAssessmentApplicationService {
             const enrichedDraft: EnrichedEvidenceDraft = {
               ...infoDiscResult.evidenceDraft,
               differentialContext: {
-                endpointUrl: targetUrl,
+                endpointUrl: probeUrl,
                 detectionKind: 'information_disclosure',
                 disclosureKind: primaryDisc?.disclosureKind,
                 disclosedFragment: primaryDisc?.disclosedFragment,
@@ -4205,45 +4246,64 @@ export class OrchestratedAssessmentApplicationService {
           }
         }
 
-        // Session Fixation Detection Probe
+        // Session Fixation Detection Probe (tech-gated: suppress PHPSESSID on Next.js / non-PHP SPA)
         if (!coordinator.isCircuitOpen(record.targetDomain)) {
-          try {
-            const fixResult = await runSessionFixationDetection({
-              contractVersion: DETECTION_CONTRACT_VERSION,
-              kind: 'session_fixation_detection_request',
-              detectionId: `det_fix_${record.assessmentId.slice(-8)}`,
-              assessmentId: lineage.assessmentId,
-              scanId: lineage.scanId,
-              authorizationGrantId: lineage.authorizationGrantId,
-              authorizationDecisionId: lineage.authorizationDecisionId,
-              actorId: lineage.actorId,
-              endpointUrl: targetUrl,
-              httpMethod: 'GET',
-              verifiedAuthorizationDecision: verifiedDecision,
-              scopeGrant,
-              transport: this.httpTransport,
-              dnsResolver: this.dnsResolver,
+          if (detectionBridge.phpSessionFixationGate.suppress) {
+            detectionSuppressions.push({
+              detectorKind: 'session_fixation',
+              reasonCode: detectionBridge.phpSessionFixationGate.reasonCode,
+              rationale: detectionBridge.phpSessionFixationGate.rationale,
+              url: surfaceProbeUrls[0] ?? targetUrl,
             });
+          } else {
+            for (const probeUrl of surfaceProbeUrls.slice(0, 3)) {
+              if (coordinator.isCircuitOpen(record.targetDomain)) break;
+              try {
+                const pathKey = (() => {
+                  try {
+                    return new URL(probeUrl).pathname.replace(/[^a-zA-Z0-9]/g, '').slice(0, 12) || 'root';
+                  } catch {
+                    return 'root';
+                  }
+                })();
+                const fixResult = await runSessionFixationDetection({
+                  contractVersion: DETECTION_CONTRACT_VERSION,
+                  kind: 'session_fixation_detection_request',
+                  detectionId: `det_fix_${record.assessmentId.slice(-8)}_${pathKey}`,
+                  assessmentId: lineage.assessmentId,
+                  scanId: lineage.scanId,
+                  authorizationGrantId: lineage.authorizationGrantId,
+                  authorizationDecisionId: lineage.authorizationDecisionId,
+                  actorId: lineage.actorId,
+                  endpointUrl: probeUrl,
+                  httpMethod: 'GET',
+                  verifiedAuthorizationDecision: verifiedDecision,
+                  scopeGrant,
+                  transport: this.httpTransport,
+                  dnsResolver: this.dnsResolver,
+                });
 
-            if (fixResult.status === 'vulnerability_detected' && fixResult.finding) {
-              findings.push(fixResult.finding);
-            } else if (fixResult.status === 'pending_human_review' && fixResult.evidenceDraft) {
-              const enrichedDraft: EnrichedEvidenceDraft = {
-                ...fixResult.evidenceDraft,
-                differentialContext: {
-                  endpointUrl: fixResult.endpointUrl,
-                  detectionKind: 'session_fixation',
-                  httpMethod: fixResult.httpMethod,
-                  sessionCookieName: fixResult.sessionCookieName,
-                  fixedSessionId: fixResult.fixedSessionId,
-                  serverRegeneratedSession: fixResult.serverRegeneratedSession,
-                  baselineStatusCode: fixResult.responseStatusCode,
-                },
-              };
-              pendingEvidenceDrafts.push(enrichedDraft);
+                if (fixResult.status === 'vulnerability_detected' && fixResult.finding) {
+                  findings.push(fixResult.finding);
+                } else if (fixResult.status === 'pending_human_review' && fixResult.evidenceDraft) {
+                  const enrichedDraft: EnrichedEvidenceDraft = {
+                    ...fixResult.evidenceDraft,
+                    differentialContext: {
+                      endpointUrl: fixResult.endpointUrl,
+                      detectionKind: 'session_fixation',
+                      httpMethod: fixResult.httpMethod,
+                      sessionCookieName: fixResult.sessionCookieName,
+                      fixedSessionId: fixResult.fixedSessionId,
+                      serverRegeneratedSession: fixResult.serverRegeneratedSession,
+                      baselineStatusCode: fixResult.responseStatusCode,
+                    },
+                  };
+                  pendingEvidenceDrafts.push(enrichedDraft);
+                }
+              } catch {
+                // Safe error containment
+              }
             }
-          } catch {
-            // Safe error containment
           }
         }
 
@@ -5211,6 +5271,23 @@ export class OrchestratedAssessmentApplicationService {
       }
 
       // 4. Update repository with completed assessment state
+      // Persist only explainable tech/IDOR gate notices (not per-URL noise).
+      const suppressionNotices = [
+        ...new Set(
+          detectionSuppressions
+            .filter(
+              (s) =>
+                s.detectorKind === 'session_fixation' ||
+                s.detectorKind === 'idor_access_control' ||
+                s.reasonCode === 'static_bundle_excluded_from_heavy_probe'
+            )
+            .map((s) => `detection_suppressed:${s.detectorKind}:${s.reasonCode}`)
+        ),
+      ];
+      const mergedDegraded = [
+        ...(reconResult.degradedCapabilities ?? []),
+        ...suppressionNotices,
+      ];
       await this.repository.update(record.assessmentId, (prev) => ({
         ...prev,
         status: 'completed',
@@ -5225,9 +5302,7 @@ export class OrchestratedAssessmentApplicationService {
           completedAt: new Date().toISOString(),
           durationMs: Date.now() - startTime,
         },
-        ...(reconResult.degradedCapabilities && reconResult.degradedCapabilities.length > 0
-          ? { degradedCapabilities: reconResult.degradedCapabilities }
-          : {}),
+        ...(mergedDegraded.length > 0 ? { degradedCapabilities: mergedDegraded } : {}),
       }));
   }
 }

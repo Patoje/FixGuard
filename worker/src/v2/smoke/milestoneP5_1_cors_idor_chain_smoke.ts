@@ -364,6 +364,16 @@ async function runTests(): Promise<void> {
     const startRes = await appService.startAssessment({
       targetDomain: 'app.example.com',
       actorId: 'usr_secops_lead',
+      sessionIdentities: {
+        identityA: {
+          identityId: 'usr_tenant_a',
+          injectHeaders: { 'x-user-id': 'tenant_a' },
+        },
+        identityB: {
+          identityId: 'usr_tenant_b',
+          injectHeaders: { 'x-user-id': 'tenant_b' },
+        },
+      },
     });
 
     if (startRes.status !== 'running') {

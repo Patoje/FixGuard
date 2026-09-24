@@ -54,9 +54,10 @@ function fail(message: string): never {
 
 function createScopeGrant(
   hosts: readonly string[],
-  allowCredentialUse: boolean
+  allowCredentialUse: boolean,
+  nowIso: string
 ): AuthorizedScopeGrant {
-  const now = Date.now();
+  const now = Date.parse(nowIso);
   const primary = hosts[0]!;
   const apex = primary.includes('.') ? primary.split('.').slice(-2).join('.') : primary;
   return {
@@ -356,7 +357,8 @@ async function runSmokeTests(): Promise<void> {
 
   const sealedScope = createScopeGrant(
     ['example.com', 'api.example.com', 'app.example.com'],
-    true
+    true,
+    nowIso
   );
   const sealedDecision = establishVerifiedAuthorizationDecision(
     {
@@ -494,7 +496,7 @@ async function runSmokeTests(): Promise<void> {
       body: {
         hostname: destHost,
         operatorId: 'act_remed_a12',
-        scopeGrant: createScopeGrant(['api.example.com'], true),
+        scopeGrant: createScopeGrant(['api.example.com'], true, nowIso),
         authorizedAt: nowIso,
       },
     } as unknown as Request,
@@ -528,7 +530,7 @@ async function runSmokeTests(): Promise<void> {
         mechanism: 'credential_reuse',
         credentialRefId: 'cred_remed_001',
         operatorId: 'act_remed_a12',
-        scopeGrant: createScopeGrant(['api.example.com', 'app.example.com'], true),
+        scopeGrant: createScopeGrant(['api.example.com', 'app.example.com'], true, nowIso),
       },
     } as unknown as Request,
     {
@@ -600,7 +602,7 @@ async function runSmokeTests(): Promise<void> {
         mechanism: 'credential_reuse',
         credentialRefId: 'cred_remed_001',
         operatorId: 'act_remed_a12',
-        scopeGrant: createScopeGrant(['api.example.com', 'app.example.com'], true),
+        scopeGrant: createScopeGrant(['api.example.com', 'app.example.com'], true, nowIso),
         targetUrl: `https://${destHost}/`,
         recordedAt: nowIso,
       },
