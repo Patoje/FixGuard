@@ -16,6 +16,20 @@ export type BrowserAutomationContractVersion = 'fixguard-browser-automation/v0';
 export const BROWSER_AUTOMATION_CONTRACT_VERSION: BrowserAutomationContractVersion =
   'fixguard-browser-automation/v0';
 
+/** Provenance for DOM/form routes mined after Playwright hydration (OBSERVED). */
+export const PLAYWRIGHT_SPA_SOURCE = 'playwright_spa' as const;
+/** Provenance for Next.js / RSC signals mined from hydrated page state (OBSERVED). */
+export const RSC_DISCOVERY_SOURCE = 'rsc_discovery' as const;
+
+/** Hard cap: pages rendered per recon stage (seeds + app endpoints). */
+export const SPA_DISCOVERY_MAX_PAGES = 5;
+/** Hard cap: accepted in-scope routes retained per rendered page. */
+export const SPA_DISCOVERY_MAX_ROUTES_PER_PAGE = 40;
+/** Default navigation + hydration timeout. */
+export const SPA_DISCOVERY_DEFAULT_TIMEOUT_MS = 15_000;
+
+export type BrowserUnavailableReasonCode = 'browser_unavailable';
+
 export interface BrowserAutomationExplicitNonClaims {
   readonly createsRealFindings: false;
   readonly createsPersistedEvidence: false;
@@ -38,14 +52,14 @@ export const BROWSER_AUTOMATION_NON_CLAIMS: BrowserAutomationExplicitNonClaims =
   severity: 'info',
 });
 
-export type SpaRouteType = 'dom_link' | 'api_fetch' | 'form_action' | 'history_push';
+export type SpaRouteType = 'dom_link' | 'api_fetch' | 'form_action' | 'history_push' | 'rsc_hint';
 
 export interface DiscoveredSpaRouteObservation {
   readonly url: string;
   readonly path: string;
   readonly method?: string;
   readonly routeType: SpaRouteType;
-  readonly source: string;
+  readonly source: typeof PLAYWRIGHT_SPA_SOURCE | typeof RSC_DISCOVERY_SOURCE | string;
   readonly discoveredAt: string;
 }
 
@@ -117,6 +131,8 @@ export interface BrowserAutomationRequest {
   readonly dnsResolver?: PreSpawnDnsResolver;
   readonly timeoutMs?: number;
   readonly waitForHydrationMs?: number;
+  /** Soft cap on accepted in-scope routes for this page (default SPA_DISCOVERY_MAX_ROUTES_PER_PAGE). */
+  readonly maxRoutes?: number;
 }
 
 export type BrowserAutomationResult =

@@ -1,20 +1,30 @@
 /**
- * Milestone 7 — Browser Automation Engine for SPA & DOM Discovery (Playwright)
+ * Milestone 7 / Phase D1 — Browser Automation Engine for SPA & RSC Discovery (Playwright)
  *
  * Implements headless browser crawling, dynamic JavaScript hydration wait,
- * DOM-based parameter extraction, and route discovery.
+ * DOM/RSC route mining, and form/parameter extraction.
+ *
+ * Egress model (fail-closed, same gates as HTML extraction / other adapters):
+ * 1. Gate 1 — runAdapterPreflight before browser launch:
+ *    verified auth brand, lineage, permissions, host scope, static SSRF, DNS rebind.
+ * 2. Gate 2 — page.route interceptor for EVERY navigation and subresource:
+ *    isInternalOrSsrfTarget OR !isScopeAllowed OR evaluateEgressPolicy !== allow → abort.
+ * 3. Gate 3 — discovered route registration:
+ *    same scope + egress filters before emitting OBSERVED routes (OOS dropped).
+ *
+ * Caps: maxRoutes per page (default SPA_DISCOVERY_MAX_ROUTES_PER_PAGE).
+ * Loud degrade: chromium/playwright launch failures → reasonCode browser_unavailable.
  *
  * Invariants:
  * 1. Layer 6 Tool Adapter: Observes and extracts; makes 0 vulnerability claims.
- * 2. Double SSRF Gate: runAdapterPreflight before browser launch AND page.route() interceptor
- *    for all subresources to block private RFC1918, loopback, and cloud metadata access.
- * 3. Circuit Breaker & Concurrency Coordination: Obey TargetExecutionCoordinator ceilings and trip state.
- * 4. Guaranteed Cleanup: Context and browser closed in finally block (0 zombie processes).
- * 5. Strictly zero type bypass policy.
+ * 2. Guaranteed Cleanup: Context and browser closed in finally (0 zombie processes).
+ * 3. Strictly zero type bypass policy.
  */
 
 import { chromium } from 'playwright';
-import { isInternalOrSsrfTarget } from '../policy/PassiveEgressPolicy.js';
+import { isScopeAllowed } from '../../attack-execution/AttackExecutionContracts.js';
+import { deriveM30EgressScope } from '../../authorization/VerifiedAuthorizationDecisionService.js';
+import { evaluateEgressPolicy, isInternalOrSsrfTarget } from '../policy/PassiveEgressPolicy.js';
 import {
   runAdapterPreflight,
   type PreSpawnDnsResolver,
@@ -23,6 +33,7 @@ import {
   CIRCUIT_OPEN_REASON_CODE,
   TargetInstabilityError,
 } from '../../runtime/CircuitBreakerContracts.js';
+import type { AuthorizedScopeGrant } from '../../scope/AuthorizedScopeContracts.js';
 import type {
   BrowserAutomationRequest,
   BrowserAutomationResult,
@@ -36,10 +47,15 @@ import type {
   DiscoveredSpaObservation,
   DiscoveredSpaRouteObservation,
   DiscoveredDomInputObservation,
+  SpaRouteType,
 } from './BrowserAutomationContracts.js';
 import {
   BROWSER_AUTOMATION_CONTRACT_VERSION,
   BROWSER_AUTOMATION_NON_CLAIMS,
+  PLAYWRIGHT_SPA_SOURCE,
+  RSC_DISCOVERY_SOURCE,
+  SPA_DISCOVERY_DEFAULT_TIMEOUT_MS,
+  SPA_DISCOVERY_MAX_ROUTES_PER_PAGE,
 } from './BrowserAutomationContracts.js';
 
 class PlaywrightPageWrapper implements PageInstance {
@@ -155,6 +171,58 @@ interface RawDomEvaluationResult {
   }[];
   readonly frameworks: readonly string[];
   readonly scripts: readonly string[];
+  readonly rscPaths: readonly string[];
+  readonly nextDataPage?: string;
+}
+
+/**
+ * Fail-closed URL acceptance for browser navigations, subresources, and mined routes.
+ * Mirrors HtmlRouteExtractionService: scope host check + evaluateEgressPolicy.
+ */
+export function isBrowserUrlAllowed(
+  absoluteUrl: string,
+  authorizedScopeGrant: AuthorizedScopeGrant
+): boolean {
+  let parsed: URL;
+  try {
+    parsed = new URL(absoluteUrl);
+  } catch {
+    return false;
+  }
+
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+    return false;
+  }
+
+  const host = parsed.hostname.trim().toLowerCase().replace(/\.$/, '');
+  if (!host || isInternalOrSsrfTarget(host)) {
+    return false;
+  }
+
+  if (!isScopeAllowed(host, authorizedScopeGrant)) {
+    return false;
+  }
+
+  const egressScope = deriveM30EgressScope(authorizedScopeGrant);
+  const egressDecision = evaluateEgressPolicy({
+    targetUrl: absoluteUrl,
+    authorizedScope: egressScope,
+    capabilityId: 'recon.playwright_spa_discovery',
+  });
+  return egressDecision.decision === 'allow';
+}
+
+function isBrowserUnavailableError(err: unknown): boolean {
+  const msg = err instanceof Error ? err.message : String(err);
+  return (
+    /Executable doesn't exist/i.test(msg) ||
+    /browserType\.launch/i.test(msg) ||
+    /Failed to launch (chromium|chrome|browser)/i.test(msg) ||
+    /Could not find (chromium|chrome|browser)/i.test(msg) ||
+    /playwright.*install/i.test(msg) ||
+    /chromium.*missing/i.test(msg) ||
+    /ENOENT/i.test(msg)
+  );
 }
 
 export class PlaywrightSpaAdapter implements BrowserAutomationTool {
@@ -201,6 +269,10 @@ export class PlaywrightSpaAdapter implements BrowserAutomationTool {
     const targetHost = preflight.targetHost!;
     const targetUrl = preflight.targetUrl ?? `https://${targetHost}/`;
     const coordinator = request.coordinator;
+    const maxRoutes =
+      typeof request.maxRoutes === 'number' && request.maxRoutes > 0
+        ? Math.floor(request.maxRoutes)
+        : SPA_DISCOVERY_MAX_ROUTES_PER_PAGE;
 
     // -------------------------------------------------------------------------
     // Gate 2: Circuit Breaker Pre-Launch Check
@@ -227,26 +299,45 @@ export class PlaywrightSpaAdapter implements BrowserAutomationTool {
     let context: BrowserContextInstance | null = null;
     let page: PageInstance | null = null;
 
-    const timeoutMs = request.timeoutMs ?? 15_000;
+    const timeoutMs = request.timeoutMs ?? SPA_DISCOVERY_DEFAULT_TIMEOUT_MS;
     const hydrationWaitMs = request.waitForHydrationMs ?? 1_000;
-    const blockedSubresources: string[] = [];
+    const networkApiHints: string[] = [];
 
     try {
-      // Launch browser
-      browser = await launcher.launch({ headless: true });
+      // Launch browser — loud degrade when Chromium/Playwright missing
+      try {
+        browser = await launcher.launch({ headless: true });
+      } catch (launchErr: unknown) {
+        if (isBrowserUnavailableError(launchErr)) {
+          const errorMsg = launchErr instanceof Error ? launchErr.message : String(launchErr);
+          return {
+            status: 'execution_failed',
+            contractVersion: BROWSER_AUTOMATION_CONTRACT_VERSION,
+            targetUrlOrDomain: rawTarget,
+            targetHost,
+            reasonCode: 'browser_unavailable',
+            reason: `Playwright/Chromium unavailable: ${errorMsg}`,
+            explicitNonClaims: BROWSER_AUTOMATION_NON_CLAIMS,
+            lineage: { ...request.lineage },
+            durationMs: Date.now() - startTime,
+          };
+        }
+        throw launchErr;
+      }
+
       context = await browser.newContext();
       page = await context.newPage();
 
       // -----------------------------------------------------------------------
-      // Double SSRF Gate — Pass 2: In-Browser Subresource Interception Gate
+      // Gate 2 — In-Browser Navigation & Subresource Interception
+      // SSRF + scope + egress (fail-closed OOS). Same policy as HTML extraction.
       // -----------------------------------------------------------------------
       await page.route('**/*', async (route) => {
         const reqUrl = route.request().url();
         let isBlocked = false;
 
         try {
-          const parsed = new URL(reqUrl);
-          if (isInternalOrSsrfTarget(parsed.hostname)) {
+          if (!isBrowserUrlAllowed(reqUrl, request.authorizedScopeGrant)) {
             isBlocked = true;
           }
         } catch {
@@ -254,7 +345,6 @@ export class PlaywrightSpaAdapter implements BrowserAutomationTool {
         }
 
         if (isBlocked) {
-          blockedSubresources.push(reqUrl);
           await route.abort('blockedbyclient');
           return;
         }
@@ -267,19 +357,29 @@ export class PlaywrightSpaAdapter implements BrowserAutomationTool {
         await route.continue();
       });
 
-      // Feed telemetry into coordinator circuit breaker
-      if (coordinator) {
-        page.on('response', (response) => {
-          try {
-            const parsed = new URL(response.url());
-            if (parsed.hostname === targetHost) {
+      // Feed telemetry + capture in-scope XHR/fetch URLs as API hints
+      page.on('response', (response) => {
+        try {
+          const resUrl = response.url();
+          const parsed = new URL(resUrl);
+          if (parsed.hostname === targetHost) {
+            if (coordinator) {
               coordinator.recordTargetResponse(targetHost, response.status());
             }
-          } catch {
-            // Ignore malformed response URLs
+            const pathLower = parsed.pathname.toLowerCase();
+            if (
+              pathLower.startsWith('/api/') ||
+              pathLower.includes('/_next/data/') ||
+              pathLower.includes('?_rsc=') ||
+              parsed.search.includes('_rsc=')
+            ) {
+              networkApiHints.push(resUrl);
+            }
           }
-        });
-      }
+        } catch {
+          // Ignore malformed response URLs
+        }
+      });
 
       // Navigate via coordinator concurrency gate
       if (coordinator) {
@@ -317,7 +417,7 @@ export class PlaywrightSpaAdapter implements BrowserAutomationTool {
 
       const pageTitle = await page.title().catch(() => '');
 
-      // Extract DOM-based dynamic artifacts
+      // Extract DOM + Next.js/RSC hydration artifacts
       const evalResult: RawDomEvaluationResult = await page.evaluate(() => {
         const collectedLinks: string[] = [];
         const linkNodes = document.querySelectorAll('a[href]');
@@ -354,23 +454,62 @@ export class PlaywrightSpaAdapter implements BrowserAutomationTool {
           collectedForms.push({ action: formAction, method: formMethod, inputs });
         }
 
-        // Detect client-side frameworks
         const detectedFrameworks: string[] = [];
         const win = window as unknown as Record<string, unknown>;
+        const rscPaths: string[] = [];
+        let nextDataPage: string | undefined;
 
         if (win && typeof win === 'object') {
-          if ('__NEXT_DATA__' in win) detectedFrameworks.push('Next.js');
+          if ('__NEXT_DATA__' in win) {
+            detectedFrameworks.push('Next.js');
+            const nextData = win.__NEXT_DATA__;
+            if (nextData && typeof nextData === 'object') {
+              const nd = nextData as Record<string, unknown>;
+              if (typeof nd.page === 'string' && nd.page.length > 0) {
+                nextDataPage = nd.page.startsWith('/') ? nd.page : `/${nd.page}`;
+                rscPaths.push(nextDataPage);
+              }
+              if (typeof nd.buildId === 'string' && nd.buildId.length > 0 && nextDataPage) {
+                rscPaths.push(`/_next/data/${nd.buildId}${nextDataPage === '/' ? '/index' : nextDataPage}.json`);
+              }
+            }
+          }
           if ('__REACT_DEVTOOLS_GLOBAL_HOOK__' in win) detectedFrameworks.push('React');
           if ('__NUXT__' in win) detectedFrameworks.push('Nuxt');
           if ('__VUE__' in win) detectedFrameworks.push('Vue');
           if ('ng' in win) detectedFrameworks.push('Angular');
         }
 
+        // App-router RSC markers in the DOM (self.__next_f, flight script payloads).
+        const html = document.documentElement?.innerHTML ?? '';
+        if (html.includes('self.__next_f') || html.includes('__next_f.push')) {
+          if (!detectedFrameworks.includes('Next.js')) {
+            detectedFrameworks.push('Next.js');
+          }
+        }
+
         const collectedScripts: string[] = [];
         const scriptNodes = document.querySelectorAll('script[src]');
         for (let i = 0; i < scriptNodes.length; i++) {
           const src = scriptNodes[i].getAttribute('src');
-          if (src) collectedScripts.push(src);
+          if (src) {
+            collectedScripts.push(src);
+            if (src.includes('/_next/')) {
+              if (!detectedFrameworks.includes('Next.js')) {
+                detectedFrameworks.push('Next.js');
+              }
+            }
+          }
+        }
+
+        // Prefetch / next/link data attributes often expose in-app routes.
+        const prefetchNodes = document.querySelectorAll('[data-prefetch], link[rel="prefetch"]');
+        for (let i = 0; i < prefetchNodes.length; i++) {
+          const el = prefetchNodes[i];
+          const href = el.getAttribute('href');
+          if (href && href.startsWith('/')) {
+            rscPaths.push(href);
+          }
         }
 
         return {
@@ -378,6 +517,8 @@ export class PlaywrightSpaAdapter implements BrowserAutomationTool {
           forms: collectedForms,
           frameworks: detectedFrameworks,
           scripts: collectedScripts,
+          rscPaths,
+          nextDataPage,
         };
       });
 
@@ -386,31 +527,40 @@ export class PlaywrightSpaAdapter implements BrowserAutomationTool {
       const discoveredInputs: DiscoveredDomInputObservation[] = [];
       const seenRoutes = new Set<string>();
 
-      // Normalize extracted links
-      for (const link of evalResult.links) {
+      const tryAddRoute = (
+        rawHref: string,
+        routeType: SpaRouteType,
+        source: typeof PLAYWRIGHT_SPA_SOURCE | typeof RSC_DISCOVERY_SOURCE,
+        method: string
+      ): void => {
+        if (discoveredRoutes.length >= maxRoutes) return;
         try {
-          const resolved = new URL(link, targetUrl);
-          // Keep only same-origin or in-scope subdomains
-          if (resolved.hostname === targetHost || resolved.hostname.endsWith(`.${targetHost}`)) {
-            const key = `GET:${resolved.pathname}`;
-            if (!seenRoutes.has(key)) {
-              seenRoutes.add(key);
-              discoveredRoutes.push({
-                url: resolved.href,
-                path: resolved.pathname,
-                method: 'GET',
-                routeType: 'dom_link',
-                source: 'playwright_dom_crawler',
-                discoveredAt: nowIso,
-              });
-            }
+          const resolved = new URL(rawHref, targetUrl);
+          resolved.hash = '';
+          const absoluteUrl = `${resolved.protocol}//${resolved.host}${resolved.pathname}${resolved.search}`;
+          if (!isBrowserUrlAllowed(absoluteUrl, request.authorizedScopeGrant)) {
+            return;
           }
+          const key = `${method}:${resolved.pathname}${resolved.search}`;
+          if (seenRoutes.has(key)) return;
+          seenRoutes.add(key);
+          discoveredRoutes.push({
+            url: absoluteUrl,
+            path: resolved.pathname,
+            method,
+            routeType,
+            source,
+            discoveredAt: nowIso,
+          });
         } catch {
           // Ignore invalid URLs
         }
+      };
+
+      for (const link of evalResult.links) {
+        tryAddRoute(link, 'dom_link', PLAYWRIGHT_SPA_SOURCE, 'GET');
       }
 
-      // Process forms and inputs
       for (const form of evalResult.forms) {
         let formUrl = targetUrl;
         let formPath = '/';
@@ -425,18 +575,7 @@ export class PlaywrightSpaAdapter implements BrowserAutomationTool {
         }
 
         const formMethod = (form.method ?? 'GET').toUpperCase();
-        const routeKey = `${formMethod}:${formPath}`;
-        if (!seenRoutes.has(routeKey)) {
-          seenRoutes.add(routeKey);
-          discoveredRoutes.push({
-            url: formUrl,
-            path: formPath,
-            method: formMethod,
-            routeType: 'form_action',
-            source: 'playwright_dom_crawler',
-            discoveredAt: nowIso,
-          });
-        }
+        tryAddRoute(form.action ?? formUrl, 'form_action', PLAYWRIGHT_SPA_SOURCE, formMethod);
 
         for (const input of form.inputs) {
           discoveredInputs.push({
@@ -447,6 +586,18 @@ export class PlaywrightSpaAdapter implements BrowserAutomationTool {
             discoveredAt: nowIso,
           });
         }
+      }
+
+      for (const rscPath of evalResult.rscPaths) {
+        tryAddRoute(rscPath, 'rsc_hint', RSC_DISCOVERY_SOURCE, 'GET');
+      }
+
+      if (evalResult.nextDataPage) {
+        tryAddRoute(evalResult.nextDataPage, 'rsc_hint', RSC_DISCOVERY_SOURCE, 'GET');
+      }
+
+      for (const apiHint of networkApiHints) {
+        tryAddRoute(apiHint, 'api_fetch', PLAYWRIGHT_SPA_SOURCE, 'GET');
       }
 
       const observation: DiscoveredSpaObservation = {
@@ -496,6 +647,21 @@ export class PlaywrightSpaAdapter implements BrowserAutomationTool {
         };
       }
 
+      if (isBrowserUnavailableError(err)) {
+        const errorMsg = err instanceof Error ? err.message : String(err);
+        return {
+          status: 'execution_failed',
+          contractVersion: BROWSER_AUTOMATION_CONTRACT_VERSION,
+          targetUrlOrDomain: rawTarget,
+          targetHost,
+          reasonCode: 'browser_unavailable',
+          reason: `Playwright/Chromium unavailable: ${errorMsg}`,
+          explicitNonClaims: BROWSER_AUTOMATION_NON_CLAIMS,
+          lineage: { ...request.lineage },
+          durationMs: Date.now() - startTime,
+        };
+      }
+
       const errorMsg = err instanceof Error ? err.message : String(err);
       return {
         status: 'execution_failed',
@@ -509,7 +675,6 @@ export class PlaywrightSpaAdapter implements BrowserAutomationTool {
         durationMs: Date.now() - startTime,
       };
     } finally {
-      // Guaranteed cleanup: strictly close page, context, and browser
       if (page) {
         await page.close().catch(() => {});
       }

@@ -140,6 +140,8 @@ class MockPage implements PageInstance {
       forms: Array<{ action?: string; method?: string; inputs: Array<{ name: string; type: string }> }>;
       frameworks: string[];
       scripts: string[];
+      rscPaths?: string[];
+      nextDataPage?: string;
     }
   ) {}
 
@@ -173,7 +175,12 @@ class MockPage implements PageInstance {
 
   async evaluate<T>(fn: () => T | Promise<T>): Promise<T> {
     // If the caller is evaluating DOM inspection, return mock dom payload
-    return this.domPayload as unknown as T;
+    // Normalize optional RSC fields so adapter loops never see undefined.
+    const payload = {
+      ...this.domPayload,
+      rscPaths: this.domPayload.rscPaths ?? [],
+    };
+    return payload as unknown as T;
   }
 
   async title(): Promise<string> {
@@ -196,6 +203,8 @@ class MockBrowserContext implements BrowserContextInstance {
       forms: Array<{ action?: string; method?: string; inputs: Array<{ name: string; type: string }> }>;
       frameworks: string[];
       scripts: string[];
+      rscPaths?: string[];
+      nextDataPage?: string;
     }
   ) {}
 
@@ -221,6 +230,8 @@ class MockBrowser implements BrowserInstance {
       forms: Array<{ action?: string; method?: string; inputs: Array<{ name: string; type: string }> }>;
       frameworks: string[];
       scripts: string[];
+      rscPaths?: string[];
+      nextDataPage?: string;
     }
   ) {}
 
@@ -246,6 +257,8 @@ class MockPlaywrightLauncher implements PlaywrightBrowserLauncher {
       forms: Array<{ action?: string; method?: string; inputs: Array<{ name: string; type: string }> }>;
       frameworks: string[];
       scripts: string[];
+      rscPaths?: string[];
+      nextDataPage?: string;
     } = {
       links: ['/dashboard', '/settings', 'https://example.com/api/v1/users'],
       forms: [
@@ -260,6 +273,7 @@ class MockPlaywrightLauncher implements PlaywrightBrowserLauncher {
       ],
       frameworks: ['Next.js', 'React'],
       scripts: ['/_next/static/chunks/main.js'],
+      rscPaths: [],
     }
   ) {}
 
@@ -524,13 +538,13 @@ async function runSmokeTests() {
       assert.strictEqual(continueCalled, false, 'Continue must not be called for SSRF target');
     }
 
-    // Verify legitimate external subresource is permitted:
+    // Verify legitimate same-origin subresource is permitted:
     let legitimateAbort = false;
     let legitimateContinue = false;
 
     const legitRoute: RouteInstance = {
       request: () => ({
-        url: () => 'https://cdn.example.com/assets/app.js',
+        url: () => `https://${target}/_next/static/chunks/main.js`,
         method: () => 'GET',
       }),
       abort: async () => {
@@ -542,10 +556,29 @@ async function runSmokeTests() {
     };
 
     await page!.routeHandler!(legitRoute);
-    assert.strictEqual(legitimateAbort, false, 'Legitimate asset must NOT be aborted');
-    assert.strictEqual(legitimateContinue, true, 'Legitimate asset must continue');
+    assert.strictEqual(legitimateAbort, false, 'Same-origin asset must NOT be aborted');
+    assert.strictEqual(legitimateContinue, true, 'Same-origin asset must continue');
+
+    // Out-of-scope public CDN must be fail-closed (scope + egress), not only SSRF.
+    let oosAbort = false;
+    let oosContinue = false;
+    const oosRoute: RouteInstance = {
+      request: () => ({
+        url: () => 'https://cdn.example.com/assets/app.js',
+        method: () => 'GET',
+      }),
+      abort: async () => {
+        oosAbort = true;
+      },
+      continue: async () => {
+        oosContinue = true;
+      },
+    };
+    await page!.routeHandler!(oosRoute);
+    assert.strictEqual(oosAbort, true, 'Out-of-scope CDN must be aborted');
+    assert.strictEqual(oosContinue, false, 'Out-of-scope CDN must not continue');
   }
-  console.log('✓ Assertion 4 passed: In-browser subresource gate strictly aborts SSRF/metadata requests');
+  console.log('✓ Assertion 4 passed: In-browser subresource gate aborts SSRF + OOS (scope/egress)');
 
   console.log('\n--- ALL 4 MILESTONE 7 ASSERTIONS PASSED SUCCESSFULLY ---');
 }

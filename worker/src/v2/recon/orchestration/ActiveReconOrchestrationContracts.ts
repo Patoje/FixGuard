@@ -129,6 +129,15 @@ export interface ActiveReconOrchestrationConfig {
   readonly targetPorts?: readonly (number | string)[];
   readonly wordlistPath?: string;
   readonly timeoutMs?: number;
+  /**
+   * Opt-in Playwright SPA/RSC mining.
+   * - `true`: force enable (still egress/scope gated).
+   * - `false`: force disable.
+   * - omitted: enable when seedUrls present OR Next.js/RSC signals observed in Stage 3.
+   */
+  readonly enableSpaDiscovery?: boolean;
+  /** Cap on Playwright page navigations (default SPA_DISCOVERY_MAX_PAGES). */
+  readonly spaDiscoveryMaxPages?: number;
 }
 
 import type { PreSpawnDnsResolver } from '../adapters/AdapterPreflightPipeline.js';

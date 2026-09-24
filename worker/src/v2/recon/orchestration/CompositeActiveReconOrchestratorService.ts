@@ -75,17 +75,99 @@ import type {
   BrowserAutomationResult,
   DiscoveredSpaObservation,
 } from '../adapters/BrowserAutomationContracts.js';
+import {
+  PLAYWRIGHT_SPA_SOURCE,
+  RSC_DISCOVERY_SOURCE,
+  SPA_DISCOVERY_MAX_PAGES,
+} from '../adapters/BrowserAutomationContracts.js';
 import type { AuthorizedScopeGrant } from '../../scope/AuthorizedScopeContracts.js';
 import {
   HTML_LINK_EXTRACTION_SOURCE,
   HTML_ROUTE_EXTRACTION_MAX_HOP2,
   HTML_ROUTE_EXTRACTION_MAX_PER_STAGE,
   HtmlRouteExtractionService,
+  isHtmlStaticBundlePath,
 } from '../analysis/HtmlRouteExtractionService.js';
+import { isBrowserUrlAllowed } from '../adapters/PlaywrightSpaAdapter.js';
 
 function sanitizeToSafeId(raw: string): string {
   const cleaned = raw.replace(/[^A-Za-z0-9]/g, '').slice(0, 16);
   return cleaned.length > 0 ? cleaned : 'target';
+}
+
+/** Heuristic Next.js / RSC signals from Stage 3 web observations (pre-fingerprint). */
+function webObservationHasNextSignals(obs: DiscoveredWebObservation): boolean {
+  const headers = obs.headers ?? {};
+  const poweredBy = headers['x-powered-by'] ?? '';
+  if (/next\.?js/i.test(poweredBy)) return true;
+  if (headers['x-nextjs-cache'] !== undefined || headers['x-nextjs-matched-path'] !== undefined) {
+    return true;
+  }
+  const vary = headers['vary'] ?? '';
+  if (/rsc|next-router/i.test(vary)) return true;
+  if ((obs.technologies ?? []).some((t) => /next\.?js/i.test(t))) return true;
+  const body = obs.bodyText ?? '';
+  if (body.includes('__NEXT_DATA__') || body.includes('/_next/static/') || body.includes('self.__next_f')) {
+    return true;
+  }
+  return false;
+}
+
+function shouldEnableSpaDiscovery(
+  request: {
+    readonly seedUrls?: readonly string[];
+    readonly config?: { readonly enableSpaDiscovery?: boolean };
+  },
+  webObservations: readonly DiscoveredWebObservation[]
+): boolean {
+  if (request.config?.enableSpaDiscovery === false) return false;
+  if (request.config?.enableSpaDiscovery === true) return true;
+  if (request.seedUrls && request.seedUrls.length > 0) return true;
+  return webObservations.some(webObservationHasNextSignals);
+}
+
+/**
+ * Select capped Playwright navigation targets: seeds first, then in-scope app
+ * endpoints (never /_next/static). Fail-closed via isBrowserUrlAllowed.
+ */
+function selectSpaDiscoveryPages(input: {
+  readonly seedUrls: readonly string[];
+  readonly inventoryUrls: readonly { readonly url: string; readonly path?: string }[];
+  readonly rootUrls: readonly string[];
+  readonly authorizedScopeGrant: AuthorizedScopeGrant;
+  readonly maxPages: number;
+}): readonly string[] {
+  const selected: string[] = [];
+  const seen = new Set<string>();
+
+  const tryAdd = (url: string): void => {
+    if (selected.length >= input.maxPages) return;
+    if (seen.has(url)) return;
+    if (!isBrowserUrlAllowed(url, input.authorizedScopeGrant)) return;
+    try {
+      const parsed = new URL(url);
+      if (isHtmlStaticBundlePath(parsed.pathname)) return;
+    } catch {
+      return;
+    }
+    seen.add(url);
+    selected.push(url);
+  };
+
+  for (const seed of input.seedUrls) {
+    tryAdd(seed);
+  }
+  for (const entry of input.inventoryUrls) {
+    tryAdd(entry.url);
+  }
+  // Fallback: roots when no seeds/inventory yet (Next.js signal-only enable).
+  if (selected.length === 0) {
+    for (const root of input.rootUrls) {
+      tryAdd(root);
+    }
+  }
+
+  return Object.freeze(selected);
 }
 
 function normalizeHostname(raw: string): string | null {
@@ -1185,51 +1267,6 @@ export class CompositeActiveReconOrchestratorService {
               parameters.push(obs);
             }
           }
-
-          // 4. SPA DOM & dynamic route discovery (Playwright)
-          if (this.tools.spaDiscoveryTool) {
-            const spaResult: BrowserAutomationResult = await coordinator.execute(
-              parsed.hostname,
-              () =>
-                this.tools.spaDiscoveryTool!.discoverSpa({
-                  targetUrlOrDomain: rootUrl,
-                  verifiedAuthorizationDecision: request.verifiedAuthorizationDecision,
-                  authorizedScopeGrant: request.authorizedScopeGrant,
-                  lineage: request.lineage,
-                  coordinator,
-                  timeoutMs: request.config?.timeoutMs,
-                })
-            );
-
-            if (spaResult.status === 'success') {
-              for (const obs of spaResult.observations) {
-                spaObservations.push(obs);
-                for (const route of obs.routes) {
-                  try {
-                    const parsedRoute = new URL(route.url);
-                    urls.push({
-                      url: route.url,
-                      host: parsedRoute.hostname,
-                      path: parsedRoute.pathname,
-                      query: parsedRoute.search ? parsedRoute.search.slice(1) : undefined,
-                      sources: ['playwright_spa_dom'],
-                      discoveredAt: obs.discoveredAt,
-                    });
-                  } catch {
-                    // Ignore invalid dynamic URLs
-                  }
-                }
-                for (const input of obs.inputs) {
-                  parameters.push({
-                    url: input.formAction || obs.url,
-                    method: input.method === 'POST' ? 'POST' : 'GET',
-                    parameterName: input.inputName,
-                    discoveredAt: obs.discoveredAt,
-                  });
-                }
-              }
-            }
-          }
         } catch (err) {
           if (err instanceof TargetInstabilityError || coordinator.isCircuitOpen(currentHost)) {
             createDraft('stage_4_crawling_parameters', request.targetDomain, 'discovered_urls', urls.length);
@@ -1247,6 +1284,145 @@ export class CompositeActiveReconOrchestratorService {
           }
           stage4Warnings.push(`Crawling/parameter error on ${rootUrl}: ${err instanceof Error ? err.message : String(err)}`);
         }
+      }
+
+      // -----------------------------------------------------------------
+      // Phase D1 — Opt-in Playwright SPA / RSC mining (egress-gated)
+      // Enable when: config.enableSpaDiscovery===true OR seeds present OR
+      // Next.js/RSC signals in Stage 3. Caps: seeds + ≤N app endpoints.
+      // Loud degrade on browser_unavailable (missing Chromium/Playwright).
+      // -----------------------------------------------------------------
+      const spaEnabled = shouldEnableSpaDiscovery(request, webObservations);
+      if (spaEnabled && this.tools.spaDiscoveryTool) {
+        const maxPages =
+          typeof request.config?.spaDiscoveryMaxPages === 'number' &&
+          request.config.spaDiscoveryMaxPages > 0
+            ? Math.floor(request.config.spaDiscoveryMaxPages)
+            : SPA_DISCOVERY_MAX_PAGES;
+
+        const spaTargets = selectSpaDiscoveryPages({
+          seedUrls: request.seedUrls ?? [],
+          inventoryUrls: urls,
+          rootUrls,
+          authorizedScopeGrant: request.authorizedScopeGrant,
+          maxPages,
+        });
+
+        for (const spaUrl of spaTargets) {
+          let currentHost = request.targetDomain;
+          try {
+            const parsedSpa = new URL(spaUrl);
+            currentHost = parsedSpa.hostname;
+
+            const spaResult: BrowserAutomationResult = await coordinator.execute(
+              parsedSpa.hostname,
+              () =>
+                this.tools.spaDiscoveryTool!.discoverSpa({
+                  targetUrlOrDomain: spaUrl,
+                  verifiedAuthorizationDecision: request.verifiedAuthorizationDecision,
+                  authorizedScopeGrant: request.authorizedScopeGrant,
+                  lineage: request.lineage,
+                  coordinator,
+                  timeoutMs: request.config?.timeoutMs,
+                })
+            );
+
+            if (spaResult.status === 'success') {
+              for (const obs of spaResult.observations) {
+                spaObservations.push(obs);
+                for (const route of obs.routes) {
+                  try {
+                    if (!isBrowserUrlAllowed(route.url, request.authorizedScopeGrant)) {
+                      continue;
+                    }
+                    const parsedRoute = new URL(route.url);
+                    const source =
+                      route.source === RSC_DISCOVERY_SOURCE
+                        ? RSC_DISCOVERY_SOURCE
+                        : PLAYWRIGHT_SPA_SOURCE;
+                    urls.push({
+                      url: route.url,
+                      host: parsedRoute.hostname,
+                      path: parsedRoute.pathname,
+                      query: parsedRoute.search ? parsedRoute.search.slice(1) : undefined,
+                      sources: Object.freeze([source]),
+                      discoveredAt: obs.discoveredAt,
+                      collectedAt: obs.collectedAt ?? obs.discoveredAt,
+                      freshness: 'live',
+                      sourceReliability: 'direct_observation',
+                    });
+                  } catch {
+                    // Ignore invalid dynamic URLs
+                  }
+                }
+                for (const input of obs.inputs) {
+                  parameters.push({
+                    url: input.formAction || obs.url,
+                    method: input.method === 'POST' ? 'POST' : 'GET',
+                    parameterName: input.inputName,
+                    discoveredAt: obs.discoveredAt,
+                  });
+                }
+              }
+            } else if (spaResult.status === 'execution_failed') {
+              if (spaResult.reasonCode === 'browser_unavailable') {
+                const notice = degradedNotice('chromium');
+                degradedCapabilityNotices.add(notice);
+                degradedBinarySet.add('chromium');
+                if (!stage4Warnings.includes(notice)) {
+                  stage4Warnings.push(notice);
+                }
+                stage4Warnings.push(
+                  `SPA discovery degraded (Playwright/Chromium missing) on ${spaUrl}: ${spaResult.reason}`
+                );
+                // Do not attempt further pages once browser is known missing.
+                break;
+              }
+              stage4Warnings.push(
+                `SPA discovery ${spaResult.status} on ${spaUrl}: ${spaResult.reasonCode}`
+              );
+            } else if (spaResult.status === 'preflight_denied') {
+              stage4Warnings.push(
+                `SPA discovery preflight_denied on ${spaUrl}: ${spaResult.reasonCode}`
+              );
+            }
+          } catch (err) {
+            if (err instanceof TargetInstabilityError || coordinator.isCircuitOpen(currentHost)) {
+              createDraft('stage_4_crawling_parameters', request.targetDomain, 'discovered_urls', urls.length);
+              createDraft('stage_4_crawling_parameters', request.targetDomain, 'discovered_content', content.length);
+              createDraft('stage_4_crawling_parameters', request.targetDomain, 'discovered_parameters', parameters.length);
+              createDraft('stage_4_crawling_parameters', request.targetDomain, 'discovered_spa_observations', spaObservations.length);
+              await recordStageResult({
+                stage: 'stage_4_crawling_parameters',
+                status: 'partial_failure',
+                durationMs: Date.now() - stage4Start,
+                observationsCount: urls.length + content.length + parameters.length + spaObservations.length,
+                warnings: [`Circuit breaker tripped on ${currentHost}`],
+              });
+              return buildCircuitBrokenResult(currentHost);
+            }
+            const errMsg = err instanceof Error ? err.message : String(err);
+            stage4Warnings.push(`SPA discovery error on ${spaUrl}: ${errMsg}`);
+            if (/Executable doesn't exist|browserType\.launch|chromium/i.test(errMsg)) {
+              const notice = degradedNotice('chromium');
+              degradedCapabilityNotices.add(notice);
+              degradedBinarySet.add('chromium');
+              if (!stage4Warnings.includes(notice)) {
+                stage4Warnings.push(notice);
+              }
+              break;
+            }
+          }
+        }
+      } else if (spaEnabled && !this.tools.spaDiscoveryTool) {
+        const notice = degradedNotice('chromium');
+        degradedCapabilityNotices.add(notice);
+        if (!stage4Warnings.includes(notice)) {
+          stage4Warnings.push(notice);
+        }
+        stage4Warnings.push(
+          'SPA/RSC discovery opted in but spaDiscoveryTool is not composed (loud degrade)'
+        );
       }
 
       createDraft('stage_4_crawling_parameters', request.targetDomain, 'discovered_urls', urls.length);
