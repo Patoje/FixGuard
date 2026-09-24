@@ -78,6 +78,7 @@ import type {
 import type { AuthorizedScopeGrant } from '../../scope/AuthorizedScopeContracts.js';
 import {
   HTML_LINK_EXTRACTION_SOURCE,
+  HTML_ROUTE_EXTRACTION_MAX_HOP2,
   HTML_ROUTE_EXTRACTION_MAX_PER_STAGE,
   HtmlRouteExtractionService,
 } from '../analysis/HtmlRouteExtractionService.js';
@@ -630,8 +631,8 @@ export class CompositeActiveReconOrchestratorService {
         }
       }
 
-      // Phase D1 Step 3 — snapshot primary inspect set (seeds + roots). Extraction is 1-hop only:
-      // links are mined from these bodies; extracted pages are never re-mined in this stage.
+      // Phase D1 Steps 3–4 — snapshot primary inspect set (seeds + roots).
+      // Hop-1 mines these bodies; hop-2 re-mines only hop-1 app_endpoint bodies (no third hop).
       const stage3PrimaryInspectUrls = new Set<string>(urlsToInspect);
 
       for (const targetUrl of urlsToInspect) {
@@ -722,7 +723,7 @@ export class CompositeActiveReconOrchestratorService {
       }
 
       // -----------------------------------------------------------------
-      // Phase D1 Step 3 — Passive HTML link & route extraction (1 hop, max 25)
+      // Phase D1 Step 3 — Passive HTML link & route extraction (hop-1, max 25)
       // Hermetic: only bodies from stage3PrimaryInspectUrls. Scope+egress already
       // enforced inside HtmlRouteExtractionService (fail-closed OOS drop).
       // -----------------------------------------------------------------
@@ -732,6 +733,7 @@ export class CompositeActiveReconOrchestratorService {
         knownUrlInventory.add(primary);
       }
       const hop1ExtractedUrls: string[] = [];
+      const hop1AppEndpointUrls: string[] = [];
       const htmlExtractedAt = new Date().toISOString();
 
       for (const webObs of webObservations) {
@@ -763,6 +765,9 @@ export class CompositeActiveReconOrchestratorService {
           }
           knownUrlInventory.add(candidate.url);
           hop1ExtractedUrls.push(candidate.url);
+          if (candidate.kind === 'app_endpoint') {
+            hop1AppEndpointUrls.push(candidate.url);
+          }
 
           urls.push({
             url: candidate.url,
@@ -776,12 +781,12 @@ export class CompositeActiveReconOrchestratorService {
             sourceReliability: 'direct_observation',
           });
 
-          // Enqueue for one-hop HTTP probe (no further HTML mining from these pages).
+          // Enqueue for hop-1 HTTP probe (hop-2 mining follows after probe).
           urlsToInspect.add(candidate.url);
         }
       }
 
-      // One-hop probe of HTML-extracted URLs (inventory already registered above).
+      // Hop-1 probe of HTML-extracted URLs (inventory already registered above).
       for (const extractedUrl of hop1ExtractedUrls) {
         if (httpInspectedUrls.has(extractedUrl)) {
           continue;
@@ -829,6 +834,114 @@ export class CompositeActiveReconOrchestratorService {
           }
           stage3Warnings.push(
             `HTML-extracted URL inspection error on ${extractedUrl}: ${err instanceof Error ? err.message : String(err)}`
+          );
+        }
+      }
+
+      // -----------------------------------------------------------------
+      // Phase D1 Step 4 — Hop-2 HTML extraction from app_endpoint bodies only
+      // (never /_next/static). Cap additional URLs; no third hop.
+      // -----------------------------------------------------------------
+      const hop1AppEndpointSet = new Set<string>(hop1AppEndpointUrls);
+      const hop2ExtractedUrls: string[] = [];
+      const hop2ExtractedAt = new Date().toISOString();
+
+      for (const webObs of webObservations) {
+        if (hop2ExtractedUrls.length >= HTML_ROUTE_EXTRACTION_MAX_HOP2) {
+          break;
+        }
+        if (!hop1AppEndpointSet.has(webObs.url)) {
+          continue;
+        }
+        if (typeof webObs.bodyText !== 'string' || webObs.bodyText.length === 0) {
+          continue;
+        }
+
+        const remaining = HTML_ROUTE_EXTRACTION_MAX_HOP2 - hop2ExtractedUrls.length;
+        const extracted = htmlExtractor.extract({
+          bodyText: webObs.bodyText,
+          baseUrl: webObs.url,
+          targetDomain: request.targetDomain,
+          authorizedScopeGrant: request.authorizedScopeGrant,
+          maxResults: remaining,
+        });
+
+        for (const candidate of extracted.accepted) {
+          if (hop2ExtractedUrls.length >= HTML_ROUTE_EXTRACTION_MAX_HOP2) {
+            break;
+          }
+          // Prefer useful surface: skip static bundles on hop-2 inventory budget.
+          if (candidate.kind === 'static_bundle') {
+            continue;
+          }
+          if (knownUrlInventory.has(candidate.url)) {
+            continue;
+          }
+          knownUrlInventory.add(candidate.url);
+          hop2ExtractedUrls.push(candidate.url);
+
+          urls.push({
+            url: candidate.url,
+            host: candidate.host,
+            path: candidate.path,
+            ...(candidate.query !== undefined ? { query: candidate.query } : {}),
+            sources: Object.freeze([HTML_LINK_EXTRACTION_SOURCE]),
+            discoveredAt: hop2ExtractedAt,
+            collectedAt: hop2ExtractedAt,
+            freshness: 'live',
+            sourceReliability: 'direct_observation',
+          });
+        }
+      }
+
+      // One-shot probe of hop-2 URLs (register + observe; bodies are never re-mined).
+      for (const extractedUrl of hop2ExtractedUrls) {
+        if (httpInspectedUrls.has(extractedUrl)) {
+          continue;
+        }
+        let currentHost = request.targetDomain;
+        try {
+          const parsed = new URL(extractedUrl);
+          currentHost = parsed.hostname;
+          httpInspectedUrls.add(extractedUrl);
+          httpInspectedHosts.add(parsed.hostname);
+
+          const webResult: WebInspectionResult = await coordinator.execute(
+            parsed.hostname,
+            () =>
+              this.tools.webTool.inspectWeb({
+                targetUrl: extractedUrl,
+                verifiedAuthorizationDecision: request.verifiedAuthorizationDecision,
+                authorizedScopeGrant: request.authorizedScopeGrant,
+                lineage: request.lineage,
+                timeoutMs: request.config?.timeoutMs,
+              })
+          );
+
+          if (webResult.status === 'success') {
+            for (const obs of webResult.observations) {
+              webObservations.push(obs);
+            }
+          } else if (webResult.status === 'preflight_denied' || webResult.status === 'execution_failed') {
+            stage3Warnings.push(
+              `HTML hop-2 URL inspection ${webResult.status} on ${extractedUrl}: ${webResult.reasonCode}`
+            );
+          }
+        } catch (err) {
+          if (err instanceof TargetInstabilityError || coordinator.isCircuitOpen(currentHost)) {
+            createDraft('stage_3_web_tls', request.targetDomain, 'web_technologies', webObservations.length);
+            createDraft('stage_3_web_tls', request.targetDomain, 'tls_certificates', tlsCertificates.length);
+            await recordStageResult({
+              stage: 'stage_3_web_tls',
+              status: 'partial_failure',
+              durationMs: Date.now() - stage3Start,
+              observationsCount: webObservations.length + tlsCertificates.length,
+              warnings: [`Circuit breaker tripped on ${currentHost}`],
+            });
+            return buildCircuitBrokenResult(currentHost);
+          }
+          stage3Warnings.push(
+            `HTML hop-2 URL inspection error on ${extractedUrl}: ${err instanceof Error ? err.message : String(err)}`
           );
         }
       }

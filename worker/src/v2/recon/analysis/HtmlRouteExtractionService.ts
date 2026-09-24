@@ -1,12 +1,16 @@
 /**
- * Phase D1 Step 3 — Passive HTML link & route extraction (hermetic).
+ * Phase D1 Steps 3–4 — Passive HTML link & route extraction (hermetic).
  *
  * Parses already-captured response bodies (≤64KB) for in-scope internal routes
- * from <a href>, <form action>, and <script src>. Zero network I/O.
+ * from <a href>, <form action>, <script src>, <link href>, and fetch('/…')
+ * string literals. Zero network I/O.
  *
  * Fail-closed: media assets and out-of-scope / egress-denied URLs are dropped
  * before registration. Next.js bundle paths (/_next/static/...) are retained
  * as discovered URLs but classified separately from app endpoints.
+ *
+ * Hop depth is enforced by callers (orchestrator): hop-1 from seeds/roots,
+ * hop-2 from app_endpoint bodies only, never a third hop.
  */
 
 import { isScopeAllowed } from '../../attack-execution/AttackExecutionContracts.js';
@@ -17,8 +21,11 @@ import { WEB_OBSERVATION_BODY_CHUNK_MAX_BYTES } from '../adapters/WebInspectionC
 
 export const HTML_LINK_EXTRACTION_SOURCE = 'html_link_extraction' as const;
 
-/** Hard cap applied by callers per recon stage (orchestrator). */
+/** Hard cap applied by callers for hop-1 per recon stage (orchestrator). */
 export const HTML_ROUTE_EXTRACTION_MAX_PER_STAGE = 25;
+
+/** Hard cap for hop-2 additional URLs mined from app_endpoint bodies only. */
+export const HTML_ROUTE_EXTRACTION_MAX_HOP2 = 20;
 
 /** Static media extensions rejected from endpoint inventory (case-insensitive). */
 const REJECTED_MEDIA_EXTENSIONS = Object.freeze([
@@ -31,7 +38,7 @@ const REJECTED_MEDIA_EXTENSIONS = Object.freeze([
 
 export type HtmlExtractedRouteKind = 'app_endpoint' | 'static_bundle';
 
-export type HtmlExtractedAttribute = 'href' | 'action' | 'src';
+export type HtmlExtractedAttribute = 'href' | 'action' | 'src' | 'link' | 'fetch_call';
 
 export interface HtmlExtractedRouteCandidate {
   readonly url: string;
@@ -91,6 +98,10 @@ function collectAttributeMatches(body: string): RawAttrMatch[] {
       attribute: 'src',
       regex: /<script\b[^>]*?\bsrc\s*=\s*(?:"([^"]*)"|'([^']*)')/gi,
     },
+    {
+      attribute: 'link',
+      regex: /<link\b[^>]*?\bhref\s*=\s*(?:"([^"]*)"|'([^']*)')/gi,
+    },
   ];
 
   for (const { attribute, regex } of patterns) {
@@ -103,6 +114,18 @@ function collectAttributeMatches(body: string): RawAttrMatch[] {
         value,
       });
     }
+  }
+
+  // Cheap hermetic fetch('/api/...') / fetch("/…") / fetch(`/…`) path literals.
+  const fetchRegex = /\bfetch\s*\(\s*(['"`])(\/[^'"`]*?)\1/gi;
+  for (const m of body.matchAll(fetchRegex)) {
+    const value = (m[2] ?? '').trim();
+    if (value.length === 0) continue;
+    matches.push({
+      index: m.index ?? 0,
+      attribute: 'fetch_call',
+      value,
+    });
   }
 
   matches.sort((a, b) => a.index - b.index || a.attribute.localeCompare(b.attribute));
@@ -118,8 +141,12 @@ function isRejectedMediaPath(pathname: string): boolean {
   return REJECTED_MEDIA_EXTENSIONS.some((ext) => lower.endsWith(ext));
 }
 
+export function isHtmlStaticBundlePath(pathname: string): boolean {
+  return pathname.toLowerCase().includes('/_next/static/');
+}
+
 function classifyRouteKind(pathname: string): HtmlExtractedRouteKind {
-  if (pathname.toLowerCase().includes('/_next/static/')) {
+  if (isHtmlStaticBundlePath(pathname)) {
     return 'static_bundle';
   }
   return 'app_endpoint';

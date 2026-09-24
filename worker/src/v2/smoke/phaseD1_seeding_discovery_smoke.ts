@@ -9,6 +9,7 @@
  * 5. Missing CLI → explicit degraded_mode_missing_binary notice (not silent empty success).
  * 6. HTML body with <a href="/dashboard"> → /dashboard OBSERVED in ASG; Next.js bundle retained.
  * 7. External / out-of-scope links in HTML are excluded from ASG.
+ * 8. Hop-2: root → /login → form action /api/auth/login OBSERVED; no third hop; static not mined.
  */
 
 import assert from 'node:assert';
@@ -714,6 +715,154 @@ async function runPhaseD1Smoke(): Promise<void> {
   assert.ok(internalOk, `In-scope extracted link ${INTERNAL_OK} must be present`);
   assert.strictEqual(internalOk.epistemicStatus, 'OBSERVED');
   console.log('  [PASS] External and OOS HTML links excluded; in-scope /internal-ok retained.');
+
+  // ---------------------------------------------------------------------------
+  // 8. Hop-2: page A → /login; /login form → /api/auth/login OBSERVED (no third hop)
+  // ---------------------------------------------------------------------------
+  console.log('-> Test 8: Hop-2 HTML extraction from app endpoints registers form actions...');
+  const LOGIN_URL = 'https://example.com/login';
+  const API_AUTH_LOGIN = 'https://example.com/api/auth/login';
+  const THIRD_HOP_SHOULD_NOT = 'https://example.com/api/auth/login/deep-secret';
+  const STATIC_FROM_LOGIN = 'https://example.com/_next/static/chunks/login.js';
+  const HTML_ROOT_TO_LOGIN = [
+    '<html><body>',
+    '<a href="/login">Login</a>',
+    '<script src="/_next/static/chunks/main.js"></script>',
+    '</body></html>',
+  ].join('');
+  const HTML_LOGIN_FORM = [
+    '<html><body>',
+    '<form action="/api/auth/login" method="post">',
+    '<input name="email" /><button>Go</button>',
+    '</form>',
+    '<link rel="prefetch" href="/perfil" />',
+    '<script>fetch("/api/session")</script>',
+    '<script src="/_next/static/chunks/login.js"></script>',
+    '</body></html>',
+  ].join('');
+  const HTML_API_WITH_THIRD_HOP = [
+    '<html><body>',
+    '<a href="/api/auth/login/deep-secret">leak</a>',
+    '</body></html>',
+  ].join('');
+  const PERFIL_URL = 'https://example.com/perfil';
+  const API_SESSION = 'https://example.com/api/session';
+
+  const inv8 = { count: 0 };
+  const hop2Transport: IdorHttpProbeTransport = async (req) => {
+    const normalized = req.url.replace(/\/$/, '') || req.url;
+    if (normalized === ROOT_WITH_LINKS_HTTPS || normalized === ROOT_WITH_LINKS_HTTP) {
+      return {
+        statusCode: 200,
+        headers: { 'content-type': 'text/html' },
+        bodyText: HTML_ROOT_TO_LOGIN,
+        responseTimeMs: 1,
+      };
+    }
+    if (req.url === LOGIN_URL || req.url === 'http://example.com/login') {
+      return {
+        statusCode: 200,
+        headers: { 'content-type': 'text/html' },
+        bodyText: HTML_LOGIN_FORM,
+        responseTimeMs: 1,
+      };
+    }
+    if (
+      req.url === API_AUTH_LOGIN ||
+      req.url === 'http://example.com/api/auth/login' ||
+      req.url === API_SESSION ||
+      req.url === PERFIL_URL ||
+      req.url.includes('/_next/static/')
+    ) {
+      return {
+        statusCode: 200,
+        headers: { 'content-type': 'text/html' },
+        bodyText: HTML_API_WITH_THIRD_HOP,
+        responseTimeMs: 1,
+      };
+    }
+    return {
+      statusCode: 200,
+      headers: { 'content-type': 'text/html' },
+      bodyText: '<html></html>',
+      responseTimeMs: 1,
+    };
+  };
+
+  const service8 = createService(inv8, {
+    httpTransport: hop2Transport,
+    useDefaultReconAdapters: true,
+  });
+  const start8 = await service8.startAssessment({
+    targetDomain: 'example.com',
+    actorId: 'usr_phase_d1_hop2',
+    config: {
+      skipStages: [
+        'stage_1_domain_zone',
+        'stage_2_port_service',
+        'stage_4_crawling_parameters',
+        'stage_5_secret_inspection',
+      ],
+    },
+  });
+
+  const record8 = await service8.awaitAssessment(start8.assessmentId);
+  assert.ok(record8, 'Assessment record must exist for hop-2 HTML extraction test');
+  assert.strictEqual(
+    record8.status,
+    'completed',
+    `Expected completed, got ${record8.status}: ${record8.error ?? ''}`
+  );
+
+  const asg8 = record8.attackSurfaceGraph;
+  assert.ok(asg8, 'Attack surface graph must be present after hop-2 extraction');
+
+  const loginEndpoint = asg8.nodes.find(
+    (n): n is EndpointNode => n.kind === 'endpoint' && n.metadata.url === LOGIN_URL
+  );
+  assert.ok(loginEndpoint, `Hop-1 must register ${LOGIN_URL}`);
+  assert.strictEqual(loginEndpoint.epistemicStatus, 'OBSERVED');
+
+  const apiAuthEndpoint = asg8.nodes.find(
+    (n): n is EndpointNode => n.kind === 'endpoint' && n.metadata.url === API_AUTH_LOGIN
+  );
+  assert.ok(
+    apiAuthEndpoint,
+    `Hop-2 must register form action ${API_AUTH_LOGIN} as OBSERVED`
+  );
+  assert.strictEqual(apiAuthEndpoint.epistemicStatus, 'OBSERVED');
+  assert.strictEqual(apiAuthEndpoint.provenance.sourceKind, 'recon_observation');
+
+  const perfilEndpoint = asg8.nodes.find(
+    (n): n is EndpointNode => n.kind === 'endpoint' && n.metadata.url === PERFIL_URL
+  );
+  assert.ok(perfilEndpoint, `Hop-2 must register <link rel> href ${PERFIL_URL}`);
+  assert.strictEqual(perfilEndpoint.epistemicStatus, 'OBSERVED');
+
+  const sessionEndpoint = asg8.nodes.find(
+    (n): n is EndpointNode => n.kind === 'endpoint' && n.metadata.url === API_SESSION
+  );
+  assert.ok(sessionEndpoint, `Hop-2 must register fetch() path ${API_SESSION}`);
+  assert.strictEqual(sessionEndpoint.epistemicStatus, 'OBSERVED');
+
+  const thirdHopPresent = asg8.nodes.some(
+    (n) => n.kind === 'endpoint' && n.metadata.url === THIRD_HOP_SHOULD_NOT
+  );
+  assert.ok(!thirdHopPresent, 'Third-hop paths from hop-2 bodies must not be registered');
+
+  const hop2StaticFromLogin = asg8.nodes.some(
+    (n) => n.kind === 'endpoint' && n.metadata.url === STATIC_FROM_LOGIN
+  );
+  assert.ok(
+    !hop2StaticFromLogin,
+    'Hop-2 must not spend inventory budget on /_next/static bundles from app pages'
+  );
+
+  const profileHasApiAuth = record8.profile?.endpoints.some((e) => e.url === API_AUTH_LOGIN);
+  assert.ok(profileHasApiAuth, 'TargetProfile endpoints must include hop-2 /api/auth/login');
+  console.log(
+    '  [PASS] Hop-2 registers /api/auth/login, /perfil, /api/session; no third hop; static skipped.'
+  );
 
   console.log('[phaseD1_seeding_discovery_smoke] All Phase D1 assertions passed.');
 }
