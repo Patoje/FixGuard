@@ -208,6 +208,13 @@ async function runSmokeTests(): Promise<void> {
     findings,
     observations,
     builtAt: nowIso,
+    authContexts: [
+      {
+        identityId: 'identity_alice_a2',
+        sessionTokenRef: 'byot://identity/identity_alice_a2',
+        createdAt: nowIso,
+      },
+    ],
   });
 
   assert.equal(graph.kind, 'attack_surface_graph');
@@ -229,6 +236,13 @@ async function runSmokeTests(): Promise<void> {
   assert.ok((kindCounts['port'] ?? 0) >= 1, 'missing port node');
   assert.ok((kindCounts['parameter'] ?? 0) >= 1, 'missing parameter node');
   assert.ok((kindCounts['identity'] ?? 0) >= 1, 'missing identity node');
+  assert.ok((kindCounts['session'] ?? 0) >= 1, 'missing SessionNode from authContexts');
+
+  const sessionEdges = graph.edges.filter((e) => e.kind === 'observed_as_accessible_by');
+  assert.ok(sessionEdges.length >= 1, 'expected observed_as_accessible_by edges for SessionNode');
+  for (const e of sessionEdges) {
+    assert.equal(e.epistemicStatus, 'OBSERVED');
+  }
 
   console.log(
     `✓ Test 1 Passed: ASG built with ${graph.nodes.length} nodes / ${graph.edges.length} edges`,

@@ -223,6 +223,31 @@ function buildAttackPlanIdentities(
   return identities;
 }
 
+/** Refs/ids only — never embed live session token material into the ASG. */
+function buildAsgAuthContexts(
+  sessionIdentities: ByotSessionIdentityBundle | undefined,
+  createdAt: string
+): readonly { readonly identityId: string; readonly sessionTokenRef: string; readonly createdAt: string }[] {
+  if (!sessionIdentities) {
+    return [];
+  }
+  const contexts: { identityId: string; sessionTokenRef: string; createdAt: string }[] = [
+    {
+      identityId: sessionIdentities.identityA.identityId,
+      sessionTokenRef: `byot://identity/${sessionIdentities.identityA.identityId}`,
+      createdAt,
+    },
+  ];
+  if (sessionIdentities.identityB) {
+    contexts.push({
+      identityId: sessionIdentities.identityB.identityId,
+      sessionTokenRef: `byot://identity/${sessionIdentities.identityB.identityId}`,
+      createdAt,
+    });
+  }
+  return contexts;
+}
+
 const defaultHttpTransport: IdorHttpProbeTransport = async (
   req: HttpProbeRequest
 ): Promise<HttpProbeResponse> => {
@@ -2646,6 +2671,7 @@ export class OrchestratedAssessmentApplicationService {
           profile,
           findings: [],
           observations: reconResult.aggregatedObservations,
+          authContexts: buildAsgAuthContexts(sessionIdentities, profile.updatedAt),
         });
 
         const attackPlanResult = this.attackPlanGenerator.generate({
@@ -4384,6 +4410,7 @@ export class OrchestratedAssessmentApplicationService {
         profile,
         findings,
         observations: reconResult.aggregatedObservations,
+        authContexts: buildAsgAuthContexts(sessionIdentities, profile.updatedAt),
       });
 
       const attackPlanResult = this.attackPlanGenerator.generate({

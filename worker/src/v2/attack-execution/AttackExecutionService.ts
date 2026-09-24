@@ -358,6 +358,11 @@ export class AttackExecutionService {
         findings,
         ...(req.primaryIdentity ? { primaryIdentity: req.primaryIdentity } : {}),
         ...(req.secondaryIdentity ? { secondaryIdentity: req.secondaryIdentity } : {}),
+        ...(req.verifiedAuthorizationDecision
+          ? { verifiedAuthorizationDecision: req.verifiedAuthorizationDecision }
+          : {}),
+        ...(req.transport ? { transport: req.transport } : {}),
+        dnsResolver: req.dnsResolver,
       });
 
       const completedAt = new Date().toISOString();

@@ -14,6 +14,8 @@ import type { Finding } from '../core/Evidence.js';
 import type { VerificationState } from '../core/VerificationStateContracts.js';
 import type { TargetExecutionCoordinator } from '../runtime/TargetExecutionCoordinator.js';
 import type { PreSpawnDnsResolver } from '../recon/adapters/AdapterPreflightPipeline.js';
+import type { VerifiedAuthorizationDecision } from '../authorization/VerifiedAuthorizationDecisionContracts.js';
+import type { IdorHttpProbeTransport } from '../detection/DetectionContracts.js';
 
 export type AttackExecutionContractVersion = 'fixguard-attack-execution/v0';
 export const ATTACK_EXECUTION_CONTRACT_VERSION: AttackExecutionContractVersion =
@@ -73,6 +75,15 @@ export interface AttackCapabilityInvocationContext {
   readonly primaryIdentity?: AttackCapabilityIdentityRef;
   /** Optional secondary (cross-identity) identity for differential capabilities. */
   readonly secondaryIdentity?: AttackCapabilityIdentityRef;
+  /**
+   * Runtime-branded authorization decision required by detection-backed capabilities
+   * (CORS / auth bypass / JWT). Missing → fail closed (never synthetic success).
+   */
+  readonly verifiedAuthorizationDecision?: VerifiedAuthorizationDecision;
+  /** Optional hermetic HTTP transport for detection-backed capabilities. */
+  readonly transport?: IdorHttpProbeTransport;
+  /** Optional DNS resolver for detection preflight. */
+  readonly dnsResolver?: PreSpawnDnsResolver;
 }
 
 /**
@@ -129,6 +140,10 @@ export interface AttackExecutionRequest {
   readonly executedAt?: string;
   readonly primaryIdentity?: AttackCapabilityIdentityRef;
   readonly secondaryIdentity?: AttackCapabilityIdentityRef;
+  /** Runtime-branded decision for detection-backed capabilities. */
+  readonly verifiedAuthorizationDecision?: VerifiedAuthorizationDecision;
+  /** Optional hermetic HTTP transport forwarded to detection-backed capabilities. */
+  readonly transport?: IdorHttpProbeTransport;
 }
 
 export type AttackExecutionResult =

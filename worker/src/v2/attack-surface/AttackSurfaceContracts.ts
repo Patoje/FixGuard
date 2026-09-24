@@ -155,7 +155,7 @@ export interface IdentityNode extends AsgNodeBase {
 /**
  * Session node — authorized session bound to an identity.
  * Token material is referenced only (sessionTokenRef / vaultRef); never embedded.
- * Population into the graph builder may be deferred; type + constructability required.
+ * Populated by AttackSurfaceGraphBuilder when authContexts are supplied.
  */
 export interface SessionNode extends AsgNodeBase {
   readonly kind: 'session';

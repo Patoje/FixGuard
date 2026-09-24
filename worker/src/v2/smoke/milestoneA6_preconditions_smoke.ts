@@ -3,10 +3,11 @@
  * FixGuard V2 — A6 architectural preconditions (ordered verification, ASG session, real IDOR)
  *
  * Verifies:
- * 1. Illegal verification-state jumps fail closed; refute may still reset.
+ * 1. Illegal verification-state jumps fail closed; refute may reset/downgrade but never upgrade.
  * 2. SessionNode + observed_as_accessible_by are valid ASG entities.
  * 3. idor_read_differential invokes ControlledActiveVerificationService.execute() and
  *    evaluates real differentials (not hardcoded success).
+ * 4. cors/auth/jwt capabilities invoke real detection services — never synthetic succeeded.
  */
 
 import assert from 'node:assert';
@@ -23,6 +24,9 @@ import type {
 } from '../attack-surface/AttackSurfaceContracts.js';
 import { ATTACK_SURFACE_CONTRACT_VERSION } from '../attack-surface/AttackSurfaceContracts.js';
 import { createIdorReadDifferentialCapability } from '../attack-execution/AttackCapabilityRegistry.js';
+import { createCorsChainExploitCapability } from '../attack-execution/capabilities/CorsChainExploitCapability.js';
+import { createAuthBypassProbeCapability } from '../attack-execution/capabilities/AuthBypassProbeCapability.js';
+import { createJwtAlgNoneProbeCapability } from '../attack-execution/capabilities/JwtAlgNoneProbeCapability.js';
 import type { AttackCapabilityInvocationContext } from '../attack-execution/AttackExecutionContracts.js';
 import type { AttackPlan, AttackStep } from '../attack-planning/AttackPlanContracts.js';
 import { ATTACK_PLANNING_CONTRACT_VERSION } from '../attack-planning/AttackPlanContracts.js';
@@ -36,6 +40,21 @@ import type {
   VerificationHttpResponse,
   VerificationHttpTransport,
 } from '../verification/ActiveVerificationContracts.js';
+import { CredentialedCorsDetectionService } from '../detection/CredentialedCorsDetectionService.js';
+import { AuthBypassDetectionService } from '../detection/AuthBypassDetectionService.js';
+import { JwtAlgorithmConfusionDetectionService } from '../detection/JwtAlgorithmConfusionDetectionService.js';
+import type {
+  AuthBypassDetectionRequest,
+  AuthBypassDetectionResult,
+  CredentialedCorsDetectionRequest,
+  CredentialedCorsDetectionResult,
+  JwtAlgorithmConfusionDetectionRequest,
+  JwtAlgorithmConfusionDetectionResult,
+} from '../detection/DetectionContracts.js';
+import { DETECTION_CONTRACT_VERSION } from '../detection/DetectionContracts.js';
+import { establishVerifiedAuthorizationDecision } from '../authorization/VerifiedAuthorizationDecisionService.js';
+import { VERIFIED_AUTHORIZATION_DECISION_CONTRACT_VERSION } from '../authorization/VerifiedAuthorizationDecisionContracts.js';
+import type { VerifiedAuthorizationDecision } from '../authorization/VerifiedAuthorizationDecisionContracts.js';
 
 function baseFinding(verificationState: Finding['verificationState']): Finding {
   return {
@@ -223,7 +242,23 @@ async function runSmokeSuite(): Promise<void> {
       }
     );
     assert.strictEqual(refuted.updatedFinding.verificationState, 'observed_anomaly');
-    console.log('[+] Test 1: illegal jump blocked; refute reset OK');
+
+    assert.throws(
+      () =>
+        VerificationStateService.refuteState(finding, 'suspected_vulnerability', {
+          evidenceId: 'ev_upgrade_via_refute',
+          reasonCode: 'illegal_upgrade',
+        }),
+      (err: unknown) => err instanceof IllegalVerificationStateTransitionError
+    );
+
+    const sameState = VerificationStateService.refuteState(finding, 'observed_anomaly', {
+      evidenceId: 'ev_same',
+      reasonCode: 'REFUTED',
+    });
+    assert.strictEqual(sameState.updatedFinding.verificationState, 'observed_anomaly');
+
+    console.log('[+] Test 1: illegal jump blocked; refute reset OK; upgrade-via-refute blocked');
   }
 
   // -------------------------------------------------------------------------
@@ -414,7 +449,183 @@ async function runSmokeSuite(): Promise<void> {
     console.log('[+] Test 3: IDOR real execute path + differential evaluation OK');
   }
 
-  console.log('\n=== All A6 Preconditions Smoke Tests PASSED (3/3) ===');
+  // -------------------------------------------------------------------------
+  // Test 4: CORS / Auth / JWT capabilities — no synthetic succeeded
+  // -------------------------------------------------------------------------
+  console.log('--- Test 4: CORS/Auth/JWT capability honesty (no stubs) ---');
+  {
+    const decidedAt = '2026-09-23T20:00:00.000Z';
+    const authEstablish = establishVerifiedAuthorizationDecision(
+      {
+        contractVersion: VERIFIED_AUTHORIZATION_DECISION_CONTRACT_VERSION,
+        kind: 'establish_verified_authorization_decision_request',
+        assessmentId: 'asm_a6_pre_001',
+        scanId: 'scan_a6_pre_001',
+        authorizationDecisionId: 'dec_a6_pre_001',
+        authorizedActor: { actorId: 'act_a6_pre', actorType: 'human' },
+        decision: 'authorized',
+        decidedAt,
+        scopeGrant: minimalScopeGrant(),
+      },
+      decidedAt
+    );
+    assert.strictEqual(authEstablish.status, 'established');
+    if (authEstablish.status !== 'established') {
+      throw new Error('authorization establishment failed');
+    }
+    const verifiedDecision: VerifiedAuthorizationDecision = authEstablish.decision;
+
+    const lineageFields = {
+      assessmentId: 'asm_a6_pre_001',
+      scanId: 'scan_a6_pre_001',
+      authorizationGrantId: 'grant_a6_pre_001',
+      authorizationDecisionId: 'dec_a6_pre_001',
+      actorId: 'act_a6_pre',
+    };
+
+    // --- CORS ---
+    let corsCalls = 0;
+    const corsService = new CredentialedCorsDetectionService();
+    corsService.execute = async (
+      _req: CredentialedCorsDetectionRequest
+    ): Promise<CredentialedCorsDetectionResult> => {
+      corsCalls += 1;
+      return {
+        contractVersion: DETECTION_CONTRACT_VERSION,
+        kind: 'credentialed_cors_detection_result',
+        detectionId: 'det_cors_mock',
+        ...lineageFields,
+        status: 'vulnerability_detected',
+        reasonCode: 'credentialed_cors_confirmed',
+        lineage: lineageFields,
+        endpointUrl: 'https://app.example.com/api/resource/1',
+        httpMethod: 'GET',
+        suppliedOrigin: 'https://canary.fixguard.internal',
+        reflectedOrigin: 'https://canary.fixguard.internal',
+        allowCredentialsHeader: true,
+        acaoHeader: 'https://canary.fixguard.internal',
+      };
+    };
+
+    const corsCap = createCorsChainExploitCapability(corsService);
+    const corsMissing = await corsCap.execute(buildInvocationContext());
+    assert.strictEqual(corsMissing.outcome, 'failed');
+    assert.strictEqual(corsMissing.reasonCode, 'cors_identity_missing');
+    assert.strictEqual(corsCalls, 0);
+
+    const corsNoAuth = await corsCap.execute(
+      buildInvocationContext({
+        primaryIdentity: { identityId: 'identity_alice', headers: { cookie: 's=1' } },
+      })
+    );
+    assert.strictEqual(corsNoAuth.outcome, 'failed');
+    assert.strictEqual(corsNoAuth.reasonCode, 'cors_authorization_missing');
+    assert.strictEqual(corsCalls, 0);
+
+    const corsOk = await corsCap.execute(
+      buildInvocationContext({
+        primaryIdentity: { identityId: 'identity_alice', headers: { cookie: 's=1' } },
+        verifiedAuthorizationDecision: verifiedDecision,
+      })
+    );
+    assert.strictEqual(corsCalls, 1);
+    assert.strictEqual(corsOk.outcome, 'succeeded');
+    assert.strictEqual(corsOk.reasonCode, 'credentialed_cors_confirmed');
+
+    const defaultCors = createCorsChainExploitCapability();
+    const defaultCorsResult = await defaultCors.execute(
+      buildInvocationContext({
+        primaryIdentity: { identityId: 'identity_alice' },
+      })
+    );
+    assert.notEqual(defaultCorsResult.outcome, 'succeeded');
+
+    // --- Auth bypass ---
+    let authCalls = 0;
+    const authService = new AuthBypassDetectionService();
+    authService.execute = async (
+      _req: AuthBypassDetectionRequest
+    ): Promise<AuthBypassDetectionResult> => {
+      authCalls += 1;
+      return {
+        contractVersion: DETECTION_CONTRACT_VERSION,
+        kind: 'auth_bypass_detection_result',
+        detectionId: 'det_auth_mock',
+        ...lineageFields,
+        status: 'secure_target_abstained',
+        reasonCode: 'auth_enforced',
+        lineage: lineageFields,
+        endpointUrl: 'https://app.example.com/api/resource/1',
+        bypassMechanism: 'header_stripping',
+      };
+    };
+
+    const authCap = createAuthBypassProbeCapability(authService);
+    const authMissing = await authCap.execute(buildInvocationContext());
+    assert.strictEqual(authMissing.outcome, 'failed');
+    assert.strictEqual(authMissing.reasonCode, 'auth_bypass_identity_missing');
+    assert.strictEqual(authCalls, 0);
+
+    const authRefuted = await authCap.execute(
+      buildInvocationContext({
+        primaryIdentity: { identityId: 'identity_alice', headers: { authorization: 'Bearer x' } },
+        verifiedAuthorizationDecision: verifiedDecision,
+      })
+    );
+    assert.strictEqual(authCalls, 1);
+    assert.strictEqual(authRefuted.outcome, 'refuted');
+    assert.strictEqual(authRefuted.reasonCode, 'auth_enforced');
+
+    // --- JWT ---
+    let jwtCalls = 0;
+    const jwtService = new JwtAlgorithmConfusionDetectionService();
+    jwtService.execute = async (
+      _req: JwtAlgorithmConfusionDetectionRequest
+    ): Promise<JwtAlgorithmConfusionDetectionResult> => {
+      jwtCalls += 1;
+      return {
+        contractVersion: DETECTION_CONTRACT_VERSION,
+        kind: 'jwt_algorithm_confusion_detection_result',
+        detectionId: 'det_jwt_mock',
+        ...lineageFields,
+        status: 'vulnerability_detected',
+        reasonCode: 'jwt_signature_bypass_confirmed',
+        lineage: lineageFields,
+        endpointUrl: 'https://app.example.com/api/resource/1',
+        httpMethod: 'GET',
+      };
+    };
+
+    const jwtCap = createJwtAlgNoneProbeCapability(jwtService);
+    const jwtMissingBearer = await jwtCap.execute(
+      buildInvocationContext({
+        primaryIdentity: { identityId: 'identity_alice', headers: { authorization: 'Bearer notajwt' } },
+        verifiedAuthorizationDecision: verifiedDecision,
+      })
+    );
+    assert.strictEqual(jwtMissingBearer.outcome, 'failed');
+    assert.strictEqual(jwtMissingBearer.reasonCode, 'jwt_bearer_missing');
+    assert.strictEqual(jwtCalls, 0);
+
+    const hermeticJwt =
+      'eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhbGljZSJ9.sig';
+    const jwtOk = await jwtCap.execute(
+      buildInvocationContext({
+        primaryIdentity: {
+          identityId: 'identity_alice',
+          headers: { authorization: `Bearer ${hermeticJwt}` },
+        },
+        verifiedAuthorizationDecision: verifiedDecision,
+      })
+    );
+    assert.strictEqual(jwtCalls, 1);
+    assert.strictEqual(jwtOk.outcome, 'succeeded');
+    assert.strictEqual(jwtOk.reasonCode, 'jwt_signature_bypass_confirmed');
+
+    console.log('[+] Test 4: CORS/Auth/JWT invoke services; no synthetic succeeded OK');
+  }
+
+  console.log('\n=== All A6 Preconditions Smoke Tests PASSED (4/4) ===');
 }
 
 runSmokeSuite().catch((err) => {

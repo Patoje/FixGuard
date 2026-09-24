@@ -16,13 +16,13 @@ import type {
   AttackCapabilityInvocationContext,
 } from './AttackExecutionContracts.js';
 import { ControlledActiveVerificationService } from '../verification/ControlledActiveVerificationService.js';
-import { CredentialedCorsDetectionService } from '../detection/CredentialedCorsDetectionService.js';
-import { AuthBypassDetectionService } from '../detection/AuthBypassDetectionService.js';
-import { JwtAlgorithmConfusionDetectionService } from '../detection/JwtAlgorithmConfusionDetectionService.js';
 import { createLfiPathTraversalCapability } from './capabilities/LFIPathTraversalCapability.js';
 import { createSqlOracleAdvancementCapability } from './capabilities/SqlOracleAdvancementCapability.js';
 import { createNucleiXssScanCapability } from './capabilities/NucleiXssScanCapability.js';
 import { createSqlInjectionVerificationCapability } from './capabilities/SqlInjectionVerificationCapability.js';
+import { createCorsChainExploitCapability } from './capabilities/CorsChainExploitCapability.js';
+import { createAuthBypassProbeCapability } from './capabilities/AuthBypassProbeCapability.js';
+import { createJwtAlgNoneProbeCapability } from './capabilities/JwtAlgNoneProbeCapability.js';
 
 function succeeded(reasonCode: string, safeMessage: string, evidenceId?: string): AttackCapabilityExecutionResult {
   return {
@@ -107,75 +107,6 @@ export function createIdorReadDifferentialCapability(
   };
 }
 
-/**
- * CORS chain — wraps CredentialedCorsDetectionService (credentialed CORS differential).
- */
-export function createCorsChainExploitCapability(
-  service?: CredentialedCorsDetectionService
-): AttackCapabilityPort {
-  const _service = service ?? new CredentialedCorsDetectionService();
-  return {
-    capability: 'cors_chain_exploit',
-    async execute(ctx: AttackCapabilityInvocationContext): Promise<AttackCapabilityExecutionResult> {
-      void _service;
-      if (!ctx.targetUrl || ctx.targetUrl.length === 0) {
-        return failed('cors_target_missing', 'CORS capability requires a target URL');
-      }
-      return succeeded(
-        'cors_chain_exploit_authorized',
-        'Authorized CORS differential capability invoked via CredentialedCorsDetectionService boundary',
-        `ev_cors_${ctx.step.stepId}`
-      );
-    },
-  };
-}
-
-/**
- * Auth bypass probe — wraps AuthBypassDetectionService.
- */
-export function createAuthBypassProbeCapability(
-  service?: AuthBypassDetectionService
-): AttackCapabilityPort {
-  const _service = service ?? new AuthBypassDetectionService();
-  return {
-    capability: 'auth_bypass_probe',
-    async execute(ctx: AttackCapabilityInvocationContext): Promise<AttackCapabilityExecutionResult> {
-      void _service;
-      if (!ctx.targetUrl || ctx.targetUrl.length === 0) {
-        return failed('auth_bypass_target_missing', 'Auth bypass capability requires a target URL');
-      }
-      return succeeded(
-        'auth_bypass_probe_authorized',
-        'Authorized auth-bypass probe capability invoked via AuthBypassDetectionService boundary',
-        `ev_auth_${ctx.step.stepId}`
-      );
-    },
-  };
-}
-
-/**
- * JWT alg:none probe — wraps JwtAlgorithmConfusionDetectionService.
- */
-export function createJwtAlgNoneProbeCapability(
-  service?: JwtAlgorithmConfusionDetectionService
-): AttackCapabilityPort {
-  const _service = service ?? new JwtAlgorithmConfusionDetectionService();
-  return {
-    capability: 'jwt_alg_none_probe',
-    async execute(ctx: AttackCapabilityInvocationContext): Promise<AttackCapabilityExecutionResult> {
-      void _service;
-      if (!ctx.targetUrl || ctx.targetUrl.length === 0) {
-        return failed('jwt_target_missing', 'JWT alg-none capability requires a target URL');
-      }
-      return succeeded(
-        'jwt_alg_none_probe_authorized',
-        'Authorized JWT alg-none probe capability invoked via JwtAlgorithmConfusionDetectionService boundary',
-        `ev_jwt_${ctx.step.stepId}`
-      );
-    },
-  };
-}
-
 export class AttackCapabilityRegistry {
   private readonly ports = new Map<AttackCapabilityKind, AttackCapabilityPort>();
 
@@ -225,6 +156,9 @@ export function createNotImplementedCapability(capability: AttackCapabilityKind)
 }
 
 export { succeeded as capabilitySucceeded, refuted as capabilityRefuted, failed as capabilityFailed };
+export { createCorsChainExploitCapability } from './capabilities/CorsChainExploitCapability.js';
+export { createAuthBypassProbeCapability } from './capabilities/AuthBypassProbeCapability.js';
+export { createJwtAlgNoneProbeCapability } from './capabilities/JwtAlgNoneProbeCapability.js';
 export { createLfiPathTraversalCapability } from './capabilities/LFIPathTraversalCapability.js';
 export { createSqlOracleAdvancementCapability } from './capabilities/SqlOracleAdvancementCapability.js';
 export { createNucleiXssScanCapability } from './capabilities/NucleiXssScanCapability.js';

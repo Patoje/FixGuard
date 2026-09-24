@@ -76,7 +76,7 @@ export class VerificationStateService {
 
   /**
    * Refutes or resets verification state with evidence or human reviewer authorization.
-   * May downgrade / stay / reset — ordered-forward constraint does NOT apply.
+   * May downgrade or stay at the same state — never upgrade (toIdx > fromIdx throws).
    */
   public static refuteState(
     finding: Finding,
@@ -87,6 +87,13 @@ export class VerificationStateService {
       readonly reasonCode: string;
     }
   ): { updatedFinding: Finding; transitionRecord: VerificationStateTransition } {
+    const fromIdx = verificationStateIndex(finding.verificationState);
+    const toIdx = verificationStateIndex(targetState);
+
+    if (fromIdx < 0 || toIdx < 0 || toIdx > fromIdx) {
+      throw new IllegalVerificationStateTransitionError(finding.verificationState, targetState);
+    }
+
     return applyTransition(finding, targetState, transition);
   }
 }

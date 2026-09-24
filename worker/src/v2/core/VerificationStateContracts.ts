@@ -13,7 +13,7 @@ export type VerificationState =
 /**
  * Strict forward order for advanceState().
  * advanceState may move at most ONE step forward (or stay put).
- * refuteState may reset/downgrade without this constraint.
+ * refuteState may reset/downgrade or stay — never upgrade (toIdx > fromIdx).
  */
 export const VERIFICATION_STATE_ORDER: readonly VerificationState[] = [
   'observed_anomaly',

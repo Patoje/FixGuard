@@ -26,11 +26,26 @@ import type {
 } from './AttackSurfaceContracts.js';
 import { ATTACK_SURFACE_CONTRACT_VERSION } from './AttackSurfaceContracts.js';
 
+export interface AsgSessionAuthContext {
+  /** Stable identity id only — never embed session token material. */
+  readonly identityId: string;
+  /** Opaque vault/session reference (id/ref only). */
+  readonly sessionTokenRef?: string;
+  readonly vaultRef?: string;
+  readonly createdAt?: string;
+}
+
 export interface AttackSurfaceGraphBuilderInput {
   readonly profile: TargetProfile;
   readonly findings: readonly Finding[];
   readonly observations?: Partial<AggregatedReconObservations>;
   readonly builtAt?: string;
+  /**
+   * Operator-supplied auth/session contexts (BYOT). When present, SessionNode(s)
+   * are created and linked to authenticated endpoints via observed_as_accessible_by.
+   * Refs/ids only — never embed live tokens.
+   */
+  readonly authContexts?: readonly AsgSessionAuthContext[];
 }
 
 function sha256Short(content: string): string {
@@ -615,6 +630,53 @@ export const AttackSurfaceGraphBuilder = {
       } else {
         acc.link('has_vulnerability', applicationNode.id, vulnNode.id, epistemic, prov);
         acc.link('enables_attack', applicationNode.id, vulnNode.id, 'INFERRED', prov);
+      }
+    }
+
+    // Session nodes from operator-supplied auth contexts (refs/ids only)
+    const authContexts = input.authContexts ?? [];
+    for (const authCtx of authContexts) {
+      if (typeof authCtx.identityId !== 'string' || authCtx.identityId.trim().length === 0) {
+        continue;
+      }
+      const identityId = authCtx.identityId.trim();
+      const sessionCreatedAt = authCtx.createdAt ?? profile.updatedAt;
+      const sessionProv = baseProvenance(profile, 'target_profile', {
+        sourceId: identityId,
+        observedAt: sessionCreatedAt,
+      });
+      const sessionNode = acc.addNode({
+        id: stableId('session', [identityId]),
+        kind: 'session',
+        epistemicStatus: 'OBSERVED',
+        provenance: sessionProv,
+        label: `session:${identityId}`,
+        metadata: {
+          identityId,
+          ...(authCtx.sessionTokenRef ? { sessionTokenRef: authCtx.sessionTokenRef } : {}),
+          ...(authCtx.vaultRef ? { vaultRef: authCtx.vaultRef } : {}),
+          createdAt: sessionCreatedAt,
+        },
+      });
+
+      for (const ep of profile.endpoints) {
+        if (ep.authRequirement !== 'authenticated') {
+          continue;
+        }
+        const endpointId = stableId('endpoint', [ep.method.toUpperCase(), ep.url]);
+        if (!acc.hasNode(endpointId)) {
+          continue;
+        }
+        // OBSERVED: operator supplied the session for authorized testing of these endpoints.
+        // Does not claim successful access was proven — only that the session was bound for testing.
+        acc.link(
+          'observed_as_accessible_by',
+          endpointId,
+          sessionNode.id,
+          'OBSERVED',
+          sessionProv,
+          'session_bound_for_auth_testing'
+        );
       }
     }
 
