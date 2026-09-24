@@ -163,6 +163,12 @@ export default function OrchestratedAssessmentsPage() {
 
           <div className="flex items-center gap-3 text-xs font-mono">
             <Link
+              href={assessmentId ? `/v2/attack?assessmentId=${encodeURIComponent(assessmentId)}` : "/v2/attack"}
+              className="rounded-lg border border-orange-500/40 bg-orange-500/10 hover:bg-orange-500/20 px-3 py-1.5 text-orange-300 font-semibold transition"
+            >
+              Attack Mode (A13) &rarr;
+            </Link>
+            <Link
               href="/v2"
               className="rounded-lg border border-zinc-800 bg-zinc-900/60 hover:bg-zinc-900 px-3 py-1.5 text-zinc-400 hover:text-zinc-200 transition"
             >
