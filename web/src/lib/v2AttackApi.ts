@@ -512,6 +512,76 @@ export interface ExecuteAttackPlanParams {
   readonly investigationId?: string;
 }
 
+export type ActiveInvestigationStatus =
+  | 'running'
+  | 'completed'
+  | 'cancelled'
+  | 'timed_out'
+  | 'budget_exceeded'
+  | 'denied';
+
+export interface InvestigationBudgetDto {
+  readonly maxRequests: number;
+  readonly maxDurationMs: number;
+  readonly maxConcurrentSteps?: number;
+  readonly requestsPerSecondCeiling?: number;
+  readonly maxConcurrencyCeiling?: number;
+}
+
+export interface ActiveInvestigationSnapshotDto {
+  readonly contractVersion: string;
+  readonly kind: 'active_investigation_snapshot';
+  readonly investigationId: string;
+  readonly status: ActiveInvestigationStatus;
+  readonly budget: InvestigationBudgetDto;
+  readonly consumption: {
+    readonly requestsConsumed: number;
+    readonly stepsRecorded: number;
+    readonly startedAt: string;
+    readonly lastActivityAt: string;
+  };
+  readonly cancelRequested: boolean;
+  readonly killSwitchEngaged: boolean;
+  readonly denialReasonCode?: string;
+  readonly completedAt?: string;
+}
+
+export interface StartActiveInvestigationParams {
+  readonly investigationId: string;
+  readonly budget?: InvestigationBudgetDto;
+  readonly openHypothesisRefs?: readonly string[];
+  readonly startedAt?: string;
+}
+
+export interface StartActiveInvestigationResponse {
+  readonly status: 'started';
+  readonly reasonCode: string;
+  readonly snapshot: ActiveInvestigationSnapshotDto;
+  readonly authorizationBundle: {
+    readonly investigationId: string;
+    readonly assessmentId: string;
+    readonly sealedAt: string;
+    readonly hasVerifiedAuthorizationDecision: true;
+    readonly hasAttackAuthorizationToken: boolean;
+  };
+}
+
+export interface CancelActiveInvestigationParams {
+  readonly operatorId: string;
+  readonly mode: 'cancel' | 'kill_switch';
+  readonly cancelledAt?: string;
+}
+
+export interface CancelActiveInvestigationResponse {
+  readonly status: 'cancelled';
+  readonly reasonCode: string;
+  readonly snapshot: ActiveInvestigationSnapshotDto;
+}
+
+export interface GetActiveInvestigationResponse {
+  readonly snapshot: ActiveInvestigationSnapshotDto;
+}
+
 export interface ExecuteAttackPlanResponse {
   readonly status: 'completed' | 'preflight_denied' | 'failed';
   readonly reasonCode: string;
@@ -900,6 +970,65 @@ export class V2AttackApiClient {
 
     return this.request<ExecuteAttackPlanResponse>(
       `/assessments/${encodeURIComponent(assessmentId)}/attack-plans/${encodeURIComponent(planId)}/execute`,
+      {
+        method: 'POST',
+        body: JSON.stringify(body),
+      }
+    );
+  }
+
+  /**
+   * POST /api/v2/assessments/:assessmentId/investigations/start
+   * Starts ActiveInvestigationRuntime (budget + cancel). Does not execute plans.
+   */
+  public async startActiveInvestigation(
+    assessmentId: string,
+    params: StartActiveInvestigationParams
+  ): Promise<StartActiveInvestigationResponse> {
+    const body: Record<string, unknown> = {
+      investigationId: params.investigationId,
+    };
+    if (params.budget !== undefined) body.budget = params.budget;
+    if (params.openHypothesisRefs !== undefined) {
+      body.openHypothesisRefs = params.openHypothesisRefs;
+    }
+    if (params.startedAt !== undefined) body.startedAt = params.startedAt;
+
+    return this.request<StartActiveInvestigationResponse>(
+      `/assessments/${encodeURIComponent(assessmentId)}/investigations/start`,
+      {
+        method: 'POST',
+        body: JSON.stringify(body),
+      }
+    );
+  }
+
+  /** GET /api/v2/assessments/:assessmentId/investigations/:investigationId */
+  public async getActiveInvestigation(
+    assessmentId: string,
+    investigationId: string
+  ): Promise<GetActiveInvestigationResponse> {
+    return this.request<GetActiveInvestigationResponse>(
+      `/assessments/${encodeURIComponent(assessmentId)}/investigations/${encodeURIComponent(investigationId)}`
+    );
+  }
+
+  /**
+   * POST /api/v2/assessments/:assessmentId/investigations/:investigationId/cancel
+   */
+  public async cancelActiveInvestigation(
+    assessmentId: string,
+    investigationId: string,
+    params: CancelActiveInvestigationParams
+  ): Promise<CancelActiveInvestigationResponse> {
+    const body: Record<string, unknown> = {
+      operatorId: params.operatorId,
+      mode: params.mode,
+    };
+    if (params.cancelledAt !== undefined) body.cancelledAt = params.cancelledAt;
+
+    return this.request<CancelActiveInvestigationResponse>(
+      `/assessments/${encodeURIComponent(assessmentId)}/investigations/${encodeURIComponent(investigationId)}/cancel`,
       {
         method: 'POST',
         body: JSON.stringify(body),

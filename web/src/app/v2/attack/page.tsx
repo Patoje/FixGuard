@@ -26,12 +26,13 @@ import {
   type BlastRadiusClass,
   type LateralMovementMechanism,
   type AuthorizeAttackPlanResponse,
+  type ActiveInvestigationSnapshotDto,
 } from "@/lib/v2AttackApi";
 import {
   getOrchestratedAssessmentSummary,
   type LineageTuple,
 } from "@/lib/v2Api";
-import { isStrictSafeId } from "@/lib/v2/idGenerator";
+import { generateInvestigationId, isStrictSafeId } from "@/lib/v2/idGenerator";
 import { AttackPlansList } from "./components/AttackPlansList";
 import { AttackAuthorizationModal } from "./components/AttackAuthorizationModal";
 import { StepExecutionMonitor } from "./components/StepExecutionMonitor";
@@ -109,6 +110,9 @@ function AttackModeContent() {
   const [rulesApplied, setRulesApplied] = useState<readonly string[]>([]);
   const [selectedRecRank, setSelectedRecRank] = useState<"A" | "B" | null>(null);
   const [investigationId, setInvestigationId] = useState("");
+  const [investigationSnapshot, setInvestigationSnapshot] =
+    useState<ActiveInvestigationSnapshotDto | null>(null);
+  const [investigationBusy, setInvestigationBusy] = useState(false);
   const [authorizeThenExecute, setAuthorizeThenExecute] = useState(false);
 
   const [tab, setTab] = useState<WorkbenchTab>("recommend");
@@ -177,6 +181,15 @@ function AttackModeContent() {
         // Summary optional when hermetic attack-only assessments exist
       }
 
+      if (investigationId && isStrictSafeId(investigationId)) {
+        try {
+          const invRes = await v2AttackApi.getActiveInvestigation(id, investigationId);
+          setInvestigationSnapshot(invRes.snapshot);
+        } catch {
+          setInvestigationSnapshot(null);
+        }
+      }
+
       if (plansRes.plans.length > 0) {
         setSelectedPlanId((prev) => prev ?? plansRes.plans[0].planId);
       }
@@ -218,6 +231,87 @@ function AttackModeContent() {
     },
     [lineage, targetDomain]
   );
+
+  const handleStartInvestigation = async () => {
+    if (!assessmentId || !isStrictSafeId(assessmentId)) {
+      setError("Assessment ID must be a strict safe id");
+      return;
+    }
+    if (!isStrictSafeId(operatorId)) {
+      setError("Operator ID must be a strict safe id");
+      return;
+    }
+
+    const nextId =
+      investigationId && isStrictSafeId(investigationId)
+        ? investigationId
+        : generateInvestigationId();
+
+    setInvestigationBusy(true);
+    setError(null);
+    setSuccessMsg(null);
+    try {
+      const res = await v2AttackApi.startActiveInvestigation(assessmentId, {
+        investigationId: nextId,
+        budget: {
+          maxRequests: 50,
+          maxDurationMs: 15 * 60 * 1000,
+          maxConcurrentSteps: 1,
+          requestsPerSecondCeiling: 5,
+          maxConcurrencyCeiling: 2,
+        },
+        openHypothesisRefs: plans.slice(0, 8).map((p) => p.planId),
+      });
+      setInvestigationId(res.snapshot.investigationId);
+      setInvestigationSnapshot(res.snapshot);
+      setSuccessMsg(
+        `Investigation ${res.snapshot.investigationId} started · budget ${res.snapshot.budget.maxRequests} req`
+      );
+    } catch (err) {
+      if (err instanceof V2ApiError) {
+        setError(`[${err.errorType}] ${err.message}${err.reasonCode ? ` (${err.reasonCode})` : ""}`);
+      } else {
+        setError(err instanceof Error ? err.message : "Failed to start investigation");
+      }
+    } finally {
+      setInvestigationBusy(false);
+    }
+  };
+
+  const handleCancelInvestigation = async (mode: "cancel" | "kill_switch") => {
+    if (!assessmentId || !isStrictSafeId(assessmentId)) {
+      setError("Assessment ID must be a strict safe id");
+      return;
+    }
+    if (!investigationId || !isStrictSafeId(investigationId)) {
+      setError("Investigation ID required to cancel");
+      return;
+    }
+    if (!isStrictSafeId(operatorId)) {
+      setError("Operator ID must be a strict safe id");
+      return;
+    }
+
+    setInvestigationBusy(true);
+    setError(null);
+    setSuccessMsg(null);
+    try {
+      const res = await v2AttackApi.cancelActiveInvestigation(assessmentId, investigationId, {
+        operatorId,
+        mode,
+      });
+      setInvestigationSnapshot(res.snapshot);
+      setSuccessMsg(`Investigation ${mode === "kill_switch" ? "kill-switch" : "cancel"}: ${res.reasonCode}`);
+    } catch (err) {
+      if (err instanceof V2ApiError) {
+        setError(`[${err.errorType}] ${err.message}${err.reasonCode ? ` (${err.reasonCode})` : ""}`);
+      } else {
+        setError(err instanceof Error ? err.message : "Failed to cancel investigation");
+      }
+    } finally {
+      setInvestigationBusy(false);
+    }
+  };
 
   const handleAuthorize = async (blastRadiusClass: BlastRadiusClass) => {
     if (!authModalPlan) return;
@@ -291,6 +385,18 @@ function AttackModeContent() {
       });
       setExecutionRecord(res.record);
       setCompletedPlanIds((prev) => new Set([...prev, plan.planId]));
+
+      if (investigationId && isStrictSafeId(investigationId)) {
+        try {
+          const invRes = await v2AttackApi.getActiveInvestigation(
+            assessmentId,
+            investigationId
+          );
+          setInvestigationSnapshot(invRes.snapshot);
+        } catch {
+          // Snapshot refresh is best-effort after execute
+        }
+      }
 
       if (res.refresh) {
         setChains(res.refresh.attackChains);
@@ -506,11 +612,47 @@ function AttackModeContent() {
               </span>
               <input
                 value={investigationId}
-                onChange={(e) => setInvestigationId(e.target.value.trim())}
+                onChange={(e) => {
+                  setInvestigationId(e.target.value.trim());
+                  setInvestigationSnapshot(null);
+                }}
                 placeholder="inv_…"
                 className="w-full rounded-lg border border-zinc-800 bg-zinc-900 px-3 py-2 text-xs font-mono text-zinc-100 focus:outline-none focus:border-emerald-500/40"
               />
             </label>
+            <div className="sm:col-span-2 flex flex-wrap items-end gap-2">
+              <button
+                type="button"
+                disabled={investigationBusy || isLoading || !assessmentId}
+                onClick={() => void handleStartInvestigation()}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-sky-500/40 bg-sky-500/10 px-3 py-1.5 text-xs font-mono font-semibold text-sky-300 hover:bg-sky-500/20 disabled:opacity-40"
+              >
+                Start investigation
+              </button>
+              <button
+                type="button"
+                disabled={investigationBusy || !investigationId || !isStrictSafeId(investigationId)}
+                onClick={() => void handleCancelInvestigation("cancel")}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-1.5 text-xs font-mono font-semibold text-amber-300 hover:bg-amber-500/20 disabled:opacity-40"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={investigationBusy || !investigationId || !isStrictSafeId(investigationId)}
+                onClick={() => void handleCancelInvestigation("kill_switch")}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-rose-500/40 bg-rose-500/10 px-3 py-1.5 text-xs font-mono font-semibold text-rose-300 hover:bg-rose-500/20 disabled:opacity-40"
+              >
+                Kill switch
+              </button>
+              {investigationSnapshot && (
+                <span className="text-[10px] font-mono text-zinc-500 self-center">
+                  {investigationSnapshot.status} ·{" "}
+                  {investigationSnapshot.consumption.requestsConsumed}/
+                  {investigationSnapshot.budget.maxRequests} req
+                </span>
+              )}
+            </div>
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <button

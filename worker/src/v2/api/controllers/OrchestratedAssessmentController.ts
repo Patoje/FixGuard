@@ -767,6 +767,31 @@ export class OrchestratedAssessmentController {
 
       let coordinator = new TargetExecutionCoordinator();
       if (investigationId) {
+        const scopeSubject = body.scopeGrant as {
+          readonly subject?: {
+            readonly host?: string;
+            readonly domain?: string;
+            readonly normalizedOrigin?: string;
+          };
+          readonly boundaries?: { readonly allowedHosts?: readonly string[] };
+        };
+        const targetHostFromScope =
+          (typeof scopeSubject.subject?.host === 'string' && scopeSubject.subject.host.trim()) ||
+          (typeof scopeSubject.subject?.domain === 'string' && scopeSubject.subject.domain.trim()) ||
+          (Array.isArray(scopeSubject.boundaries?.allowedHosts) &&
+          typeof scopeSubject.boundaries.allowedHosts[0] === 'string'
+            ? scopeSubject.boundaries.allowedHosts[0].trim()
+            : '') ||
+          (() => {
+            const origin = scopeSubject.subject?.normalizedOrigin;
+            if (typeof origin !== 'string' || !origin.trim()) return '';
+            try {
+              return new URL(origin).hostname;
+            } catch {
+              return '';
+            }
+          })();
+
         const { gate, coordinator: investigationCoordinator } =
           this.service.gateAttackExecutionUnderInvestigation({
             assessmentId,
@@ -774,6 +799,7 @@ export class OrchestratedAssessmentController {
             planId,
             attackAuthorizationToken: token,
             expectedRequestCost: 1,
+            ...(targetHostFromScope ? { targetHost: targetHostFromScope } : {}),
           });
         if (gate.status !== 'authorized' || !investigationCoordinator) {
           throw new UnauthorizedGatewayError(

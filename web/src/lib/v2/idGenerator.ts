@@ -25,6 +25,11 @@ export function generateReportId(): string {
   return `rep_${Date.now()}_${rand}`;
 }
 
+export function generateInvestigationId(): string {
+  const rand = Math.random().toString(36).slice(2, 7);
+  return `inv_${Date.now()}_${rand}`;
+}
+
 export function isValidTargetUri(uri: string): boolean {
   if (!uri || typeof uri !== 'string') return false;
   try {
