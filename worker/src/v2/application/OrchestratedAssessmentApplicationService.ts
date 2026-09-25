@@ -395,7 +395,7 @@ export interface OrchestratedAssessmentServiceDependencies {
   readonly lateralMovementService?: LateralMovementService;
   readonly impactAssessmentService?: ImpactAssessmentService;
   readonly activeInvestigationRuntime?: ActiveInvestigationRuntimeService;
-  /** Override default 7000ms heartbeat interval (tests only). */
+  /** Override default 25000ms heartbeat interval (tests only). */
   readonly heartbeatIntervalMs?: number;
   /** Override target session keep-alive interval (tests only). */
   readonly sessionKeepAliveIntervalMs?: number;

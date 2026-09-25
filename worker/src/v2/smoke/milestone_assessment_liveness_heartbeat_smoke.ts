@@ -2,7 +2,7 @@
  * FixGuard V2 — Assessment liveness heartbeat smoke.
  *
  * Verifies:
- * 1. Canonical interval is 7000ms.
+ * 1. Canonical interval is 25000ms.
  * 2. AssessmentLivenessHeartbeat advances ticks during a fake long recon wait.
  * 3. OrchestratedAssessmentApplicationService persists lastHeartbeatAt / alive
  *    on GET status while a slow stage is in flight.
@@ -180,8 +180,8 @@ async function main(): Promise<void> {
 
   assert.equal(
     ASSESSMENT_HEARTBEAT_INTERVAL_MS,
-    7_000,
-    'canonical heartbeat interval must be 7000ms'
+    25_000,
+    'canonical heartbeat interval must be 25000ms'
   );
 
   // -------------------------------------------------------------------------

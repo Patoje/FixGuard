@@ -3,14 +3,12 @@
 import React, { useEffect, useRef, useState } from "react";
 import {
   Activity,
-  RefreshCw,
   ArrowRight,
   CheckCircle2,
   Clock,
   AlertTriangle,
   Loader2,
   Terminal,
-  Radio,
 } from "lucide-react";
 import type {
   OrchestratedAssessmentStatusResponse,
@@ -21,7 +19,6 @@ import { consoleLineClassFromText } from "@/lib/v2/consoleLineTone";
 interface SessionStatusCardProps {
   status: OrchestratedAssessmentStatusResponse | null;
   isPolling: boolean;
-  onRefresh: () => void;
   onContinueToTriage: () => void;
 }
 
@@ -71,6 +68,18 @@ const PIPELINE_ORDER = [
 
 const PIPELINE_TOTAL = PIPELINE_ORDER.length;
 
+/** UI throttle for heartbeat console lines (~25s), even if poller is faster. */
+const CONSOLE_HEARTBEAT_MIN_GAP_MS = 25_000;
+
+function formatDurationMs(ms: number): string {
+  if (!Number.isFinite(ms) || ms < 0) return `${ms}ms`;
+  if (ms < 60_000) return `${Math.round(ms)}ms`;
+  const totalSec = Math.floor(ms / 1000);
+  const m = Math.floor(totalSec / 60);
+  const s = totalSec % 60;
+  return `${m}m ${s}s`;
+}
+
 function formatStageLine(stage: StageResultDto): TerminalLine {
   const meta = STAGE_LABELS[stage.stage] ?? {
     name: stage.stage,
@@ -82,20 +91,20 @@ function formatStageLine(stage: StageResultDto): TerminalLine {
     id: `${stage.stage}-${stage.durationMs}-${stage.observationsCount}`,
     at: stamp,
     stream: ok ? "stdout" : "stderr",
-    text: `[${stamp}] ${meta.name} → ${stage.status} · ${stage.observationsCount} obs · ${stage.durationMs}ms · tools: ${meta.tools}`,
+    text: `[${stamp}] ${meta.name} → ${stage.status} · ${stage.observationsCount} obs · ${formatDurationMs(stage.durationMs)} · tools: ${meta.tools}`,
   };
 }
 
 export function SessionStatusCard({
   status,
   isPolling,
-  onRefresh,
   onContinueToTriage,
 }: SessionStatusCardProps) {
   const [lines, setLines] = useState<TerminalLine[]>([]);
   const seenStagesRef = useRef<Set<string>>(new Set());
   const lastStatusRef = useRef<string | null>(null);
   const lastHeartbeatRef = useRef<string | null>(null);
+  const lastHbShownAtMsRef = useRef<number>(0);
   const terminalRef = useRef<HTMLPreElement>(null);
 
   useEffect(() => {
@@ -104,6 +113,7 @@ export function SessionStatusCard({
       seenStagesRef.current = new Set();
       lastStatusRef.current = null;
       lastHeartbeatRef.current = null;
+      lastHbShownAtMsRef.current = 0;
       return;
     }
 
@@ -155,7 +165,6 @@ export function SessionStatusCard({
       }
     }
 
-    // Infer in-progress stage when running and fewer than 5 results
     if (status.status === "running") {
       const doneKeys = new Set(status.stages.map((s) => s.stage));
       const current = PIPELINE_ORDER.find((k) => !doneKeys.has(k));
@@ -177,13 +186,19 @@ export function SessionStatusCard({
       }
     }
 
-    // Soft liveness from server heartbeat (~every 7s) — keep terminal moving
+    // Soft liveness — throttle console spam; prefer richer keep-alive / tool hints.
     if (
       status.status === "running" &&
       status.lastHeartbeatAt &&
       status.lastHeartbeatAt !== lastHeartbeatRef.current
     ) {
-      const hbStamp = status.lastHeartbeatAt.slice(11, 19) || stamp();
+      const nowMs = Date.now();
+      const gapOk =
+        lastHbShownAtMsRef.current === 0 ||
+        nowMs - lastHbShownAtMsRef.current >= CONSOLE_HEARTBEAT_MIN_GAP_MS;
+      const richHint =
+        (status.sessionKeepAliveHint && status.sessionKeepAliveHint.trim()) ||
+        null;
       const stagePart = status.heartbeatStageHint
         ? STAGE_LABELS[status.heartbeatStageHint]?.name ??
           status.heartbeatStageHint
@@ -191,12 +206,20 @@ export function SessionStatusCard({
       const toolPart = status.heartbeatToolHint
         ? ` · ${status.heartbeatToolHint}`
         : "";
-      next.push({
-        id: `hb-${status.lastHeartbeatAt}`,
-        at: hbStamp,
-        stream: "event",
-        text: `[${hbStamp}] hb still running… ${stagePart}${toolPart}`,
-      });
+      const detail = richHint
+        ? richHint
+        : `hb still running… ${stagePart}${toolPart}`;
+
+      if (gapOk || richHint) {
+        const hbStamp = status.lastHeartbeatAt.slice(11, 19) || stamp();
+        next.push({
+          id: `hb-${status.lastHeartbeatAt}`,
+          at: hbStamp,
+          stream: "event",
+          text: `[${hbStamp}] ${detail}`,
+        });
+        lastHbShownAtMsRef.current = nowMs;
+      }
       lastHeartbeatRef.current = status.lastHeartbeatAt;
     }
 
@@ -249,7 +272,6 @@ export function SessionStatusCard({
     status.status === "failed" || status.status === "preflight_denied";
   const canContinueToTriage = isReconDone || isFailed;
   const totalObs = status.stages.reduce((n, s) => n + s.observationsCount, 0);
-  const showAlive = isRunning && status.alive === true;
   const pipelineKeys = new Set<string>(PIPELINE_ORDER);
   const stagesDone = Math.min(
     status.stages.filter((s) => pipelineKeys.has(s.stage)).length,
@@ -295,28 +317,12 @@ export function SessionStatusCard({
             </div>
             <p className="text-xs text-zinc-400 font-mono mt-0.5">
               {status.targetDomain}
-              {showAlive && status.lastHeartbeatAt
+              {isRunning && status.lastHeartbeatAt
                 ? ` · hb ${status.lastHeartbeatAt.slice(11, 19)}`
                 : ""}
+              {isPolling ? " · live" : ""}
             </p>
           </div>
-        </div>
-
-        <div className="flex items-center gap-2">
-          {isPolling && (
-            <span className="hidden sm:flex items-center gap-1.5 rounded-full border border-emerald-500/20 bg-emerald-500/10 px-3 py-1 text-[11px] font-mono text-emerald-400">
-              <Radio className="h-3 w-3 animate-pulse" />
-              {showAlive ? "Alive" : "Live"}
-            </span>
-          )}
-          <button
-            type="button"
-            onClick={onRefresh}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-zinc-800 bg-zinc-900 px-3 py-1.5 text-xs font-medium text-zinc-300 transition hover:bg-zinc-800"
-          >
-            <RefreshCw className="h-3.5 w-3.5" />
-            Refresh
-          </button>
         </div>
       </div>
 
@@ -369,7 +375,6 @@ export function SessionStatusCard({
         </div>
       </div>
 
-      {/* Live orchestrated terminal */}
       <div className="rounded-lg border border-zinc-800 bg-black overflow-hidden">
         <div className="flex items-center gap-2 border-b border-zinc-900 bg-zinc-950 px-3 py-1.5 text-[10px] font-mono text-zinc-500">
           <Terminal className="h-3 w-3 text-emerald-500" />
@@ -380,11 +385,11 @@ export function SessionStatusCard({
         </div>
         <pre
           ref={terminalRef}
-          className="max-h-72 min-h-[10rem] overflow-auto p-3 text-[11px] font-mono leading-relaxed whitespace-pre-wrap break-all"
+          className="h-[28rem] min-h-[18rem] max-h-[70vh] overflow-auto p-3 text-[11px] font-mono leading-relaxed whitespace-pre-wrap break-all"
         >
           {lines.length === 0 ? (
             <span className="text-zinc-600">
-              Waiting for pipeline events from GET /orchestrated/assessments/:id/status…
+              Waiting for pipeline events…
             </span>
           ) : (
             lines.map((line) => (
@@ -405,7 +410,9 @@ export function SessionStatusCard({
           Started: {new Date(status.timing.startedAt).toLocaleTimeString()}
         </div>
         {status.timing.durationMs !== undefined && (
-          <div className="font-mono">Duration: {status.timing.durationMs}ms</div>
+          <div className="font-mono">
+            Duration: {formatDurationMs(status.timing.durationMs)}
+          </div>
         )}
       </div>
 
@@ -419,7 +426,7 @@ export function SessionStatusCard({
           ) : isFailed ? (
             <span className="text-rose-400">
               Pipeline stopped. You can still open Triage (may be empty) or
-              relaunch from Stage 1 with skip-crawl + seed URLs.
+              start a fresh assessment from inicio.
             </span>
           ) : (
             <span>Pipeline de reconocimiento en curso…</span>

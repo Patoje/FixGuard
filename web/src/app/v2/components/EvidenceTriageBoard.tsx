@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useMemo } from "react";
 import {
   FileText,
   CheckCircle,
@@ -10,6 +10,7 @@ import {
   ArrowRight,
   Check,
   X,
+  Layers,
 } from "lucide-react";
 import {
   getEvidenceDrafts,
@@ -18,17 +19,27 @@ import {
   V2ApiError,
   type EvidenceDraftDto,
   type FindingDto,
+  type TargetProfileDto,
 } from "@/lib/v2Api";
 import {
   draftPlainTitle,
   draftWhyItMatters,
   presentSeverity,
   severityFromDetectionKind,
+  type SeverityLevel,
 } from "@/lib/v2/severityPresentation";
-import Link from "next/link";
+import { classifyTechArchitecture } from "@/lib/v2/techArchitecture";
 
 /** Default reviewer for promote API — not shown in UI. */
 const DEFAULT_REVIEWER_ID = "op_lead_analyst_01";
+
+const SEVERITY_RANK: Record<SeverityLevel, number> = {
+  critical: 0,
+  high: 1,
+  medium: 2,
+  low: 3,
+  info: 4,
+};
 
 /** Soft/cosmetic kinds sorted below attack-relevant drafts. */
 const LOW_INFO_KIND_ORDER = new Set([
@@ -47,8 +58,14 @@ const LOW_INFO_KIND_ORDER = new Set([
 
 function draftSortRank(draft: EvidenceDraftDto): number {
   const kind = draft.differentialContext?.detectionKind;
-  if (kind && LOW_INFO_KIND_ORDER.has(kind)) return 1;
-  return 0;
+  const level = severityFromDetectionKind(kind, {
+    disclosureKind: draft.differentialContext?.disclosureKind,
+  });
+  if (kind === "supabase_rls_abuse") return 0;
+  if (kind && LOW_INFO_KIND_ORDER.has(kind)) {
+    return 10 + SEVERITY_RANK[level];
+  }
+  return SEVERITY_RANK[level];
 }
 
 interface EvidenceTriageBoardProps {
@@ -59,7 +76,7 @@ interface EvidenceTriageBoardProps {
     decision: "approve_evidence" | "reject_evidence"
   ) => void;
   reviewedDraftIds: readonly string[];
-  onContinueToReport: () => void;
+  onContinueToAttack: () => void;
 }
 
 function targetFromDraft(draft: EvidenceDraftDto): string {
@@ -72,14 +89,20 @@ export function EvidenceTriageBoard({
   assessmentId,
   onDraftReviewed,
   reviewedDraftIds,
-  onContinueToReport,
+  onContinueToAttack,
 }: EvidenceTriageBoardProps) {
   const [drafts, setDrafts] = useState<EvidenceDraftDto[]>([]);
   const [promotedFindings, setPromotedFindings] = useState<FindingDto[]>([]);
+  const [profile, setProfile] = useState<TargetProfileDto | null>(null);
   const [loadingDrafts, setLoadingDrafts] = useState<boolean>(false);
   const [reviewingDraftId, setReviewingDraftId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
+
+  const techBits = useMemo(
+    () => classifyTechArchitecture(profile),
+    [profile]
+  );
 
   const loadDrafts = useCallback(async () => {
     if (!assessmentId) return;
@@ -98,6 +121,7 @@ export function EvidenceTriageBoard({
         return a.draftId.localeCompare(b.draftId);
       });
       setDrafts(sorted);
+      setProfile(summary?.profile ?? null);
       const findings = summary?.findings ?? [];
       const rlsOrAccess = findings.filter((f) => {
         const kind = f.metadata?.kind ?? "";
@@ -117,6 +141,7 @@ export function EvidenceTriageBoard({
       }
       setDrafts([]);
       setPromotedFindings([]);
+      setProfile(null);
     } finally {
       setLoadingDrafts(false);
     }
@@ -168,11 +193,11 @@ export function EvidenceTriageBoard({
             Evidence Triage
           </h2>
           <p className="mt-1 max-w-xl text-xs text-zinc-400 leading-relaxed">
-            Review pending drafts from detection.{" "}
-            <span className="text-zinc-300">Incluir en hallazgos</span> promotes
-            useful evidence;{" "}
-            <span className="text-zinc-300">Descartar ruido</span> drops noise
-            before Attack Mode. This is not a second scan.
+            Revisá drafts del detection.{" "}
+            <span className="text-zinc-300">Incluir en hallazgos</span> si hay
+            impacto o explotabilidad;{" "}
+            <span className="text-zinc-300">Descartar ruido</span> si es solo
+            hardening cosmético. Esto no es un segundo scan.
           </p>
         </div>
 
@@ -188,6 +213,55 @@ export function EvidenceTriageBoard({
           />
           Refresh
         </button>
+      </div>
+
+      {/* Tech / architecture panel */}
+      <div className="mt-4 rounded-lg border border-zinc-800/80 bg-zinc-900/30 p-4">
+        <div className="flex items-center gap-2 mb-3">
+          <Layers className="h-4 w-4 text-sky-400" />
+          <h3 className="text-xs font-semibold text-zinc-200 uppercase tracking-wider">
+            Tech / arquitectura
+          </h3>
+        </div>
+        {techBits.groups.length === 0 ? (
+          <p className="text-[11px] text-zinc-600">
+            Sin fingerprint aún — aparece cuando el recon termina y hay perfil.
+          </p>
+        ) : (
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {techBits.groups.map((g) => (
+              <div key={g.label} className="space-y-1.5">
+                <p className="text-[10px] font-mono uppercase tracking-wide text-zinc-600">
+                  {g.label}
+                </p>
+                <div className="flex flex-wrap gap-1.5">
+                  {g.items.map((item) => (
+                    <span
+                      key={`${g.label}-${item.name}`}
+                      className="inline-flex items-center gap-1 rounded border border-zinc-800 bg-zinc-950/80 px-2 py-0.5 text-[11px] text-zinc-300"
+                      title={item.epistemic}
+                    >
+                      {item.name}
+                      {item.version ? (
+                        <span className="font-mono text-zinc-500">
+                          {item.version}
+                        </span>
+                      ) : null}
+                      <span className="text-[9px] uppercase text-zinc-600">
+                        {item.epistemic === "OBSERVED" ? "obs" : "inf"}
+                      </span>
+                    </span>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+        {techBits.hostHint && (
+          <p className="mt-2 text-[10px] text-zinc-600 font-mono">
+            Host: {techBits.hostHint}
+          </p>
+        )}
       </div>
 
       {error && (
@@ -209,20 +283,13 @@ export function EvidenceTriageBoard({
           <div className="space-y-2 rounded-lg border border-orange-500/30 bg-orange-500/5 p-3">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <p className="text-xs font-semibold text-orange-200">
-                Auto-promoted findings ({promotedFindings.length}) — already in
+                Hallazgos auto-promovidos ({promotedFindings.length}) — ya en
                 Attack Mode
               </p>
-              <Link
-                href={`/v2/attack?assessmentId=${encodeURIComponent(assessmentId)}`}
-                className="text-[11px] font-mono text-orange-300 hover:text-orange-200 underline-offset-2 hover:underline"
-              >
-                Open Attack Mode →
-              </Link>
             </div>
             <p className="text-[10px] text-zinc-500">
-              RLS / access-control signals that met auto-promote gates skip the
-              draft queue. Review plans there; drafts below are optional noise
-              filter.
+              Señales RLS / access-control que pasaron el gate de auto-promote.
+              Los drafts de abajo son filtro opcional de ruido.
             </p>
             <div className="space-y-2">
               {promotedFindings.map((f, idx) => {
@@ -293,114 +360,114 @@ export function EvidenceTriageBoard({
             <FileText className="mx-auto h-6 w-6 text-zinc-600 mb-2" />
             No pending drafts for this assessment.
             <p className="mt-1 text-[11px] text-zinc-600">
-              You can continue to the report even with zero drafts — abstention
-              is valid.
+              Podés continuar a Attack aunque no haya drafts — la abstención es
+              válida.
             </p>
           </div>
         ) : (
           (() => {
-            const primary = drafts.filter((d) => draftSortRank(d) === 0);
-            const lowInfo = drafts.filter((d) => draftSortRank(d) === 1);
+            const primary = drafts.filter((d) => draftSortRank(d) < 10);
+            const lowInfo = drafts.filter((d) => draftSortRank(d) >= 10);
             const renderDraft = (draft: EvidenceDraftDto) => {
-            const already = reviewedDraftIds.includes(draft.draftId);
-            const reviewing = reviewingDraftId === draft.draftId;
-            const kind = draft.differentialContext?.detectionKind;
-            const level = severityFromDetectionKind(kind, {
-              disclosureKind: draft.differentialContext?.disclosureKind,
-            });
-            const severity = presentSeverity(level);
-            const title = draftPlainTitle(kind, draft.suggestedEvidenceType);
-            const why = draftWhyItMatters(kind, draft.safeRationale);
-            const target = targetFromDraft(draft);
+              const already = reviewedDraftIds.includes(draft.draftId);
+              const reviewing = reviewingDraftId === draft.draftId;
+              const kind = draft.differentialContext?.detectionKind;
+              const level = severityFromDetectionKind(kind, {
+                disclosureKind: draft.differentialContext?.disclosureKind,
+              });
+              const severity = presentSeverity(level);
+              const title = draftPlainTitle(kind, draft.suggestedEvidenceType);
+              const why = draftWhyItMatters(kind, draft.safeRationale);
+              const target = targetFromDraft(draft);
 
-            return (
-              <div
-                key={draft.draftId}
-                className={`rounded-lg border p-4 transition-all ${
-                  already
-                    ? "border-emerald-500/30 bg-emerald-950/10"
-                    : draftSortRank(draft) === 1
-                      ? "border-zinc-800/60 bg-zinc-950/40 opacity-90"
-                      : "border-zinc-800 bg-zinc-900/50 hover:border-zinc-700"
-                }`}
-              >
-                <div className="flex flex-wrap items-start justify-between gap-3">
-                  <div className="min-w-0 flex-1 space-y-1.5">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <h3 className="text-sm font-semibold text-zinc-100">
-                        {title}
-                      </h3>
-                      <span
-                        className={`rounded border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${severity.badgeClass}`}
-                      >
-                        {severity.label}
-                      </span>
-                    </div>
-                    <p className="text-[11px] text-zinc-400 leading-relaxed">
-                      {draft.safeRationale}
-                    </p>
-                    <p className="text-[11px] text-zinc-500 leading-relaxed">
-                      <span className="text-zinc-600">Why it matters: </span>
-                      {why}
-                    </p>
-                    <p className="truncate font-mono text-[10px] text-zinc-500">
-                      {target}
-                    </p>
-                    {draft.differentialContext?.supabaseTableName && (
-                      <p className="text-[10px] font-mono text-amber-400/90">
-                        table: {draft.differentialContext.supabaseTableName}
-                        {draft.differentialContext.supabaseClaimKind
-                          ? ` · ${draft.differentialContext.supabaseClaimKind}`
-                          : ""}
-                        {typeof draft.differentialContext.supabaseRowCountHint ===
-                        "number"
-                          ? ` · ~${draft.differentialContext.supabaseRowCountHint} rows`
-                          : ""}
+              return (
+                <div
+                  key={draft.draftId}
+                  className={`rounded-lg border p-4 transition-all ${
+                    already
+                      ? "border-emerald-500/30 bg-emerald-950/10"
+                      : draftSortRank(draft) >= 10
+                        ? "border-zinc-800/60 bg-zinc-950/40 opacity-90"
+                        : "border-zinc-800 bg-zinc-900/50 hover:border-zinc-700"
+                  }`}
+                >
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div className="min-w-0 flex-1 space-y-1.5">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <h3 className="text-sm font-semibold text-zinc-100">
+                          {title}
+                        </h3>
+                        <span
+                          className={`rounded border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${severity.badgeClass}`}
+                        >
+                          {severity.label}
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-zinc-400 leading-relaxed">
+                        {draft.safeRationale}
                       </p>
-                    )}
-                  </div>
+                      <p className="text-[11px] text-zinc-500 leading-relaxed">
+                        <span className="text-zinc-600">Why it matters: </span>
+                        {why}
+                      </p>
+                      <p className="truncate font-mono text-[10px] text-zinc-500">
+                        {target}
+                      </p>
+                      {draft.differentialContext?.supabaseTableName && (
+                        <p className="text-[10px] font-mono text-amber-400/90">
+                          table: {draft.differentialContext.supabaseTableName}
+                          {draft.differentialContext.supabaseClaimKind
+                            ? ` · ${draft.differentialContext.supabaseClaimKind}`
+                            : ""}
+                          {typeof draft.differentialContext
+                            .supabaseRowCountHint === "number"
+                            ? ` · ~${draft.differentialContext.supabaseRowCountHint} rows`
+                            : ""}
+                        </p>
+                      )}
+                    </div>
 
-                  <div className="flex shrink-0 items-center gap-2">
-                    {already ? (
-                      <span className="inline-flex items-center gap-1 rounded border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-1 text-[11px] font-medium text-emerald-400">
-                        <CheckCircle className="h-3.5 w-3.5" />
-                        Done
-                      </span>
-                    ) : (
-                      <>
-                        <button
-                          type="button"
-                          onClick={() =>
-                            void handleReview(draft, "approve_evidence")
-                          }
-                          disabled={reviewing}
-                          className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-emerald-500 disabled:opacity-50"
-                        >
-                          {reviewing ? (
-                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                          ) : (
-                            <Check className="h-3.5 w-3.5" />
-                          )}
-                          Incluir en hallazgos
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() =>
-                            void handleReview(draft, "reject_evidence")
-                          }
-                          disabled={reviewing}
-                          className="inline-flex items-center gap-1.5 rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-1.5 text-xs font-semibold text-zinc-300 transition hover:bg-zinc-800 disabled:opacity-50"
-                          title="Descartar como ruido — no pasa a hallazgos"
-                        >
-                          <X className="h-3.5 w-3.5" />
-                          Descartar ruido
-                        </button>
-                      </>
-                    )}
+                    <div className="flex shrink-0 items-center gap-2">
+                      {already ? (
+                        <span className="inline-flex items-center gap-1 rounded border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-1 text-[11px] font-medium text-emerald-400">
+                          <CheckCircle className="h-3.5 w-3.5" />
+                          Done
+                        </span>
+                      ) : (
+                        <>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              void handleReview(draft, "approve_evidence")
+                            }
+                            disabled={reviewing}
+                            className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-emerald-500 disabled:opacity-50"
+                          >
+                            {reviewing ? (
+                              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                            ) : (
+                              <Check className="h-3.5 w-3.5" />
+                            )}
+                            Incluir en hallazgos
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              void handleReview(draft, "reject_evidence")
+                            }
+                            disabled={reviewing}
+                            className="inline-flex items-center gap-1.5 rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-1.5 text-xs font-semibold text-zinc-300 transition hover:bg-zinc-800 disabled:opacity-50"
+                            title="Descartar como ruido — no pasa a hallazgos"
+                          >
+                            <X className="h-3.5 w-3.5" />
+                            Descartar ruido
+                          </button>
+                        </>
+                      )}
+                    </div>
                   </div>
                 </div>
-              </div>
-            );
+              );
             };
 
             return (
@@ -409,7 +476,8 @@ export function EvidenceTriageBoard({
                 {lowInfo.length > 0 && (
                   <div className="pt-2 space-y-2">
                     <p className="text-[10px] font-mono uppercase tracking-wide text-zinc-600">
-                      Low-info / cosmetic ({lowInfo.length}) — not Attack Mode primary
+                      Low-info / cosmético ({lowInfo.length}) — no primario para
+                      Attack
                     </p>
                     {lowInfo.map(renderDraft)}
                   </div>
@@ -423,10 +491,10 @@ export function EvidenceTriageBoard({
       <div className="mt-6 flex items-center justify-end border-t border-zinc-800/60 pt-4">
         <button
           type="button"
-          onClick={onContinueToReport}
-          className="inline-flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-xs font-semibold text-white transition hover:bg-emerald-500"
+          onClick={onContinueToAttack}
+          className="inline-flex items-center gap-2 rounded-lg bg-orange-600 px-4 py-2 text-xs font-semibold text-white transition hover:bg-orange-500"
         >
-          Continue to Report
+          Continue to Attack
           <ArrowRight className="h-3.5 w-3.5" />
         </button>
       </div>

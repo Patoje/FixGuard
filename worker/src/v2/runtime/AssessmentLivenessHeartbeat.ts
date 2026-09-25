@@ -7,8 +7,8 @@
  * weaken security / global execution timeouts.
  */
 
-/** Canonical heartbeat interval for long-running orchestrated work. */
-export const ASSESSMENT_HEARTBEAT_INTERVAL_MS = 7_000;
+/** Canonical heartbeat interval for long-running orchestrated work (~25s). */
+export const ASSESSMENT_HEARTBEAT_INTERVAL_MS = 25_000;
 
 /** Status is considered alive if the last heartbeat is within this window. */
 export const ASSESSMENT_HEARTBEAT_ALIVE_WINDOW_MS =

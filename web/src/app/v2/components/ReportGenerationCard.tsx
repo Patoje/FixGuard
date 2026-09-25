@@ -8,40 +8,37 @@ import {
   Download,
   Loader2,
   CheckCircle,
-  Lock,
 } from "lucide-react";
 import { generateHtmlReport, V2ApiError } from "@/lib/v2Api";
 
+/** Soft-default operator id — API requires it; not shown as chrome. */
+const DEFAULT_OPERATOR_ID = "op_sec_admin";
+
+const DEFAULT_ATTESTATION =
+  "Verifiqué los hallazgos candidatos contra evidencia del target y restricciones del audit defensivo.";
+
 interface ReportGenerationCardProps {
   assessmentId: string;
-  scanId: string;
   reviewedCount: number;
 }
 
 export function ReportGenerationCard({
   assessmentId,
-  scanId,
   reviewedCount,
 }: ReportGenerationCardProps) {
-  const [operatorId, setOperatorId] = useState<string>("op_sec_admin");
-  const [attestationText, setAttestationText] = useState<string>(
-    "I have verified all candidate findings against defensive audit constraints and live target evidence."
-  );
+  const [attestationText, setAttestationText] =
+    useState<string>(DEFAULT_ATTESTATION);
   const [loading, setLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
   const [htmlReport, setHtmlReport] = useState<string | null>(null);
 
   const canGenerate =
-    Boolean(assessmentId) &&
-    operatorId.trim().length >= 2 &&
-    attestationText.trim().length >= 10;
+    Boolean(assessmentId) && attestationText.trim().length >= 10;
 
   const handleGenerateReport = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!canGenerate) {
-      setError(
-        "Assessment ID, operator ID, and attestation (≥10 chars) are required."
-      );
+      setError("Se requiere una atestación de al menos 10 caracteres.");
       return;
     }
 
@@ -50,7 +47,7 @@ export function ReportGenerationCard({
 
     try {
       const html = await generateHtmlReport(assessmentId, {
-        operatorId: operatorId.trim(),
+        operatorId: DEFAULT_OPERATOR_ID,
         attestationText: attestationText.trim(),
       });
       setHtmlReport(html);
@@ -86,74 +83,41 @@ export function ReportGenerationCard({
         </div>
         <div>
           <h2 className="text-lg font-semibold tracking-tight text-zinc-100">
-            Stage 4: Defensive Report
+            Stage 5: Defensive Report
           </h2>
           <p className="text-xs text-zinc-400">
-            Sign off and download the orchestrated HTML assessment report
+            Firmá el assessment y descargá el reporte HTML
           </p>
         </div>
       </div>
 
       <form onSubmit={handleGenerateReport} className="mt-5 space-y-4">
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-          <div>
-            <label
-              htmlFor="signatureId"
-              className="block text-xs font-medium text-zinc-300"
-            >
-              Operator Signature ID
-            </label>
-            <input
-              id="signatureId"
-              type="text"
-              value={operatorId}
-              onChange={(e) => setOperatorId(e.target.value.trim())}
-              placeholder="op_sec_admin"
-              className="mt-1.5 block w-full rounded-lg border border-zinc-800 bg-zinc-900/60 px-3.5 py-2 text-xs font-mono text-zinc-100 placeholder-zinc-600 focus:border-emerald-500/50 focus:outline-none focus:ring-2 focus:ring-emerald-500/20"
-              disabled={loading}
-            />
-          </div>
-
-          <div>
-            <label className="block text-xs font-medium text-zinc-300">
-              Session Context
-            </label>
-            <div className="mt-1.5 space-y-1 rounded-lg border border-zinc-800 bg-zinc-900/40 px-3 py-2 text-[11px] font-mono text-zinc-400">
-              <div className="truncate">
-                assessment:{" "}
-                <span className="text-zinc-200">{assessmentId || "—"}</span>
-              </div>
-              <div className="truncate">
-                scan: <span className="text-zinc-200">{scanId || "—"}</span>
-              </div>
-              <div>
-                reviewed drafts:{" "}
-                <span className="text-emerald-400">{reviewedCount}</span>
-              </div>
-            </div>
-          </div>
-        </div>
+        {reviewedCount > 0 && (
+          <p className="text-xs text-zinc-500">
+            Drafts revisados en esta sesión:{" "}
+            <span className="text-emerald-400 font-mono">{reviewedCount}</span>
+          </p>
+        )}
 
         <div>
           <label
             htmlFor="attestationText"
             className="block text-xs font-medium text-zinc-300"
           >
-            Operator Attestation (≥ 10 chars)
+            Atestación del operador
           </label>
           <textarea
             id="attestationText"
-            rows={3}
+            rows={2}
             value={attestationText}
             onChange={(e) => setAttestationText(e.target.value)}
-            placeholder="Document human verification statement..."
+            placeholder="Confirmación breve de revisión humana…"
             className="mt-1.5 block w-full rounded-lg border border-zinc-800 bg-zinc-900/60 px-3.5 py-2.5 text-xs text-zinc-100 placeholder-zinc-600 focus:border-emerald-500/50 focus:outline-none focus:ring-2 focus:ring-emerald-500/20"
             disabled={loading}
           />
-          <div className="mt-1 flex items-center justify-between text-[11px] text-zinc-500">
-            <span>Required for fail-closed report gate</span>
-            <span>{attestationText.length} characters</span>
-          </div>
+          <p className="mt-1 text-[11px] text-zinc-600">
+            Requerida por el gate fail-closed del reporte (≥ 10 chars)
+          </p>
         </div>
 
         {error && (
@@ -163,11 +127,7 @@ export function ReportGenerationCard({
           </div>
         )}
 
-        <div className="flex items-center justify-between pt-2">
-          <span className="text-xs text-zinc-500 flex items-center gap-1">
-            <Lock className="h-3.5 w-3.5 text-zinc-500" />
-            POST /orchestrated/assessments/:id/report/html
-          </span>
+        <div className="flex items-center justify-end pt-2">
           <button
             type="submit"
             disabled={loading || !canGenerate}

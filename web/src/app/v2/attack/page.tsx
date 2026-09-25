@@ -42,6 +42,12 @@ import type { OperatorAttackRecommendation } from "@/lib/v2AttackApi";
 
 type ResultsPanel = "chains" | "impact" | "post_exploit" | null;
 
+export type AttackModeContentProps = {
+  readonly forcedAssessmentId?: string;
+  readonly embedded?: boolean;
+  readonly onContinueToReport?: () => void;
+};
+
 const LATERAL_MECHANISMS: ReadonlySet<string> = new Set([
   "credential_reuse",
   "session_token_reuse",
@@ -60,9 +66,14 @@ function asLateralMechanism(value: string): LateralMovementMechanism {
   return "credential_reuse";
 }
 
-function AttackModeContent() {
+function AttackModeContent({
+  forcedAssessmentId,
+  embedded = false,
+  onContinueToReport,
+}: AttackModeContentProps) {
   const searchParams = useSearchParams();
-  const assessmentIdFromQuery = searchParams.get("assessmentId") || "";
+  const assessmentIdFromQuery =
+    forcedAssessmentId || searchParams.get("assessmentId") || "";
 
   const [assessmentId, setAssessmentId] = useState(assessmentIdFromQuery);
   const [operatorId] = useState("usr_secops_lead");
@@ -519,7 +530,10 @@ function AttackModeContent() {
   };
 
   return (
-    <div className="min-h-screen bg-black text-zinc-100 font-sans pb-24">
+    <div
+      className={`${embedded ? "" : "min-h-screen"} bg-black text-zinc-100 font-sans ${embedded ? "pb-6" : "pb-24"}`}
+    >
+      {!embedded && (
       <header className="border-b border-zinc-900 bg-zinc-950/70 backdrop-blur-xl sticky top-14 z-40">
         <div className="max-w-6xl mx-auto px-6 py-4 flex flex-wrap items-center justify-between gap-4">
           <div className="flex items-center gap-3">
@@ -551,8 +565,33 @@ function AttackModeContent() {
           </Link>
         </div>
       </header>
+      )}
 
-      <main className="max-w-6xl mx-auto px-6 mt-6 space-y-5">
+      <main className={`${embedded ? "" : "max-w-6xl mx-auto px-6 mt-6"} space-y-5`}>
+        {embedded && (
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-orange-500/20 bg-orange-500/5 px-4 py-3">
+            <div className="flex items-center gap-2">
+              <Crosshair className="h-4 w-4 text-orange-400" />
+              <div>
+                <h2 className="text-sm font-semibold text-zinc-100">
+                  Stage 4: Attack Mode
+                </h2>
+                <p className="text-[11px] text-zinc-500">
+                  Autorización humana · evidencia real · sin secretos en UI
+                </p>
+              </div>
+            </div>
+            {onContinueToReport && (
+              <button
+                type="button"
+                onClick={onContinueToReport}
+                className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-500"
+              >
+                Continue to Report →
+              </button>
+            )}
+          </div>
+        )}
         {/* Simplified header */}
         <section className="rounded-xl border border-zinc-900 bg-zinc-950/80 p-4 space-y-3">
           <div className="flex flex-wrap items-end gap-3">
@@ -784,6 +823,18 @@ function AttackModeContent() {
         </section>
       </main>
 
+      {embedded && onContinueToReport && (
+        <div className="mt-4 flex justify-end border-t border-zinc-800/60 pt-4">
+          <button
+            type="button"
+            onClick={onContinueToReport}
+            className="inline-flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-xs font-semibold text-white transition hover:bg-emerald-500"
+          >
+            Continue to Report →
+          </button>
+        </div>
+      )}
+
       {authModalPlan && (
         <AttackAuthorizationModal
           plan={authModalPlan}
@@ -835,6 +886,30 @@ function ResultsAccordion({
       </button>
       {open && <div className="px-4 pb-4">{children}</div>}
     </div>
+  );
+}
+
+export function EmbeddedAttackMode({
+  assessmentId,
+  onContinueToReport,
+}: {
+  readonly assessmentId: string;
+  readonly onContinueToReport?: () => void;
+}) {
+  return (
+    <Suspense
+      fallback={
+        <div className="rounded-xl border border-zinc-800 bg-zinc-950/60 p-8 text-center text-sm font-mono text-zinc-500">
+          Cargando Attack Mode…
+        </div>
+      }
+    >
+      <AttackModeContent
+        forcedAssessmentId={assessmentId}
+        embedded
+        onContinueToReport={onContinueToReport}
+      />
+    </Suspense>
   );
 }
 

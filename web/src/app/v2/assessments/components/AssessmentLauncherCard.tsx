@@ -50,8 +50,6 @@ const KNOWN_TARGET_DEFAULTS: Record<
   },
 };
 
-const PRESETS = ["teclaaa.vercel.app", "charmarket.vercel.app"] as const;
-
 function cleanDomain(input: string): string {
   return input
     .trim()
@@ -109,14 +107,6 @@ export function AssessmentLauncherCard({
   const isValidFormat =
     cleaned.length > 2 && /^[a-z0-9.-]+\.[a-z]{2,}$/i.test(cleaned);
   const isSsrfRisk = isPrivateOrLoopbackHost(cleaned);
-
-  const applyPreset = (domain: string) => {
-    setDomainInput(domain);
-    const known = KNOWN_TARGET_DEFAULTS[domain];
-    setRelatedHostsInput(known?.relatedHosts ?? "");
-    setSkipSlowCrawl(known?.skipSlowCrawl ?? true);
-    setError(null);
-  };
 
   const handleLaunch = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -313,24 +303,6 @@ export function AssessmentLauncherCard({
                 </>
               )}
             </button>
-          </div>
-
-          <div className="mt-3 flex flex-wrap items-center gap-2">
-            {PRESETS.map((domain) => (
-              <button
-                key={domain}
-                type="button"
-                onClick={() => applyPreset(domain)}
-                disabled={loading || isRunning}
-                className={`rounded-md px-2 py-0.5 font-mono text-[11px] transition disabled:opacity-50 ${
-                  cleanDomain(domainInput) === domain
-                    ? "text-emerald-400/90"
-                    : "text-zinc-600 hover:text-zinc-400"
-                }`}
-              >
-                {domain.replace(".vercel.app", "")}
-              </button>
-            ))}
           </div>
         </div>
 

@@ -89,6 +89,8 @@ export interface TechEcosystemProfileDto {
   readonly hasGraphQL: boolean;
   readonly hasPhpLegacy: boolean;
   readonly hasExposedSourcemaps: boolean;
+  readonly hasSupabase?: boolean;
+  readonly hasPostgrest?: boolean;
 }
 
 export interface TargetProfileDto {
@@ -157,6 +159,8 @@ export interface OrchestratedAssessmentStatusResponse {
   readonly alive?: boolean;
   readonly heartbeatStageHint?: string;
   readonly heartbeatToolHint?: string;
+  readonly sessionKeepAliveAt?: string;
+  readonly sessionKeepAliveHint?: string;
   readonly error?: string;
 }
 

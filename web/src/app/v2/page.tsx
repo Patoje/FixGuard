@@ -2,7 +2,7 @@
 
 import React, { useState, useCallback, useEffect, useRef } from "react";
 import Link from "next/link";
-import { AlertCircle, Check } from "lucide-react";
+import { AlertCircle, Check, Home } from "lucide-react";
 import {
   getOrchestratedAssessmentStatus,
   V2ApiError,
@@ -13,18 +13,21 @@ import { TargetLaunchCard } from "./components/TargetLaunchCard";
 import { SessionStatusCard } from "./components/SessionStatusCard";
 import { EvidenceTriageBoard } from "./components/EvidenceTriageBoard";
 import { ReportGenerationCard } from "./components/ReportGenerationCard";
+import { EmbeddedAttackMode } from "./attack/EmbeddedAttackMode";
 
 type Stage =
   | "stage1_launch"
   | "stage2_overview"
   | "stage3_triage"
-  | "stage4_report";
+  | "stage4_attack"
+  | "stage5_report";
 
 const STAGE_ORDER: Stage[] = [
   "stage1_launch",
   "stage2_overview",
   "stage3_triage",
-  "stage4_report",
+  "stage4_attack",
+  "stage5_report",
 ];
 
 const STAGE_META: Record<
@@ -51,7 +54,14 @@ const STAGE_META: Record<
       "border-amber-500/50 bg-amber-500/10 shadow-lg shadow-amber-500/10",
     badgeClass: "border-amber-500/30 bg-amber-500/20 text-amber-300",
   },
-  stage4_report: {
+  stage4_attack: {
+    label: "Attack",
+    subtitle: "Planes autorizados",
+    activeClass:
+      "border-orange-500/50 bg-orange-500/10 shadow-lg shadow-orange-500/10",
+    badgeClass: "border-orange-500/30 bg-orange-500/20 text-orange-300",
+  },
+  stage5_report: {
     label: "Defensive Report",
     subtitle: "Sign-off",
     activeClass:
@@ -62,6 +72,14 @@ const STAGE_META: Record<
 
 function stageIndex(stage: Stage): number {
   return STAGE_ORDER.indexOf(stage);
+}
+
+function clearStoredAssessment(): void {
+  try {
+    sessionStorage.removeItem("fg_v2_active_assessment");
+  } catch {
+    // ignore
+  }
 }
 
 export default function V2DashboardPage() {
@@ -79,6 +97,8 @@ export default function V2DashboardPage() {
   const [globalError, setGlobalError] = useState<string | null>(null);
 
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  /** Once recon has started, Target Launch is not clickable via stepper. */
+  const reconStartedRef = useRef(false);
 
   const stopPolling = useCallback(() => {
     if (pollingRef.current) {
@@ -87,6 +107,28 @@ export default function V2DashboardPage() {
     }
     setIsPolling(false);
   }, []);
+
+  const resetToFreshLaunch = useCallback(() => {
+    stopPolling();
+    clearStoredAssessment();
+    try {
+      const url = new URL(window.location.href);
+      url.searchParams.delete("assessmentId");
+      window.history.replaceState({}, "", url.pathname);
+    } catch {
+      // ignore
+    }
+    reconStartedRef.current = false;
+    setAssessmentId(null);
+    setScanId("");
+    setTargetDomain("");
+    setStatus(null);
+    setReviewedDraftIds([]);
+    setGlobalError(null);
+    setCompletedThrough(-1);
+    setMaxUnlockedIndex(0);
+    setActiveStage("stage1_launch");
+  }, [stopPolling]);
 
   const fetchStatus = useCallback(
     async (id: string) => {
@@ -106,14 +148,11 @@ export default function V2DashboardPage() {
       } catch (err) {
         if (err instanceof V2ApiError) {
           if (err.errorType === "NotFound" || err.status === 404) {
-            try {
-              sessionStorage.removeItem("fg_v2_active_assessment");
-            } catch {
-              // ignore
-            }
+            clearStoredAssessment();
             setAssessmentId(null);
             setStatus(null);
             setIsPolling(false);
+            reconStartedRef.current = false;
             setActiveStage("stage1_launch");
             setMaxUnlockedIndex(0);
             setGlobalError(
@@ -138,6 +177,7 @@ export default function V2DashboardPage() {
     domain: string
   ) => {
     stopPolling();
+    reconStartedRef.current = true;
     setAssessmentId(data.assessmentId);
     setScanId(data.scanId);
     setTargetDomain(domain);
@@ -201,6 +241,7 @@ export default function V2DashboardPage() {
       return;
     }
     if (!resumeId) return;
+    reconStartedRef.current = true;
     setAssessmentId(resumeId);
     setTargetDomain(resumeDomain);
     setCompletedThrough(0);
@@ -251,10 +292,12 @@ export default function V2DashboardPage() {
   };
 
   const canNavigateTo = (stage: Stage): boolean => {
+    if (stage === "stage1_launch" && reconStartedRef.current) {
+      return false;
+    }
     return stageIndex(stage) <= maxUnlockedIndex;
   };
 
-  /** Stepper only advances the wizard on /v2 — never leaves to Assessments/Attack. */
   const handleStageClick = (stage: Stage) => {
     if (!canNavigateTo(stage)) return;
     setActiveStage(stage);
@@ -264,8 +307,12 @@ export default function V2DashboardPage() {
     markCompleteAndGo("stage2_overview", "stage3_triage");
   };
 
+  const handleContinueToAttack = () => {
+    markCompleteAndGo("stage3_triage", "stage4_attack");
+  };
+
   const handleContinueToReport = () => {
-    markCompleteAndGo("stage3_triage", "stage4_report");
+    markCompleteAndGo("stage4_attack", "stage5_report");
   };
 
   const handleDraftReviewed = (draftId: string) => {
@@ -278,7 +325,13 @@ export default function V2DashboardPage() {
 
   return (
     <div className="min-h-screen bg-black text-zinc-100 font-sans pb-16">
-      <main className="max-w-6xl mx-auto px-6 mt-8">
+      <main
+        className={`max-w-6xl mx-auto px-6 ${
+          activeStage === "stage1_launch"
+            ? "min-h-[calc(100vh-3.5rem)] flex flex-col justify-center py-10"
+            : "mt-8"
+        }`}
+      >
         {globalError && (
           <div className="mb-6 flex items-center justify-between rounded-lg border border-rose-500/30 bg-rose-500/10 p-4 text-xs text-rose-300">
             <div className="flex items-center gap-2">
@@ -295,66 +348,81 @@ export default function V2DashboardPage() {
         )}
 
         {showStageChrome ? (
-          <nav
-            className="mb-8 grid grid-cols-2 gap-2 sm:grid-cols-4"
-            aria-label="Assessment Pipeline Stages"
-          >
-            {STAGE_ORDER.map((stage, index) => {
-              const meta = STAGE_META[stage];
-              const isActive = activeStage === stage;
-              const isCompleted = index <= completedThrough;
-              const isLocked = !canNavigateTo(stage);
-              const numberLabel =
-                isCompleted && !isActive ? (
-                  <Check className="h-3.5 w-3.5" />
-                ) : (
-                  index + 1
-                );
+          <>
+            <div className="mb-4 flex justify-end">
+              <button
+                type="button"
+                onClick={resetToFreshLaunch}
+                className="inline-flex items-center gap-1.5 text-[11px] font-medium text-zinc-500 hover:text-zinc-300 transition"
+                title="Descarta el assessment en curso y vuelve a un launch limpio"
+              >
+                <Home className="h-3.5 w-3.5" />
+                Volver a inicio
+              </button>
+            </div>
+            <nav
+              className="mb-8 grid grid-cols-2 gap-2 sm:grid-cols-5"
+              aria-label="Assessment Pipeline Stages"
+            >
+              {STAGE_ORDER.map((stage, index) => {
+                const meta = STAGE_META[stage];
+                const isActive = activeStage === stage;
+                const isCompleted = index <= completedThrough;
+                const isLocked = !canNavigateTo(stage);
+                const numberLabel =
+                  isCompleted && !isActive ? (
+                    <Check className="h-3.5 w-3.5" />
+                  ) : (
+                    index + 1
+                  );
 
-              return (
-                <button
-                  key={stage}
-                  type="button"
-                  onClick={() => handleStageClick(stage)}
-                  disabled={isLocked}
-                  aria-disabled={isLocked}
-                  aria-current={isActive ? "step" : undefined}
-                  title={
-                    isLocked
-                      ? "Completá la etapa anterior para continuar"
-                      : `Ir a ${meta.label}`
-                  }
-                  className={`flex items-center gap-2.5 rounded-xl border p-3.5 text-left transition-all ${
-                    isActive
-                      ? meta.activeClass
-                      : isLocked
-                        ? "border-zinc-900 bg-zinc-950/40 text-zinc-600 cursor-not-allowed opacity-50"
-                        : "border-zinc-800 bg-zinc-950/60 hover:border-zinc-700 text-zinc-400 cursor-pointer"
-                  }`}
-                >
-                  <div
-                    className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border text-xs font-mono font-bold ${
+                return (
+                  <button
+                    key={stage}
+                    type="button"
+                    onClick={() => handleStageClick(stage)}
+                    disabled={isLocked}
+                    aria-disabled={isLocked}
+                    aria-current={isActive ? "step" : undefined}
+                    title={
+                      stage === "stage1_launch" && reconStartedRef.current
+                        ? "Usá «Volver a inicio» para un launch limpio — no se puede volver al Target Launch mid-run"
+                        : isLocked
+                          ? "Completá la etapa anterior para continuar"
+                          : `Ir a ${meta.label}`
+                    }
+                    className={`flex items-center gap-2.5 rounded-xl border p-3.5 text-left transition-all ${
                       isActive
-                        ? meta.badgeClass
-                        : isCompleted
-                          ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-400"
-                          : "border-zinc-800 bg-zinc-900 text-zinc-500"
+                        ? meta.activeClass
+                        : isLocked
+                          ? "border-zinc-900 bg-zinc-950/40 text-zinc-600 cursor-not-allowed opacity-50"
+                          : "border-zinc-800 bg-zinc-950/60 hover:border-zinc-700 text-zinc-400 cursor-pointer"
                     }`}
                   >
-                    {numberLabel}
-                  </div>
-                  <div className="overflow-hidden">
-                    <div className="text-xs font-semibold text-zinc-200 truncate">
-                      {meta.label}
+                    <div
+                      className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border text-xs font-mono font-bold ${
+                        isActive
+                          ? meta.badgeClass
+                          : isCompleted
+                            ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-400"
+                            : "border-zinc-800 bg-zinc-900 text-zinc-500"
+                      }`}
+                    >
+                      {numberLabel}
                     </div>
-                    <div className="text-[10px] text-zinc-500 truncate">
-                      {meta.subtitle}
+                    <div className="overflow-hidden">
+                      <div className="text-xs font-semibold text-zinc-200 truncate">
+                        {meta.label}
+                      </div>
+                      <div className="text-[10px] text-zinc-500 truncate">
+                        {meta.subtitle}
+                      </div>
                     </div>
-                  </div>
-                </button>
-              );
-            })}
-          </nav>
+                  </button>
+                );
+              })}
+            </nav>
+          </>
         ) : (
           <div className="mb-6 flex items-end justify-between gap-4">
             <div>
@@ -379,8 +447,6 @@ export default function V2DashboardPage() {
             <TargetLaunchCard
               onAssessmentStarted={handleAssessmentStarted}
               isRunning={status?.status === "running"}
-              activeDomain={targetDomain || null}
-              activeAssessmentId={assessmentId}
             />
           )}
 
@@ -388,9 +454,6 @@ export default function V2DashboardPage() {
             <SessionStatusCard
               status={status}
               isPolling={isPolling}
-              onRefresh={() => {
-                if (assessmentId) void fetchStatus(assessmentId);
-              }}
               onContinueToTriage={handleContinueToTriage}
             />
           )}
@@ -401,14 +464,20 @@ export default function V2DashboardPage() {
               scanId={scanId}
               onDraftReviewed={handleDraftReviewed}
               reviewedDraftIds={reviewedDraftIds}
+              onContinueToAttack={handleContinueToAttack}
+            />
+          )}
+
+          {activeStage === "stage4_attack" && assessmentId && (
+            <EmbeddedAttackMode
+              assessmentId={assessmentId}
               onContinueToReport={handleContinueToReport}
             />
           )}
 
-          {activeStage === "stage4_report" && (
+          {activeStage === "stage5_report" && (
             <ReportGenerationCard
               assessmentId={assessmentId || ""}
-              scanId={scanId}
               reviewedCount={reviewedDraftIds.length}
             />
           )}

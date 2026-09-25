@@ -26,8 +26,6 @@ interface TargetLaunchCardProps {
     domain: string
   ) => void;
   isRunning: boolean;
-  activeDomain: string | null;
-  activeAssessmentId: string | null;
 }
 
 /** OBSERVED Teclaaa backend — applied quietly so RLS path works without opening advanced. */
@@ -49,8 +47,6 @@ const KNOWN_TARGET_DEFAULTS: Record<
     skipSlowCrawl: true,
   },
 };
-
-const PRESETS = ["teclaaa.vercel.app", "charmarket.vercel.app"] as const;
 
 function cleanDomain(input: string): string {
   return input
@@ -130,8 +126,6 @@ function applyKnownDefaults(domain: string) {
 export function TargetLaunchCard({
   onAssessmentStarted,
   isRunning,
-  activeDomain,
-  activeAssessmentId,
 }: TargetLaunchCardProps) {
   const initialDefaults = applyKnownDefaults("teclaaa.vercel.app");
   const [domainInput, setDomainInput] = useState<string>("teclaaa.vercel.app");
@@ -166,16 +160,6 @@ export function TargetLaunchCard({
   const isValidFormat =
     cleaned.length > 2 && /^[a-z0-9.-]+\.[a-z]{2,}$/i.test(cleaned);
   const isSsrfRisk = isPrivateOrLoopbackHost(cleaned);
-
-  const applyPreset = (domain: string) => {
-    setDomainInput(domain);
-    const defaults = applyKnownDefaults(domain);
-    setRelatedHostsInput(defaults.relatedHosts);
-    setSeedUrlsInput(defaults.seedUrls);
-    setSeedPathsInput(defaults.seedPaths);
-    setSkipSlowCrawl(defaults.skipSlowCrawl);
-    setError(null);
-  };
 
   const handleLaunch = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -377,24 +361,6 @@ export function TargetLaunchCard({
                 </>
               )}
             </button>
-          </div>
-
-          <div className="mt-3 flex flex-wrap items-center gap-2">
-            {PRESETS.map((domain) => (
-              <button
-                key={domain}
-                type="button"
-                onClick={() => applyPreset(domain)}
-                disabled={loading || isRunning}
-                className={`rounded-md px-2 py-0.5 font-mono text-[11px] transition disabled:opacity-50 ${
-                  cleanDomain(domainInput) === domain
-                    ? "text-emerald-400/90"
-                    : "text-zinc-600 hover:text-zinc-400"
-                }`}
-              >
-                {domain.replace(".vercel.app", "")}
-              </button>
-            ))}
           </div>
         </div>
 
@@ -626,17 +592,6 @@ export function TargetLaunchCard({
           </div>
         )}
       </form>
-
-      {activeAssessmentId && activeDomain && (
-        <div className="mt-5 rounded-lg border border-zinc-800 bg-zinc-900/40 p-3 text-xs text-zinc-500">
-          <div className="flex items-center justify-between gap-2">
-            <span>En curso</span>
-            <span className="font-mono text-emerald-400/90 truncate">
-              {activeDomain}
-            </span>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
