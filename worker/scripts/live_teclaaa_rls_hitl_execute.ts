@@ -101,7 +101,10 @@ async function main(): Promise<void> {
       targetDomain: TARGET_HOST,
       actorId: OPERATOR_ID,
       relatedAllowedHosts: [SUPABASE_HOST],
-      seedUrls: [`https://${SUPABASE_HOST}/rest/v1/profiles`],
+      seedUrls: [
+        `https://${SUPABASE_HOST}/rest/v1/profiles`,
+        `https://${SUPABASE_HOST}/rest/v1/shop_items`,
+      ],
       seedPaths: ['/carrera/93kpw', '/login', '/perfil'],
       config: {
         enableSpaDiscovery: false,
@@ -161,23 +164,40 @@ async function main(): Promise<void> {
     ? (asRecord(plans.body).plans as unknown[])
     : [];
 
+  const preferTable = process.env.FG_RLS_TABLE?.trim() || 'shop_items';
+
   const rlsFinding = findings.find((f) => {
     if (!f || typeof f !== 'object') return false;
     const meta = (f as { metadata?: { kind?: string; tableName?: string } })
       .metadata;
     return (
-      meta?.kind === 'supabase_rls_abuse_metadata' && meta.tableName === 'profiles'
+      meta?.kind === 'supabase_rls_abuse_metadata' &&
+      (meta.tableName === preferTable || meta.tableName === 'profiles')
     );
   });
-
-  const rlsPlan = planList.find((p) => {
+  // Prefer preferTable plan; fall back to any supabase_rls_read_confirm.
+  const rlsPlans = planList.filter((p) => {
     if (!p || typeof p !== 'object') return false;
-    const plan = p as JsonRecord;
-    return plan.capability === 'supabase_rls_read_confirm';
-  }) as JsonRecord | undefined;
+    return (p as JsonRecord).capability === 'supabase_rls_read_confirm';
+  }) as JsonRecord[];
+  const rlsPlan =
+    rlsPlans.find((p) => String(p.title ?? '').includes(`'${preferTable}'`)) ??
+    rlsPlans.find((p) => String(p.targetUrl ?? '').includes(`/${preferTable}`)) ??
+    rlsPlans[0];
+
+  const matchedFinding =
+    findings.find((f) => {
+      if (!f || typeof f !== 'object') return false;
+      const meta = (f as { metadata?: { kind?: string; tableName?: string } })
+        .metadata;
+      return (
+        meta?.kind === 'supabase_rls_abuse_metadata' &&
+        meta.tableName === preferTable
+      );
+    }) ?? rlsFinding;
 
   console.log(
-    `\n[*] status=${status} findings=${findings.length} plans=${planList.length} rlsFinding=${Boolean(rlsFinding)} rlsPlan=${Boolean(rlsPlan)}`
+    `\n[*] status=${status} findings=${findings.length} plans=${planList.length} preferTable=${preferTable} rlsFinding=${Boolean(matchedFinding)} rlsPlan=${Boolean(rlsPlan)} rlsPlans=${rlsPlans.length}`
   );
   if (rlsPlan) {
     console.log(
@@ -192,6 +212,7 @@ async function main(): Promise<void> {
         {
           assessmentId,
           status,
+          preferTable,
           error: 'no_supabase_rls_read_confirm_plan',
           findingsCount: findings.length,
           planCapabilities: planList.map((p) =>
@@ -292,7 +313,7 @@ async function main(): Promise<void> {
       body: JSON.stringify({
         operatorId: OPERATOR_ID,
         scopeGrant,
-        findings: rlsFinding ? [rlsFinding] : findings,
+        findings: matchedFinding ? [matchedFinding] : findings,
         primaryIdentity: {
           identityId: 'identity_teclaaa_a',
           headers: {
@@ -326,7 +347,8 @@ async function main(): Promise<void> {
     executeHttp: execRes.status,
     execute: execRes.body,
     outcome,
-    rlsFindingPresent: Boolean(rlsFinding),
+    rlsFindingPresent: Boolean(matchedFinding),
+    preferTable,
     planCapability: rlsPlan.capability,
     planTargetUrl: rlsPlan.targetUrl,
   };

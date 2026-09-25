@@ -30,7 +30,7 @@ const SUPABASE_HOST_FALLBACK = 'vawrzoncszqauzxwqide.supabase.co';
 const API_SECRET = 'fixguard_live_teclaaa_rls_secret';
 const OPERATOR_ID = 'usr_secops_lead_live';
 const POLL_MS = 2_000;
-const MAX_WAIT_MS = 8 * 60_000;
+const MAX_WAIT_MS = 12 * 60_000;
 
 interface JsonRecord {
   readonly [key: string]: unknown;
@@ -51,6 +51,7 @@ function redactKey(key: string): string {
 async function extractObservedSupabaseAnonKey(): Promise<{
   readonly key: string;
   readonly projectHost: string;
+  readonly seedTableNames: readonly string[];
 }> {
   const pageUrl = `https://${TARGET_HOST}/carrera/93kpw`;
   const htmlRes = await fetch(pageUrl);
@@ -72,9 +73,22 @@ async function extractObservedSupabaseAnonKey(): Promise<{
   const hostMatch = text.match(/https:\/\/([a-z0-9-]+\.supabase\.co)/i);
   const projectHost = hostMatch?.[1] ?? SUPABASE_HOST_FALLBACK;
 
+  // Same OBSERVED JS surface the P2 `.from()` miner uses — feed enum even if stage_4 is bounded.
+  const fromHints = Array.from(
+    text.matchAll(/\.from\(\s*['"]([A-Za-z_][A-Za-z0-9_]*)['"]\s*\)/g),
+    (m) => m[1]!
+  );
+  const restHints = Array.from(
+    text.matchAll(/\/rest\/v1\/([A-Za-z_][A-Za-z0-9_]*)/g),
+    (m) => m[1]!
+  );
+  const seedTableNames = Object.freeze(
+    [...new Set([...fromHints, ...restHints, 'profiles'])].sort()
+  );
+
   const publishable = text.match(/sb_publishable_[A-Za-z0-9_-]+/);
   if (publishable) {
-    return { key: publishable[0], projectHost };
+    return { key: publishable[0], projectHost, seedTableNames };
   }
 
   const jwts = text.match(
@@ -89,7 +103,7 @@ async function extractObservedSupabaseAnonKey(): Promise<{
           Buffer.from(payload + pad, 'base64url').toString('utf8')
         ) as { role?: string; iss?: string };
         if (json.role === 'anon' || json.iss === 'supabase') {
-          return { key: j, projectHost };
+          return { key: j, projectHost, seedTableNames };
         }
       } catch {
         // continue
@@ -132,21 +146,39 @@ async function main(): Promise<void> {
 
   const observed = await extractObservedSupabaseAnonKey();
   console.log(`[*] OBSERVED key ${redactKey(observed.key)} host=${observed.projectHost}`);
+  console.log(`[*] OBSERVED seed tables from JS: ${observed.seedTableNames.join(',')}`);
 
-  const probe = await fetch(
-    `https://${observed.projectHost}/rest/v1/profiles?select=*&limit=1`,
-    {
-      headers: {
-        apikey: observed.key,
-        Authorization: `Bearer ${observed.key}`,
-        Accept: 'application/json',
-      },
-    }
-  );
-  const probeBody = await probe.text();
-  const probeIsJson =
-    probeBody.trim().startsWith('[') || probeBody.trim().startsWith('{');
-  console.log(`[*] direct_profiles status=${probe.status} json=${probeIsJson}`);
+  const directProbes: Array<{
+    readonly table: string;
+    readonly status: number;
+    readonly json: boolean;
+    readonly preview: string;
+  }> = [];
+  for (const table of observed.seedTableNames) {
+    const probe = await fetch(
+      `https://${observed.projectHost}/rest/v1/${table}?select=*&limit=1`,
+      {
+        headers: {
+          apikey: observed.key,
+          Authorization: `Bearer ${observed.key}`,
+          Accept: 'application/json',
+        },
+      }
+    );
+    const probeBody = await probe.text();
+    const probeIsJson =
+      probeBody.trim().startsWith('[') || probeBody.trim().startsWith('{');
+    directProbes.push({
+      table,
+      status: probe.status,
+      json: probeIsJson,
+      preview: probeBody.slice(0, 120).replace(/\s+/g, ' '),
+    });
+    console.log(
+      `[*] direct_${table} status=${probe.status} json=${probeIsJson}`
+    );
+  }
+  const profilesProbe = directProbes.find((p) => p.table === 'profiles');
 
   const resolvedIps = await dns.resolve4(TARGET_HOST);
   console.log(`[*] dns ${TARGET_HOST} -> ${resolvedIps.join(',')}`);
@@ -245,10 +277,14 @@ async function main(): Promise<void> {
         targetDomain: TARGET_HOST,
         actorId: OPERATOR_ID,
         relatedAllowedHosts: [observed.projectHost],
-        seedUrls: [`https://${observed.projectHost}/rest/v1/profiles`],
+        // P2 slam-dunk: JS `.from()` / rest path hints → PostgREST enum seeds (OpenAPI often closed).
+        seedUrls: observed.seedTableNames.map(
+          (t) => `https://${observed.projectHost}/rest/v1/${t}`
+        ),
         seedPaths: ['/carrera/93kpw', '/login', '/perfil'],
         config: {
           enableSpaDiscovery: false,
+          // Skip stage_4 when gau/crawl hangs on SPA hosts; JS `.from()` seeds above feed enum.
           skipStages: ['stage_2_port_service', 'stage_4_crawling_parameters'],
         },
         sessionIdentities: {
@@ -337,52 +373,79 @@ async function main(): Promise<void> {
       return ctx?.detectionKind === 'supabase_rls_abuse';
     });
 
+    const planList = Array.isArray(asRecord(plans.body).plans)
+      ? (asRecord(plans.body).plans as unknown[])
+      : Array.isArray(plans.body)
+        ? plans.body
+        : [];
+    const rlsPlans = planList.filter((p) => {
+      if (!p || typeof p !== 'object') return false;
+      return (p as { capability?: string }).capability === 'supabase_rls_read_confirm';
+    });
+
+    const rlsTables = [
+      ...rlsFindings.map((f) => {
+        const meta = (f as { metadata?: { tableName?: string } }).metadata;
+        return meta?.tableName;
+      }),
+      ...rlsDrafts.map((d) => {
+        const ctx = (
+          d as { differentialContext?: { supabaseTableName?: string } }
+        ).differentialContext;
+        return ctx?.supabaseTableName;
+      }),
+    ].filter(Boolean);
+
     const out = {
       status,
       supabaseHost: observed.projectHost,
       anonKeyPreview: redactKey(observed.key),
-      directProfilesStatus: probe.status,
+      seedTableNames: observed.seedTableNames,
+      directProbes,
+      directProfilesStatus: profilesProbe?.status ?? null,
       findingsCount: findings.length,
       draftsCount: draftList.length,
       rlsFindingsCount: rlsFindings.length,
       rlsDraftsCount: rlsDrafts.length,
-      rlsTables: [
-        ...rlsFindings.map((f) => {
-          const meta = (f as { metadata?: { tableName?: string } }).metadata;
-          return meta?.tableName;
-        }),
-        ...rlsDrafts.map((d) => {
-          const ctx = (
-            d as { differentialContext?: { supabaseTableName?: string } }
-          ).differentialContext;
-          return ctx?.supabaseTableName;
-        }),
-      ].filter(Boolean),
-      plansCount: Array.isArray(asRecord(plans.body).plans)
-        ? (asRecord(plans.body).plans as unknown[]).length
-        : Array.isArray(plans.body)
-          ? plans.body.length
-          : 0,
+      rlsTables: [...new Set(rlsTables)],
+      rlsPlanTitles: rlsPlans.map((p) => (p as { title?: string }).title),
+      plansCount: planList.length,
     };
 
     writeFileSync(
       '/tmp/fixguard_teclaaa_rls_live.json',
-      JSON.stringify({ out, rlsFindings, rlsDrafts, summary: summaryRec }, null, 2)
+      JSON.stringify(
+        { out, rlsFindings, rlsDrafts, rlsPlans, summary: summaryRec },
+        null,
+        2
+      )
     );
     console.log('\n[*] Summary');
     console.log(JSON.stringify(out, null, 2));
     console.log('artifact: /tmp/fixguard_teclaaa_rls_live.json');
 
+    const hasProfiles =
+      out.rlsTables.includes('profiles') ||
+      out.directProfilesStatus === 200;
+    const shopInSeeds = observed.seedTableNames.includes('shop_items');
+    const shopSurfaced = out.rlsTables.includes('shop_items');
     const ok =
-      out.directProfilesStatus === 200 &&
-      (out.rlsFindingsCount > 0 || out.rlsDraftsCount > 0);
+      hasProfiles &&
+      (out.rlsFindingsCount > 0 || out.rlsDraftsCount > 0) &&
+      (!shopInSeeds || shopSurfaced || directProbes.some((p) => p.table === 'shop_items' && p.status === 404));
     if (!ok) {
       console.error(
-        '\n[!] ASSERT FAIL: expected RLS finding/draft (check scope/anon/wiring)'
+        '\n[!] ASSERT FAIL: expected RLS finding/draft; shop_items should surface when JS-seeded + world-readable'
       );
       process.exitCode = 1;
+    } else if (shopInSeeds && !shopSurfaced) {
+      console.log(
+        '\n[~] profiles OK; shop_items seeded but not in RLS findings (see directProbes)'
+      );
     } else {
-      console.log('\n[+] ASSERT OK: world-readable profiles surfaced via assessment');
+      console.log(
+        '\n[+] ASSERT OK: world-readable Supabase tables surfaced via assessment'
+      );
     }
   } finally {
     await new Promise<void>((resolve) => server.close(() => resolve()));

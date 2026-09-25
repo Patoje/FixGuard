@@ -134,7 +134,7 @@ async function main(): Promise<void> {
     scopeGrant,
     restBaseUrl: restBase,
     anonApiKey: key,
-    seedTableNames: ['profiles'],
+    seedTableNames: ['profiles', 'shop_items'],
   });
   console.log(
     `enum status=${enumResult.status} reason=${enumResult.reasonCode} tables=${enumResult.relations
@@ -146,7 +146,7 @@ async function main(): Promise<void> {
     enumResult.relations.filter((r) => r.relationKind === 'table').map((r) => r.name)
       .length > 0
       ? enumResult.relations.filter((r) => r.relationKind === 'table').map((r) => r.name)
-      : ['profiles'];
+      : ['profiles', 'shop_items'];
 
   const rls = await runSupabaseRlsAbuseDetection({
     contractVersion: SUPABASE_RLS_ABUSE_DETECTION_CONTRACT_VERSION,
