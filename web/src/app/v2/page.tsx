@@ -2,7 +2,7 @@
 
 import React, { useState, useCallback, useEffect, useRef } from "react";
 import Link from "next/link";
-import { Shield, AlertCircle, Check } from "lucide-react";
+import { AlertCircle, Check } from "lucide-react";
 import {
   getOrchestratedAssessmentStatus,
   V2ApiError,
@@ -274,33 +274,10 @@ export default function V2DashboardPage() {
     );
   };
 
+  const showStageChrome = activeStage !== "stage1_launch";
+
   return (
     <div className="min-h-screen bg-black text-zinc-100 font-sans pb-16">
-      <header className="border-b border-zinc-900 bg-zinc-950/70 backdrop-blur-xl sticky top-14 z-40">
-        <div className="max-w-6xl mx-auto px-6 py-4 flex flex-wrap items-center justify-between gap-4">
-          <div className="flex items-center gap-3">
-            <div className="flex h-9 w-9 items-center justify-center rounded-lg border border-emerald-500/30 bg-emerald-500/10 text-emerald-400">
-              <Shield className="h-5 w-5" />
-            </div>
-            <div>
-              <h1 className="text-base font-bold tracking-tight text-white">
-                FixGuard V2
-              </h1>
-              <p className="text-xs text-zinc-500">
-                Authorized web security assessment
-              </p>
-            </div>
-          </div>
-
-          <Link
-            href="/v2/assessments"
-            className="text-xs font-mono text-zinc-500 hover:text-zinc-300 transition"
-          >
-            Full pipeline view →
-          </Link>
-        </div>
-      </header>
-
       <main className="max-w-6xl mx-auto px-6 mt-8">
         {globalError && (
           <div className="mb-6 flex items-center justify-between rounded-lg border border-rose-500/30 bg-rose-500/10 p-4 text-xs text-rose-300">
@@ -317,79 +294,85 @@ export default function V2DashboardPage() {
           </div>
         )}
 
-        <nav
-          className="mb-6 grid grid-cols-2 gap-2 sm:grid-cols-4"
-          aria-label="Assessment Pipeline Stages"
-        >
-          {STAGE_ORDER.map((stage, index) => {
-            const meta = STAGE_META[stage];
-            const isActive = activeStage === stage;
-            const isCompleted = index <= completedThrough;
-            const isLocked = !canNavigateTo(stage);
-            const numberLabel = isCompleted && !isActive ? (
-              <Check className="h-3.5 w-3.5" />
-            ) : (
-              index + 1
-            );
+        {showStageChrome ? (
+          <nav
+            className="mb-8 grid grid-cols-2 gap-2 sm:grid-cols-4"
+            aria-label="Assessment Pipeline Stages"
+          >
+            {STAGE_ORDER.map((stage, index) => {
+              const meta = STAGE_META[stage];
+              const isActive = activeStage === stage;
+              const isCompleted = index <= completedThrough;
+              const isLocked = !canNavigateTo(stage);
+              const numberLabel =
+                isCompleted && !isActive ? (
+                  <Check className="h-3.5 w-3.5" />
+                ) : (
+                  index + 1
+                );
 
-            return (
-              <button
-                key={stage}
-                type="button"
-                onClick={() => handleStageClick(stage)}
-                disabled={isLocked}
-                aria-disabled={isLocked}
-                aria-current={isActive ? "step" : undefined}
-                title={
-                  isLocked
-                    ? "Completá la etapa anterior para continuar"
-                    : `Ir a ${meta.label} (wizard — no cambia de página)`
-                }
-                className={`flex items-center gap-2.5 rounded-xl border p-3.5 text-left transition-all ${
-                  isActive
-                    ? meta.activeClass
-                    : isLocked
-                      ? "border-zinc-900 bg-zinc-950/40 text-zinc-600 cursor-not-allowed opacity-50"
-                      : "border-zinc-800 bg-zinc-950/60 hover:border-zinc-700 text-zinc-400 cursor-pointer"
-                }`}
-              >
-                <div
-                  className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border text-xs font-mono font-bold ${
+              return (
+                <button
+                  key={stage}
+                  type="button"
+                  onClick={() => handleStageClick(stage)}
+                  disabled={isLocked}
+                  aria-disabled={isLocked}
+                  aria-current={isActive ? "step" : undefined}
+                  title={
+                    isLocked
+                      ? "Completá la etapa anterior para continuar"
+                      : `Ir a ${meta.label}`
+                  }
+                  className={`flex items-center gap-2.5 rounded-xl border p-3.5 text-left transition-all ${
                     isActive
-                      ? meta.badgeClass
-                      : isCompleted
-                        ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-400"
-                        : "border-zinc-800 bg-zinc-900 text-zinc-500"
+                      ? meta.activeClass
+                      : isLocked
+                        ? "border-zinc-900 bg-zinc-950/40 text-zinc-600 cursor-not-allowed opacity-50"
+                        : "border-zinc-800 bg-zinc-950/60 hover:border-zinc-700 text-zinc-400 cursor-pointer"
                   }`}
                 >
-                  {numberLabel}
-                </div>
-                <div className="overflow-hidden">
-                  <div className="text-xs font-semibold text-zinc-200 truncate">
-                    {meta.label}
+                  <div
+                    className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border text-xs font-mono font-bold ${
+                      isActive
+                        ? meta.badgeClass
+                        : isCompleted
+                          ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-400"
+                          : "border-zinc-800 bg-zinc-900 text-zinc-500"
+                    }`}
+                  >
+                    {numberLabel}
                   </div>
-                  <div className="text-[10px] text-zinc-500 truncate">
-                    {meta.subtitle}
+                  <div className="overflow-hidden">
+                    <div className="text-xs font-semibold text-zinc-200 truncate">
+                      {meta.label}
+                    </div>
+                    <div className="text-[10px] text-zinc-500 truncate">
+                      {meta.subtitle}
+                    </div>
                   </div>
-                </div>
-              </button>
-            );
-          })}
-        </nav>
-        <p className="mb-8 text-[11px] text-zinc-600">
-          El stepper avanza el wizard aquí. Para Attack Mode usá la pestaña{" "}
-          <Link
-            href={
-              assessmentId
-                ? `/v2/attack?assessmentId=${encodeURIComponent(assessmentId)}`
-                : "/v2/attack"
-            }
-            className="text-zinc-400 underline-offset-2 hover:underline hover:text-zinc-300"
-          >
-            Attack
-          </Link>{" "}
-          arriba — no sale del assessment.
-        </p>
+                </button>
+              );
+            })}
+          </nav>
+        ) : (
+          <div className="mb-6 flex items-end justify-between gap-4">
+            <div>
+              <h1 className="text-lg font-semibold tracking-tight text-zinc-100">
+                Nuevo assessment
+              </h1>
+              <p className="mt-0.5 text-sm text-zinc-500">
+                Pegá el dominio y dale a Iniciar.
+              </p>
+            </div>
+            <Link
+              href="/v2/assessments"
+              className="shrink-0 text-[11px] font-mono text-zinc-600 hover:text-zinc-400 transition"
+            >
+              Pipeline →
+            </Link>
+          </div>
+        )}
 
         <div className="space-y-6">
           {activeStage === "stage1_launch" && (

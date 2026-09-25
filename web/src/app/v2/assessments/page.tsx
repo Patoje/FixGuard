@@ -3,10 +3,6 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import Link from "next/link";
 import {
-  ArrowLeft,
-  Zap,
-} from "lucide-react";
-import {
   getOrchestratedAssessmentStatus,
   getOrchestratedAssessmentSummary,
   V2ApiError,
@@ -122,51 +118,40 @@ export default function OrchestratedAssessmentsPage() {
 
   return (
     <div className="min-h-screen bg-black text-zinc-100 font-sans pb-24">
-      {/* Header Banner */}
-      <header className="border-b border-zinc-900 bg-zinc-950/70 backdrop-blur-xl sticky top-0 z-40">
-        <div className="max-w-6xl mx-auto px-6 py-4 flex flex-wrap items-center justify-between gap-4">
-          <div className="flex items-center gap-3">
-            <Link
-              href="/v2"
-              className="flex h-9 w-9 items-center justify-center rounded-lg border border-zinc-800 bg-zinc-900 text-zinc-400 hover:text-white hover:border-zinc-700 transition cursor-pointer"
-              title="Return to MVP Dashboard"
-            >
-              <ArrowLeft className="h-4 w-4" />
-            </Link>
-
-            <div className="flex h-9 w-9 items-center justify-center rounded-lg border border-emerald-500/30 bg-emerald-500/10 text-emerald-400">
-              <Zap className="h-5 w-5" />
-            </div>
-
-            <div>
-              <h1 className="text-base font-bold tracking-tight text-white">
-                Assessments
-              </h1>
-            </div>
+      <main className="max-w-6xl mx-auto px-6 mt-8 space-y-8">
+        <div className="flex items-end justify-between gap-4">
+          <div>
+            <h1 className="text-lg font-semibold tracking-tight text-zinc-100">
+              Assessments
+            </h1>
+            <p className="mt-0.5 text-sm text-zinc-500">
+              Pegá el dominio y dale a Iniciar.
+            </p>
           </div>
-
-          <div className="flex items-center gap-3 text-xs font-mono">
+          <div className="flex items-center gap-3 text-[11px] font-mono">
             <Link
-              href={assessmentId ? `/v2/attack?assessmentId=${encodeURIComponent(assessmentId)}` : "/v2/attack"}
-              className="rounded-lg border border-orange-500/40 bg-orange-500/10 hover:bg-orange-500/20 px-3 py-1.5 text-orange-300 font-semibold transition"
+              href={
+                assessmentId
+                  ? `/v2/attack?assessmentId=${encodeURIComponent(assessmentId)}`
+                  : "/v2/attack"
+              }
+              className="text-zinc-600 hover:text-zinc-400 transition"
             >
-              Attack Mode &rarr;
+              Attack →
             </Link>
             <Link
               href="/v2"
-              className="rounded-lg border border-zinc-800 bg-zinc-900/60 hover:bg-zinc-900 px-3 py-1.5 text-zinc-400 hover:text-zinc-200 transition"
+              className="text-zinc-600 hover:text-zinc-400 transition"
             >
-              Triage Board &rarr;
+              Triage →
             </Link>
           </div>
         </div>
-      </header>
 
-      {/* Main Container */}
-      <main className="max-w-6xl mx-auto px-6 mt-8 space-y-8">
-        {/* Launcher Card */}
         <section aria-labelledby="launcher-heading">
-          <h2 id="launcher-heading" className="sr-only">Assessment Launcher</h2>
+          <h2 id="launcher-heading" className="sr-only">
+            Assessment Launcher
+          </h2>
           <AssessmentLauncherCard
             onAssessmentStarted={handleAssessmentStarted}
             isRunning={status?.status === "running"}

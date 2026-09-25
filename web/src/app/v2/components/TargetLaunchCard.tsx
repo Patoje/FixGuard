@@ -3,7 +3,6 @@
 import React, { useState } from "react";
 import {
   Globe,
-  Shield,
   AlertCircle,
   ArrowRight,
   Loader2,
@@ -30,6 +29,28 @@ interface TargetLaunchCardProps {
   activeDomain: string | null;
   activeAssessmentId: string | null;
 }
+
+/** OBSERVED Teclaaa backend — applied quietly so RLS path works without opening advanced. */
+const TECLAAA_SUPABASE = "vawrzoncszqauzxwqide.supabase.co";
+
+const KNOWN_TARGET_DEFAULTS: Record<
+  string,
+  {
+    relatedHosts: string;
+    seedUrls: string;
+    seedPaths: string;
+    skipSlowCrawl: boolean;
+  }
+> = {
+  "teclaaa.vercel.app": {
+    relatedHosts: TECLAAA_SUPABASE,
+    seedUrls: `https://${TECLAAA_SUPABASE}/rest/v1/profiles\nhttps://${TECLAAA_SUPABASE}/rest/v1/shop_items`,
+    seedPaths: "/carrera/93kpw, /login, /perfil",
+    skipSlowCrawl: true,
+  },
+};
+
+const PRESETS = ["teclaaa.vercel.app", "charmarket.vercel.app"] as const;
 
 function cleanDomain(input: string): string {
   return input
@@ -61,29 +82,76 @@ function parseCookieInput(cookieStr: string): Record<string, string> {
   return cookies;
 }
 
+function parseHostList(input: string): string[] {
+  return input
+    .split(/[\s,;]+/)
+    .map((h) =>
+      h
+        .trim()
+        .toLowerCase()
+        .replace(/^https?:\/\//, "")
+        .replace(/\/.*$/, "")
+    )
+    .filter((h) => h.length > 0 && /^[a-z0-9.-]+\.[a-z]{2,}$/i.test(h));
+}
+
+function parseSeedUrls(input: string): string[] {
+  return input
+    .split(/[\n,;]+/)
+    .map((u) => u.trim())
+    .filter((u) => /^https?:\/\/.+/i.test(u));
+}
+
+function parseSeedPaths(input: string): string[] {
+  return input
+    .split(/[\s,;]+/)
+    .map((p) => p.trim())
+    .filter((p) => p.startsWith("/"));
+}
+
+function applyKnownDefaults(domain: string) {
+  const known = KNOWN_TARGET_DEFAULTS[domain];
+  if (!known) {
+    return {
+      relatedHosts: "",
+      seedUrls: "",
+      seedPaths: "",
+      skipSlowCrawl: true,
+    };
+  }
+  return {
+    relatedHosts: known.relatedHosts,
+    seedUrls: known.seedUrls,
+    seedPaths: known.seedPaths,
+    skipSlowCrawl: known.skipSlowCrawl,
+  };
+}
+
 export function TargetLaunchCard({
   onAssessmentStarted,
   isRunning,
   activeDomain,
   activeAssessmentId,
 }: TargetLaunchCardProps) {
+  const initialDefaults = applyKnownDefaults("teclaaa.vercel.app");
   const [domainInput, setDomainInput] = useState<string>("teclaaa.vercel.app");
   const [actorId, setActorId] = useState<string>("usr_secops_lead");
   const [relatedHostsInput, setRelatedHostsInput] = useState<string>(
-    "vawrzoncszqauzxwqide.supabase.co"
+    initialDefaults.relatedHosts
   );
   const [seedUrlsInput, setSeedUrlsInput] = useState<string>(
-    "https://vawrzoncszqauzxwqide.supabase.co/rest/v1/profiles\nhttps://vawrzoncszqauzxwqide.supabase.co/rest/v1/shop_items"
+    initialDefaults.seedUrls
   );
   const [seedPathsInput, setSeedPathsInput] = useState<string>(
-    "/carrera/93kpw, /login, /perfil"
+    initialDefaults.seedPaths
   );
-  const [skipSlowCrawl, setSkipSlowCrawl] = useState<boolean>(true);
-  const [showAdvanced, setShowAdvanced] = useState(true);
+  const [skipSlowCrawl, setSkipSlowCrawl] = useState<boolean>(
+    initialDefaults.skipSlowCrawl
+  );
+  const [showAdvanced, setShowAdvanced] = useState(false);
   const [loading, setLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
 
-  const [showByot, setShowByot] = useState(false);
   const [identityAId, setIdentityAId] = useState("operator_identity_a");
   const [identityAAuthHeader, setIdentityAAuthHeader] = useState("");
   const [identityAApiKey, setIdentityAApiKey] = useState("");
@@ -99,15 +167,25 @@ export function TargetLaunchCard({
     cleaned.length > 2 && /^[a-z0-9.-]+\.[a-z]{2,}$/i.test(cleaned);
   const isSsrfRisk = isPrivateOrLoopbackHost(cleaned);
 
+  const applyPreset = (domain: string) => {
+    setDomainInput(domain);
+    const defaults = applyKnownDefaults(domain);
+    setRelatedHostsInput(defaults.relatedHosts);
+    setSeedUrlsInput(defaults.seedUrls);
+    setSeedPathsInput(defaults.seedPaths);
+    setSkipSlowCrawl(defaults.skipSlowCrawl);
+    setError(null);
+  };
+
   const handleLaunch = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!isValidFormat) {
-      setError("Enter a valid public domain (e.g. teclaaa.vercel.app)");
+      setError("Ingresá un dominio público válido (ej. teclaaa.vercel.app)");
       return;
     }
     if (isSsrfRisk) {
       setError(
-        `Egress gate blocked '${cleaned}' (private/loopback). Use a public authorized target.`
+        `Egress bloqueó '${cleaned}' (privado/loopback). Usá un target público autorizado.`
       );
       return;
     }
@@ -116,12 +194,13 @@ export function TargetLaunchCard({
     setError(null);
 
     try {
+      const known = KNOWN_TARGET_DEFAULTS[cleaned];
+
       let sessionIdentities: ByotSessionIdentityBundleDto | undefined;
       if (
-        showByot &&
-        (identityAAuthHeader.trim() ||
-          identityAApiKey.trim() ||
-          identityACookie.trim())
+        identityAAuthHeader.trim() ||
+        identityAApiKey.trim() ||
+        identityACookie.trim()
       ) {
         const headersA: Record<string, string> = {};
         if (identityAAuthHeader.trim()) {
@@ -129,7 +208,6 @@ export function TargetLaunchCard({
         }
         if (identityAApiKey.trim()) {
           headersA["apikey"] = identityAApiKey.trim();
-          // Anon RLS: Authorization Bearer often mirrors the publishable key.
           if (!headersA["authorization"]) {
             headersA["authorization"] = `Bearer ${identityAApiKey.trim()}`;
           }
@@ -156,43 +234,48 @@ export function TargetLaunchCard({
           const cookiesB = parseCookieInput(identityBCookie);
           identityB = {
             identityId: identityBId.trim() || "operator_identity_b",
-            ...(Object.keys(headersB).length > 0 ? { injectHeaders: headersB } : {}),
-            ...(Object.keys(cookiesB).length > 0 ? { injectCookies: cookiesB } : {}),
+            ...(Object.keys(headersB).length > 0
+              ? { injectHeaders: headersB }
+              : {}),
+            ...(Object.keys(cookiesB).length > 0
+              ? { injectCookies: cookiesB }
+              : {}),
           };
         }
 
         sessionIdentities = {
           identityA: {
             identityId: identityAId.trim() || "operator_identity_a",
-            ...(Object.keys(headersA).length > 0 ? { injectHeaders: headersA } : {}),
-            ...(Object.keys(cookiesA).length > 0 ? { injectCookies: cookiesA } : {}),
+            ...(Object.keys(headersA).length > 0
+              ? { injectHeaders: headersA }
+              : {}),
+            ...(Object.keys(cookiesA).length > 0
+              ? { injectCookies: cookiesA }
+              : {}),
           },
           ...(identityB ? { identityB } : {}),
         };
       }
 
-      const relatedAllowedHosts = relatedHostsInput
-        .split(/[\s,;]+/)
-        .map((h) =>
-          h
-            .trim()
-            .toLowerCase()
-            .replace(/^https?:\/\//, "")
-            .replace(/\/.*$/, "")
-        )
-        .filter((h) => h.length > 0 && /^[a-z0-9.-]+\.[a-z]{2,}$/i.test(h));
+      // Soft-default: known targets keep RLS path even if advanced stays closed/cleared.
+      let relatedAllowedHosts = parseHostList(relatedHostsInput);
+      if (relatedAllowedHosts.length === 0 && known) {
+        relatedAllowedHosts = parseHostList(known.relatedHosts);
+      }
 
-      const seedUrls = seedUrlsInput
-        .split(/[\n,;]+/)
-        .map((u) => u.trim())
-        .filter((u) => /^https?:\/\/.+/i.test(u));
+      let seedUrls = parseSeedUrls(seedUrlsInput);
+      if (seedUrls.length === 0 && known) {
+        seedUrls = parseSeedUrls(known.seedUrls);
+      }
 
-      const seedPaths = seedPathsInput
-        .split(/[\s,;]+/)
-        .map((p) => p.trim())
-        .filter((p) => p.startsWith("/"));
+      let seedPaths = parseSeedPaths(seedPathsInput);
+      if (seedPaths.length === 0 && known) {
+        seedPaths = parseSeedPaths(known.seedPaths);
+      }
 
-      const skipStages = skipSlowCrawl
+      const effectiveSkip =
+        skipSlowCrawl || (known?.skipSlowCrawl ?? false);
+      const skipStages = effectiveSkip
         ? (["stage_2_port_service", "stage_4_crawling_parameters"] as const)
         : undefined;
 
@@ -214,21 +297,21 @@ export function TargetLaunchCard({
       if (err instanceof V2ApiError) {
         if (err.reasonCode === "ssrf_target_blocked") {
           setError(
-            `SSRF egress gate: '${cleaned}' resolves to a restricted IP. Assessment aborted.`
+            `SSRF egress: '${cleaned}' resuelve a IP restringida. Assessment abortado.`
           );
         } else if (err.errorType === "V2GatewayUnreachable" || err.status === 0) {
           setError(
-            "V2 API Gateway unreachable. Run: cd worker && npm run dev (port 4000)."
+            "V2 API Gateway no responde. Ejecutá: cd worker && npm run dev (puerto 4000)."
           );
         } else {
           setError(`[${err.errorType}] ${err.message}`);
         }
       } else {
         const msg =
-          (err as Error).message || "Failed to start orchestrated assessment";
+          (err as Error).message || "No se pudo iniciar el assessment";
         if (/Failed to fetch|NetworkError|ECONNREFUSED/i.test(msg)) {
           setError(
-            "V2 API Gateway unreachable. Run: cd worker && npm run dev (port 4000)."
+            "V2 API Gateway no responde. Ejecutá: cd worker && npm run dev (puerto 4000)."
           );
         } else {
           setError(msg);
@@ -241,30 +324,16 @@ export function TargetLaunchCard({
 
   return (
     <div className="rounded-xl border border-zinc-800 bg-zinc-950/80 p-6 shadow-2xl backdrop-blur-xl">
-      <div className="flex items-center gap-3 border-b border-zinc-800/80 pb-4">
-        <div className="flex h-10 w-10 items-center justify-center rounded-lg border border-emerald-500/20 bg-emerald-500/10 text-emerald-400 shadow-inner">
-          <Shield className="h-5 w-5" />
-        </div>
+      <form onSubmit={handleLaunch} className="space-y-5">
         <div>
-          <h2 className="text-lg font-semibold tracking-tight text-zinc-100">
-            Stage 1: Target Launch
-          </h2>
-          <p className="text-xs text-zinc-400">
-            Start an authorized orchestrated assessment against a public domain
-          </p>
-        </div>
-      </div>
-
-      <form onSubmit={handleLaunch} className="mt-5 space-y-4">
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-          <div className="sm:col-span-2">
-            <label
-              htmlFor="targetDomain"
-              className="block text-xs font-medium text-zinc-300"
-            >
-              Target Domain
-            </label>
-            <div className="relative mt-1.5 flex rounded-lg shadow-sm">
+          <label
+            htmlFor="targetDomain"
+            className="block text-sm font-medium text-zinc-200"
+          >
+            Target
+          </label>
+          <div className="mt-2 flex flex-col gap-3 sm:flex-row sm:items-stretch">
+            <div className="relative flex min-w-0 flex-1 rounded-lg shadow-sm">
               <span className="inline-flex items-center rounded-l-lg border border-r-0 border-zinc-800 bg-zinc-900/90 px-3 text-zinc-500">
                 <Globe className="h-4 w-4" />
               </span>
@@ -276,85 +345,126 @@ export function TargetLaunchCard({
                   setDomainInput(e.target.value);
                   if (error) setError(null);
                 }}
-                placeholder="teclaaa.vercel.app"
-                className={`block w-full rounded-r-lg border bg-zinc-900/60 px-3.5 py-2.5 text-sm font-mono text-zinc-100 placeholder-zinc-600 focus:outline-none focus:ring-2 ${
+                placeholder="https://tu-aplicacion.com"
+                className={`block w-full rounded-r-lg border bg-zinc-900/60 px-3.5 py-3 text-base font-mono text-zinc-100 placeholder-zinc-600 focus:outline-none focus:ring-2 ${
                   domainInput && !isValidFormat
                     ? "border-rose-500/50 focus:border-rose-500 focus:ring-rose-500/20"
                     : "border-zinc-800 focus:border-emerald-500/50 focus:ring-emerald-500/20"
                 }`}
                 disabled={loading || isRunning}
+                autoFocus
               />
             </div>
-          </div>
-
-          <div>
-            <label
-              htmlFor="actorId"
-              className="block text-xs font-medium text-zinc-300"
+            <button
+              type="submit"
+              disabled={loading || isRunning || !isValidFormat}
+              className="inline-flex shrink-0 items-center justify-center gap-2 rounded-lg bg-emerald-500 px-8 py-3 text-sm font-semibold text-zinc-950 transition hover:bg-emerald-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/40 disabled:cursor-not-allowed disabled:opacity-40 shadow-lg shadow-emerald-500/20"
             >
-              Operator ID
-            </label>
-            <input
-              id="actorId"
-              type="text"
-              value={actorId}
-              onChange={(e) => setActorId(e.target.value)}
-              placeholder="usr_operator"
-              className="mt-1.5 block w-full rounded-lg border border-zinc-800 bg-zinc-900/60 px-3.5 py-2.5 text-sm font-mono text-zinc-100 placeholder-zinc-600 focus:border-emerald-500/50 focus:outline-none focus:ring-2 focus:ring-emerald-500/20"
-              disabled={loading || isRunning}
-            />
+              {loading ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Iniciando…
+                </>
+              ) : isRunning ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  En curso…
+                </>
+              ) : (
+                <>
+                  Iniciar
+                  <ArrowRight className="h-4 w-4" />
+                </>
+              )}
+            </button>
+          </div>
+
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            {PRESETS.map((domain) => (
+              <button
+                key={domain}
+                type="button"
+                onClick={() => applyPreset(domain)}
+                disabled={loading || isRunning}
+                className={`rounded-md px-2 py-0.5 font-mono text-[11px] transition disabled:opacity-50 ${
+                  cleanDomain(domainInput) === domain
+                    ? "text-emerald-400/90"
+                    : "text-zinc-600 hover:text-zinc-400"
+                }`}
+              >
+                {domain.replace(".vercel.app", "")}
+              </button>
+            ))}
           </div>
         </div>
 
-        <div>
-          <label
-            htmlFor="relatedAllowedHosts"
-            className="block text-xs font-medium text-zinc-300"
-          >
-            Related allowed hosts{" "}
-            <span className="font-normal text-zinc-500">
-              (optional — e.g. Supabase project for RLS)
-            </span>
-          </label>
-          <input
-            id="relatedAllowedHosts"
-            type="text"
-            value={relatedHostsInput}
-            onChange={(e) => {
-              setRelatedHostsInput(e.target.value);
-              if (error) setError(null);
-            }}
-            placeholder="project.supabase.co"
-            className="mt-1.5 block w-full rounded-lg border border-zinc-800 bg-zinc-900/60 px-3.5 py-2.5 text-sm font-mono text-zinc-100 placeholder-zinc-600 focus:border-emerald-500/50 focus:outline-none focus:ring-2 focus:ring-emerald-500/20"
-            disabled={loading || isRunning}
-          />
-          <p className="mt-1 text-[10px] text-zinc-500">
-            Comma-separated. Added to authorized scope so deep recon can probe
-            backend APIs (anon RLS needs no JWT).
-          </p>
-        </div>
-
-        <div className="rounded-lg border border-zinc-800/80 bg-zinc-900/40 overflow-hidden">
+        <div className="rounded-lg border border-zinc-800/80 bg-zinc-900/30 overflow-hidden">
           <button
             type="button"
             onClick={() => setShowAdvanced(!showAdvanced)}
-            className="w-full flex items-center justify-between p-3 text-xs text-left hover:bg-zinc-800/40 transition"
+            className="w-full flex items-center justify-between px-3.5 py-2.5 text-xs text-left hover:bg-zinc-800/30 transition"
           >
-            <div className="flex items-center gap-2 text-zinc-200 font-medium">
-              <span>Advanced scope seeds</span>
-              <span className="text-[10px] font-mono text-zinc-500 uppercase tracking-wider">
-                seedUrls · skip crawl
-              </span>
-            </div>
+            <span className="text-zinc-500 font-medium">Opciones avanzadas</span>
             {showAdvanced ? (
-              <ChevronDown className="h-4 w-4 text-zinc-400" />
+              <ChevronDown className="h-3.5 w-3.5 text-zinc-600" />
             ) : (
-              <ChevronRight className="h-4 w-4 text-zinc-400" />
+              <ChevronRight className="h-3.5 w-3.5 text-zinc-600" />
             )}
           </button>
+
           {showAdvanced && (
-            <div className="p-3 pt-0 border-t border-zinc-800/60 space-y-3">
-              <label className="flex items-start gap-2 text-xs text-zinc-300">
+            <div className="space-y-4 border-t border-zinc-800/60 p-3.5 pt-3">
+              <div>
+                <label
+                  htmlFor="actorId"
+                  className="block text-xs font-medium text-zinc-400"
+                >
+                  Operator ID
+                </label>
+                <input
+                  id="actorId"
+                  type="text"
+                  value={actorId}
+                  onChange={(e) => setActorId(e.target.value)}
+                  placeholder="usr_operator"
+                  className="mt-1.5 block w-full rounded-lg border border-zinc-800 bg-zinc-950 px-3 py-2 text-xs font-mono text-zinc-100 placeholder-zinc-600 focus:border-emerald-500/50 focus:outline-none focus:ring-2 focus:ring-emerald-500/20"
+                  disabled={loading || isRunning}
+                />
+              </div>
+
+              <div>
+                <label
+                  htmlFor="relatedAllowedHosts"
+                  className="block text-xs font-medium text-zinc-400"
+                >
+                  Related hosts{" "}
+                  <span className="font-normal text-zinc-600">
+                    (Supabase / APIs)
+                  </span>
+                </label>
+                <input
+                  id="relatedAllowedHosts"
+                  type="text"
+                  value={relatedHostsInput}
+                  onChange={(e) => {
+                    setRelatedHostsInput(e.target.value);
+                    if (error) setError(null);
+                  }}
+                  placeholder="project.supabase.co"
+                  className="mt-1.5 block w-full rounded-lg border border-zinc-800 bg-zinc-950 px-3 py-2 text-xs font-mono text-zinc-100 placeholder-zinc-600 focus:border-emerald-500/50 focus:outline-none focus:ring-2 focus:ring-emerald-500/20"
+                  disabled={loading || isRunning}
+                />
+                <p className="mt-1 text-[10px] text-zinc-600">
+                  Teclaaa: si dejás vacío, se usa{" "}
+                  <span className="font-mono text-zinc-500">
+                    {TECLAAA_SUPABASE}
+                  </span>{" "}
+                  al iniciar. Otros targets: agregá el host explícitamente — no
+                  inventamos Supabase desde *.vercel.app.
+                </p>
+              </div>
+
+              <label className="flex items-start gap-2 text-xs text-zinc-400">
                 <input
                   type="checkbox"
                   checked={skipSlowCrawl}
@@ -363,34 +473,32 @@ export function TargetLaunchCard({
                   className="mt-0.5 rounded border-zinc-700"
                 />
                 <span>
-                  Skip slow ports + crawl (stage_2 / stage_4) — recommended for
-                  SPA + Supabase RLS; avoids gau idle timeout.
+                  Skip ports + crawl lento (recomendado SPA / RLS)
                 </span>
               </label>
+
               <div>
                 <label
                   htmlFor="seedUrls"
-                  className="block text-xs font-medium text-zinc-300"
+                  className="block text-xs font-medium text-zinc-400"
                 >
-                  Seed URLs{" "}
-                  <span className="font-normal text-zinc-500">
-                    (REST tables / known paths)
-                  </span>
+                  Seed URLs
                 </label>
                 <textarea
                   id="seedUrls"
-                  rows={3}
+                  rows={2}
                   value={seedUrlsInput}
                   onChange={(e) => setSeedUrlsInput(e.target.value)}
-                  placeholder="https://project.supabase.co/rest/v1/profiles"
+                  placeholder="https://project.supabase.co/rest/v1/…"
                   disabled={loading || isRunning}
                   className="mt-1.5 block w-full rounded-lg border border-zinc-800 bg-zinc-950 px-3 py-2 text-xs font-mono text-zinc-100 placeholder-zinc-600 focus:border-emerald-500/50 focus:outline-none focus:ring-2 focus:ring-emerald-500/20"
                 />
               </div>
+
               <div>
                 <label
                   htmlFor="seedPaths"
-                  className="block text-xs font-medium text-zinc-300"
+                  className="block text-xs font-medium text-zinc-400"
                 >
                   Seed paths
                 </label>
@@ -399,158 +507,115 @@ export function TargetLaunchCard({
                   type="text"
                   value={seedPathsInput}
                   onChange={(e) => setSeedPathsInput(e.target.value)}
-                  placeholder="/carrera/93kpw, /login"
+                  placeholder="/login, /perfil"
                   disabled={loading || isRunning}
                   className="mt-1.5 block w-full rounded-lg border border-zinc-800 bg-zinc-950 px-3 py-2 text-xs font-mono text-zinc-100 placeholder-zinc-600 focus:border-emerald-500/50 focus:outline-none focus:ring-2 focus:ring-emerald-500/20"
                 />
               </div>
-            </div>
-          )}
-        </div>
 
-        <div className="rounded-lg border border-zinc-800/80 bg-zinc-900/40 overflow-hidden">
-          <button
-            type="button"
-            onClick={() => setShowByot(!showByot)}
-            className="w-full flex items-center justify-between p-3 text-xs text-left hover:bg-zinc-800/40 transition"
-          >
-            <div className="flex items-center gap-2 text-zinc-200 font-medium">
-              <Key className="h-3.5 w-3.5 text-amber-400" />
-              <span>BYOT dual identity (optional)</span>
-              <span className="text-[10px] font-mono text-zinc-500 uppercase tracking-wider">
-                IDOR A↔B
-              </span>
-            </div>
-            {showByot ? (
-              <ChevronDown className="h-4 w-4 text-zinc-400" />
-            ) : (
-              <ChevronRight className="h-4 w-4 text-zinc-400" />
-            )}
-          </button>
-          {showByot && (
-            <div className="p-3 pt-0 border-t border-zinc-800/60 space-y-3">
-              <div className="flex items-start gap-2 rounded-md border border-amber-500/20 bg-amber-500/5 p-2 text-[10px] text-amber-300 font-mono">
-                <Lock className="h-3 w-3 shrink-0 mt-0.5" />
-                Ephemeral only — never persisted. For Supabase RLS: paste OBSERVED
-                sb_publishable_… into apikey (anon; no user JWT required).
-              </div>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-                <input
-                  type="text"
-                  value={identityAId}
-                  onChange={(e) => setIdentityAId(e.target.value)}
-                  placeholder="identity_a id"
-                  disabled={loading || isRunning}
-                  className="rounded-md border border-zinc-800 bg-zinc-950 px-2 py-1.5 text-xs font-mono text-white"
-                />
-                <input
-                  type="password"
-                  autoComplete="off"
-                  value={identityAApiKey}
-                  onChange={(e) => setIdentityAApiKey(e.target.value)}
-                  placeholder="apikey (sb_publishable_…)"
-                  disabled={loading || isRunning}
-                  className="rounded-md border border-zinc-800 bg-zinc-950 px-2 py-1.5 text-xs font-mono text-white"
-                />
-                <input
-                  type="password"
-                  autoComplete="off"
-                  value={identityAAuthHeader}
-                  onChange={(e) => setIdentityAAuthHeader(e.target.value)}
-                  placeholder="Authorization (optional if apikey set)"
-                  disabled={loading || isRunning}
-                  className="rounded-md border border-zinc-800 bg-zinc-950 px-2 py-1.5 text-xs font-mono text-white"
-                />
-                <input
-                  type="password"
-                  autoComplete="off"
-                  value={identityACookie}
-                  onChange={(e) => setIdentityACookie(e.target.value)}
-                  placeholder="Cookie"
-                  disabled={loading || isRunning}
-                  className="rounded-md border border-zinc-800 bg-zinc-950 px-2 py-1.5 text-xs font-mono text-white"
-                />
-              </div>
-              <label className="flex items-center gap-2 text-xs text-zinc-400">
-                <input
-                  type="checkbox"
-                  checked={enableIdentityB}
-                  onChange={(e) => setEnableIdentityB(e.target.checked)}
-                  disabled={loading || isRunning}
-                  className="rounded border-zinc-700"
-                />
-                <UserCheck className="h-3.5 w-3.5 text-sky-400" />
-                Enable Identity B (differential IDOR)
-              </label>
-              {enableIdentityB && (
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-                  <input
-                    type="text"
-                    value={identityBId}
-                    onChange={(e) => setIdentityBId(e.target.value)}
-                    placeholder="identity_b id"
-                    disabled={loading || isRunning}
-                    className="rounded-md border border-zinc-800 bg-zinc-950 px-2 py-1.5 text-xs font-mono text-white"
-                  />
-                  <input
-                    type="password"
-                    autoComplete="off"
-                    value={identityBApiKey}
-                    onChange={(e) => setIdentityBApiKey(e.target.value)}
-                    placeholder="apikey (sb_publishable_…)"
-                    disabled={loading || isRunning}
-                    className="rounded-md border border-zinc-800 bg-zinc-950 px-2 py-1.5 text-xs font-mono text-white"
-                  />
-                  <input
-                    type="password"
-                    autoComplete="off"
-                    value={identityBAuthHeader}
-                    onChange={(e) => setIdentityBAuthHeader(e.target.value)}
-                    placeholder="Authorization (optional if apikey set)"
-                    disabled={loading || isRunning}
-                    className="rounded-md border border-zinc-800 bg-zinc-950 px-2 py-1.5 text-xs font-mono text-white"
-                  />
-                  <input
-                    type="password"
-                    autoComplete="off"
-                    value={identityBCookie}
-                    onChange={(e) => setIdentityBCookie(e.target.value)}
-                    placeholder="Cookie"
-                    disabled={loading || isRunning}
-                    className="rounded-md border border-zinc-800 bg-zinc-950 px-2 py-1.5 text-xs font-mono text-white"
-                  />
+              <div className="rounded-lg border border-zinc-800/80 bg-zinc-950/50 overflow-hidden">
+                <div className="flex items-center gap-2 px-3 py-2 text-xs text-zinc-400">
+                  <Key className="h-3.5 w-3.5 text-amber-500/80" />
+                  <span>BYOT / identidades (opcional)</span>
                 </div>
-              )}
+                <div className="space-y-3 border-t border-zinc-800/60 p-3">
+                  <div className="flex items-start gap-2 rounded-md border border-zinc-800 bg-zinc-900/40 p-2 text-[10px] text-zinc-500 font-mono">
+                    <Lock className="h-3 w-3 shrink-0 mt-0.5" />
+                    Efímero — no se persiste. Supabase RLS anon: apikey
+                    sb_publishable_… (sin JWT de usuario).
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                    <input
+                      type="text"
+                      value={identityAId}
+                      onChange={(e) => setIdentityAId(e.target.value)}
+                      placeholder="identity_a id"
+                      disabled={loading || isRunning}
+                      className="rounded-md border border-zinc-800 bg-zinc-950 px-2 py-1.5 text-xs font-mono text-white"
+                    />
+                    <input
+                      type="password"
+                      autoComplete="off"
+                      value={identityAApiKey}
+                      onChange={(e) => setIdentityAApiKey(e.target.value)}
+                      placeholder="apikey (sb_publishable_…)"
+                      disabled={loading || isRunning}
+                      className="rounded-md border border-zinc-800 bg-zinc-950 px-2 py-1.5 text-xs font-mono text-white"
+                    />
+                    <input
+                      type="password"
+                      autoComplete="off"
+                      value={identityAAuthHeader}
+                      onChange={(e) => setIdentityAAuthHeader(e.target.value)}
+                      placeholder="Authorization (opcional)"
+                      disabled={loading || isRunning}
+                      className="rounded-md border border-zinc-800 bg-zinc-950 px-2 py-1.5 text-xs font-mono text-white"
+                    />
+                    <input
+                      type="password"
+                      autoComplete="off"
+                      value={identityACookie}
+                      onChange={(e) => setIdentityACookie(e.target.value)}
+                      placeholder="Cookie"
+                      disabled={loading || isRunning}
+                      className="rounded-md border border-zinc-800 bg-zinc-950 px-2 py-1.5 text-xs font-mono text-white"
+                    />
+                  </div>
+                  <label className="flex items-center gap-2 text-xs text-zinc-500">
+                    <input
+                      type="checkbox"
+                      checked={enableIdentityB}
+                      onChange={(e) => setEnableIdentityB(e.target.checked)}
+                      disabled={loading || isRunning}
+                      className="rounded border-zinc-700"
+                    />
+                    <UserCheck className="h-3.5 w-3.5 text-zinc-500" />
+                    Identity B (IDOR diferencial)
+                  </label>
+                  {enableIdentityB && (
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                      <input
+                        type="text"
+                        value={identityBId}
+                        onChange={(e) => setIdentityBId(e.target.value)}
+                        placeholder="identity_b id"
+                        disabled={loading || isRunning}
+                        className="rounded-md border border-zinc-800 bg-zinc-950 px-2 py-1.5 text-xs font-mono text-white"
+                      />
+                      <input
+                        type="password"
+                        autoComplete="off"
+                        value={identityBApiKey}
+                        onChange={(e) => setIdentityBApiKey(e.target.value)}
+                        placeholder="apikey (sb_publishable_…)"
+                        disabled={loading || isRunning}
+                        className="rounded-md border border-zinc-800 bg-zinc-950 px-2 py-1.5 text-xs font-mono text-white"
+                      />
+                      <input
+                        type="password"
+                        autoComplete="off"
+                        value={identityBAuthHeader}
+                        onChange={(e) =>
+                          setIdentityBAuthHeader(e.target.value)
+                        }
+                        placeholder="Authorization (opcional)"
+                        disabled={loading || isRunning}
+                        className="rounded-md border border-zinc-800 bg-zinc-950 px-2 py-1.5 text-xs font-mono text-white"
+                      />
+                      <input
+                        type="password"
+                        autoComplete="off"
+                        value={identityBCookie}
+                        onChange={(e) => setIdentityBCookie(e.target.value)}
+                        placeholder="Cookie"
+                        disabled={loading || isRunning}
+                        className="rounded-md border border-zinc-800 bg-zinc-950 px-2 py-1.5 text-xs font-mono text-white"
+                      />
+                    </div>
+                  )}
+                </div>
+              </div>
             </div>
-          )}
-        </div>
-
-        <div className="flex flex-wrap items-center gap-2 text-xs">
-          <span className="text-zinc-500 font-mono text-[11px]">Presets:</span>
-          {["teclaaa.vercel.app", "charmarket.vercel.app", "example.com"].map(
-            (domain) => (
-              <button
-                key={domain}
-                type="button"
-                onClick={() => {
-                  setDomainInput(domain);
-                  if (domain === "teclaaa.vercel.app") {
-                    setRelatedHostsInput("vawrzoncszqauzxwqide.supabase.co");
-                    setSeedUrlsInput(
-                      "https://vawrzoncszqauzxwqide.supabase.co/rest/v1/profiles\nhttps://vawrzoncszqauzxwqide.supabase.co/rest/v1/shop_items"
-                    );
-                    setSeedPathsInput("/carrera/93kpw, /login, /perfil");
-                    setSkipSlowCrawl(true);
-                    setShowAdvanced(true);
-                  }
-                  setError(null);
-                }}
-                disabled={loading || isRunning}
-                className="rounded-lg border border-zinc-800 bg-zinc-900/70 hover:border-emerald-500/40 hover:bg-emerald-500/10 px-2.5 py-1 font-mono text-[11px] text-zinc-300 transition disabled:opacity-50"
-              >
-                {domain}
-              </button>
-            )
           )}
         </div>
 
@@ -560,45 +625,15 @@ export function TargetLaunchCard({
             <span>{error}</span>
           </div>
         )}
-
-        <div className="flex items-center justify-between pt-2">
-          <span className="text-xs text-zinc-500">
-            Uses POST /api/v2/orchestrated/assessments/start
-          </span>
-          <button
-            type="submit"
-            disabled={loading || isRunning || !isValidFormat}
-            className="inline-flex items-center gap-2 rounded-lg bg-emerald-500 px-4 py-2.5 text-sm font-semibold text-zinc-950 transition hover:bg-emerald-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/40 disabled:cursor-not-allowed disabled:opacity-40 shadow-lg shadow-emerald-500/20"
-          >
-            {loading ? (
-              <>
-                <Loader2 className="h-4 w-4 animate-spin" />
-                Authorizing...
-              </>
-            ) : isRunning ? (
-              <>
-                <Loader2 className="h-4 w-4 animate-spin" />
-                Assessment Running...
-              </>
-            ) : (
-              <>
-                Launch Assessment
-                <ArrowRight className="h-4 w-4" />
-              </>
-            )}
-          </button>
-        </div>
       </form>
 
       {activeAssessmentId && activeDomain && (
-        <div className="mt-5 rounded-lg border border-zinc-800 bg-zinc-900/40 p-3.5 text-xs text-zinc-400">
-          <div className="flex items-center justify-between">
-            <span className="font-semibold text-zinc-300">Assessment ID:</span>
-            <span className="font-mono text-emerald-400">{activeAssessmentId}</span>
-          </div>
-          <div className="mt-1.5 flex items-center justify-between">
-            <span>Target:</span>
-            <span className="font-mono text-zinc-300">{activeDomain}</span>
+        <div className="mt-5 rounded-lg border border-zinc-800 bg-zinc-900/40 p-3 text-xs text-zinc-500">
+          <div className="flex items-center justify-between gap-2">
+            <span>En curso</span>
+            <span className="font-mono text-emerald-400/90 truncate">
+              {activeDomain}
+            </span>
           </div>
         </div>
       )}
