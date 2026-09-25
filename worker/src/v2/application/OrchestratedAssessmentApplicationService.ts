@@ -595,11 +595,39 @@ function classifyProfileAuthSurface(
 }
 
 function buildSurfaceHintsFromProfile(
-  profile: TargetProfile | undefined
+  profile: TargetProfile | undefined,
+  serverActionHints?: readonly {
+    readonly endpointUrl: string;
+    readonly actionId: string;
+  }[]
 ): readonly AttackPlanSurfaceHint[] {
-  if (!profile) return [];
+  if (!profile && (!serverActionHints || serverActionHints.length === 0)) return [];
   const hints: AttackPlanSurfaceHint[] = [];
   const seen = new Set<string>();
+
+  for (const sa of serverActionHints ?? []) {
+    const actionId = sa.actionId.trim();
+    if (actionId.length < 8) continue;
+    const key = `nsa:${sa.endpointUrl}:${actionId}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    let path = '/';
+    try {
+      path = new URL(sa.endpointUrl).pathname || '/';
+    } catch {
+      path = '/';
+    }
+    hints.push({
+      endpointUrl: sa.endpointUrl,
+      path,
+      signalKind: 'next_server_action',
+      resourceClass: 'api_or_protected',
+      actionId,
+    });
+  }
+
+  if (!profile) return hints;
+
   for (const ep of profile.endpoints ?? []) {
     const path = typeof ep.path === 'string' ? ep.path : '/';
     const endpointUrl =
@@ -1115,6 +1143,7 @@ const ALL_STAGE_NAMES: readonly ReconStageName[] = [
   'stage_2_port_service',
   'stage_3_web_tls',
   'stage_4_crawling_parameters',
+  'stage_deep_recon',
   'stage_5_secret_inspection',
 ];
 
@@ -1368,6 +1397,7 @@ export class OrchestratedAssessmentApplicationService {
         stage_2_port_service: ['naabu'],
         stage_3_web_tls: ['tlsx'],
         stage_4_crawling_parameters: ['gau', 'katana', 'ffuf', 'arjun'],
+        stage_deep_recon: [],
         stage_5_secret_inspection: ['trufflehog'],
       };
       for (const stage of ALL_STAGE_NAMES) {
@@ -4704,6 +4734,16 @@ export class OrchestratedAssessmentApplicationService {
       ? buildProbeAuthContext(sessionIdentities.identityB)
       : buildAnonymousProbeContext('identity_anon_b');
 
+    const byotHarvestHeaders = (() => {
+      if (sessionIdentities?.identityA) {
+        const material = byotIdentityToExecuteMaterial(sessionIdentities.identityA);
+        if (material.headers && Object.keys(material.headers).length > 0) {
+          return material.headers;
+        }
+      }
+      return undefined;
+    })();
+
     // 1. M73 Composite Active Reconnaissance Orchestration
     const orchestrator = new CompositeActiveReconOrchestratorService(this.reconAdapters);
       const reconResult = await orchestrator.orchestrate({
@@ -4718,6 +4758,7 @@ export class OrchestratedAssessmentApplicationService {
         ...(degradedBinaries && degradedBinaries.length > 0
           ? { degradedBinaries }
           : {}),
+        ...(byotHarvestHeaders ? { byotHarvestHeaders } : {}),
         onStageStart: async (info) => {
           activityDeadline?.touch();
           heartbeat?.setHint({
@@ -4825,7 +4866,10 @@ export class OrchestratedAssessmentApplicationService {
             record.assessmentId,
             record.targetDomain
           ),
-          surfaceHints: buildSurfaceHintsFromProfile(profile),
+          surfaceHints: buildSurfaceHintsFromProfile(
+            profile,
+            reconResult.aggregatedObservations.serverActionHints
+          ),
         });
         await this.attackPlanRepository.deleteByAssessmentId(record.assessmentId);
         await this.attackPlanRepository.savePlans(attackPlanResult.plans);
@@ -6852,7 +6896,10 @@ export class OrchestratedAssessmentApplicationService {
           record.targetDomain
         ),
         draftSignals: buildDraftSignals(pendingEvidenceDrafts),
-        surfaceHints: buildSurfaceHintsFromProfile(profile),
+        surfaceHints: buildSurfaceHintsFromProfile(
+          profile,
+          reconResult.aggregatedObservations.serverActionHints
+        ),
       });
       await this.attackPlanRepository.deleteByAssessmentId(record.assessmentId);
       await this.attackPlanRepository.savePlans(attackPlanResult.plans);

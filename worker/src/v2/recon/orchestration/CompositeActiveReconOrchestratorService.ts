@@ -32,8 +32,12 @@ import { defaultHttpProbeTransport } from '../../detection/IdorDifferentialDetec
 import {
   buildSupabaseRestTableUrlSeeds,
   extractSupabaseTableHintsFromText,
+  extractNextServerActionIdHintsFromText,
   isSupabaseHost,
 } from '../../supabase/SupabaseSurfaceContracts.js';
+import { runDeepReconOrchestrator } from '../deep/DeepReconOrchestratorService.js';
+import { resolveByotHarvestAuthHeaders } from '../deep/ByotNetworkHarvestService.js';
+import type { ByotHarvestServerActionHint } from '../deep/ByotNetworkHarvestContracts.js';
 
 import type {
   ActiveReconOrchestrationRequest,
@@ -255,6 +259,7 @@ const STAGE_DEGRADED_BINARIES: Readonly<Record<ReconStageName, readonly string[]
   stage_2_port_service: ['naabu'],
   stage_3_web_tls: ['httpx', 'tlsx'],
   stage_4_crawling_parameters: ['gau', 'katana', 'ffuf', 'arjun'],
+  stage_deep_recon: [],
   stage_5_secret_inspection: ['trufflehog'],
 };
 
@@ -326,6 +331,7 @@ export class CompositeActiveReconOrchestratorService {
     // -------------------------------------------------------------------------
     const coordinator = request.coordinator ?? new TargetExecutionCoordinator();
     const skipStages = new Set(request.config?.skipStages ?? []);
+    const probeTransport = request.probeTransport ?? defaultHttpProbeTransport;
 
     const stageResults: ReconStageExecutionResult[] = [];
     const drafts: OrchestratedReconEvidenceDraft[] = [];
@@ -342,6 +348,7 @@ export class CompositeActiveReconOrchestratorService {
     const parameters: DiscoveredParameterObservation[] = [];
     const secrets: DiscoveredSecretObservation[] = [];
     const spaObservations: DiscoveredSpaObservation[] = [];
+    const serverActionHints: ByotHarvestServerActionHint[] = [];
 
     // Phase D1 — inject pre-validated assessment seeds as inventory hints.
     // Provenance is assessment_seed / inferred until an HTTP probe observes them.
@@ -469,6 +476,9 @@ export class CompositeActiveReconOrchestratorService {
         parameters,
         secrets,
         spaObservations,
+        ...(serverActionHints.length > 0
+          ? { serverActionHints: Object.freeze([...serverActionHints]) }
+          : {}),
       },
       explicitNonClaims: RECON_ORCHESTRATION_NON_CLAIMS,
       lineage: { ...request.lineage },
@@ -1587,7 +1597,7 @@ export class CompositeActiveReconOrchestratorService {
             maxFfufRoots: request.config.gatedDictMaxFfufRoots,
             maxArjunTargets: request.config.gatedDictMaxArjunTargets,
             timeoutMs: request.config.timeoutMs,
-            transport: defaultHttpProbeTransport,
+            transport: probeTransport,
             dnsResolver: request.dnsResolver,
           });
           if (gated.status === 'waf_aborted') {
@@ -1775,6 +1785,205 @@ export class CompositeActiveReconOrchestratorService {
     }
 
     // =========================================================================
+    // Stage Deep Recon — method kit (fail-soft; budget/heartbeat hints)
+    // =========================================================================
+    if (coordinator.isCircuitOpen(request.targetDomain)) {
+      return buildCircuitBrokenResult(request.targetDomain);
+    }
+
+    const stageDeepStart = Date.now();
+    const byotHeaders =
+      request.byotHarvestHeaders ??
+      resolveByotHarvestAuthHeaders(undefined) ??
+      undefined;
+    const hasByotCreds = Boolean(byotHeaders);
+    const stackHasNext = webObservations.some(webObservationHasNextSignals);
+    const stackHasSupabase =
+      urls.some((u) => {
+        try {
+          return isSupabaseHost(new URL(u.url).hostname);
+        } catch {
+          return false;
+        }
+      }) ||
+      (request.authorizedScopeGrant.boundaries.allowedHosts ?? []).some((h) =>
+        isSupabaseHost(h)
+      );
+    const stackHasSpa =
+      spaObservations.length > 0 || shouldEnableSpaDiscovery(request, webObservations);
+    const enableDeepReconConfig = request.config?.enableDeepRecon;
+    const enableDeepRecon =
+      enableDeepReconConfig === true ||
+      (enableDeepReconConfig !== false &&
+        (stackHasNext || stackHasSpa || stackHasSupabase || hasByotCreds));
+
+    if (skipStages.has('stage_deep_recon') || !enableDeepRecon) {
+      await recordStageResult({
+        stage: 'stage_deep_recon',
+        status: 'skipped',
+        durationMs: 0,
+        observationsCount: 0,
+        ...(enableDeepReconConfig === false
+          ? { warnings: ['deep_recon_disabled_by_config'] }
+          : !enableDeepRecon
+            ? { warnings: ['deep_recon_no_stack_signals'] }
+            : {}),
+      });
+    } else {
+      await notifyStageStart('stage_deep_recon');
+      const deepWarnings: string[] = [];
+      try {
+        if (request.onStageStart) {
+          try {
+            await request.onStageStart({
+              stage: 'stage_deep_recon',
+              toolHint: 'deep_recon:planner',
+            });
+          } catch {
+            // non-blocking
+          }
+        }
+
+        const deepBudget =
+          typeof request.config?.deepReconMaxRequests === 'number' &&
+          request.config.deepReconMaxRequests > 0
+            ? Math.floor(request.config.deepReconMaxRequests)
+            : 40;
+        const enableByotHarvest =
+          request.config?.enableByotHarvest === true || hasByotCreds;
+        const harvestPages = selectSpaDiscoveryPages({
+          seedUrls: request.seedUrls ?? [],
+          inventoryUrls: urls,
+          rootUrls: [`https://${request.targetDomain}/`],
+          authorizedScopeGrant: request.authorizedScopeGrant,
+          maxPages: 3,
+        });
+
+        const deep = await runDeepReconOrchestrator({
+          originUrl: `https://${request.targetDomain}/`,
+          verifiedAuthorizationDecision: request.verifiedAuthorizationDecision,
+          authorizedScopeGrant: request.authorizedScopeGrant,
+          lineage: request.lineage,
+          stack: {
+            hasNextJs: stackHasNext,
+            hasVercel: stackHasNext,
+            hasSupabase: stackHasSupabase,
+            hasSpa: stackHasSpa,
+            hasJwtIdentity: hasByotCreds,
+          },
+          budget: { maxRequests: deepBudget, remainingRequests: deepBudget },
+          enableByotHarvest,
+          enableGatedDicts: request.config?.enableGatedDictTopK === true,
+          inventoryUrls: urls.length > 0 ? urls : [{ url: `https://${request.targetDomain}/` }],
+          ...(byotHeaders ? { byotAuthHeaders: byotHeaders } : {}),
+          ...(harvestPages.length > 0 ? { byotHarvestPageUrls: harvestPages } : {}),
+          contentTool: this.tools.contentTool,
+          parameterTool: this.tools.parameterTool,
+          wordlistPath: request.config?.wordlistPath,
+          maxFfufRoots: request.config?.gatedDictMaxFfufRoots,
+          maxArjunTargets: request.config?.gatedDictMaxArjunTargets,
+          hopExtraBodies: webObservations
+            .filter((w) => {
+              if (typeof w.bodyText !== 'string' || w.bodyText.length === 0) return false;
+              try {
+                return !isHtmlStaticBundlePath(new URL(w.url).pathname);
+              } catch {
+                return false;
+              }
+            })
+            .slice(0, 8)
+            .map((w) => ({ url: w.url, bodyText: w.bodyText ?? '' })),
+          transport: probeTransport,
+          dnsResolver: request.dnsResolver,
+          timeoutMs: request.config?.timeoutMs,
+          onMethodStart: async (info) => {
+            if (!request.onStageStart) return;
+            try {
+              await request.onStageStart({
+                stage: 'stage_deep_recon',
+                toolHint: info.toolHint,
+              });
+            } catch {
+              // non-blocking
+            }
+          },
+        });
+
+        const knownDeepUrls = new Set(urls.map((u) => u.url));
+        for (const obs of deep.urlObservations) {
+          if (knownDeepUrls.has(obs.url)) continue;
+          knownDeepUrls.add(obs.url);
+          urls.push(obs);
+        }
+        for (const hint of deep.serverActionHints) {
+          serverActionHints.push(hint);
+        }
+        // Also mine OBSERVED Next-Action ids from Stage 3 HTML bodies (anon or auth).
+        const seenActionKeys = new Set(
+          serverActionHints.map((h) => `${h.endpointUrl}:${h.actionId}`)
+        );
+        for (const w of webObservations) {
+          if (typeof w.bodyText !== 'string' || w.bodyText.length === 0) continue;
+          for (const actionId of extractNextServerActionIdHintsFromText(w.bodyText, 8)) {
+            const key = `${w.url}:${actionId}`;
+            if (seenActionKeys.has(key)) continue;
+            seenActionKeys.add(key);
+            serverActionHints.push({
+              endpointUrl: w.url,
+              actionId,
+              source: 'rsc_body_mine',
+            });
+            if (serverActionHints.length >= 20) break;
+          }
+          if (serverActionHints.length >= 20) break;
+        }
+        for (const mr of deep.methodResults) {
+          deepWarnings.push(
+            `deep_recon:${mr.method}:${mr.status}:${mr.reasonCode}:urls=${mr.urlsSeeded}:req=${mr.requestsUsed}`
+          );
+        }
+        deepWarnings.push(
+          `deep_recon_summary:status=${deep.status}:planned=${deep.planned.length}:requestsUsed=${deep.requestsUsed}:serverActions=${deep.serverActionHints.length}`
+        );
+      } catch (deepErr: unknown) {
+        deepWarnings.push(
+          `deep_recon_error: ${deepErr instanceof Error ? deepErr.message : String(deepErr)}`
+        );
+      }
+
+      createDraft(
+        'stage_deep_recon',
+        request.targetDomain,
+        'deep_recon_urls',
+        urls.filter((u) => u.sources.includes('byot_network_harvest') || u.sources.includes('robots_sitemap_feed')).length
+      );
+      if (serverActionHints.length > 0) {
+        createDraft(
+          'stage_deep_recon',
+          request.targetDomain,
+          'server_action_hints',
+          serverActionHints.length
+        );
+      }
+
+      await recordStageResult({
+        stage: 'stage_deep_recon',
+        status: 'completed',
+        durationMs: Date.now() - stageDeepStart,
+        observationsCount:
+          urls.filter((u) =>
+            u.sources.some(
+              (s) =>
+                s === 'byot_network_harvest' ||
+                s === 'robots_sitemap_feed' ||
+                s === 'html_hop_extra'
+            )
+          ).length + serverActionHints.length,
+        warnings: deepWarnings.length > 0 ? deepWarnings : undefined,
+      });
+    }
+
+    // =========================================================================
     // Stage 5: Secret & Credential Inspection (Trufflehog)
     // =========================================================================
     if (coordinator.isCircuitOpen(request.targetDomain)) {
@@ -1866,6 +2075,9 @@ export class CompositeActiveReconOrchestratorService {
       parameters,
       secrets,
       spaObservations,
+      ...(serverActionHints.length > 0
+        ? { serverActionHints: Object.freeze([...serverActionHints]) }
+        : {}),
     };
 
     return {

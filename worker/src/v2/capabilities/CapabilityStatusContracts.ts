@@ -67,5 +67,6 @@ export const STAGE_REQUIRED_TOOLS: Record<string, readonly ReconToolName[]> = {
   stage_2_port_service: ['naabu'],
   stage_3_web_tls: ['httpx', 'tlsx'],
   stage_4_crawling_parameters: ['gau', 'ffuf', 'arjun'],
+  stage_deep_recon: [],
   stage_5_secret_inspection: ['trufflehog'],
 };

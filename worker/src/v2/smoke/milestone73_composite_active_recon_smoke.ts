@@ -347,7 +347,7 @@ async function runMilestone73SmokeSuite(): Promise<void> {
   // Assertion 1: Staged Execution Pipeline Across All 5 Stages
   // -------------------------------------------------------------------------
   {
-    console.log('\n[+] Assertion 1: End-to-end staged orchestration with data flowing through Stages 1 to 5...');
+    console.log('\n[+] Assertion 1: End-to-end staged orchestration with data flowing through Stages 1 to 5 (+ deep recon)...');
 
     const tracker = { count: 0 };
     const adapters = createMockAdapters(tracker);
@@ -362,15 +362,28 @@ async function runMilestone73SmokeSuite(): Promise<void> {
         wordlistPath: 'wordlists/common.txt',
       },
       dnsResolver: async () => ['93.184.216.34'],
+      probeTransport: async () => ({
+        statusCode: 404,
+        headers: {},
+        bodyText: '',
+        responseTimeMs: 1,
+      }),
     });
 
     assert.strictEqual(result.status, 'success');
     assert.strictEqual(result.contractVersion, ACTIVE_RECON_ORCHESTRATION_CONTRACT_VERSION);
     assert.strictEqual(result.targetDomain, 'example.com');
-    assert.strictEqual(result.stages.length, 5, 'All 5 stages must have executed');
+    assert.strictEqual(result.stages.length, 6, 'All stages including stage_deep_recon must be recorded');
 
-    // Check each stage completed
+    // Check each classic stage completed; deep recon may be skipped without stack signals.
     for (const st of result.stages) {
+      if (st.stage === 'stage_deep_recon') {
+        assert.ok(
+          st.status === 'completed' || st.status === 'skipped',
+          `Stage ${st.stage} must complete or skip fail-soft`
+        );
+        continue;
+      }
       assert.strictEqual(st.status, 'completed', `Stage ${st.stage} must be completed`);
       assert.ok(st.observationsCount > 0, `Stage ${st.stage} must have observations`);
     }

@@ -82,6 +82,7 @@ export type ReconStageName =
   | 'stage_2_port_service'
   | 'stage_3_web_tls'
   | 'stage_4_crawling_parameters'
+  | 'stage_deep_recon'
   | 'stage_5_secret_inspection';
 
 import type {
@@ -157,9 +158,22 @@ export interface ActiveReconOrchestrationConfig {
   readonly gatedDictMaxFfufRoots?: number;
   /** Max arjun targets when enableGatedDictTopK (default 5). */
   readonly gatedDictMaxArjunTargets?: number;
+  /**
+   * Opt-in Deep recon method kit (robots/BYOT harvest/gated dicts/hop-extra).
+   * - `true`: force enable (fail-soft).
+   * - `false`: force disable.
+   * - omitted: enable when Next/SPA/Supabase signals or BYOT/harvest token present.
+   */
+  readonly enableDeepRecon?: boolean;
+  /** Shared request budget for deep recon methods (default 40). */
+  readonly deepReconMaxRequests?: number;
+  /** Force BYOT harvest planning when Identity A / FG_ACCESS_TOKEN available. */
+  readonly enableByotHarvest?: boolean;
 }
 
 import type { PreSpawnDnsResolver } from '../adapters/AdapterPreflightPipeline.js';
+import type { ByotHarvestServerActionHint } from '../deep/ByotNetworkHarvestContracts.js';
+import type { IdorHttpProbeTransport } from '../../detection/DetectionContracts.js';
 
 export interface ActiveReconOrchestrationRequest {
   readonly targetDomain: string;
@@ -173,6 +187,8 @@ export interface ActiveReconOrchestrationRequest {
   readonly coordinator?: TargetExecutionCoordinator;
   readonly config?: ActiveReconOrchestrationConfig;
   readonly dnsResolver?: PreSpawnDnsResolver;
+  /** Optional HTTP probe transport (tests / hermetic composition). */
+  readonly probeTransport?: IdorHttpProbeTransport;
   readonly onStageComplete?: (stageResult: ReconStageExecutionResult) => Promise<void> | void;
   /**
    * Fired when a stage begins executing (not when skipped). Used for liveness
@@ -193,6 +209,11 @@ export interface ActiveReconOrchestrationRequest {
    * Surfaced as stage warnings: `degraded_mode_missing_binary: <binary>`.
    */
   readonly degradedBinaries?: readonly string[];
+  /**
+   * BYOT Identity A headers for authenticated deep-recon harvest (process-local).
+   * Never serialized to clients; never logged.
+   */
+  readonly byotHarvestHeaders?: Readonly<Record<string, string>>;
 }
 
 export interface AggregatedReconObservations {
@@ -206,6 +227,8 @@ export interface AggregatedReconObservations {
   readonly parameters: readonly DiscoveredParameterObservation[];
   readonly secrets: readonly DiscoveredSecretObservation[];
   readonly spaObservations?: readonly DiscoveredSpaObservation[];
+  /** OBSERVED Next-Action ids from BYOT/deep harvest (discovery-only). */
+  readonly serverActionHints?: readonly ByotHarvestServerActionHint[];
 }
 
 

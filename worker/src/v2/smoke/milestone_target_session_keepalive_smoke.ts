@@ -118,7 +118,6 @@ async function runSmoke(): Promise<void> {
   );
 
   const domain = 'example.com';
-  const decidedAt = new Date().toISOString();
   const lineage = {
     assessmentId: 'asmt_keepalive_smoke',
     scanId: 'scan_keepalive_smoke',
@@ -127,6 +126,7 @@ async function runSmoke(): Promise<void> {
     actorId: 'usr_keepalive_smoke',
   };
   const scope = buildScope(domain, lineage.authorizationGrantId, lineage.scanId);
+  const decidedAt = scope.issuedAt;
 
   const authResult = establishVerifiedAuthorizationDecision(
     {

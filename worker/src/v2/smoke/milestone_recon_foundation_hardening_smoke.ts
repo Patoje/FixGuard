@@ -535,7 +535,7 @@ async function runMilestoneReconFoundationHardeningSmoke() {
       authorizedScopeGrant: auth.authorizedScopeGrant,
       lineage: auth.lineage,
       config: {
-        skipStages: ['stage_4_crawling_parameters', 'stage_5_secret_inspection'],
+        skipStages: ['stage_4_crawling_parameters', 'stage_deep_recon', 'stage_5_secret_inspection'],
       },
     });
 

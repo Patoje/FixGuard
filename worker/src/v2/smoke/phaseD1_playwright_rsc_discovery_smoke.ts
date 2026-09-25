@@ -770,7 +770,8 @@ async function runSmokeTests() {
       lineage,
       dnsResolver: async () => ['93.184.216.34'],
       config: {
-        skipStages: ['stage_1_domain_zone', 'stage_2_port_service', 'stage_5_secret_inspection'],
+        skipStages: ['stage_1_domain_zone', 'stage_2_port_service', 'stage_deep_recon',
+        'stage_5_secret_inspection'],
         enableSpaDiscovery: false,
       },
     });
@@ -809,7 +810,8 @@ async function runSmokeTests() {
       dnsResolver: async () => ['93.184.216.34'],
       seedUrls: [seedA, seedB],
       config: {
-        skipStages: ['stage_1_domain_zone', 'stage_2_port_service', 'stage_5_secret_inspection'],
+        skipStages: ['stage_1_domain_zone', 'stage_2_port_service', 'stage_deep_recon',
+        'stage_5_secret_inspection'],
         spaDiscoveryMaxPages: 2,
       },
     });
@@ -853,7 +855,8 @@ async function runSmokeTests() {
       dnsResolver: async () => ['93.184.216.34'],
       seedUrls: [seedA],
       config: {
-        skipStages: ['stage_1_domain_zone', 'stage_2_port_service', 'stage_5_secret_inspection'],
+        skipStages: ['stage_1_domain_zone', 'stage_2_port_service', 'stage_deep_recon',
+        'stage_5_secret_inspection'],
       },
     });
     assert.strictEqual(degResult.status, 'success');

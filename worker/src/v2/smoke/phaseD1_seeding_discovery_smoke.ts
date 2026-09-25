@@ -345,6 +345,7 @@ async function runPhaseD1Smoke(): Promise<void> {
         'stage_2_port_service',
         'stage_3_web_tls',
         'stage_4_crawling_parameters',
+        'stage_deep_recon',
         'stage_5_secret_inspection',
       ],
     },
@@ -484,6 +485,7 @@ async function runPhaseD1Smoke(): Promise<void> {
         'stage_2_port_service',
         // stage_3_web_tls runs — seed probe + fingerprint enrichment
         'stage_4_crawling_parameters',
+        'stage_deep_recon',
         'stage_5_secret_inspection',
       ],
     },
@@ -537,6 +539,7 @@ async function runPhaseD1Smoke(): Promise<void> {
         // stage_2_port_service runs — naabu marked missing → loud degradation
         'stage_3_web_tls',
         'stage_4_crawling_parameters',
+        'stage_deep_recon',
         'stage_5_secret_inspection',
       ],
     },
@@ -629,6 +632,7 @@ async function runPhaseD1Smoke(): Promise<void> {
         'stage_2_port_service',
         // stage_3_web_tls runs — root body capture + 1-hop HTML extraction
         'stage_4_crawling_parameters',
+        'stage_deep_recon',
         'stage_5_secret_inspection',
       ],
     },
@@ -734,6 +738,7 @@ async function runPhaseD1Smoke(): Promise<void> {
         'stage_1_domain_zone',
         'stage_2_port_service',
         'stage_4_crawling_parameters',
+        'stage_deep_recon',
         'stage_5_secret_inspection',
       ],
     },
@@ -851,6 +856,7 @@ async function runPhaseD1Smoke(): Promise<void> {
         'stage_1_domain_zone',
         'stage_2_port_service',
         'stage_4_crawling_parameters',
+        'stage_deep_recon',
         'stage_5_secret_inspection',
       ],
     },

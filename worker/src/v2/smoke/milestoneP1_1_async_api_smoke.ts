@@ -434,7 +434,11 @@ async function runMilestoneP1_1SmokeTests(): Promise<void> {
       stages: Array<{ stage: string; status: string }>;
     };
     assert.strictEqual(terminalStatus.status, 'completed');
-    assert.strictEqual(terminalStatus.stages.length, 5, 'All 5 staged discovery phases must be recorded');
+    assert.ok(
+      terminalStatus.stages.length >= 5,
+      `Staged discovery phases must be recorded (got ${terminalStatus.stages.length})`
+    );
+    assert.ok(terminalStatus.stages.some((s) => s.stage === 'stage_deep_recon'));
 
     console.log('    [PASS] Terminal summary verified: TargetProfile synthesized, drafts preserved, findings empty');
 
