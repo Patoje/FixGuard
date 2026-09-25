@@ -1,7 +1,7 @@
 /**
- * Deep recon P0 — thin orchestrator.
- * Runs planned methods fail-soft; P0 executes robots_sitemap_feed concretely.
- * Other methods are planned/skipped until later phases wire them.
+ * Deep recon — method-kit orchestrator.
+ * P0: robots_sitemap_feed. P4: gated_dict_topk + optional html_hop_extra.
+ * Other methods remain planned/skipped until wired.
  */
 
 import type { VerifiedAuthorizationDecision } from '../../authorization/VerifiedAuthorizationDecisionContracts.js';
@@ -10,6 +10,8 @@ import type { AuthorizedActiveReconRequestLineage } from '../../lineage/Authoriz
 import type { DiscoveredUrlObservation } from '../adapters/UrlDiscoveryContracts.js';
 import type { IdorHttpProbeTransport } from '../../detection/DetectionContracts.js';
 import type { PreSpawnDnsResolver } from '../adapters/AdapterPreflightPipeline.js';
+import type { ContentDiscoveryTool } from '../adapters/ContentDiscoveryContracts.js';
+import type { ParameterDiscoveryTool } from '../adapters/ParameterDiscoveryContracts.js';
 import { runRobotsSitemapInventoryFeed } from '../analysis/RobotsSitemapInventoryFeedService.js';
 import {
   DEEP_RECON_CONTRACT_VERSION,
@@ -21,6 +23,8 @@ import {
   type DeepReconStackSignals,
 } from './DeepReconContracts.js';
 import { planDeepReconMethods } from './DeepReconMethodPlanner.js';
+import { runGatedDictTopK } from './GatedDictTopKService.js';
+import { runHtmlHopExtra } from './HtmlHopExtraService.js';
 
 export interface DeepReconOrchestratorRequest {
   readonly originUrl: string;
@@ -31,6 +35,19 @@ export interface DeepReconOrchestratorRequest {
   readonly budget: DeepReconBudget;
   readonly enableByotHarvest?: boolean;
   readonly enableGatedDicts?: boolean;
+  /** Inventory URLs for gated dict / ranking (optional; falls back to origin). */
+  readonly inventoryUrls?: readonly { readonly url: string }[];
+  readonly contentTool?: ContentDiscoveryTool;
+  readonly parameterTool?: ParameterDiscoveryTool;
+  readonly wordlistPath?: string;
+  readonly maxFfufRoots?: number;
+  readonly maxArjunTargets?: number;
+  /** Optional hop-3 bodies (app_endpoint only). */
+  readonly hopExtraBodies?: readonly {
+    readonly url: string;
+    readonly bodyText: string;
+  }[];
+  readonly maxHop3?: number;
   readonly transport?: IdorHttpProbeTransport;
   readonly dnsResolver?: PreSpawnDnsResolver;
   readonly timeoutMs?: number;
@@ -72,6 +89,13 @@ export async function runDeepReconOrchestrator(
   const urls: DiscoveredUrlObservation[] = [];
   let requestsUsed = 0;
   let remaining = request.budget.remainingRequests;
+
+  let targetDomain = 'example.com';
+  try {
+    targetDomain = new URL(request.originUrl).hostname;
+  } catch {
+    // keep fallback
+  }
 
   for (const entry of planned) {
     if (remaining < entry.expectedRequestCost) {
@@ -123,7 +147,71 @@ export async function runDeepReconOrchestrator(
       continue;
     }
 
-    // Later phases wire these; P0 records skip honestly.
+    if (entry.method === 'gated_dict_topk') {
+      const inventory =
+        request.inventoryUrls && request.inventoryUrls.length > 0
+          ? request.inventoryUrls
+          : [
+              { url: request.originUrl },
+              ...urls.map((u) => ({ url: u.url })),
+            ];
+      const gated = await runGatedDictTopK({
+        verifiedAuthorizationDecision: request.verifiedAuthorizationDecision,
+        authorizedScopeGrant: request.authorizedScopeGrant,
+        lineage: request.lineage,
+        inventoryUrls: inventory,
+        contentTool: request.contentTool,
+        parameterTool: request.parameterTool,
+        wordlistPath: request.wordlistPath,
+        maxFfufRoots: request.maxFfufRoots,
+        maxArjunTargets: request.maxArjunTargets,
+        transport: request.transport,
+        dnsResolver: request.dnsResolver,
+        timeoutMs: request.timeoutMs,
+        skipWafCanary: !request.transport,
+      });
+      for (const u of gated.urlObservations) urls.push(u);
+      const status =
+        gated.status === 'success'
+          ? 'ran'
+          : gated.status === 'waf_aborted'
+            ? 'skipped'
+            : gated.status === 'preflight_denied'
+              ? 'preflight_denied'
+              : gated.status === 'tools_missing' || gated.status === 'empty_inventory'
+                ? 'skipped'
+                : 'failed';
+      methodResults.push({
+        method: entry.method,
+        status,
+        reasonCode: gated.reasonCode,
+        requestsUsed: gated.requestsUsed,
+        urlsSeeded: gated.urlObservations.length,
+      });
+      requestsUsed += gated.requestsUsed;
+      remaining -= gated.requestsUsed;
+      continue;
+    }
+
+    if (entry.method === 'html_hop_extra') {
+      const hop = runHtmlHopExtra({
+        targetDomain,
+        authorizedScopeGrant: request.authorizedScopeGrant,
+        appEndpointBodies: request.hopExtraBodies ?? [],
+        maxResults: request.maxHop3,
+      });
+      for (const u of hop.urlObservations) urls.push(u);
+      methodResults.push({
+        method: entry.method,
+        status: hop.reasonCode === 'no_app_endpoint_bodies' ? 'skipped' : 'ran',
+        reasonCode: hop.reasonCode,
+        requestsUsed: 0,
+        urlsSeeded: hop.urlsSeeded,
+      });
+      continue;
+    }
+
+    // Later phases wire these; record skip honestly.
     methodResults.push({
       method: entry.method,
       status: 'skipped',
@@ -135,7 +223,7 @@ export async function runDeepReconOrchestrator(
 
   return {
     contractVersion: DEEP_RECON_CONTRACT_VERSION,
-    status: requestsUsed > 0 ? 'completed' : 'no_methods',
+    status: requestsUsed > 0 || urls.length > 0 ? 'completed' : 'no_methods',
     planned,
     methodResults: Object.freeze(methodResults),
     urlObservations: Object.freeze(urls),

@@ -148,6 +148,15 @@ export interface ActiveReconOrchestrationConfig {
    * Does not create exposure findings — see SourcemapExposureDetection for that.
    */
   readonly sourcemapSurfaceMaxTargets?: number;
+  /**
+   * Opt-in Deep recon P4: run ffuf/arjun only on top-K inventory URLs
+   * (skip spray on every root). Requires wordlistPath for ffuf.
+   */
+  readonly enableGatedDictTopK?: boolean;
+  /** Max ffuf roots when enableGatedDictTopK (default 3). */
+  readonly gatedDictMaxFfufRoots?: number;
+  /** Max arjun targets when enableGatedDictTopK (default 5). */
+  readonly gatedDictMaxArjunTargets?: number;
 }
 
 import type { PreSpawnDnsResolver } from '../adapters/AdapterPreflightPipeline.js';

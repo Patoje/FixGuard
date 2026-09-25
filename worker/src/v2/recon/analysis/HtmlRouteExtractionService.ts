@@ -11,7 +11,8 @@
  * Path-pattern checks mirror seed validation and isBrowserUrlAllowed.
  *
  * Hop depth is enforced by callers (orchestrator): hop-1 from seeds/roots,
- * hop-2 from app_endpoint bodies only, never a third hop.
+ * hop-2 from app_endpoint bodies only. Optional hop-3 (Deep recon P4) is
+ * budget-gated (+maxHop3) and never mined from /_next/static.
  */
 
 import { isScopeAllowed } from '../../attack-execution/AttackExecutionContracts.js';
@@ -28,6 +29,9 @@ export const HTML_ROUTE_EXTRACTION_MAX_PER_STAGE = 25;
 
 /** Hard cap for hop-2 additional URLs mined from app_endpoint bodies only. */
 export const HTML_ROUTE_EXTRACTION_MAX_HOP2 = 20;
+
+/** Optional hop-3 budget (Deep recon P4 / html_hop_extra) — app_endpoint only. */
+export const HTML_ROUTE_EXTRACTION_MAX_HOP3 = 15;
 
 /** Static media extensions rejected from endpoint inventory (case-insensitive). */
 const REJECTED_MEDIA_EXTENSIONS = Object.freeze([

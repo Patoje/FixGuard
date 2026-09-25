@@ -6,6 +6,9 @@
  * - unauthenticated vs A (when A has credentials)
  * - unauthenticated vs B (when B has credentials)
  *
+ * Write pairs (Fase 4 / A4 thin) are built separately via
+ * buildAuthzMatrixWritePairs and executed by SupabaseBolaBflaWriteExpansionService.
+ *
  * Never auto-executes attack plans; detection-only differential probes.
  */
 
@@ -22,8 +25,20 @@ export type AuthzMatrixPairKind =
   | 'unauth_vs_a'
   | 'unauth_vs_b';
 
+/** Write-side matrix pairs (BOLA/BFLA) — gated behind allowStateChangingRequests. */
+export type AuthzMatrixWritePairKind =
+  | 'identity_a_vs_b_write'
+  | 'unauth_vs_a_write'
+  | 'unauth_vs_b_write';
+
 export interface AuthzMatrixPair {
   readonly pairKind: AuthzMatrixPairKind;
+  readonly left: ProbeAuthContext;
+  readonly right: ProbeAuthContext;
+}
+
+export interface AuthzMatrixWritePair {
+  readonly pairKind: AuthzMatrixWritePairKind;
   readonly left: ProbeAuthContext;
   readonly right: ProbeAuthContext;
 }
@@ -93,6 +108,41 @@ export function buildAuthzMatrixPairs(
   if (probeAuthContextHasCredentials(identityB)) {
     pairs.push({
       pairKind: 'unauth_vs_b',
+      left: UNAUTH_IDENTITY,
+      right: identityB,
+    });
+  }
+
+  return Object.freeze(pairs);
+}
+
+/**
+ * Build write-side pairwise probe sets (A↔B and unauth vs credentialed).
+ * Execution requires allowStateChangingRequests — builder itself is pure.
+ */
+export function buildAuthzMatrixWritePairs(
+  identityA: ProbeAuthContext,
+  identityB: ProbeAuthContext
+): readonly AuthzMatrixWritePair[] {
+  const pairs: AuthzMatrixWritePair[] = [
+    {
+      pairKind: 'identity_a_vs_b_write',
+      left: identityA,
+      right: identityB,
+    },
+  ];
+
+  if (probeAuthContextHasCredentials(identityA)) {
+    pairs.push({
+      pairKind: 'unauth_vs_a_write',
+      left: UNAUTH_IDENTITY,
+      right: identityA,
+    });
+  }
+
+  if (probeAuthContextHasCredentials(identityB)) {
+    pairs.push({
+      pairKind: 'unauth_vs_b_write',
       left: UNAUTH_IDENTITY,
       right: identityB,
     });

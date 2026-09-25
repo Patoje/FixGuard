@@ -27,6 +27,7 @@ import {
 } from '../adapters/JsLuiceAdapter.js';
 import { runSourcemapSurfaceExtraction } from '../analysis/SourcemapSurfaceExtractionService.js';
 import { runRobotsSitemapInventoryFeed } from '../analysis/RobotsSitemapInventoryFeedService.js';
+import { runGatedDictTopK } from '../deep/GatedDictTopKService.js';
 import { defaultHttpProbeTransport } from '../../detection/IdorDifferentialDetectionService.js';
 import {
   buildSupabaseRestTableUrlSeeds,
@@ -1316,25 +1317,45 @@ export class CompositeActiveReconOrchestratorService {
             }
           }
 
-          // 2. Content discovery via Ffuf when a wordlist is configured.
-          // Thin relative paths (api-endpoints / api_wordlist) resolve to the
-          // SecLists-backed gated list; deep list via FIXGUARD_API_WORDLIST_DEEP=1.
-          if (request.config?.wordlistPath) {
-            const rawWl = request.config.wordlistPath.trim();
-            const useGatedDefault =
-              rawWl === 'default' ||
-              rawWl === 'api' ||
-              rawWl.endsWith('api-endpoints.txt') ||
-              rawWl.endsWith('api_wordlist.txt');
-            const wordlistPath = useGatedDefault
-              ? resolveApiDiscoveryWordlistPath({ explicitPath: undefined })
-              : resolveApiDiscoveryWordlistPath({ explicitPath: rawWl });
-            const contentResult: ContentDiscoveryResult = await coordinator.execute(
+          // 2–3. Content/parameter discovery.
+          // When enableGatedDictTopK: defer to a single top-K pass after inventory grows.
+          // Otherwise: legacy per-root ffuf (if wordlist) + arjun.
+          if (request.config?.enableGatedDictTopK !== true) {
+            if (request.config?.wordlistPath) {
+              const rawWl = request.config.wordlistPath.trim();
+              const useGatedDefault =
+                rawWl === 'default' ||
+                rawWl === 'api' ||
+                rawWl.endsWith('api-endpoints.txt') ||
+                rawWl.endsWith('api_wordlist.txt');
+              const wordlistPath = useGatedDefault
+                ? resolveApiDiscoveryWordlistPath({ explicitPath: undefined })
+                : resolveApiDiscoveryWordlistPath({ explicitPath: rawWl });
+              const contentResult: ContentDiscoveryResult = await coordinator.execute(
+                parsed.hostname,
+                () =>
+                  this.tools.contentTool.discoverContent({
+                    targetUrl: rootUrl,
+                    wordlistPath,
+                    verifiedAuthorizationDecision: request.verifiedAuthorizationDecision,
+                    authorizedScopeGrant: request.authorizedScopeGrant,
+                    lineage: request.lineage,
+                    timeoutMs: request.config?.timeoutMs,
+                  })
+              );
+
+              if (contentResult.status === 'success') {
+                for (const obs of contentResult.observations) {
+                  content.push(obs);
+                }
+              }
+            }
+
+            const paramResult: ParameterDiscoveryResult = await coordinator.execute(
               parsed.hostname,
               () =>
-                this.tools.contentTool.discoverContent({
+                this.tools.parameterTool.discoverParameters({
                   targetUrl: rootUrl,
-                  wordlistPath,
                   verifiedAuthorizationDecision: request.verifiedAuthorizationDecision,
                   authorizedScopeGrant: request.authorizedScopeGrant,
                   lineage: request.lineage,
@@ -1342,29 +1363,10 @@ export class CompositeActiveReconOrchestratorService {
                 })
             );
 
-            if (contentResult.status === 'success') {
-              for (const obs of contentResult.observations) {
-                content.push(obs);
+            if (paramResult.status === 'success') {
+              for (const obs of paramResult.observations) {
+                parameters.push(obs);
               }
-            }
-          }
-
-          // 3. Parameter discovery via Arjun
-          const paramResult: ParameterDiscoveryResult = await coordinator.execute(
-            parsed.hostname,
-            () =>
-              this.tools.parameterTool.discoverParameters({
-                targetUrl: rootUrl,
-                verifiedAuthorizationDecision: request.verifiedAuthorizationDecision,
-                authorizedScopeGrant: request.authorizedScopeGrant,
-                lineage: request.lineage,
-                timeoutMs: request.config?.timeoutMs,
-              })
-          );
-
-          if (paramResult.status === 'success') {
-            for (const obs of paramResult.observations) {
-              parameters.push(obs);
             }
           }
 
@@ -1554,6 +1556,63 @@ export class CompositeActiveReconOrchestratorService {
             return buildCircuitBrokenResult(currentHost);
           }
           stage4Warnings.push(`Crawling/parameter error on ${rootUrl}: ${err instanceof Error ? err.message : String(err)}`);
+        }
+      }
+
+      // Deep recon P4 — gated ffuf/arjun on top-K inventory only (opt-in).
+      // Runs after per-root URL/JS mining so inventory is richer; WAF canary aborts spray.
+      if (request.config?.enableGatedDictTopK === true) {
+        try {
+          const rawWl = (request.config.wordlistPath ?? 'api').trim();
+          const useGatedDefault =
+            rawWl === 'default' ||
+            rawWl === 'api' ||
+            rawWl.endsWith('api-endpoints.txt') ||
+            rawWl.endsWith('api_wordlist.txt');
+          const wordlistPath = useGatedDefault
+            ? resolveApiDiscoveryWordlistPath({ explicitPath: undefined })
+            : resolveApiDiscoveryWordlistPath({ explicitPath: rawWl });
+          const inventoryForDict =
+            urls.length > 0
+              ? urls
+              : rootUrls.map((u) => ({ url: u }));
+          const gated = await runGatedDictTopK({
+            verifiedAuthorizationDecision: request.verifiedAuthorizationDecision,
+            authorizedScopeGrant: request.authorizedScopeGrant,
+            lineage: request.lineage,
+            inventoryUrls: inventoryForDict,
+            contentTool: this.tools.contentTool,
+            parameterTool: this.tools.parameterTool,
+            wordlistPath,
+            maxFfufRoots: request.config.gatedDictMaxFfufRoots,
+            maxArjunTargets: request.config.gatedDictMaxArjunTargets,
+            timeoutMs: request.config.timeoutMs,
+            transport: defaultHttpProbeTransport,
+            dnsResolver: request.dnsResolver,
+          });
+          if (gated.status === 'waf_aborted') {
+            stage4Warnings.push(
+              `Gated dict top-K aborted (WAF/bot): ${gated.reasonCode}`
+            );
+          } else if (gated.status === 'success') {
+            for (const obs of gated.contentObservations) {
+              content.push(obs);
+            }
+            for (const obs of gated.parameterObservations) {
+              parameters.push(obs);
+            }
+            for (const obs of gated.urlObservations) {
+              urls.push(obs);
+            }
+          } else if (gated.status !== 'empty_inventory') {
+            stage4Warnings.push(
+              `Gated dict top-K ${gated.status}: ${gated.reasonCode}`
+            );
+          }
+        } catch (gatedErr) {
+          stage4Warnings.push(
+            `Gated dict top-K error: ${gatedErr instanceof Error ? gatedErr.message : String(gatedErr)}`
+          );
         }
       }
 
