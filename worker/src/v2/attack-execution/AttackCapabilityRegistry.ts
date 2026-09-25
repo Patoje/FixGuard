@@ -16,6 +16,7 @@ import type {
   AttackCapabilityInvocationContext,
 } from './AttackExecutionContracts.js';
 import { ControlledActiveVerificationService } from '../verification/ControlledActiveVerificationService.js';
+import { toStrictSafeId } from '../reporting-boundary/DefensiveReportContracts.js';
 import { createLfiPathTraversalCapability } from './capabilities/LFIPathTraversalCapability.js';
 import { createSqlOracleAdvancementCapability } from './capabilities/SqlOracleAdvancementCapability.js';
 import { createNucleiXssScanCapability } from './capabilities/NucleiXssScanCapability.js';
@@ -92,7 +93,8 @@ export function createIdorReadDifferentialCapability(
           return succeeded(
             'idor_differential_access_observed',
             result.evidenceSummary,
-            `ev_idor_${ctx.step.stepId}`
+            // Scrub forbidden substrings (e.g. fnd_idor_* step seeds) for chain/evidence ids.
+            toStrictSafeId(`ev_diff_${ctx.step.stepId}`)
           );
         case 'access_denied':
           return refuted(result.reasonCode, result.evidenceSummary);

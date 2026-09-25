@@ -158,7 +158,10 @@ import {
   UnauthorizedGatewayError,
   ConcurrencyLimitExceededError,
 } from '../api/ApiErrors.js';
-import { isStrictSafeId } from '../reporting-boundary/DefensiveReportContracts.js';
+import {
+  isStrictSafeId,
+  toStrictSafeId,
+} from '../reporting-boundary/DefensiveReportContracts.js';
 import {
   ReportGeneratorService,
   type AdversarialReportContext,
@@ -544,7 +547,7 @@ function buildSurfaceHintsFromProfile(
 }
 
 function chainIdForPlan(planId: string): string {
-  return `chn_exec_${planId}`.replace(/[^A-Za-z0-9_-]/g, '_').slice(0, 64);
+  return toStrictSafeId(`chn_exec_${planId}`);
 }
 
 function objectiveForCapability(capability: AttackCapabilityKind): ChainObjectiveKind {
@@ -1958,9 +1961,11 @@ export class OrchestratedAssessmentApplicationService {
       const mapped = mapExecutionOutcomeToChain(stepRec.outcome);
       if (!mapped) continue;
 
-      const stepId = `cst_${executionRecord.executionId}_${stepRec.stepId}`
-        .replace(/[^A-Za-z0-9_-]/g, '_')
-        .slice(0, 64);
+      // Plan/capability seeds often embed forbidden substrings (e.g. fnd_idor_*_idor_step_1).
+      // Scrub before AttackChainService.assertStrictId — otherwise execute 500s after a valid run.
+      const stepId = toStrictSafeId(
+        `cst_${executionRecord.executionId}_${stepRec.stepId}`
+      );
 
       // Skip duplicates on refresh/retry
       if (chain.steps.some((s) => s.stepId === stepId)) {
@@ -1969,7 +1974,9 @@ export class OrchestratedAssessmentApplicationService {
       }
 
       const producedFacts = producedFactsFromStep(stepRec);
-      const proofCapsuleRef = stepRec.evidenceId;
+      const proofCapsuleRef = stepRec.evidenceId
+        ? toStrictSafeId(stepRec.evidenceId)
+        : undefined;
 
       chain = await this.attackChainService.appendExecutedStep({
         chainId: chain.chainId,

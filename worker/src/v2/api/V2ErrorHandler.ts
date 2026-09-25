@@ -14,6 +14,10 @@ import {
   UnavailableToolsError,
   ConcurrencyLimitExceededError,
 } from './ApiErrors.js';
+import {
+  AttackChainValidationError,
+  AttackChainIsolationError,
+} from '../attack-chain/AttackChainService.js';
 
 export interface SafeErrorResponseBody {
   readonly error: string;
@@ -128,6 +132,26 @@ export function v2ErrorHandler(
       ...(err.details ? { details: err.details } : {})
     };
     res.status(400).json(body);
+    return;
+  }
+
+  // 6a. Attack-chain domain validation / isolation → typed 4xx (never raw 500)
+  if (err instanceof AttackChainValidationError) {
+    const body: SafeErrorResponseBody = {
+      error: 'BadRequest',
+      message: err.message,
+      reasonCode: err.reasonCode,
+    };
+    res.status(400).json(body);
+    return;
+  }
+  if (err instanceof AttackChainIsolationError) {
+    const body: SafeErrorResponseBody = {
+      error: 'Forbidden',
+      message: err.message,
+      reasonCode: err.reasonCode,
+    };
+    res.status(403).json(body);
     return;
   }
 

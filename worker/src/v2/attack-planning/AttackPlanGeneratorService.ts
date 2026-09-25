@@ -1067,7 +1067,8 @@ export function generateAttackPlans(input: AttackPlanGeneratorInput): AttackPlan
           prerequisites: prereqs,
           steps: [
             {
-              stepId: `${finding.id}_idor_step_1`,
+              // Avoid embedding forbidden substring "idor" (isStrictSafeId / chain append).
+              stepId: `${finding.id}_diff_step_1`,
               ordinal: 1,
               title: 'Authorize dual-identity differential read',
               description:

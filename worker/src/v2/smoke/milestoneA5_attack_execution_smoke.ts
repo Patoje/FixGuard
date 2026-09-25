@@ -597,6 +597,104 @@ async function runSmokeTests(): Promise<void> {
   );
   console.log('[+] Test 5: composition + HTTP execute→chain→impact loop OK');
 
+  // --- Test 5b: Teclaaa regression — plan stepIds that embed "idor" must not 500 on chain write ---
+  const idorFindingId = 'fnd_idor_teclaaa01';
+  const idorPlanId = 'plan_smoke_a5_diff_seed';
+  const idorFinding = buildFinding(idorFindingId, `https://${host}/api/resource/2`);
+  const idorPlan: AttackPlan = {
+    ...buildPlan(idorPlanId, assessmentId, idorFindingId),
+    steps: [
+      {
+        stepId: `${idorFindingId}_idor_step_1`,
+        ordinal: 1,
+        title: 'Authorize dual-identity differential read',
+        description: 'Production-shaped stepId containing forbidden substring idor',
+        status: 'ready',
+        requiredPermissions: ['active_http_get'],
+      },
+    ],
+  };
+  await root.attackPlanRepository.savePlan(idorPlan);
+
+  const idorAuth = await root.attackAuthorizationService.authorizePlan(
+    idorPlanId,
+    assessmentId,
+    'read_escalated',
+    operatorId,
+    '2026-09-23T19:00:02.000Z'
+  );
+  assertTrue(idorAuth.status === 'established', 'idor-seed plan must authorize');
+  if (idorAuth.status !== 'established') fail('unreachable');
+
+  const idorHermeticResponses = [
+    {
+      statusCode: 200,
+      headers: { 'content-type': 'application/json' },
+      bodyText: '{"owner":"alice","secret":"y"}',
+      responseTimeMs: 3,
+    },
+    {
+      statusCode: 200,
+      headers: { 'content-type': 'application/json' },
+      bodyText: '{"owner":"alice","secret":"y"}',
+      responseTimeMs: 3,
+    },
+  ];
+  const idorRegistry = new AttackCapabilityRegistry([
+    createIdorReadDifferentialCapability(
+      new ControlledActiveVerificationService(async () => {
+        const next = idorHermeticResponses.shift();
+        if (!next) throw new Error('unexpected extra idor hermetic transport call');
+        return next;
+      })
+    ),
+  ]);
+  const idorExecService = new AttackExecutionService({
+    planRepository: root.attackPlanRepository,
+    capabilityRegistry: idorRegistry,
+  });
+  const idorExec = await idorExecService.execute({
+    contractVersion: ATTACK_EXECUTION_CONTRACT_VERSION,
+    kind: 'attack_execution_request',
+    planId: idorPlanId,
+    assessmentId,
+    token: idorAuth.token,
+    scopeGrant,
+    coordinator: new TargetExecutionCoordinator(),
+    dnsResolver: async () => ['93.184.216.34'],
+    findings: [idorFinding],
+    operatorId,
+    primaryIdentity: {
+      identityId: 'identity_alice',
+      headers: { authorization: 'Bearer alice' },
+    },
+    secondaryIdentity: {
+      identityId: 'identity_bob',
+      headers: { authorization: 'Bearer bob' },
+    },
+  });
+  assert.equal(idorExec.status, 'completed');
+  assert.equal(idorExec.record.stepRecords[0]?.outcome, 'succeeded');
+  const evidenceId = idorExec.record.stepRecords[0]?.evidenceId;
+  assertTrue(
+    typeof evidenceId === 'string' && !/idor/i.test(evidenceId),
+    `evidenceId must not embed forbidden substring idor, got ${evidenceId}`
+  );
+
+  // Must not throw AttackChainValidationError (previously surfaced as HTTP 500).
+  const idorRefresh = await loopRoot.orchestratedService.recordAttackExecutionOutcome({
+    assessmentId,
+    planId: idorPlanId,
+    executionRecord: idorExec.record,
+  });
+  assert.ok(
+    idorRefresh.attackChains.some((c) =>
+      c.steps.some((s) => !/idor/i.test(s.stepId) && s.capabilityKind === 'idor_read_differential')
+    ),
+    'chain append must scrub idor from stepId while preserving capabilityKind'
+  );
+  console.log('[+] Test 5b: idor-seeded stepId execute→chain scrub OK (no 500)');
+
   console.log('=== Milestone A5: ALL CHECKS PASSED ===');
 }
 

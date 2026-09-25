@@ -104,6 +104,32 @@ export function isStrictSafeId(val: unknown): val is string {
   return isSafeString(val);
 }
 
+/**
+ * Scrub an identifier so it satisfies isStrictSafeId (charset + forbidden substrings).
+ * Used when composing chain/evidence ids from capability/finding seeds that may embed
+ * terms like "idor" / "sqli" which isStrictSafeId rejects.
+ */
+export function toStrictSafeId(raw: string, maxLen = 64): string {
+  const scrubbed = String(raw)
+    .replace(/[^A-Za-z0-9_-]/g, "_")
+    .replace(
+      /idor|sqli|bola|exploit|token|secret|password|cookie|bearer|authorization|vulnerable|critical/gi,
+      "x"
+    )
+    .replace(/_+/g, "_")
+    .replace(/^_+|_+$/g, "")
+    .slice(0, Math.max(1, Math.min(64, maxLen)));
+  if (scrubbed.length > 0 && isStrictSafeId(scrubbed)) {
+    return scrubbed;
+  }
+  // Deterministic fallback — never return an id that fails isStrictSafeId.
+  const fallback = `id_${scrubbed.replace(/[^A-Za-z0-9]/g, "").slice(0, 12) || "1"}`.slice(
+    0,
+    64
+  );
+  return isStrictSafeId(fallback) ? fallback : "id_1";
+}
+
 export function isStrictIsoTimestamp(value: unknown): value is string {
   return (
     typeof value === "string" &&
