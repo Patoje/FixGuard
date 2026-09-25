@@ -496,6 +496,18 @@ async function runSmokeTests(): Promise<void> {
         path: '/login',
         signalKind: 'auth_surface',
       },
+      {
+        endpointUrl: 'https://app.example.com/api/auth/session',
+        path: '/api/auth/session',
+        signalKind: 'auth_surface',
+        resourceClass: 'api_or_protected',
+      },
+      {
+        endpointUrl: 'https://xyzcompany.supabase.co/auth/v1/user',
+        path: '/auth/v1/user',
+        signalKind: 'auth_surface',
+        resourceClass: 'supabase_boundary',
+      },
     ],
   });
   assert.ok(draftResult.plans.length >= 2, 'draft/surface signals must produce investigation plans');
@@ -528,11 +540,115 @@ async function runSmokeTests(): Promise<void> {
     undefined,
     'missing_security_headers must NOT mint Attack Plans (cosmetic; not attack-relevant)'
   );
-  const authSurfacePlan = draftResult.plans.find(
-    (p) => p.planOrigin === 'observed_surface' && p.capability === 'auth_bypass_probe'
+  const spaLoginPlan = draftResult.plans.find(
+    (p) =>
+      p.planOrigin === 'observed_surface' &&
+      p.capability === 'auth_bypass_probe' &&
+      (p.targetUrl ?? '').includes('/login')
   );
-  assert.ok(authSurfacePlan, 'OBSERVED /login surface must emit auth investigation plan');
-  console.log('✓ Test 5 Passed: Draft/surface investigation plans (honest, non-finding)');
+  assert.equal(
+    spaLoginPlan,
+    undefined,
+    'SPA HTML /login shell must NOT mint auth_bypass plans (Teclaaa-class false positive)'
+  );
+  const apiAuthPlan = draftResult.plans.find(
+    (p) =>
+      p.planOrigin === 'observed_surface' &&
+      p.capability === 'auth_bypass_probe' &&
+      (p.targetUrl ?? '').includes('/api/auth/session')
+  );
+  assert.ok(apiAuthPlan, 'OBSERVED /api/auth/session must emit auth investigation plan');
+  const supabasePlan = draftResult.plans.find(
+    (p) =>
+      p.planOrigin === 'observed_surface' &&
+      p.capability === 'auth_bypass_probe' &&
+      (p.targetUrl ?? '').includes('supabase.co')
+  );
+  assert.ok(supabasePlan, 'OBSERVED Supabase /auth/v1/user must emit auth investigation plan');
+  console.log('✓ Test 5 Passed: Draft/surface investigation plans (honest; SPA shells skipped)');
+
+  // --- Test 6: Duplicate finding ids must not abort persistence (Teclaaa BYOT regression) ---
+  const collidingAuthMeta = {
+    kind: 'auth_bypass_metadata' as const,
+    category: 'BROKEN_AUTHENTICATION' as const,
+    endpointUrl: 'https://app.example.com/api/a',
+    httpMethod: 'GET',
+    authenticatedStatusCode: 200,
+    anonymousStatusCode: 200,
+    bypassMechanism: 'header_stripping' as const,
+    bodySimilarityRatio: 0.99,
+    observedAt: nowIso,
+    candidateId: 'cand_ab_dup',
+    evidenceRecordId: 'evr_ab_dup',
+    lineage: `${assessmentId}:${scanId}:${actorId}`,
+  };
+  const duplicateIdFindings: Finding[] = [
+    baseFinding({
+      id: 'find_detabcollide01',
+      type: 'BROKEN_AUTHENTICATION',
+      title: 'Auth bypass A',
+      target: 'https://app.example.com/api/a',
+      metadata: { ...collidingAuthMeta, endpointUrl: 'https://app.example.com/api/a' },
+    }),
+    baseFinding({
+      id: 'find_detabcollide01', // same id — simulates truncated detectionId collision
+      type: 'BROKEN_AUTHENTICATION',
+      title: 'Auth bypass B',
+      target: 'https://app.example.com/api/b',
+      metadata: {
+        ...collidingAuthMeta,
+        endpointUrl: 'https://app.example.com/api/b',
+        candidateId: 'cand_ab_dup_b',
+        evidenceRecordId: 'evr_ab_dup_b',
+      },
+    }),
+    baseFinding({
+      id: 'find_detabcollide01', // exact semantic duplicate of first
+      type: 'BROKEN_AUTHENTICATION',
+      title: 'Auth bypass A',
+      target: 'https://app.example.com/api/a',
+      metadata: { ...collidingAuthMeta, endpointUrl: 'https://app.example.com/api/a' },
+    }),
+  ];
+
+  const collisionResult = generateAttackPlans({
+    assessmentId: 'asm_smoke_a3_dup_plan',
+    scanId: 'scn_smoke_a3_dup_plan',
+    findings: duplicateIdFindings,
+    identities: [{ identityId: 'id_a', hasJwt: false }],
+    lineage: {
+      ...lineage,
+      assessmentId: 'asm_smoke_a3_dup_plan',
+      scanId: 'scn_smoke_a3_dup_plan',
+    },
+    generatedAt: nowIso,
+  });
+
+  const planIds = collisionResult.plans.map((p) => p.planId);
+  assert.equal(
+    new Set(planIds).size,
+    planIds.length,
+    'generator must emit unique planIds even when finding ids collide'
+  );
+  const authPlans = collisionResult.plans.filter((p) => p.capability === 'auth_bypass_probe');
+  assert.equal(
+    authPlans.length,
+    2,
+    'distinct targets with colliding finding ids must remint; exact duplicates must dedupe'
+  );
+  assert.ok(
+    authPlans.some((p) => p.targetUrl === 'https://app.example.com/api/a'),
+    'must retain plan for /api/a'
+  );
+  assert.ok(
+    authPlans.some((p) => p.targetUrl === 'https://app.example.com/api/b'),
+    'must retain reminted plan for /api/b'
+  );
+
+  const dupRepo = new InMemoryAttackPlanRepository();
+  const savedDup = await dupRepo.savePlans(collisionResult.plans);
+  assert.equal(savedDup.length, collisionResult.plans.length);
+  console.log('✓ Test 6 Passed: Colliding finding ids → unique planIds; savePlans succeeds');
 
   console.log('=== Milestone A3 Attack Planning: ALL TESTS PASSED ===');
 }

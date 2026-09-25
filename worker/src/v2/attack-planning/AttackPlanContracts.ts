@@ -181,11 +181,20 @@ export interface AttackPlanDraftSignal {
 
 /**
  * High-signal OBSERVED surface hint (auth paths, etc.) for investigation plans.
+ * `resourceClass` distinguishes SPA HTML shells (public marketing/login pages) from
+ * API/Supabase boundaries where auth differential is meaningful.
  */
+export type AttackPlanSurfaceResourceClass =
+  | 'spa_html_shell'
+  | 'api_or_protected'
+  | 'supabase_boundary';
+
 export interface AttackPlanSurfaceHint {
   readonly endpointUrl: string;
   readonly path: string;
   readonly signalKind: 'auth_surface';
+  /** When omitted, generator classifies from URL/path heuristics. */
+  readonly resourceClass?: AttackPlanSurfaceResourceClass;
 }
 
 export interface AttackPlanGeneratorInput {

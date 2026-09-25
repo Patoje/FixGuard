@@ -125,6 +125,25 @@ export class PostgresAttackPlanRepository implements AttackPlanRepository {
   public async savePlans(
     plans: readonly AttackPlan[]
   ): Promise<readonly AttackPlan[]> {
+    // Atomic batch preflight: reject intra-batch duplicates before any write
+    // so a collided generator output cannot partially persist then abort mid-batch.
+    const seen = new Set<string>();
+    for (const plan of plans) {
+      if (seen.has(plan.planId)) {
+        throw new PersistenceConflictError(
+          `Duplicate planId: ${plan.planId}`,
+          plan.planId
+        );
+      }
+      seen.add(plan.planId);
+      const existing = await this.getPlan(plan.planId);
+      if (existing) {
+        throw new PersistenceConflictError(
+          `Duplicate planId: ${plan.planId}`,
+          plan.planId
+        );
+      }
+    }
     const saved: AttackPlan[] = [];
     for (const plan of plans) {
       saved.push(await this.savePlan(plan));

@@ -33,6 +33,7 @@ import {
   type AttackPlanScopeClass,
   type AttackPlanDraftSignal,
   type AttackPlanSurfaceHint,
+  type AttackPlanSurfaceResourceClass,
   type CapabilityGained,
 } from './AttackPlanContracts.js';
 
@@ -42,6 +43,78 @@ function sha256Short(content: string): string {
 
 function stablePlanId(assessmentId: string, capability: AttackCapabilityKind, findingId: string): string {
   return `apl_${sha256Short([assessmentId, capability, findingId].join('|'))}`;
+}
+
+/**
+ * True when two plans are the same advisory (duplicate emission), not distinct targets
+ * that merely collided on a truncated/stable planId hash input.
+ */
+function plansSemanticallyEqual(a: AttackPlan, b: AttackPlan): boolean {
+  const draftIdsA = a.sourceDraftIds ?? [];
+  const draftIdsB = b.sourceDraftIds ?? [];
+  return (
+    a.capability === b.capability &&
+    a.planOrigin === b.planOrigin &&
+    (a.targetUrl ?? '') === (b.targetUrl ?? '') &&
+    (a.parameterName ?? '') === (b.parameterName ?? '') &&
+    a.title === b.title &&
+    a.sourceFindingIds.join('\0') === b.sourceFindingIds.join('\0') &&
+    draftIdsA.join('\0') === draftIdsB.join('\0')
+  );
+}
+
+/**
+ * Fail-closed uniqueness for generated batches:
+ * - Identical advisories (same planId + same semantic content) → keep first (dedupe).
+ * - Distinct advisories that collided on planId (e.g. duplicate finding ids from
+ *   truncated detection seeds) → remint a unique planId; never abort the batch.
+ */
+function uniquifyGeneratedPlans(plans: readonly AttackPlan[]): AttackPlan[] {
+  const out: AttackPlan[] = [];
+  const byId = new Map<string, AttackPlan>();
+
+  for (const plan of plans) {
+    const existing = byId.get(plan.planId);
+    if (!existing) {
+      byId.set(plan.planId, plan);
+      out.push(plan);
+      continue;
+    }
+    if (plansSemanticallyEqual(existing, plan)) {
+      continue;
+    }
+
+    let salt = 0;
+    let reminted: AttackPlan | null = null;
+    while (salt < 32) {
+      salt += 1;
+      const candidateId = `apl_${sha256Short(
+        [
+          plan.planId,
+          plan.targetUrl ?? '',
+          plan.parameterName ?? '',
+          plan.planOrigin,
+          String(salt),
+          String(out.length),
+        ].join('|')
+      )}`;
+      if (!byId.has(candidateId)) {
+        reminted = { ...plan, planId: candidateId };
+        break;
+      }
+    }
+    if (!reminted) {
+      // Extremely defensive: content-addressed fallback including ordinal.
+      const fallbackId = `apl_${sha256Short(
+        `${plan.assessmentId}|${plan.capability}|forced|${out.length}|${plan.targetUrl ?? ''}`
+      )}`;
+      reminted = { ...plan, planId: fallbackId };
+    }
+    byId.set(reminted.planId, reminted);
+    out.push(reminted);
+  }
+
+  return out;
 }
 
 function allPrerequisitesSatisfied(prereqs: readonly AttackPrerequisite[]): boolean {
@@ -798,8 +871,65 @@ function generateDraftInvestigationPlans(
 const AUTH_SURFACE_PATH_RE =
   /^\/(login|signin|sign-in|auth|authenticate|api\/auth|api\/login|session|oauth)(\/|$)/i;
 
+const SPA_HTML_SHELL_PATH_RE =
+  /^\/(login|signin|sign-in|signup|register|arcade|perfil|profile|dashboard|home)?\/?$/i;
+
+/**
+ * Classify whether an auth-looking surface is a meaningful auth boundary.
+ * SPA HTML shells (Vercel/Next public routes) must NOT mint auth_bypass plans —
+ * auth lives on API/Supabase, not the HTML shell.
+ */
+export function classifyAuthSurfaceResource(
+  path: string,
+  endpointUrl: string,
+  explicit?: AttackPlanSurfaceResourceClass
+): AttackPlanSurfaceResourceClass {
+  if (explicit) return explicit;
+
+  let host = '';
+  let pathname = path;
+  try {
+    const u = new URL(endpointUrl);
+    host = u.hostname.toLowerCase();
+    pathname = u.pathname || path;
+  } catch {
+    host = '';
+  }
+
+  if (
+    host.includes('supabase.co') ||
+    /\/auth\/v1(\/|$)/i.test(pathname) ||
+    /\/rest\/v1(\/|$)/i.test(pathname) ||
+    /\/rpc\//i.test(pathname)
+  ) {
+    return 'supabase_boundary';
+  }
+
+  if (
+    /^\/api(\/|$)/i.test(pathname) ||
+    /\/(graphql|gql)(\/|$)/i.test(pathname) ||
+    /\.json(\?|$)/i.test(pathname)
+  ) {
+    return 'api_or_protected';
+  }
+
+  // Public Next.js/Vercel HTML routes that look "auth-ish" but are not the boundary.
+  if (
+    SPA_HTML_SHELL_PATH_RE.test(pathname) ||
+    /^\/(login|signin|sign-in|auth|authenticate|session|oauth)(\/|$)/i.test(pathname)
+  ) {
+    // /api/auth and /api/login already caught above; remaining auth paths are shells.
+    if (!/^\/api\//i.test(pathname)) {
+      return 'spa_html_shell';
+    }
+  }
+
+  return 'api_or_protected';
+}
+
 /**
  * Investigation hypotheses from OBSERVED auth-surface endpoints (no Finding required).
+ * Skips SPA HTML shells — those yield guaranteed REFUTED noise on Next.js+Supabase apps.
  */
 function generateSurfaceInvestigationPlans(
   input: AttackPlanGeneratorInput,
@@ -814,8 +944,22 @@ function generateSurfaceInvestigationPlans(
   for (const hint of hints) {
     if (hint.signalKind !== 'auth_surface') continue;
     if (!AUTH_SURFACE_PATH_RE.test(hint.path) && !AUTH_SURFACE_PATH_RE.test(hint.endpointUrl)) {
-      // Allow explicit auth_surface hints even if path regex misses.
-      if (!/login|signin|auth|session|oauth/i.test(hint.path)) continue;
+      // Allow explicit auth_surface hints even if path regex misses (e.g. supabase hosts).
+      if (
+        !/login|signin|auth|session|oauth|rest\/v1|supabase/i.test(hint.path) &&
+        !/login|signin|auth|session|oauth|rest\/v1|supabase/i.test(hint.endpointUrl)
+      ) {
+        continue;
+      }
+    }
+
+    const resourceClass = classifyAuthSurfaceResource(
+      hint.path,
+      hint.endpointUrl,
+      hint.resourceClass
+    );
+    if (resourceClass === 'spa_html_shell') {
+      continue;
     }
 
     const sourceKey = `surface_auth_${sha256Short(hint.endpointUrl)}`;
@@ -827,14 +971,23 @@ function generateSurfaceInvestigationPlans(
       identityPresentPrereq(input.identities),
     ];
 
+    const title =
+      resourceClass === 'supabase_boundary'
+        ? 'Investigate OBSERVED Supabase auth boundary'
+        : 'Investigate OBSERVED API auth surface';
+    const reasoning =
+      resourceClass === 'supabase_boundary'
+        ? `OBSERVED Supabase/API auth boundary (${hint.path}). No validated Finding. Investigation hypothesis only — compare Bearer vs anon on the API boundary, not the SPA HTML shell.`
+        : `OBSERVED API auth-surface endpoint (${hint.path}). No validated Finding. Investigation hypothesis only — does not claim authentication bypass. Requires human authorization before any active probe.`;
+
     plans.push(
       buildInvestigationPlan({
         assessmentId: input.assessmentId,
         scanId: input.scanId,
         capability: 'auth_bypass_probe',
         sourceKey,
-        title: 'Investigate OBSERVED auth surface',
-        reasoning: `OBSERVED auth-surface endpoint (${hint.path}). No validated Finding. Investigation hypothesis only — does not claim authentication bypass. Requires human authorization before any active probe.`,
+        title,
+        reasoning,
         blastRadius: 'single_endpoint',
         capabilityGained: 'read_authenticated',
         sourceFindingTypes: ['BROKEN_AUTHENTICATION'],
@@ -845,7 +998,7 @@ function generateSurfaceInvestigationPlans(
             ordinal: 1,
             title: 'Authorize auth-surface investigation',
             description:
-              'Human-authorized comparison of authenticated vs stripped-auth responses on an OBSERVED auth surface. Hypothesis only.',
+              'Human-authorized comparison of authenticated vs stripped-auth responses on an OBSERVED API/Supabase auth boundary. Hypothesis only — not SPA HTML.',
             requiredPermissions: ['active_http_get'],
           },
         ],
@@ -1275,14 +1428,15 @@ export function generateAttackPlans(input: AttackPlanGeneratorInput): AttackPlan
   // Rule 13: OBSERVED high-signal surface (auth paths) → investigation hypotheses.
   plans.push(...generateSurfaceInvestigationPlans(input, generatedAt));
 
-  plans.sort((a, b) => a.planId.localeCompare(b.planId));
+  const uniquePlans = uniquifyGeneratedPlans(plans);
+  uniquePlans.sort((a, b) => a.planId.localeCompare(b.planId));
 
   return {
     contractVersion: ATTACK_PLANNING_CONTRACT_VERSION,
     kind: 'attack_plan_generator_result',
     assessmentId: input.assessmentId,
     scanId: input.scanId,
-    plans,
+    plans: uniquePlans,
     generatedAt,
     lineage: { ...input.lineage },
   };

@@ -70,8 +70,11 @@ function sha256(content: string): string {
 }
 
 function sanitizeToSafeId(raw: string): string {
-  const cleaned = raw.replace(/[^A-Za-z0-9]/g, '').slice(0, 16);
-  return cleaned.length > 0 ? cleaned : '001';
+  // Hash the full seed — naive alphanumeric truncation (16 chars) collapsed
+  // distinct detectionIds that only differed after the truncated prefix
+  // (e.g. det_ab_<asmt>_<pathA>_id vs det_ab_<asmt>_<pathB>_id).
+  const digest = createHash('sha256').update(raw).digest('hex').slice(0, 16);
+  return digest.length > 0 ? digest : '001';
 }
 
 function analyzeBodyShape(bodyText: string): NormalizedBodyShape {
@@ -381,6 +384,37 @@ export async function runAuthBypassDetection(
       actorId: request.actorId,
       status: 'secure_target_abstained',
       reasonCode: 'baseline_not_protected_resource',
+      lineage,
+      endpointUrl: request.endpointUrl,
+      bypassMechanism,
+    };
+  }
+
+  // SPA HTML shells (Next.js public routes) are not auth boundaries — anon also gets 200 HTML.
+  // Abstain before differential promotion; probe API/Supabase resources instead.
+  const baselineContentType = (probeResponseA.headers['content-type'] ?? '').toLowerCase();
+  const baselineShape = analyzeBodyShape(probeResponseA.bodyText);
+  const pathIsApiLike =
+    /^\/api(\/|$)/i.test(pathTemplate) ||
+    /\/auth\/v1(\/|$)/i.test(pathTemplate) ||
+    /\/rest\/v1(\/|$)/i.test(pathTemplate) ||
+    /\/rpc\//i.test(pathTemplate) ||
+    /supabase\.co/i.test(parsedUrl.hostname);
+  if (
+    !pathIsApiLike &&
+    (baselineShape.shapeKind === 'html' || baselineContentType.includes('text/html'))
+  ) {
+    return {
+      contractVersion: DETECTION_CONTRACT_VERSION,
+      kind: 'auth_bypass_detection_result',
+      detectionId: request.detectionId,
+      scanId: request.scanId,
+      assessmentId: request.assessmentId,
+      authorizationGrantId: request.authorizationGrantId,
+      authorizationDecisionId: request.authorizationDecisionId,
+      actorId: request.actorId,
+      status: 'secure_target_abstained',
+      reasonCode: 'spa_html_shell_not_auth_boundary',
       lineage,
       endpointUrl: request.endpointUrl,
       bypassMechanism,

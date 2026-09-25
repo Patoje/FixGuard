@@ -466,6 +466,48 @@ function buildDraftSignals(
 const AUTH_SURFACE_PATH_HINT_RE =
   /^\/(login|signin|sign-in|auth|authenticate|api\/auth|api\/login|session|oauth)(\/|$)/i;
 
+/** Paths that are typically Next.js public HTML shells — not auth boundaries. */
+const SPA_HTML_SHELL_PATH_HINT_RE =
+  /^\/(login|signin|sign-in|signup|register|arcade|perfil|profile|dashboard|home)?\/?$/i;
+
+function classifyProfileAuthSurface(
+  path: string,
+  endpointUrl: string
+): 'spa_html_shell' | 'api_or_protected' | 'supabase_boundary' {
+  let host = '';
+  let pathname = path;
+  try {
+    const u = new URL(endpointUrl);
+    host = u.hostname.toLowerCase();
+    pathname = u.pathname || path;
+  } catch {
+    host = '';
+  }
+  if (
+    host.includes('supabase.co') ||
+    /\/auth\/v1(\/|$)/i.test(pathname) ||
+    /\/rest\/v1(\/|$)/i.test(pathname) ||
+    /\/rpc\//i.test(pathname)
+  ) {
+    return 'supabase_boundary';
+  }
+  if (
+    /^\/api(\/|$)/i.test(pathname) ||
+    /\/(graphql|gql)(\/|$)/i.test(pathname) ||
+    /\.json(\?|$)/i.test(pathname)
+  ) {
+    return 'api_or_protected';
+  }
+  if (
+    SPA_HTML_SHELL_PATH_HINT_RE.test(pathname) ||
+    (/^\/(login|signin|sign-in|auth|authenticate|session|oauth)(\/|$)/i.test(pathname) &&
+      !/^\/api\//i.test(pathname))
+  ) {
+    return 'spa_html_shell';
+  }
+  return 'api_or_protected';
+}
+
 function buildSurfaceHintsFromProfile(
   profile: TargetProfile | undefined
 ): readonly AttackPlanSurfaceHint[] {
@@ -474,19 +516,28 @@ function buildSurfaceHintsFromProfile(
   const seen = new Set<string>();
   for (const ep of profile.endpoints ?? []) {
     const path = typeof ep.path === 'string' ? ep.path : '/';
-    if (!AUTH_SURFACE_PATH_HINT_RE.test(path) && !/login|signin|auth|session|oauth/i.test(path)) {
-      continue;
-    }
     const endpointUrl =
       typeof ep.url === 'string' && ep.url.length > 0
         ? ep.url
         : `https://${profile.targetHost}${path.startsWith('/') ? path : `/${path}`}`;
+
+    const looksAuth =
+      AUTH_SURFACE_PATH_HINT_RE.test(path) ||
+      /login|signin|auth|session|oauth|rest\/v1|supabase/i.test(path) ||
+      /supabase\.co/i.test(endpointUrl);
+    if (!looksAuth) continue;
+
+    const resourceClass = classifyProfileAuthSurface(path, endpointUrl);
+    // Do not flood Attack Mode with SPA HTML shell auth_bypass noise.
+    if (resourceClass === 'spa_html_shell') continue;
+
     if (seen.has(endpointUrl)) continue;
     seen.add(endpointUrl);
     hints.push({
       endpointUrl,
       path,
       signalKind: 'auth_surface',
+      resourceClass,
     });
   }
   return hints;
@@ -4643,10 +4694,22 @@ export class OrchestratedAssessmentApplicationService {
           for (const candidate of candidateEndpoints.slice(0, 5)) {
             if (coordinator.isCircuitOpen(record.targetDomain)) break;
             try {
+              const abPathKey = (() => {
+                try {
+                  return (
+                    new URL(candidate.endpointUrl).pathname.replace(/[^a-zA-Z0-9]/g, '').slice(0, 16) ||
+                    'root'
+                  );
+                } catch {
+                  return 'root';
+                }
+              })();
               const authBypassResult = await runAuthBypassDetection({
                 contractVersion: DETECTION_CONTRACT_VERSION,
                 kind: 'auth_bypass_detection_request',
-                detectionId: `det_ab_${record.assessmentId.slice(-8)}_${candidate.resourceParamName.replace(/[^a-zA-Z0-9]/g, '')}`,
+                // Must include endpoint path — resourceParamName alone collides across candidates
+                // (same "id" on /api/a and /api/b) and produced Duplicate planId on save.
+                detectionId: `det_ab_${record.assessmentId.slice(-8)}_${abPathKey}_${candidate.resourceParamName.replace(/[^a-zA-Z0-9]/g, '')}`,
                 assessmentId: lineage.assessmentId,
                 scanId: lineage.scanId,
                 authorizationGrantId: lineage.authorizationGrantId,

@@ -50,6 +50,17 @@ export class InMemoryAttackPlanRepository implements AttackPlanRepository {
   }
 
   async savePlans(plans: readonly AttackPlan[]): Promise<readonly AttackPlan[]> {
+    // Atomic batch preflight: reject intra-batch duplicates before any write.
+    const seen = new Set<string>();
+    for (const plan of plans) {
+      if (seen.has(plan.planId)) {
+        throw new PersistenceConflictError(`Duplicate planId: ${plan.planId}`, plan.planId);
+      }
+      seen.add(plan.planId);
+      if (this.plans.has(plan.planId)) {
+        throw new PersistenceConflictError(`Duplicate planId: ${plan.planId}`, plan.planId);
+      }
+    }
     const saved: AttackPlan[] = [];
     for (const plan of plans) {
       saved.push(await this.savePlan(plan));
