@@ -12,9 +12,14 @@
 import type { AggregatedReconObservations } from '../recon/orchestration/ActiveReconOrchestrationContracts.js';
 import { TechnologyFingerprintService } from '../recon/analysis/TechnologyFingerprintService.js';
 import type { DetectedTechnology, TechEcosystemProfile } from '../core/TechnologyContracts.js';
+import {
+  classifySupabaseUrl,
+  isSupabaseHost,
+} from '../supabase/SupabaseSurfaceContracts.js';
 
 export const DETECTION_TARGET_BRIDGE_MAX_PRIMARY = 8;
 export const DETECTION_TARGET_BRIDGE_MAX_IDOR = 5;
+export const DETECTION_TARGET_BRIDGE_MAX_SUPABASE = 6;
 
 const REJECTED_MEDIA_EXTENSIONS = Object.freeze([
   '.png',
@@ -60,6 +65,19 @@ export interface DetectionIdorCandidate {
   readonly source: 'parameter_observation' | 'rest_path' | 'observed_endpoint_query_probe';
 }
 
+/**
+ * OBSERVED Supabase / PostgREST Data API candidates (may be cross-origin vs targetDomain).
+ * Scope/egress gates still apply at probe time — bridge only surfaces candidates.
+ */
+export interface DetectionSupabaseRestCandidate {
+  readonly restBaseUrl: string;
+  readonly authBaseUrl: string;
+  readonly projectRef?: string;
+  readonly tableName?: string;
+  readonly sourceUrl: string;
+  readonly epistemicStatus: 'OBSERVED';
+}
+
 export interface DetectionSuppressionRecord {
   readonly detectorKind: string;
   readonly reasonCode: string;
@@ -72,6 +90,7 @@ export interface DetectionTargetBridgeInput {
   readonly aggregatedObservations: AggregatedReconObservations;
   readonly maxPrimaryProbeUrls?: number;
   readonly maxIdorCandidates?: number;
+  readonly maxSupabaseCandidates?: number;
 }
 
 export interface DetectionTargetBridgeResult {
@@ -82,6 +101,7 @@ export interface DetectionTargetBridgeResult {
   /** App endpoints preferred for heavy surface probes (CORS, headers, reflection, …). */
   readonly primaryProbeUrls: readonly string[];
   readonly idorCandidates: readonly DetectionIdorCandidate[];
+  readonly supabaseRestCandidates: readonly DetectionSupabaseRestCandidate[];
   readonly suppressions: readonly DetectionSuppressionRecord[];
   readonly phpSessionFixationGate: PhpSessionFixationTechGate;
 }
@@ -387,6 +407,80 @@ function collectStaticBundles(aggregated: AggregatedReconObservations): string[]
   return Array.from(out).sort();
 }
 
+/**
+ * Collect OBSERVED *.supabase.co /rest/v1 candidates even when host ≠ targetDomain.
+ * Does not invent project refs — only URLs present in recon observations.
+ */
+export function buildSupabaseRestCandidatesFromRecon(
+  aggregated: AggregatedReconObservations,
+  maxCandidates: number = DETECTION_TARGET_BRIDGE_MAX_SUPABASE
+): DetectionSupabaseRestCandidate[] {
+  const byRestBase = new Map<string, DetectionSupabaseRestCandidate>();
+  const seedTablesByBase = new Map<string, Set<string>>();
+
+  const ingest = (rawUrl: string): void => {
+    const classified = classifySupabaseUrl(rawUrl);
+    if (!classified.isSupabase || !classified.restBaseUrl || !classified.authBaseUrl) {
+      return;
+    }
+    let parsedHost = '';
+    try {
+      parsedHost = new URL(rawUrl).hostname;
+    } catch {
+      return;
+    }
+    if (!isSupabaseHost(parsedHost)) return;
+
+    const existing = byRestBase.get(classified.restBaseUrl);
+    if (!existing) {
+      byRestBase.set(classified.restBaseUrl, {
+        restBaseUrl: classified.restBaseUrl,
+        authBaseUrl: classified.authBaseUrl,
+        ...(classified.projectRef ? { projectRef: classified.projectRef } : {}),
+        ...(classified.tableName ? { tableName: classified.tableName } : {}),
+        sourceUrl: rawUrl.split('?')[0] ?? rawUrl,
+        epistemicStatus: 'OBSERVED',
+      });
+    } else if (!existing.tableName && classified.tableName) {
+      byRestBase.set(classified.restBaseUrl, {
+        ...existing,
+        tableName: classified.tableName,
+      });
+    }
+
+    if (classified.tableName) {
+      const set = seedTablesByBase.get(classified.restBaseUrl) ?? new Set<string>();
+      set.add(classified.tableName);
+      seedTablesByBase.set(classified.restBaseUrl, set);
+    }
+  };
+
+  for (const u of aggregated.urls) {
+    ingest(u.url);
+  }
+  for (const w of aggregated.webObservations) {
+    ingest(w.url);
+  }
+  for (const c of aggregated.content) {
+    if (typeof c.url === 'string') ingest(c.url);
+  }
+  // Body text may reference supabase hosts inside JS snippets stored as content.
+  for (const w of aggregated.webObservations) {
+    const body = typeof w.bodyText === 'string' ? w.bodyText : '';
+    const matches = body.match(/https?:\/\/[a-z0-9-]+\.supabase\.co\/[^\s"'`<>]+/gi);
+    if (matches) {
+      for (const m of matches.slice(0, 20)) {
+        ingest(m);
+      }
+    }
+  }
+
+  const candidates = Array.from(byRestBase.values()).sort((a, b) =>
+    a.restBaseUrl.localeCompare(b.restBaseUrl)
+  );
+  return candidates.slice(0, maxCandidates);
+}
+
 function buildIdorCandidates(
   aggregated: AggregatedReconObservations,
   appEndpoints: readonly DetectionAppEndpointTarget[],
@@ -462,6 +556,7 @@ export function buildDetectionTargetsFromRecon(
 ): DetectionTargetBridgeResult {
   const maxPrimary = input.maxPrimaryProbeUrls ?? DETECTION_TARGET_BRIDGE_MAX_PRIMARY;
   const maxIdor = input.maxIdorCandidates ?? DETECTION_TARGET_BRIDGE_MAX_IDOR;
+  const maxSupabase = input.maxSupabaseCandidates ?? DETECTION_TARGET_BRIDGE_MAX_SUPABASE;
   const suppressions: DetectionSuppressionRecord[] = [];
 
   const { technologies, ecosystemProfile } = fingerprintFromObservations(
@@ -503,6 +598,11 @@ export function buildDetectionTargetsFromRecon(
     suppressions
   );
 
+  const supabaseRestCandidates = buildSupabaseRestCandidatesFromRecon(
+    input.aggregatedObservations,
+    maxSupabase
+  );
+
   const phpSessionFixationGate = evaluatePhpSessionFixationTechGate(
     ecosystemProfile,
     technologies
@@ -522,6 +622,7 @@ export function buildDetectionTargetsFromRecon(
     staticBundleUrls,
     primaryProbeUrls,
     idorCandidates,
+    supabaseRestCandidates,
     suppressions,
     phpSessionFixationGate,
   };

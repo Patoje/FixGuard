@@ -130,6 +130,44 @@ function buildAutoFinding(
       };
     }
 
+    case 'supabase_rls_abuse': {
+      const tableName = ctx.supabaseTableName ?? 'unknown_table';
+      const anonEquals = ctx.supabaseAnonEqualsAuth === true;
+      return {
+        id: `fnd_sbrls_${suffix}`,
+        type: 'BROKEN_ACCESS_CONTROL',
+        severity: 'high',
+        title: `Supabase RLS world-readable table '${tableName}'`,
+        description: `OBSERVED anon Data API GET returned HTTP ${ctx.baselineStatusCode ?? 200} JSON on '${tableName}'${
+          anonEquals
+            ? ' with authenticated response matching anon (no RLS read boundary).'
+            : ' (anon role can SELECT).'
+        }`,
+        target,
+        evidence: baseEvidence,
+        confidence: anonEquals ? 0.95 : 0.88,
+        verificationState: 'suspected_vulnerability',
+        metadata: {
+          kind: 'supabase_rls_abuse_metadata',
+          category: 'BROKEN_ACCESS_CONTROL',
+          claimKind: 'SUPABASE_RLS_WORLD_READABLE',
+          tableName,
+          tableUrl: target,
+          anonStatusCode: ctx.baselineStatusCode ?? 200,
+          authenticatedStatusCode: ctx.validationStatusCode,
+          anonBodyHash: ctx.baselineBodyHash ?? '',
+          authenticatedBodyHash: ctx.validationBodyHash,
+          topLevelJsonKeys: ctx.supabaseTopLevelJsonKeys ?? [],
+          rowCountHint: ctx.supabaseRowCountHint,
+          anonEqualsAuth: anonEquals,
+          observedAt: evaluatedAt,
+          candidateId: `cnd_${draftId}`,
+          evidenceRecordId: `evd_${draftId}`,
+          lineage,
+        },
+      };
+    }
+
     case 'cors_misconfiguration':
     case 'credentialed_cors': {
       const credentialed =

@@ -611,6 +611,37 @@ export class TechnologyFingerprintService {
     // -------------------------------------------------------------------------
     // 5. Synthesize TechEcosystemProfile
     // -------------------------------------------------------------------------
+    const urlLower = url.toLowerCase();
+    const bodyLower = bodyText.toLowerCase();
+    const hasSupabaseHost =
+      urlLower.includes('supabase.co') ||
+      bodyLower.includes('supabase.co') ||
+      bodyLower.includes('@supabase/') ||
+      bodyLower.includes('supabase-js');
+    const hasPostgrestSignal =
+      urlLower.includes('/rest/v1') ||
+      bodyLower.includes('/rest/v1') ||
+      bodyLower.includes('postgrest');
+
+    if (hasSupabaseHost) {
+      addTech({
+        name: 'Supabase',
+        category: 'framework',
+        confidence: 'high',
+        detectionSignal: 'supabase.co / @supabase client observation',
+      });
+    }
+    if (hasPostgrestSignal || hasSupabaseHost) {
+      addTech({
+        name: 'PostgREST',
+        category: 'framework',
+        confidence: hasPostgrestSignal ? 'medium' : 'low',
+        detectionSignal: hasPostgrestSignal
+          ? '/rest/v1 or postgrest observation'
+          : 'inferred from Supabase host',
+      });
+    }
+
     const techArray = Array.from(detectedMap.values()).sort((a, b) => a.name.localeCompare(b.name));
 
     const spaFramework = this.deriveSpaFramework(techArray);
@@ -645,6 +676,8 @@ export class TechnologyFingerprintService {
       hasGraphQL,
       hasPhpLegacy,
       hasExposedSourcemaps,
+      hasSupabase: hasSupabaseHost || hasPostgrestSignal,
+      hasPostgrest: hasPostgrestSignal || hasSupabaseHost,
     };
 
     return {

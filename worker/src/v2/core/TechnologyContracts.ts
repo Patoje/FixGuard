@@ -33,6 +33,8 @@ export interface TechEcosystemProfile {
   readonly hasGraphQL: boolean;
   readonly hasPhpLegacy: boolean;
   readonly hasExposedSourcemaps: boolean;
+  readonly hasSupabase: boolean;
+  readonly hasPostgrest: boolean;
 }
 
 export interface TechnologyFingerprintInput {

@@ -337,6 +337,7 @@ export function parseStartOrchestratedAssessmentBody(
   sessionIdentities?: ByotSessionIdentityBundle;
   seedUrls?: readonly string[];
   seedPaths?: readonly string[];
+  relatedAllowedHosts?: readonly string[];
 } {
   if (!body || typeof body !== 'object' || Array.isArray(body)) {
     throw new ApiValidationError('Request body must be a non-empty object');
@@ -350,6 +351,7 @@ export function parseStartOrchestratedAssessmentBody(
     'sessionIdentities',
     'seedUrls',
     'seedPaths',
+    'relatedAllowedHosts',
   ] as const;
   for (const k of Object.keys(record)) {
     if (!allowedKeys.includes(k as typeof allowedKeys[number])) {
@@ -365,7 +367,15 @@ export function parseStartOrchestratedAssessmentBody(
     );
   }
 
-  const { targetDomain, actorId, config, sessionIdentities, seedUrls, seedPaths } = record;
+  const {
+    targetDomain,
+    actorId,
+    config,
+    sessionIdentities,
+    seedUrls,
+    seedPaths,
+    relatedAllowedHosts,
+  } = record;
   if (typeof targetDomain !== 'string' || targetDomain.trim().length === 0) {
     throw new ApiValidationError('Field targetDomain must be a non-empty string');
   }
@@ -385,6 +395,20 @@ export function parseStartOrchestratedAssessmentBody(
 
   const parsedSeedUrls = parseOptionalStringArray(seedUrls, 'seedUrls');
   const parsedSeedPaths = parseOptionalStringArray(seedPaths, 'seedPaths');
+  const parsedRelatedHosts = parseOptionalStringArray(
+    relatedAllowedHosts,
+    'relatedAllowedHosts'
+  );
+  if (parsedRelatedHosts) {
+    for (const host of parsedRelatedHosts) {
+      const cleaned = host.toLowerCase().replace(/^https?:\/\//, '').replace(/\/.*$/, '');
+      if (!/^[a-z0-9.-]+$/i.test(cleaned) || cleaned.includes('..')) {
+        throw new ApiValidationError(
+          `Field relatedAllowedHosts entry '${host}' is not a valid hostname`
+        );
+      }
+    }
+  }
 
   return {
     targetDomain: targetDomain.trim(),
@@ -393,6 +417,15 @@ export function parseStartOrchestratedAssessmentBody(
     ...(parsedSessionIdentities ? { sessionIdentities: parsedSessionIdentities } : {}),
     ...(parsedSeedUrls ? { seedUrls: parsedSeedUrls } : {}),
     ...(parsedSeedPaths ? { seedPaths: parsedSeedPaths } : {}),
+    ...(parsedRelatedHosts
+      ? {
+          relatedAllowedHosts: Object.freeze(
+            parsedRelatedHosts.map((h) =>
+              h.toLowerCase().replace(/^https?:\/\//, '').replace(/\/.*$/, '')
+            )
+          ),
+        }
+      : {}),
   };
 }
 

@@ -201,6 +201,25 @@ export interface GraphQLSurfaceMetadata {
   readonly lineage?: string | Record<string, unknown>;
 }
 
+export interface SupabaseRlsAbuseMetadata {
+  readonly kind: 'supabase_rls_abuse_metadata';
+  readonly category: 'BROKEN_ACCESS_CONTROL';
+  readonly claimKind: 'SUPABASE_RLS_WORLD_READABLE';
+  readonly tableName: string;
+  readonly tableUrl: string;
+  readonly anonStatusCode: number;
+  readonly authenticatedStatusCode?: number;
+  readonly anonBodyHash: string;
+  readonly authenticatedBodyHash?: string;
+  readonly topLevelJsonKeys: readonly string[];
+  readonly rowCountHint?: number;
+  readonly anonEqualsAuth: boolean;
+  readonly observedAt: string;
+  readonly candidateId?: string;
+  readonly evidenceRecordId?: string;
+  readonly lineage?: string | Record<string, unknown>;
+}
+
 export interface JwtAlgorithmConfusionMetadata {
   readonly kind: 'jwt_algorithm_confusion_metadata';
   readonly category: 'BROKEN_AUTHENTICATION';
@@ -509,6 +528,7 @@ export type FindingMetadata =
   | WordPressSurfaceMetadata
   | SqlErrorOracleMetadata
   | GraphQLSurfaceMetadata
+  | SupabaseRlsAbuseMetadata
   | JwtAlgorithmConfusionMetadata
   | SessionFixationMetadata
   | CredentialedCorsMetadata

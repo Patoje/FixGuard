@@ -64,6 +64,11 @@ export interface StartOrchestratedAssessmentCommand {
   readonly seedUrls?: readonly string[];
   /** Relative paths combined with targetDomain into absolute HTTPS URLs. */
   readonly seedPaths?: readonly string[];
+  /**
+   * Operator-explicit related API hosts (e.g. *.supabase.co) sealed into the grant.
+   * Human authorization of those hosts — never auto-inferred into scope.
+   */
+  readonly relatedAllowedHosts?: readonly string[];
 }
 
 export interface StartOrchestratedAssessmentResult {
@@ -111,6 +116,7 @@ export interface DifferentialEvidenceContext {
     | 'wordpress_surface'
     | 'sql_error_oracle'
     | 'graphql_surface'
+    | 'supabase_rls_abuse'
     | 'jwt_algorithm_confusion'
     | 'session_fixation'
     | 'credentialed_cors'
@@ -182,6 +188,11 @@ export interface DifferentialEvidenceContext {
   readonly fieldSuggestionsEnabled?: boolean;
   readonly discoveredRootTypes?: readonly string[];
   readonly suggestionLeak?: string;
+  readonly supabaseTableName?: string;
+  readonly supabaseClaimKind?: 'SUPABASE_RLS_WORLD_READABLE';
+  readonly supabaseAnonEqualsAuth?: boolean;
+  readonly supabaseTopLevelJsonKeys?: readonly string[];
+  readonly supabaseRowCountHint?: number;
   readonly originalAlgorithm?: string;
   readonly manipulatedAlgorithm?: 'none' | 'None' | 'NONE';
   readonly jwtProbeMechanism?: 'signature_stripping' | 'alg_none_header';

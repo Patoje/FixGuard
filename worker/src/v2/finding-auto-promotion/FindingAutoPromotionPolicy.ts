@@ -56,6 +56,7 @@ const AUTO_PROMOTE_ELIGIBLE: ReadonlySet<DetectionKind> = new Set([
   'weak_tls_configuration',
   'dependency_vulnerability',
   'dependency_confusion',
+  'supabase_rls_abuse',
 ]);
 
 /**
@@ -101,6 +102,7 @@ const ATTACK_PLAN_DRAFT_ELIGIBLE: ReadonlySet<DetectionKind> = new Set([
   'parameter_integrity',
   'http_method_manipulation',
   'cors_idor_compound',
+  'supabase_rls_abuse',
 ]);
 
 function hasAccessDifferential(ctx: DifferentialEvidenceContext): boolean {
@@ -303,6 +305,51 @@ function evaluateSignalGate(
         };
       }
       return null;
+
+    case 'supabase_rls_abuse': {
+      // Hard gates: anon 200 + JSON evidence, not HTML; table name required.
+      if (!ctx.endpointUrl || !ctx.supabaseTableName) {
+        return {
+          decision: 'keep_as_draft',
+          reasonCode: 'supabase_rls_context_incomplete',
+          rationale: 'Supabase RLS draft missing table/endpoint context',
+        };
+      }
+      if (ctx.supabaseClaimKind !== 'SUPABASE_RLS_WORLD_READABLE') {
+        return {
+          decision: 'keep_as_draft',
+          reasonCode: 'supabase_rls_claim_not_world_readable',
+          rationale: 'Only SUPABASE_RLS_WORLD_READABLE is auto-promote eligible in this slice',
+        };
+      }
+      if (ctx.baselineStatusCode !== 200) {
+        return {
+          decision: 'keep_as_draft',
+          reasonCode: 'supabase_rls_anon_not_200',
+          rationale: 'Anon Data API status must be OBSERVED 200 for auto-promote',
+        };
+      }
+      if (!ctx.baselineBodyHash || ctx.baselineBodyHash.length === 0) {
+        return {
+          decision: 'keep_as_draft',
+          reasonCode: 'supabase_rls_body_hash_missing',
+          rationale: 'Missing anon body hash for world-readable signal',
+        };
+      }
+      // HTML shells must never promote (SPA noise).
+      if (
+        typeof ctx.disclosureKind === 'string' ||
+        (typeof ctx.sanitizedSnippet === 'string' &&
+          /<!doctype html|<html/i.test(ctx.sanitizedSnippet))
+      ) {
+        return {
+          decision: 'drop_as_noise',
+          reasonCode: 'supabase_rls_html_not_data_api',
+          rationale: 'HTML body is not a PostgREST Data API signal',
+        };
+      }
+      return null;
+    }
 
     case 'parameter_integrity':
       if (ctx.boundaryEnforced === true) {

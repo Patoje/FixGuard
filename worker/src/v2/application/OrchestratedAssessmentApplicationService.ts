@@ -85,6 +85,15 @@ import { runWordPressSurfaceDetection } from '../detection/WordPressSurfaceDetec
 import { runSqlErrorOracleDetection } from '../detection/SqlErrorOracleDetectionService.js';
 import { runGraphQLSurfaceDetection } from '../detection/GraphQLSurfaceDetectionService.js';
 import { runJwtAlgorithmConfusionDetection } from '../detection/JwtAlgorithmConfusionDetectionService.js';
+import { runPostgrestOpenApiEnum } from '../supabase/PostgrestOpenApiEnumService.js';
+import { POSTGREST_OPENAPI_ENUM_CONTRACT_VERSION } from '../supabase/PostgrestOpenApiEnumContracts.js';
+import { runSupabaseRlsAbuseDetection } from '../supabase/SupabaseRlsAbuseDetectionService.js';
+import { SUPABASE_RLS_ABUSE_DETECTION_CONTRACT_VERSION } from '../supabase/SupabaseRlsAbuseDetectionContracts.js';
+import { looksLikeSupabaseAnonKey } from '../supabase/SupabaseCredentialMaterialContracts.js';
+import {
+  classifySupabaseUrl,
+  isSupabaseHost,
+} from '../supabase/SupabaseSurfaceContracts.js';
 import { runSessionFixationDetection } from '../detection/SessionFixationDetectionService.js';
 import { runCredentialedCorsDetection } from '../detection/CredentialedCorsDetectionService.js';
 import { runCmsPluginVulnerabilityDetection } from '../detection/CmsPluginVulnerabilityDetectionService.js';
@@ -297,6 +306,30 @@ export function buildAnonymousProbeContext(identityId: string = 'anonymous_probe
   });
 }
 
+/**
+ * Extract OBSERVED Supabase anon key from BYOT injectHeaders (apikey).
+ * Never logged; returned raw only for in-process Data API probes.
+ */
+export function extractSupabaseAnonKeyFromSession(
+  sessionIdentities: ByotSessionIdentityBundle | undefined
+): string | undefined {
+  if (!sessionIdentities) return undefined;
+  const identities = [sessionIdentities.identityA, sessionIdentities.identityB].filter(
+    (x): x is ByotIdentity => x !== undefined
+  );
+  for (const identity of identities) {
+    if (!identity.injectHeaders) continue;
+    for (const [k, v] of Object.entries(identity.injectHeaders)) {
+      if (k.toLowerCase() !== 'apikey') continue;
+      const trimmed = v.trim();
+      if (looksLikeSupabaseAnonKey(trimmed)) return trimmed;
+      // Some tests use shorter fixtures; accept non-empty apikey ≥ 20 chars.
+      if (trimmed.length >= 20 && trimmed.length <= 4096) return trimmed;
+    }
+  }
+  return undefined;
+}
+
 import type {
   DifferentialEvidenceContext,
   EnrichedEvidenceDraft,
@@ -401,6 +434,8 @@ function deriveOperatorStackHints(
     hasSpa: has(/react|vue|angular|nuxt|next|spa/),
     hasNextJs: has(/next\.?js|nextjs/),
     hasVercel: has(/vercel/),
+    hasSupabase: has(/supabase/),
+    hasPostgrest: has(/postgrest|supabase/),
     hasPhpLegacy: has(/\bphp\b|wordpress|joomla|drupal|laravel/),
     hasCms: has(/wordpress|joomla|drupal/),
     spaFramework: has(/next/) ? 'nextjs' : has(/nuxt/) ? 'nuxtjs' : has(/react/) ? 'react' : undefined,
@@ -1346,6 +1381,11 @@ export class OrchestratedAssessmentApplicationService {
         ? command.actorId
         : 'usr_secops_api';
 
+    const relatedHosts = (command.relatedAllowedHosts ?? [])
+      .map((h) => h.trim().toLowerCase().replace(/^https?:\/\//, '').replace(/\/.*$/, ''))
+      .filter((h) => h.length > 0 && /^[a-z0-9.-]+$/i.test(h) && !h.includes('..'));
+    const relatedOrigins = relatedHosts.flatMap((h) => [`https://${h}`, `http://${h}`]);
+
     const scopeGrant: AuthorizedScopeGrant = {
       contractVersion: 'fixguard-authorized-scope-policy/v0',
       kind: 'authorized_scope_grant',
@@ -1360,7 +1400,11 @@ export class OrchestratedAssessmentApplicationService {
       authorizationBasis: {
         basisKind: 'internal_asset_record',
         recordedBy: 'human_user',
-        authorizationText: `Authorized orchestrated assessment for ${cleanedDomain}`,
+        authorizationText: `Authorized orchestrated assessment for ${cleanedDomain}${
+          relatedHosts.length > 0
+            ? ` with operator-explicit related hosts: ${relatedHosts.join(', ')}`
+            : ''
+        }`,
       },
       permissionSet: {
         passiveRecon: true,
@@ -1376,9 +1420,13 @@ export class OrchestratedAssessmentApplicationService {
       },
 
       boundaries: {
-        allowedDomains: [cleanedDomain],
-        allowedHosts: [cleanedDomain, ...resolvedIps],
-        allowedOrigins: [`https://${cleanedDomain}`, `http://${cleanedDomain}`],
+        allowedDomains: [cleanedDomain, ...relatedHosts],
+        allowedHosts: [cleanedDomain, ...resolvedIps, ...relatedHosts],
+        allowedOrigins: [
+          `https://${cleanedDomain}`,
+          `http://${cleanedDomain}`,
+          ...relatedOrigins,
+        ],
         allowedMethods: ['GET', 'HEAD', 'OPTIONS'],
       },
       constraints: {
@@ -4817,6 +4865,135 @@ export class OrchestratedAssessmentApplicationService {
           : [targetUrl];
       const findings: Finding[] = [];
       let pendingEvidenceDrafts: EnrichedEvidenceDraft[] = [];
+
+      // Supabase / PostgREST RLS thin slice — once per assessment when candidates + OBSERVED anon key.
+      const supabaseAnonKey = extractSupabaseAnonKeyFromSession(sessionIdentities);
+      const supabaseCandidates = [...detectionBridge.supabaseRestCandidates];
+      // Operator-explicit related hosts in the sealed grant (e.g. project.supabase.co).
+      for (const host of scopeGrant.boundaries.allowedHosts ?? []) {
+        if (!isSupabaseHost(host)) continue;
+        const restBaseUrl = `https://${host}/rest/v1`;
+        if (supabaseCandidates.some((c) => c.restBaseUrl === restBaseUrl)) continue;
+        const classified = classifySupabaseUrl(restBaseUrl);
+        supabaseCandidates.push({
+          restBaseUrl,
+          authBaseUrl: `https://${host}/auth/v1`,
+          ...(classified.projectRef ? { projectRef: classified.projectRef } : {}),
+          sourceUrl: restBaseUrl,
+          epistemicStatus: 'OBSERVED',
+        });
+      }
+      if (
+        supabaseCandidates.length > 0 &&
+        supabaseAnonKey &&
+        !coordinator.isCircuitOpen(record.targetDomain)
+      ) {
+        for (const sbCandidate of supabaseCandidates.slice(0, 3)) {
+          try {
+            const seedTables = [
+              ...(sbCandidate.tableName ? [sbCandidate.tableName] : []),
+            ];
+            const enumResult = await runPostgrestOpenApiEnum({
+              contractVersion: POSTGREST_OPENAPI_ENUM_CONTRACT_VERSION,
+              kind: 'postgrest_openapi_enum_request',
+              enumId: `enum_pg_${record.assessmentId.slice(-8)}_${(sbCandidate.projectRef ?? 'sb').slice(0, 8)}`,
+              assessmentId: lineage.assessmentId,
+              scanId: lineage.scanId,
+              authorizationGrantId: lineage.authorizationGrantId,
+              authorizationDecisionId: lineage.authorizationDecisionId,
+              actorId: lineage.actorId,
+              verifiedAuthorizationDecision: verifiedDecision,
+              scopeGrant,
+              restBaseUrl: sbCandidate.restBaseUrl,
+              anonApiKey: supabaseAnonKey,
+              seedTableNames: seedTables.length > 0 ? seedTables : ['profiles'],
+              transport: this.httpTransport,
+              dnsResolver: this.dnsResolver,
+            });
+
+            const tableNames = enumResult.relations
+              .filter((r) => r.relationKind === 'table' || r.relationKind === 'view')
+              .map((r) => r.name)
+              .slice(0, 12);
+
+            if (tableNames.length === 0) {
+              continue;
+            }
+
+            const rlsResult = await runSupabaseRlsAbuseDetection({
+              contractVersion: SUPABASE_RLS_ABUSE_DETECTION_CONTRACT_VERSION,
+              kind: 'supabase_rls_abuse_detection_request',
+              detectionId: `det_sbrls_${record.assessmentId.slice(-8)}_${tableNames[0]!.slice(0, 8)}`,
+              assessmentId: lineage.assessmentId,
+              scanId: lineage.scanId,
+              authorizationGrantId: lineage.authorizationGrantId,
+              authorizationDecisionId: lineage.authorizationDecisionId,
+              actorId: lineage.actorId,
+              verifiedAuthorizationDecision: verifiedDecision,
+              scopeGrant,
+              restBaseUrl: sbCandidate.restBaseUrl,
+              anonApiKey: supabaseAnonKey,
+              tableNames,
+              authenticatedContext: identityAContext,
+              transport: this.httpTransport,
+              dnsResolver: this.dnsResolver,
+            });
+
+            if (rlsResult.status === 'pending_human_review' && rlsResult.evidenceDraft) {
+              const primaryObs = rlsResult.observations[0];
+              if (primaryObs) {
+                const enrichedDraft: EnrichedEvidenceDraft = {
+                  ...rlsResult.evidenceDraft,
+                  differentialContext: {
+                    endpointUrl: primaryObs.tableUrl,
+                    detectionKind: 'supabase_rls_abuse',
+                    baselineStatusCode: primaryObs.anonStatusCode,
+                    baselineBodyHash: primaryObs.anonBodyHash,
+                    validationStatusCode: primaryObs.authenticatedStatusCode,
+                    validationBodyHash: primaryObs.authenticatedBodyHash,
+                    supabaseTableName: primaryObs.tableName,
+                    supabaseClaimKind: primaryObs.claimKind,
+                    supabaseAnonEqualsAuth: primaryObs.anonEqualsAuth,
+                    supabaseTopLevelJsonKeys: primaryObs.topLevelJsonKeys,
+                    ...(primaryObs.rowCountHint !== null
+                      ? { supabaseRowCountHint: primaryObs.rowCountHint }
+                      : {}),
+                  },
+                };
+                pendingEvidenceDrafts.push(enrichedDraft);
+
+                // Additional OBSERVED tables as separate drafts (capped).
+                for (const obs of rlsResult.observations.slice(1, 5)) {
+                  pendingEvidenceDrafts.push({
+                    ...rlsResult.evidenceDraft,
+                    draftId: `${rlsResult.evidenceDraft.draftId}_${obs.tableName}`.slice(0, 64),
+                    safeRationale: `OBSERVED Supabase Data API table '${obs.tableName}' world-readable via anon role`,
+                    differentialContext: {
+                      endpointUrl: obs.tableUrl,
+                      detectionKind: 'supabase_rls_abuse',
+                      baselineStatusCode: obs.anonStatusCode,
+                      baselineBodyHash: obs.anonBodyHash,
+                      validationStatusCode: obs.authenticatedStatusCode,
+                      validationBodyHash: obs.authenticatedBodyHash,
+                      supabaseTableName: obs.tableName,
+                      supabaseClaimKind: obs.claimKind,
+                      supabaseAnonEqualsAuth: obs.anonEqualsAuth,
+                      supabaseTopLevelJsonKeys: obs.topLevelJsonKeys,
+                      ...(obs.rowCountHint !== null
+                        ? { supabaseRowCountHint: obs.rowCountHint }
+                        : {}),
+                    },
+                  });
+                }
+              }
+            } else if (rlsResult.status === 'vulnerability_detected' && rlsResult.finding) {
+              findings.push(rlsResult.finding);
+            }
+          } catch {
+            // Safe error containment
+          }
+        }
+      }
 
       for (const probeUrl of surfaceProbeUrls) {
         if (coordinator.isCircuitOpen(record.targetDomain)) break;

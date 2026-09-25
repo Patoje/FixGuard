@@ -33,7 +33,10 @@ export type AsgNodeKind =
   | 'parameter'
   | 'identity'
   | 'session'
-  | 'vulnerability';
+  | 'vulnerability'
+  | 'data_api_table'
+  | 'data_api_rpc'
+  | 'auth_boundary';
 
 export type AsgEdgeKind =
   | 'resolves_to'
@@ -46,7 +49,10 @@ export type AsgEdgeKind =
   | 'authenticated_by'
   | 'observed_as_accessible_by'
   | 'reachable_from'
-  | 'enables_attack';
+  | 'enables_attack'
+  | 'exposes_rest'
+  | 'readable_as'
+  | 'writable_as';
 
 export type AsgProvenanceSourceKind =
   | 'target_profile'
@@ -178,6 +184,32 @@ export interface VulnerabilityNode extends AsgNodeBase {
   };
 }
 
+export interface DataApiTableNode extends AsgNodeBase {
+  readonly kind: 'data_api_table';
+  readonly metadata: {
+    readonly tableName: string;
+    readonly restBaseUrl: string;
+    readonly projectRef?: string;
+  };
+}
+
+export interface DataApiRpcNode extends AsgNodeBase {
+  readonly kind: 'data_api_rpc';
+  readonly metadata: {
+    readonly rpcName: string;
+    readonly restBaseUrl: string;
+    readonly projectRef?: string;
+  };
+}
+
+export interface AuthBoundaryNode extends AsgNodeBase {
+  readonly kind: 'auth_boundary';
+  readonly metadata: {
+    readonly boundaryUrl: string;
+    readonly boundaryKind: 'supabase_auth' | 'api' | 'unknown';
+  };
+}
+
 export type AsgNode =
   | DomainNode
   | SubdomainNode
@@ -189,7 +221,10 @@ export type AsgNode =
   | ParameterNode
   | IdentityNode
   | SessionNode
-  | VulnerabilityNode;
+  | VulnerabilityNode
+  | DataApiTableNode
+  | DataApiRpcNode
+  | AuthBoundaryNode;
 
 export interface AsgEdge {
   readonly id: string;

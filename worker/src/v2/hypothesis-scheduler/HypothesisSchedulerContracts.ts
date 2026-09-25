@@ -53,6 +53,8 @@ export interface HypothesisSchedulerStackHints {
   readonly hasSpa?: boolean;
   readonly hasVercel?: boolean;
   readonly hasNextJs?: boolean;
+  readonly hasSupabase?: boolean;
+  readonly hasPostgrest?: boolean;
   readonly technologyNames?: readonly string[];
 }
 
