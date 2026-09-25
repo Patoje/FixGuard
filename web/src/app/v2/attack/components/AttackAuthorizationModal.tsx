@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { X, ShieldAlert, Ban } from "lucide-react";
+import { X, ShieldAlert } from "lucide-react";
 import type {
   AttackPlan,
   AuthorizableBlastRadiusClass,
@@ -11,6 +11,7 @@ import {
   AUTHORIZABLE_BLAST_RADIUS_CLASSES,
   suggestBlastRadiusForCapability,
 } from "@/lib/v2AttackApi";
+import { BLAST_RADIUS_LABELS } from "@/lib/v2/blastRadiusLabels";
 
 interface AttackAuthorizationModalProps {
   readonly plan: AttackPlan;
@@ -20,17 +21,40 @@ interface AttackAuthorizationModalProps {
   readonly onDecline: () => void;
 }
 
-const NON_CLAIMS: readonly string[] = [
-  "Plans are advisory until a separate human authorization seals a runtime brand.",
-  "Authorization does not execute network probes.",
-  "No severity (Critical/High) is assigned by this modal.",
-  "Raw secrets are never accepted or displayed.",
-  "Persistence and destructive blast-radius classes are permanently prohibited.",
-];
+function hostFromPlan(plan: AttackPlan): string {
+  if (!plan.targetUrl) return "(sin URL de destino)";
+  try {
+    return new URL(plan.targetUrl).hostname;
+  } catch {
+    return plan.targetUrl;
+  }
+}
+
+function whatWillHappen(plan: AttackPlan): string {
+  const first = plan.steps[0];
+  if (first?.description) {
+    return first.description.length > 220
+      ? `${first.description.slice(0, 217)}…`
+      : first.description;
+  }
+  if (plan.reasoning) {
+    return plan.reasoning.length > 220
+      ? `${plan.reasoning.slice(0, 217)}…`
+      : plan.reasoning;
+  }
+  return `Se autorizará el plan «${plan.title}» para ejecución humana posterior.`;
+}
+
+function isWriteCapability(plan: AttackPlan): boolean {
+  return (
+    plan.capability.includes("write") ||
+    plan.capability === "supabase_authz_write_matrix" ||
+    plan.capability === "supabase_rls_write_probe"
+  );
+}
 
 export function AttackAuthorizationModal({
   plan,
-  operatorId,
   isSubmitting,
   onAuthorize,
   onDecline,
@@ -38,6 +62,9 @@ export function AttackAuthorizationModal({
   const suggested = suggestBlastRadiusForCapability(plan.capability);
   const [blastRadiusClass, setBlastRadiusClass] =
     useState<AuthorizableBlastRadiusClass>(suggested);
+  const writeRisk =
+    isWriteCapability(plan) || BLAST_RADIUS_LABELS[blastRadiusClass].writeRisk;
+  const host = hostFromPlan(plan);
 
   return (
     <div
@@ -46,7 +73,7 @@ export function AttackAuthorizationModal({
       aria-modal="true"
       aria-labelledby="auth-modal-title"
     >
-      <div className="w-full max-w-lg rounded-xl border border-zinc-800 bg-zinc-950 shadow-2xl">
+      <div className="w-full max-w-md rounded-xl border border-zinc-800 bg-zinc-950 shadow-2xl">
         <header className="flex items-start justify-between gap-3 border-b border-zinc-900 px-4 py-3">
           <div className="flex items-start gap-2">
             <div className="mt-0.5 flex h-8 w-8 items-center justify-center rounded-lg border border-amber-500/30 bg-amber-500/10 text-amber-400">
@@ -54,9 +81,9 @@ export function AttackAuthorizationModal({
             </div>
             <div>
               <h2 id="auth-modal-title" className="text-sm font-semibold text-white">
-                Authorize Attack Plan
+                Autorizar ataque
               </h2>
-              <p className="text-[11px] text-zinc-500 font-mono">{plan.planId}</p>
+              <p className="text-[11px] text-zinc-400 mt-0.5">{plan.title}</p>
             </div>
           </div>
           <button
@@ -64,88 +91,92 @@ export function AttackAuthorizationModal({
             onClick={onDecline}
             disabled={isSubmitting}
             className="rounded p-1 text-zinc-500 hover:text-zinc-200"
-            aria-label="Close"
+            aria-label="Cerrar"
           >
             <X className="h-4 w-4" />
           </button>
         </header>
 
-        <div className="max-h-[70vh] overflow-y-auto space-y-4 px-4 py-4 text-xs">
-          <div className="grid grid-cols-2 gap-2 font-mono text-[11px]">
-            <div className="rounded border border-zinc-800 bg-zinc-900/50 p-2">
-              <div className="text-zinc-500">Target</div>
-              <div className="text-zinc-200 truncate">{plan.targetUrl ?? "(none)"}</div>
-            </div>
-            <div className="rounded border border-zinc-800 bg-zinc-900/50 p-2">
-              <div className="text-zinc-500">Plan scope</div>
-              <div className="text-zinc-200">{plan.blastRadius}</div>
-            </div>
-            <div className="rounded border border-zinc-800 bg-zinc-900/50 p-2">
-              <div className="text-zinc-500">Capability</div>
-              <div className="text-zinc-200">{plan.capability}</div>
-            </div>
-            <div className="rounded border border-zinc-800 bg-zinc-900/50 p-2">
-              <div className="text-zinc-500">Operator</div>
-              <div className="text-zinc-200 truncate">{operatorId}</div>
-            </div>
-          </div>
-
+        <div className="space-y-4 px-4 py-4 text-xs">
           <div>
-            <h3 className="mb-1.5 text-[11px] font-mono uppercase tracking-wider text-zinc-500">
-              Steps ({plan.steps.length})
+            <h3 className="mb-1 text-[11px] font-medium text-zinc-500">
+              Qué va a pasar
             </h3>
-            <ol className="space-y-1.5">
-              {plan.steps.map((step) => (
-                <li
-                  key={step.stepId}
-                  className="rounded border border-zinc-800 bg-zinc-900/40 px-2.5 py-1.5"
-                >
-                  <div className="font-medium text-zinc-200">
-                    {step.ordinal}. {step.title}
-                  </div>
-                  <p className="text-[11px] text-zinc-500 mt-0.5">{step.description}</p>
-                </li>
-              ))}
-            </ol>
-          </div>
-
-          <label className="block space-y-1.5">
-            <span className="text-[11px] font-mono uppercase tracking-wider text-zinc-500">
-              Authorization blast-radius class
-            </span>
-            <select
-              value={blastRadiusClass}
-              onChange={(e) =>
-                setBlastRadiusClass(e.target.value as AuthorizableBlastRadiusClass)
-              }
-              disabled={isSubmitting}
-              className="w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-xs font-mono text-zinc-100 focus:outline-none focus:border-emerald-500/50"
-            >
-              {AUTHORIZABLE_BLAST_RADIUS_CLASSES.map((c) => (
-                <option key={c} value={c}>
-                  {c}
-                  {c === suggested ? " (suggested)" : ""}
-                </option>
-              ))}
-            </select>
-            <p className="text-[10px] text-zinc-600">
-              Seals a server-side WeakSet brand for this class. Brand is not transferable via JSON.
+            <p className="text-sm text-zinc-200 leading-relaxed">
+              {whatWillHappen(plan)}
             </p>
-          </label>
-
-          <div className="rounded-lg border border-zinc-800 bg-zinc-900/30 p-3">
-            <h3 className="mb-2 flex items-center gap-1.5 text-[11px] font-mono uppercase tracking-wider text-zinc-500">
-              <Ban className="h-3 w-3" /> Explicit non-claims
-            </h3>
-            <ul className="space-y-1 text-[11px] text-zinc-400">
-              {NON_CLAIMS.map((claim) => (
-                <li key={claim} className="flex gap-1.5">
-                  <span className="text-zinc-600">·</span>
-                  <span>{claim}</span>
-                </li>
-              ))}
-            </ul>
           </div>
+
+          <div className="flex flex-wrap gap-x-4 gap-y-1 text-[11px]">
+            <div>
+              <span className="text-zinc-500">Destino: </span>
+              <span className="font-mono text-zinc-200">{host}</span>
+            </div>
+            <div>
+              <span className="text-zinc-500">Riesgo: </span>
+              <span
+                className={
+                  writeRisk ? "text-rose-300 font-medium" : "text-emerald-300"
+                }
+              >
+                {writeRisk ? "Puede escribir / modificar" : "Solo lectura"}
+              </span>
+            </div>
+          </div>
+
+          {plan.steps.length > 1 && (
+            <p className="text-[11px] text-zinc-500">
+              {plan.steps.length} pasos planificados · sin ejecutar hasta que
+              confirmes y lances.
+            </p>
+          )}
+
+          <fieldset className="space-y-2">
+            <legend className="text-[11px] font-medium text-zinc-500 mb-1.5">
+              Alcance autorizado
+            </legend>
+            <div className="space-y-1.5 max-h-48 overflow-y-auto pr-1">
+              {AUTHORIZABLE_BLAST_RADIUS_CLASSES.map((c) => {
+                const meta = BLAST_RADIUS_LABELS[c];
+                const id = `blast-${c}`;
+                return (
+                  <label
+                    key={c}
+                    htmlFor={id}
+                    className={`flex cursor-pointer gap-2.5 rounded-lg border px-2.5 py-2 transition ${
+                      blastRadiusClass === c
+                        ? "border-emerald-500/40 bg-emerald-500/5"
+                        : "border-zinc-800 bg-zinc-900/40 hover:border-zinc-700"
+                    }`}
+                  >
+                    <input
+                      id={id}
+                      type="radio"
+                      name="blast-radius"
+                      value={c}
+                      checked={blastRadiusClass === c}
+                      onChange={() => setBlastRadiusClass(c)}
+                      disabled={isSubmitting}
+                      className="mt-0.5 shrink-0"
+                    />
+                    <span className="min-w-0">
+                      <span className="block text-[12px] text-zinc-100 font-medium">
+                        {meta.label}
+                        {c === suggested ? (
+                          <span className="ml-1.5 text-[10px] font-normal text-emerald-400">
+                            sugerido
+                          </span>
+                        ) : null}
+                      </span>
+                      <span className="block text-[10px] text-zinc-500 mt-0.5">
+                        {meta.hint}
+                      </span>
+                    </span>
+                  </label>
+                );
+              })}
+            </div>
+          </fieldset>
         </div>
 
         <footer className="flex items-center justify-end gap-2 border-t border-zinc-900 px-4 py-3">
@@ -153,17 +184,17 @@ export function AttackAuthorizationModal({
             type="button"
             onClick={onDecline}
             disabled={isSubmitting}
-            className="rounded-lg border border-zinc-700 bg-zinc-900 px-4 py-2 text-xs font-mono font-semibold text-zinc-300 hover:bg-zinc-800 disabled:opacity-40"
+            className="rounded-lg border border-zinc-700 bg-zinc-900 px-4 py-2 text-xs font-semibold text-zinc-300 hover:bg-zinc-800 disabled:opacity-40"
           >
-            DECLINE
+            Rechazar
           </button>
           <button
             type="button"
             onClick={() => onAuthorize(blastRadiusClass)}
             disabled={isSubmitting}
-            className="rounded-lg border border-emerald-500/50 bg-emerald-500/15 px-4 py-2 text-xs font-mono font-semibold text-emerald-400 hover:bg-emerald-500/25 disabled:opacity-40"
+            className="rounded-lg border border-emerald-500/50 bg-emerald-500/15 px-4 py-2 text-xs font-semibold text-emerald-400 hover:bg-emerald-500/25 disabled:opacity-40"
           >
-            {isSubmitting ? "AUTHORIZING…" : "AUTHORIZE"}
+            {isSubmitting ? "Autorizando…" : "Autorizar"}
           </button>
         </footer>
       </div>

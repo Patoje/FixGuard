@@ -1,17 +1,33 @@
 "use client";
 
-import type { AttackChain } from "@/lib/v2AttackApi";
+import type { AttackChain, AttackChainStepOutcome, ImpactLevel } from "@/lib/v2AttackApi";
 import { EpistemicBadge, epistemicBorderClass } from "./EpistemicBadge";
 
 interface AttackChainViewerProps {
   readonly chains: readonly AttackChain[];
 }
 
+const OUTCOME_ES: Record<AttackChainStepOutcome, string> = {
+  succeeded: "succeeded",
+  refuted: "refuted",
+  failed: "falló",
+};
+
+const IMPACT_ES: Partial<Record<ImpactLevel, string>> = {
+  information_exposure: "exposición de información",
+  authentication_bypass: "bypass de auth",
+  authorization_bypass: "bypass de autorización",
+  data_access: "acceso a datos",
+  privilege_escalation: "escalada de privilegios",
+  lateral_movement: "movimiento lateral",
+  rce_demonstrated: "RCE demostrado",
+};
+
 export function AttackChainViewer({ chains }: AttackChainViewerProps) {
   if (chains.length === 0) {
     return (
       <div className="rounded-lg border border-zinc-800 bg-zinc-950/60 p-4 text-xs text-zinc-500">
-        No attack chains recorded.
+        Todavía no hay cadenas. Aparecen cuando un plan autorizado se ejecuta y deja evidencia.
       </div>
     );
   }
@@ -23,23 +39,14 @@ export function AttackChainViewer({ chains }: AttackChainViewerProps) {
           key={chain.chainId}
           className={`rounded-lg border-2 p-3 ${epistemicBorderClass(chain.overallEpistemicStatus)}`}
         >
-          <div className="flex flex-wrap items-start justify-between gap-2 mb-2">
-            <div className="min-w-0 space-y-1">
-              <div className="flex flex-wrap items-center gap-2">
-                <EpistemicBadge status={chain.overallEpistemicStatus} />
-                <span className="text-[10px] font-mono text-zinc-500">{chain.status}</span>
-                <span className="text-[10px] font-mono text-zinc-600">{chain.objectiveKind}</span>
-              </div>
-              <p className="text-xs text-zinc-200">{chain.hypothesis}</p>
-              <p className="text-[10px] font-mono text-zinc-500">
-                impactLevel: <span className="text-zinc-300">{chain.impactLevel}</span>
-                <span className="text-zinc-700 mx-1">·</span>
-                declared: <span className="text-zinc-400">{chain.declaredImpactLevel}</span>
-                <span className="text-zinc-700 mx-1">·</span>
-                <EpistemicBadge status={chain.overallEpistemicStatus} />
-              </p>
+          <div className="min-w-0 space-y-1 mb-2">
+            <div className="flex flex-wrap items-center gap-2">
+              <EpistemicBadge status={chain.overallEpistemicStatus} />
+              <span className="text-[11px] text-zinc-400">
+                {IMPACT_ES[chain.impactLevel] ?? chain.impactLevel}
+              </span>
             </div>
-            <span className="text-[10px] font-mono text-zinc-600 shrink-0">{chain.chainId}</span>
+            <p className="text-xs text-zinc-200 leading-relaxed">{chain.hypothesis}</p>
           </div>
 
           <ol className="space-y-2 border-t border-zinc-900/80 pt-2">
@@ -51,10 +58,10 @@ export function AttackChainViewer({ chains }: AttackChainViewerProps) {
                 }`}
               >
                 <div className="flex flex-wrap items-center gap-2 mb-1">
-                  <span className="text-[10px] font-mono text-zinc-500">#{step.sequence}</span>
+                  <span className="text-[10px] text-zinc-500">Paso {step.sequence}</span>
                   <EpistemicBadge status={step.epistemicStatus} />
                   <span
-                    className={`rounded border px-1.5 py-0.5 text-[10px] font-mono ${
+                    className={`rounded border px-1.5 py-0.5 text-[10px] ${
                       step.outcome === "succeeded"
                         ? "border-emerald-500/30 text-emerald-400"
                         : step.outcome === "refuted"
@@ -62,15 +69,10 @@ export function AttackChainViewer({ chains }: AttackChainViewerProps) {
                           : "border-zinc-700 text-zinc-400"
                     }`}
                   >
-                    {step.outcome}
+                    {OUTCOME_ES[step.outcome] ?? step.outcome}
                   </span>
-                  <span className="text-[10px] font-mono text-zinc-500">{step.capabilityKind}</span>
                 </div>
                 <p className="text-[11px] text-zinc-400">{step.evidence.safeMessage}</p>
-                <p className="text-[10px] font-mono text-zinc-600 mt-0.5">
-                  {step.evidence.reasonCode}
-                  {step.evidence.evidenceId ? ` · ${step.evidence.evidenceId}` : ""}
-                </p>
               </li>
             ))}
           </ol>

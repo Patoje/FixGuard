@@ -8,10 +8,8 @@ import {
   ArrowLeft,
   RefreshCw,
   AlertCircle,
-  Layers,
-  Shield,
-  Activity,
-  Zap,
+  ChevronDown,
+  ChevronRight,
 } from "lucide-react";
 import {
   v2AttackApi,
@@ -42,13 +40,7 @@ import { ImpactAssessmentView } from "./components/ImpactAssessmentView";
 import { AttackRecommendationCards } from "./components/AttackRecommendationCards";
 import type { OperatorAttackRecommendation } from "@/lib/v2AttackApi";
 
-type WorkbenchTab =
-  | "recommend"
-  | "plans"
-  | "execution"
-  | "chains"
-  | "post_exploit"
-  | "impact";
+type ResultsPanel = "chains" | "impact" | "post_exploit" | null;
 
 const LATERAL_MECHANISMS: ReadonlySet<string> = new Set([
   "credential_reuse",
@@ -73,7 +65,7 @@ function AttackModeContent() {
   const assessmentIdFromQuery = searchParams.get("assessmentId") || "";
 
   const [assessmentId, setAssessmentId] = useState(assessmentIdFromQuery);
-  const [operatorId, setOperatorId] = useState("usr_secops_lead");
+  const [operatorId] = useState("usr_secops_lead");
   const [targetDomain, setTargetDomain] = useState("");
   const [lineage, setLineage] = useState<LineageTuple | null>(null);
 
@@ -114,8 +106,10 @@ function AttackModeContent() {
     useState<ActiveInvestigationSnapshotDto | null>(null);
   const [investigationBusy, setInvestigationBusy] = useState(false);
   const [authorizeThenExecute, setAuthorizeThenExecute] = useState(false);
+  const [showTechDetails, setShowTechDetails] = useState(false);
+  const [resultsPanel, setResultsPanel] = useState<ResultsPanel>("chains");
+  const [showMorePlans, setShowMorePlans] = useState(false);
 
-  const [tab, setTab] = useState<WorkbenchTab>("recommend");
   const [isLoading, setIsLoading] = useState(false);
   const [busyPlanId, setBusyPlanId] = useState<string | null>(null);
   const [isAuthorizing, setIsAuthorizing] = useState(false);
@@ -139,7 +133,7 @@ function AttackModeContent() {
 
   const loadAll = useCallback(async (id: string) => {
     if (!id || !isStrictSafeId(id)) {
-      setError("Assessment ID must match /^[A-Za-z0-9_-]{1,64}$/");
+      setError("Assessment ID inválido");
       return;
     }
 
@@ -197,7 +191,7 @@ function AttackModeContent() {
       if (err instanceof V2ApiError) {
         setError(`[${err.errorType}] ${err.message}${err.reasonCode ? ` (${err.reasonCode})` : ""}`);
       } else {
-        setError(err instanceof Error ? err.message : "Failed to load Attack Mode data");
+        setError(err instanceof Error ? err.message : "Error al cargar Attack Mode");
       }
     } finally {
       setIsLoading(false);
@@ -234,11 +228,11 @@ function AttackModeContent() {
 
   const handleStartInvestigation = async () => {
     if (!assessmentId || !isStrictSafeId(assessmentId)) {
-      setError("Assessment ID must be a strict safe id");
+      setError("Carga un assessment válido primero");
       return;
     }
     if (!isStrictSafeId(operatorId)) {
-      setError("Operator ID must be a strict safe id");
+      setError("Operator ID inválido");
       return;
     }
 
@@ -265,13 +259,13 @@ function AttackModeContent() {
       setInvestigationId(res.snapshot.investigationId);
       setInvestigationSnapshot(res.snapshot);
       setSuccessMsg(
-        `Investigation ${res.snapshot.investigationId} started · budget ${res.snapshot.budget.maxRequests} req`
+        `Investigación iniciada · presupuesto ${res.snapshot.budget.maxRequests} req`
       );
     } catch (err) {
       if (err instanceof V2ApiError) {
         setError(`[${err.errorType}] ${err.message}${err.reasonCode ? ` (${err.reasonCode})` : ""}`);
       } else {
-        setError(err instanceof Error ? err.message : "Failed to start investigation");
+        setError(err instanceof Error ? err.message : "No se pudo iniciar la investigación");
       }
     } finally {
       setInvestigationBusy(false);
@@ -280,15 +274,15 @@ function AttackModeContent() {
 
   const handleCancelInvestigation = async (mode: "cancel" | "kill_switch") => {
     if (!assessmentId || !isStrictSafeId(assessmentId)) {
-      setError("Assessment ID must be a strict safe id");
+      setError("Assessment inválido");
       return;
     }
     if (!investigationId || !isStrictSafeId(investigationId)) {
-      setError("Investigation ID required to cancel");
+      setError("No hay investigación activa");
       return;
     }
     if (!isStrictSafeId(operatorId)) {
-      setError("Operator ID must be a strict safe id");
+      setError("Operator ID inválido");
       return;
     }
 
@@ -301,12 +295,16 @@ function AttackModeContent() {
         mode,
       });
       setInvestigationSnapshot(res.snapshot);
-      setSuccessMsg(`Investigation ${mode === "kill_switch" ? "kill-switch" : "cancel"}: ${res.reasonCode}`);
+      setSuccessMsg(
+        mode === "kill_switch"
+          ? `Parado todo · ${res.reasonCode}`
+          : `Investigación cancelada · ${res.reasonCode}`
+      );
     } catch (err) {
       if (err instanceof V2ApiError) {
         setError(`[${err.errorType}] ${err.message}${err.reasonCode ? ` (${err.reasonCode})` : ""}`);
       } else {
-        setError(err instanceof Error ? err.message : "Failed to cancel investigation");
+        setError(err instanceof Error ? err.message : "No se pudo detener la investigación");
       }
     } finally {
       setInvestigationBusy(false);
@@ -316,7 +314,7 @@ function AttackModeContent() {
   const handleAuthorize = async (blastRadiusClass: BlastRadiusClass) => {
     if (!authModalPlan) return;
     if (!isStrictSafeId(operatorId)) {
-      setError("Operator ID must be a strict safe id");
+      setError("Operator ID inválido");
       return;
     }
 
@@ -333,15 +331,11 @@ function AttackModeContent() {
       );
       setLastAuthMeta(res.token);
       setAuthorizedPlanIds((prev) => new Set([...prev, planToAuth.planId]));
-      setSuccessMsg(
-        `Authorized ${planToAuth.planId} · ${res.token.blastRadiusClass} · level ${res.token.authorizationLevel} (WeakSet brand sealed server-side)`
-      );
+      setSuccessMsg(`Autorizado · ${planToAuth.title}`);
       setAuthModalPlan(null);
       setAuthorizeThenExecute(false);
       if (shouldExecute) {
         await handleExecute(planToAuth);
-      } else {
-        setTab("plans");
       }
     } catch (err) {
       if (err instanceof V2ApiError) {
@@ -356,7 +350,7 @@ function AttackModeContent() {
 
   const handleExecute = async (plan: AttackPlan) => {
     if (!isStrictSafeId(operatorId)) {
-      setError("Operator ID must be a strict safe id");
+      setError("Operator ID inválido");
       return;
     }
 
@@ -364,7 +358,6 @@ function AttackModeContent() {
     setExecutionError(null);
     setError(null);
     setSuccessMsg(null);
-    setTab("execution");
 
     try {
       let extraHosts: string[] | undefined;
@@ -407,7 +400,8 @@ function AttackModeContent() {
         await loadAll(assessmentId);
       }
 
-      setSuccessMsg(`Execution ${res.record.status}: ${res.reasonCode}`);
+      setSuccessMsg(`Ejecución: ${res.record.status}`);
+      setResultsPanel("chains");
     } catch (err) {
       const msg =
         err instanceof V2ApiError
@@ -424,12 +418,12 @@ function AttackModeContent() {
 
   const handleRecommendAuthorizeRun = async (rec: OperatorAttackRecommendation) => {
     if (!rec.planId) {
-      setError("Recommendation has no linked planId — load/generate attack plans first");
+      setError("La recomendación no tiene plan vinculado — carga planes primero");
       return;
     }
     const plan = displayPlans.find((p) => p.planId === rec.planId);
     if (!plan) {
-      setError(`Linked plan ${rec.planId} not found in current assessment`);
+      setError("Plan vinculado no encontrado en este assessment");
       return;
     }
     setSelectedRecRank(rec.rank);
@@ -440,7 +434,7 @@ function AttackModeContent() {
 
   const handlePromote = async (hostname: string) => {
     if (!isStrictSafeId(operatorId)) {
-      setError("Operator ID must be a strict safe id");
+      setError("Operator ID inválido");
       return;
     }
     setLateralBusy(true);
@@ -453,8 +447,8 @@ function AttackModeContent() {
         scopeGrant,
       });
       setLateral(res.snapshot);
-      setSuccessMsg(`Promoted ${hostname} to authorized lateral target`);
-      setTab("post_exploit");
+      setSuccessMsg(`Promovido ${hostname}`);
+      setResultsPanel("post_exploit");
     } catch (err) {
       if (err instanceof V2ApiError) {
         setError(`[${err.errorType}] ${err.message}${err.reasonCode ? ` (${err.reasonCode})` : ""}`);
@@ -472,7 +466,7 @@ function AttackModeContent() {
     readonly mechanism: string;
   }) => {
     if (!isStrictSafeId(operatorId) || !isStrictSafeId(params.credentialRefId)) {
-      setError("Operator ID and credentialRefId must be strict safe ids");
+      setError("IDs inválidos");
       return;
     }
 
@@ -484,7 +478,7 @@ function AttackModeContent() {
       ) ?? displayPlans.find((p) => authorizedPlanIds.has(p.planId) || p.status === "authorized");
 
     if (!reusePlan) {
-      setError("Authorize a credential_reuse (or any) plan first — reuse requires WeakSet brand");
+      setError("Autorizá un plan primero (p. ej. credential_reuse)");
       return;
     }
 
@@ -503,10 +497,8 @@ function AttackModeContent() {
         scopeGrant,
       });
       setLateral(res.snapshot);
-      setSuccessMsg(
-        `Credential reuse ${res.status} · networkDispatched=${res.networkDispatched}`
-      );
-      setTab("post_exploit");
+      setSuccessMsg(`Credential reuse: ${res.status}`);
+      setResultsPanel("post_exploit");
     } catch (err) {
       if (err instanceof V2ApiError) {
         setError(`[${err.errorType}] ${err.message}${err.reasonCode ? ` (${err.reasonCode})` : ""}`);
@@ -518,24 +510,23 @@ function AttackModeContent() {
     }
   };
 
-  const tabs: { id: WorkbenchTab; label: string }[] = [
-    { id: "recommend", label: "A / B" },
-    { id: "plans", label: "Plans" },
-    { id: "execution", label: "Console" },
-    { id: "chains", label: "Chains" },
-    { id: "post_exploit", label: "Post-Exploit" },
-    { id: "impact", label: "Impact" },
-  ];
+  const triageHref = assessmentId
+    ? `/v2?assessmentId=${encodeURIComponent(assessmentId)}`
+    : "/v2";
+
+  const toggleResults = (panel: ResultsPanel) => {
+    setResultsPanel((prev) => (prev === panel ? null : panel));
+  };
 
   return (
     <div className="min-h-screen bg-black text-zinc-100 font-sans pb-24">
-      <header className="border-b border-zinc-900 bg-zinc-950/70 backdrop-blur-xl sticky top-0 z-40">
+      <header className="border-b border-zinc-900 bg-zinc-950/70 backdrop-blur-xl sticky top-14 z-40">
         <div className="max-w-6xl mx-auto px-6 py-4 flex flex-wrap items-center justify-between gap-4">
           <div className="flex items-center gap-3">
             <Link
-              href="/v2/assessments"
+              href={triageHref}
               className="flex h-9 w-9 items-center justify-center rounded-lg border border-zinc-800 bg-zinc-900 text-zinc-400 hover:text-white hover:border-zinc-700 transition"
-              title="Back to orchestrated assessments"
+              title="Volver al wizard / Triage"
             >
               <ArrowLeft className="h-4 w-4" />
             </Link>
@@ -543,134 +534,128 @@ function AttackModeContent() {
               <Crosshair className="h-5 w-5" />
             </div>
             <div>
-              <div className="flex items-center gap-2">
-                <h1 className="text-base font-bold tracking-tight text-white">
-                  FixGuard V2 — Attack Mode
-                </h1>
-                <span className="rounded bg-orange-500/10 border border-orange-500/30 px-2 py-0.5 text-[10px] font-mono font-semibold text-orange-400">
-                  A13
-                </span>
-              </div>
+              <h1 className="text-base font-bold tracking-tight text-white">
+                Attack Mode
+              </h1>
               <p className="text-xs text-zinc-400">
-                Graduated authorization · epistemic triage · zero secrets in UI
+                Autorización humana · evidencia real · sin secretos en UI
               </p>
             </div>
           </div>
 
-          <div className="flex items-center gap-2 text-xs font-mono">
-            <Link
-              href="/v2/review"
-              className="rounded-lg border border-zinc-800 bg-zinc-900/60 hover:bg-zinc-900 px-3 py-1.5 text-zinc-400 hover:text-zinc-200 transition"
-            >
-              Evidence review
-            </Link>
-            <Link
-              href="/v2"
-              className="rounded-lg border border-zinc-800 bg-zinc-900/60 hover:bg-zinc-900 px-3 py-1.5 text-zinc-400 hover:text-zinc-200 transition"
-            >
-              MVP board
-            </Link>
-          </div>
+          <Link
+            href={triageHref}
+            className="rounded-lg border border-zinc-800 bg-zinc-900/60 hover:bg-zinc-900 px-3 py-1.5 text-xs text-zinc-400 hover:text-zinc-200 transition"
+          >
+            Triage
+          </Link>
         </div>
       </header>
 
       <main className="max-w-6xl mx-auto px-6 mt-6 space-y-5">
-        {/* Operator controls */}
+        {/* Simplified header */}
         <section className="rounded-xl border border-zinc-900 bg-zinc-950/80 p-4 space-y-3">
-          <div className="grid gap-3 sm:grid-cols-3">
-            <label className="block space-y-1">
-              <span className="text-[10px] font-mono uppercase text-zinc-500">Assessment ID</span>
-              <input
-                value={assessmentId}
-                onChange={(e) => setAssessmentId(e.target.value.trim())}
-                placeholder="asmt_orch_…"
-                className="w-full rounded-lg border border-zinc-800 bg-zinc-900 px-3 py-2 text-xs font-mono text-zinc-100 focus:outline-none focus:border-emerald-500/40"
-              />
-            </label>
-            <label className="block space-y-1">
-              <span className="text-[10px] font-mono uppercase text-zinc-500">Operator ID</span>
-              <input
-                value={operatorId}
-                onChange={(e) => setOperatorId(e.target.value.trim())}
-                className="w-full rounded-lg border border-zinc-800 bg-zinc-900 px-3 py-2 text-xs font-mono text-zinc-100 focus:outline-none focus:border-emerald-500/40"
-              />
-            </label>
-            <label className="block space-y-1">
-              <span className="text-[10px] font-mono uppercase text-zinc-500">Target domain</span>
+          <div className="flex flex-wrap items-end gap-3">
+            <label className="block space-y-1 flex-1 min-w-[200px]">
+              <span className="text-[10px] font-medium uppercase tracking-wider text-zinc-500">
+                Target domain
+              </span>
               <input
                 value={targetDomain}
                 onChange={(e) => setTargetDomain(e.target.value.trim())}
                 placeholder="example.com"
-                className="w-full rounded-lg border border-zinc-800 bg-zinc-900 px-3 py-2 text-xs font-mono text-zinc-100 focus:outline-none focus:border-emerald-500/40"
+                className="w-full rounded-lg border border-zinc-800 bg-zinc-900 px-3 py-2.5 text-sm font-mono text-zinc-100 focus:outline-none focus:border-emerald-500/40"
               />
             </label>
-          </div>
-          <div className="grid gap-3 sm:grid-cols-3">
-            <label className="block space-y-1 sm:col-span-1">
-              <span className="text-[10px] font-mono uppercase text-zinc-500">
-                Investigation ID (optional)
-              </span>
-              <input
-                value={investigationId}
-                onChange={(e) => {
-                  setInvestigationId(e.target.value.trim());
-                  setInvestigationSnapshot(null);
-                }}
-                placeholder="inv_…"
-                className="w-full rounded-lg border border-zinc-800 bg-zinc-900 px-3 py-2 text-xs font-mono text-zinc-100 focus:outline-none focus:border-emerald-500/40"
-              />
-            </label>
-            <div className="sm:col-span-2 flex flex-wrap items-end gap-2">
-              <button
-                type="button"
-                disabled={investigationBusy || isLoading || !assessmentId}
-                onClick={() => void handleStartInvestigation()}
-                className="inline-flex items-center gap-1.5 rounded-lg border border-sky-500/40 bg-sky-500/10 px-3 py-1.5 text-xs font-mono font-semibold text-sky-300 hover:bg-sky-500/20 disabled:opacity-40"
-              >
-                Start investigation
-              </button>
-              <button
-                type="button"
-                disabled={investigationBusy || !investigationId || !isStrictSafeId(investigationId)}
-                onClick={() => void handleCancelInvestigation("cancel")}
-                className="inline-flex items-center gap-1.5 rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-1.5 text-xs font-mono font-semibold text-amber-300 hover:bg-amber-500/20 disabled:opacity-40"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                disabled={investigationBusy || !investigationId || !isStrictSafeId(investigationId)}
-                onClick={() => void handleCancelInvestigation("kill_switch")}
-                className="inline-flex items-center gap-1.5 rounded-lg border border-rose-500/40 bg-rose-500/10 px-3 py-1.5 text-xs font-mono font-semibold text-rose-300 hover:bg-rose-500/20 disabled:opacity-40"
-              >
-                Kill switch
-              </button>
-              {investigationSnapshot && (
-                <span className="text-[10px] font-mono text-zinc-500 self-center">
-                  {investigationSnapshot.status} ·{" "}
-                  {investigationSnapshot.consumption.requestsConsumed}/
-                  {investigationSnapshot.budget.maxRequests} req
-                </span>
-              )}
-            </div>
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
             <button
               type="button"
               disabled={isLoading || !assessmentId}
               onClick={() => void loadAll(assessmentId)}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-3 py-1.5 text-xs font-mono font-semibold text-emerald-400 hover:bg-emerald-500/20 disabled:opacity-40"
+              className="inline-flex items-center gap-1.5 rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2.5 text-xs font-medium text-zinc-300 hover:bg-zinc-800 disabled:opacity-40"
             >
               <RefreshCw className={`h-3.5 w-3.5 ${isLoading ? "animate-spin" : ""}`} />
-              {isLoading ? "Loading…" : "Load / Refresh"}
+              Actualizar
             </button>
-            {lineage && (
-              <span className="text-[10px] font-mono text-zinc-500">
-                grant {lineage.authorizationGrantId} · scan {lineage.scanId} · actor{" "}
-                {lineage.actorId}
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              disabled={investigationBusy || isLoading || !assessmentId}
+              onClick={() => void handleStartInvestigation()}
+              title="Abre una investigación con presupuesto de requests para ejecutar planes autorizados"
+              className="inline-flex items-center gap-1.5 rounded-lg border border-sky-500/40 bg-sky-500/10 px-3 py-1.5 text-xs font-semibold text-sky-300 hover:bg-sky-500/20 disabled:opacity-40"
+            >
+              Iniciar
+            </button>
+            <button
+              type="button"
+              disabled={investigationBusy || !investigationId || !isStrictSafeId(investigationId)}
+              onClick={() => void handleCancelInvestigation("cancel")}
+              title="Cancelar: detiene la investigación de forma ordenada (cancel)"
+              className="inline-flex items-center gap-1.5 rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-1.5 text-xs font-semibold text-amber-300 hover:bg-amber-500/20 disabled:opacity-40"
+            >
+              Cancelar
+            </button>
+            <button
+              type="button"
+              disabled={investigationBusy || !investigationId || !isStrictSafeId(investigationId)}
+              onClick={() => void handleCancelInvestigation("kill_switch")}
+              title="Parar todo: kill switch — corta ejecución y presupuesto de inmediato"
+              className="inline-flex items-center gap-1.5 rounded-lg border border-rose-500/40 bg-rose-500/10 px-3 py-1.5 text-xs font-semibold text-rose-300 hover:bg-rose-500/20 disabled:opacity-40"
+            >
+              Parar todo
+            </button>
+            {investigationSnapshot && (
+              <span className="text-[11px] text-zinc-500 self-center">
+                {investigationSnapshot.status === "running" ? "en curso" : investigationSnapshot.status}
+                {" · "}
+                {investigationSnapshot.consumption.requestsConsumed}/
+                {investigationSnapshot.budget.maxRequests} req
               </span>
             )}
           </div>
+          <p className="text-[10px] text-zinc-600">
+            Iniciar abre presupuesto · Cancelar detiene ordenado · Parar todo = kill switch
+          </p>
+
+          <button
+            type="button"
+            onClick={() => setShowTechDetails((v) => !v)}
+            className="inline-flex items-center gap-1 text-[10px] font-mono text-zinc-600 hover:text-zinc-400"
+          >
+            {showTechDetails ? (
+              <ChevronDown className="h-3 w-3" />
+            ) : (
+              <ChevronRight className="h-3 w-3" />
+            )}
+            Detalles técnicos
+          </button>
+          {showTechDetails && (
+            <div className="rounded-lg border border-zinc-900 bg-black/40 p-3 space-y-2 text-[10px] font-mono text-zinc-500">
+              <div>assessment: {assessmentId || "—"}</div>
+              <div>operator: {operatorId}</div>
+              <div>investigation: {investigationId || "—"}</div>
+              {lineage && (
+                <>
+                  <div>grant: {lineage.authorizationGrantId}</div>
+                  <div>scan: {lineage.scanId}</div>
+                  <div>actor: {lineage.actorId}</div>
+                </>
+              )}
+              {lastAuthMeta && (
+                <div>
+                  last auth: class={lastAuthMeta.blastRadiusClass} · by=
+                  {lastAuthMeta.authorizedBy}
+                </div>
+              )}
+              {selectedPlan && (
+                <div>
+                  plan seleccionado: {selectedPlan.title} ({selectedPlan.steps.length} steps)
+                </div>
+              )}
+            </div>
+          )}
         </section>
 
         {error && (
@@ -680,45 +665,27 @@ function AttackModeContent() {
               <span>{error}</span>
             </div>
             <button type="button" onClick={() => setError(null)} className="text-rose-400 hover:text-rose-200">
-              Dismiss
+              Cerrar
             </button>
           </div>
         )}
 
         {successMsg && (
-          <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-[11px] text-emerald-300 font-mono">
+          <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-[11px] text-emerald-300">
             {successMsg}
           </div>
         )}
 
-        {lastAuthMeta && (
-          <div className="rounded-lg border border-sky-500/30 bg-sky-500/5 px-3 py-2 text-[11px] font-mono text-sky-200/90">
-            Last auth token meta (safe DTO — no brand): plan={lastAuthMeta.planId} · class=
-            {lastAuthMeta.blastRadiusClass} · by={lastAuthMeta.authorizedBy} · at=
-            {lastAuthMeta.authorizedAt}
-          </div>
-        )}
+        {/* Main: suggested attacks + docked console */}
+        <div className="grid gap-4 lg:grid-cols-[1fr_minmax(280px,34%)]">
+          <section className="rounded-xl border border-zinc-900 bg-zinc-950/60 p-4 space-y-4 min-h-[280px]">
+            <div>
+              <h2 className="text-sm font-semibold text-zinc-100">Ataques sugeridos</h2>
+              <p className="text-[11px] text-zinc-500 mt-0.5">
+                Prioridad A/B y planes listos. Autorizá antes de ejecutar — nada corre solo.
+              </p>
+            </div>
 
-        {/* Tabs */}
-        <nav className="flex flex-wrap gap-1.5" aria-label="Attack Mode sections">
-          {tabs.map((t) => (
-            <button
-              key={t.id}
-              type="button"
-              onClick={() => setTab(t.id)}
-              className={`rounded-lg border px-3 py-1.5 text-[11px] font-mono transition ${
-                tab === t.id
-                  ? "border-orange-500/50 bg-orange-500/10 text-orange-300"
-                  : "border-zinc-800 bg-zinc-950 text-zinc-500 hover:border-zinc-700 hover:text-zinc-300"
-              }`}
-            >
-              {t.label}
-            </button>
-          ))}
-        </nav>
-
-        <div className="rounded-xl border border-zinc-900 bg-zinc-950/60 p-4 min-h-[280px]">
-          {tab === "recommend" && (
             <AttackRecommendationCards
               recommendations={recommendations}
               rulesApplied={rulesApplied}
@@ -727,26 +694,85 @@ function AttackModeContent() {
               onSelect={(r) => setSelectedRecRank(r.rank)}
               onAuthorizeRun={(r) => void handleRecommendAuthorizeRun(r)}
             />
-          )}
-          {tab === "plans" && (
-            <AttackPlansList
-              plans={displayPlans}
-              completedPlanIds={completedPlanIds}
-              selectedPlanId={selectedPlanId}
-              busyPlanId={busyPlanId}
-              onSelectPlan={(p) => setSelectedPlanId(p.planId)}
-              onAuthorizeClick={(p) => {
-                setAuthorizeThenExecute(false);
-                setAuthModalPlan(p);
-              }}
-              onExecuteClick={(p) => void handleExecute(p)}
-            />
-          )}
-          {tab === "execution" && (
+
+            <div className="border-t border-zinc-900 pt-3">
+              <button
+                type="button"
+                onClick={() => setShowMorePlans((v) => !v)}
+                className="inline-flex items-center gap-1 text-[11px] font-medium text-zinc-400 hover:text-zinc-200"
+              >
+                {showMorePlans ? (
+                  <ChevronDown className="h-3.5 w-3.5" />
+                ) : (
+                  <ChevronRight className="h-3.5 w-3.5" />
+                )}
+                Todos los planes ({displayPlans.length})
+              </button>
+              {showMorePlans && (
+                <div className="mt-3">
+                  <AttackPlansList
+                    plans={displayPlans}
+                    completedPlanIds={completedPlanIds}
+                    selectedPlanId={selectedPlanId}
+                    busyPlanId={busyPlanId}
+                    onSelectPlan={(p) => setSelectedPlanId(p.planId)}
+                    onAuthorizeClick={(p) => {
+                      setAuthorizeThenExecute(false);
+                      setAuthModalPlan(p);
+                    }}
+                    onExecuteClick={(p) => void handleExecute(p)}
+                  />
+                </div>
+              )}
+            </div>
+          </section>
+
+          <aside className="rounded-xl border border-zinc-900 bg-zinc-950/80 p-3 lg:sticky lg:top-20 lg:self-start space-y-2">
+            <h2 className="text-xs font-semibold text-zinc-300 px-1">Consola</h2>
+            <p className="text-[10px] text-zinc-600 px-1">
+              Salida de ejecución — siempre visible
+            </p>
             <StepExecutionMonitor record={executionRecord} lastError={executionError} />
-          )}
-          {tab === "chains" && <AttackChainViewer chains={chains} />}
-          {tab === "post_exploit" && (
+          </aside>
+        </div>
+
+        {/* Results accordion */}
+        <section className="rounded-xl border border-zinc-900 bg-zinc-950/60 overflow-hidden">
+          <div className="border-b border-zinc-900 px-4 py-2.5">
+            <h2 className="text-sm font-semibold text-zinc-100">Resultados</h2>
+            <p className="text-[11px] text-zinc-500">
+              Cadenas de prueba, impacto y post-explotación — en lenguaje claro
+            </p>
+          </div>
+
+          <ResultsAccordion
+            id="chains"
+            title={`Cadenas (${chains.length})`}
+            subtitle="Secuencia de pasos OBSERVED / VERIFIED / REFUTED contra el objetivo"
+            open={resultsPanel === "chains"}
+            onToggle={() => toggleResults("chains")}
+          >
+            <AttackChainViewer chains={chains} />
+          </ResultsAccordion>
+
+          <ResultsAccordion
+            id="impact"
+            title={`Impacto (${impacts.length})`}
+            subtitle="Qué se probó, resultado y qué implica para el target"
+            open={resultsPanel === "impact"}
+            onToggle={() => toggleResults("impact")}
+          >
+            <ImpactAssessmentView assessments={impacts} />
+          </ResultsAccordion>
+
+          <ResultsAccordion
+            id="post_exploit"
+            title="Post-explotación"
+            subtitle="Alcance lateral y promoción de hosts (solo con autorización)"
+            open={resultsPanel === "post_exploit"}
+            onToggle={() => toggleResults("post_exploit")}
+            last
+          >
             <PostExploitationPanel
               state={postExploit}
               lateral={lateral}
@@ -754,36 +780,8 @@ function AttackModeContent() {
               onPromote={(h) => void handlePromote(h)}
               onCredentialReuse={(p) => void handleCredentialReuse(p)}
             />
-          )}
-          {tab === "impact" && <ImpactAssessmentView assessments={impacts} />}
-        </div>
-
-        {selectedPlan && tab === "plans" && (
-          <aside className="rounded-xl border border-zinc-900 bg-zinc-950/90 p-4 text-[11px] font-mono text-zinc-400">
-            <div className="flex flex-wrap items-center gap-3">
-              <span className="inline-flex items-center gap-1">
-                <Layers className="h-3.5 w-3.5 text-sky-400" />
-                Selected: <strong className="text-zinc-200">{selectedPlan.planId}</strong>
-              </span>
-              <span className="text-zinc-700">|</span>
-              <span>{selectedPlan.steps.length} steps</span>
-              <span className="text-zinc-700">|</span>
-              <span>gained: {selectedPlan.capabilityGained}</span>
-            </div>
-          </aside>
-        )}
-
-        <footer className="flex flex-wrap items-center gap-4 text-[10px] font-mono text-zinc-600 pt-2">
-          <span className="inline-flex items-center gap-1">
-            <Shield className="h-3 w-3" /> Anti-fabrication
-          </span>
-          <span className="inline-flex items-center gap-1">
-            <Zap className="h-3 w-3" /> HITL authorize → execute
-          </span>
-          <span className="inline-flex items-center gap-1">
-            <Activity className="h-3 w-3" /> Epistemic badges required
-          </span>
-        </footer>
+          </ResultsAccordion>
+        </section>
       </main>
 
       {authModalPlan && (
@@ -802,12 +800,50 @@ function AttackModeContent() {
   );
 }
 
+function ResultsAccordion({
+  title,
+  subtitle,
+  open,
+  onToggle,
+  children,
+  last,
+}: {
+  readonly id: string;
+  readonly title: string;
+  readonly subtitle: string;
+  readonly open: boolean;
+  readonly onToggle: () => void;
+  readonly children: React.ReactNode;
+  readonly last?: boolean;
+}) {
+  return (
+    <div className={last ? "" : "border-b border-zinc-900"}>
+      <button
+        type="button"
+        onClick={onToggle}
+        className="flex w-full items-start gap-2 px-4 py-3 text-left hover:bg-zinc-900/40 transition"
+      >
+        {open ? (
+          <ChevronDown className="h-4 w-4 text-zinc-500 mt-0.5 shrink-0" />
+        ) : (
+          <ChevronRight className="h-4 w-4 text-zinc-500 mt-0.5 shrink-0" />
+        )}
+        <span className="min-w-0">
+          <span className="block text-xs font-semibold text-zinc-200">{title}</span>
+          <span className="block text-[10px] text-zinc-500">{subtitle}</span>
+        </span>
+      </button>
+      {open && <div className="px-4 pb-4">{children}</div>}
+    </div>
+  );
+}
+
 export default function AttackModePage() {
   return (
     <Suspense
       fallback={
         <div className="min-h-screen bg-black text-zinc-500 flex items-center justify-center text-sm font-mono">
-          Loading Attack Mode…
+          Cargando Attack Mode…
         </div>
       }
     >

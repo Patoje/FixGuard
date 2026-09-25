@@ -46,7 +46,7 @@ const STAGE_META: Record<
   },
   stage3_triage: {
     label: "Evidence Triage",
-    subtitle: "Approve or reject drafts",
+    subtitle: "Incluir o descartar drafts",
     activeClass:
       "border-amber-500/50 bg-amber-500/10 shadow-lg shadow-amber-500/10",
     badgeClass: "border-amber-500/30 bg-amber-500/20 text-amber-300",
@@ -224,6 +224,20 @@ export default function V2DashboardPage() {
     };
   }, [assessmentId, isPolling, fetchStatus]);
 
+  // When recon finishes, unlock Triage without forcing navigation away from Stage 2
+  useEffect(() => {
+    if (!status) return;
+    if (
+      status.status === "completed" ||
+      status.status === "circuit_broken" ||
+      status.status === "failed" ||
+      status.status === "preflight_denied"
+    ) {
+      setCompletedThrough((prev) => Math.max(prev, 1));
+      setMaxUnlockedIndex((prev) => Math.max(prev, 2));
+    }
+  }, [status]);
+
   const unlockThrough = (stage: Stage) => {
     const idx = stageIndex(stage);
     setMaxUnlockedIndex((prev) => Math.max(prev, idx));
@@ -240,6 +254,7 @@ export default function V2DashboardPage() {
     return stageIndex(stage) <= maxUnlockedIndex;
   };
 
+  /** Stepper only advances the wizard on /v2 — never leaves to Assessments/Attack. */
   const handleStageClick = (stage: Stage) => {
     if (!canNavigateTo(stage)) return;
     setActiveStage(stage);
@@ -303,7 +318,7 @@ export default function V2DashboardPage() {
         )}
 
         <nav
-          className="mb-8 grid grid-cols-2 gap-2 sm:grid-cols-4"
+          className="mb-6 grid grid-cols-2 gap-2 sm:grid-cols-4"
           aria-label="Assessment Pipeline Stages"
         >
           {STAGE_ORDER.map((stage, index) => {
@@ -324,10 +339,11 @@ export default function V2DashboardPage() {
                 onClick={() => handleStageClick(stage)}
                 disabled={isLocked}
                 aria-disabled={isLocked}
+                aria-current={isActive ? "step" : undefined}
                 title={
                   isLocked
-                    ? "Complete the previous stage before continuing"
-                    : meta.label
+                    ? "Completá la etapa anterior para continuar"
+                    : `Ir a ${meta.label} (wizard — no cambia de página)`
                 }
                 className={`flex items-center gap-2.5 rounded-xl border p-3.5 text-left transition-all ${
                   isActive
@@ -360,6 +376,20 @@ export default function V2DashboardPage() {
             );
           })}
         </nav>
+        <p className="mb-8 text-[11px] text-zinc-600">
+          El stepper avanza el wizard aquí. Para Attack Mode usá la pestaña{" "}
+          <Link
+            href={
+              assessmentId
+                ? `/v2/attack?assessmentId=${encodeURIComponent(assessmentId)}`
+                : "/v2/attack"
+            }
+            className="text-zinc-400 underline-offset-2 hover:underline hover:text-zinc-300"
+          >
+            Attack
+          </Link>{" "}
+          arriba — no sale del assessment.
+        </p>
 
         <div className="space-y-6">
           {activeStage === "stage1_launch" && (

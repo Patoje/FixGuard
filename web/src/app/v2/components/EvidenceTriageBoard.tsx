@@ -144,9 +144,9 @@ export function EvidenceTriageBoard({
       setSuccessMessage(
         decision === "approve_evidence"
           ? res.findingCreated
-            ? `Approved — created finding ${res.findingCreated.id}. ${res.remainingDraftCount} left.`
-            : `Approved. ${res.remainingDraftCount} drafts remaining.`
-          : `Rejected. ${res.remainingDraftCount} drafts remaining.`
+            ? `Incluido en hallazgos — finding creado. ${res.remainingDraftCount} restantes.`
+            : `Incluido. ${res.remainingDraftCount} drafts restantes.`
+          : `Ruido descartado. ${res.remainingDraftCount} drafts restantes.`
       );
       await loadDrafts();
     } catch (err) {
@@ -168,9 +168,11 @@ export function EvidenceTriageBoard({
             Evidence Triage
           </h2>
           <p className="mt-1 max-w-xl text-xs text-zinc-400 leading-relaxed">
-            Review pending drafts from detection. Approve useful evidence or
-            reject noise before they become findings or feed Attack Mode. This
-            is not a second scan.
+            Review pending drafts from detection.{" "}
+            <span className="text-zinc-300">Incluir en hallazgos</span> promotes
+            useful evidence;{" "}
+            <span className="text-zinc-300">Descartar ruido</span> drops noise
+            before Attack Mode. This is not a second scan.
           </p>
         </div>
 
@@ -379,7 +381,7 @@ export function EvidenceTriageBoard({
                           ) : (
                             <Check className="h-3.5 w-3.5" />
                           )}
-                          Approve
+                          Incluir en hallazgos
                         </button>
                         <button
                           type="button"
@@ -388,9 +390,10 @@ export function EvidenceTriageBoard({
                           }
                           disabled={reviewing}
                           className="inline-flex items-center gap-1.5 rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-1.5 text-xs font-semibold text-zinc-300 transition hover:bg-zinc-800 disabled:opacity-50"
+                          title="Descartar como ruido — no pasa a hallazgos"
                         >
                           <X className="h-3.5 w-3.5" />
-                          Reject
+                          Descartar ruido
                         </button>
                       </>
                     )}

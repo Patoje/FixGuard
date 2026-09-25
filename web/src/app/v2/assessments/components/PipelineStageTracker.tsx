@@ -65,6 +65,12 @@ const STAGES: StageDefinition[] = [
     name: "Stage 5: Secret Inspection",
     subtitle: "Trufflehog credential & API token scanning",
     icon: Lock
+  },
+  {
+    key: "stage_deep_recon",
+    name: "Stage 6: Deep Recon",
+    subtitle: "SPA / stack-aware probes when signals exist",
+    icon: Search
   }
 ];
 
@@ -172,13 +178,13 @@ export function PipelineStageTracker({
         </div>
       </div>
 
-      {/* Progress Stepper (5 Stages) */}
+      {/* Progress Stepper */}
       <div className="space-y-3">
         <h4 className="text-xs font-mono uppercase tracking-wider text-zinc-400">
           Pipeline Stages
         </h4>
 
-        <div className="grid grid-cols-1 md:grid-cols-5 gap-3">
+        <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-6 gap-3">
           {STAGES.map((stageDef, index) => {
             const stageResult = stageMap.get(stageDef.key);
             const isStageDone = stageResult !== undefined;

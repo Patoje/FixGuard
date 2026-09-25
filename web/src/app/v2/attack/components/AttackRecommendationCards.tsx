@@ -5,7 +5,7 @@ import type { OperatorAttackRecommendation } from "@/lib/v2AttackApi";
 
 interface AttackRecommendationCardsProps {
   readonly recommendations: readonly OperatorAttackRecommendation[];
-  readonly rulesApplied: readonly string[];
+  readonly rulesApplied?: readonly string[];
   readonly selectedRank: "A" | "B" | null;
   readonly busy: boolean;
   readonly onSelect: (rec: OperatorAttackRecommendation) => void;
@@ -89,9 +89,6 @@ function RecCard({
             {rec.disabilityReason}
           </p>
         )}
-        {rec.planId && (
-          <p className="text-[10px] font-mono text-zinc-600">plan: {rec.planId}</p>
-        )}
       </button>
 
       <div className="flex flex-wrap gap-2">
@@ -99,22 +96,22 @@ function RecCard({
           type="button"
           disabled={busy || !rec.executable || !rec.planId}
           onClick={onAuthorizeRun}
-          className="inline-flex items-center gap-1.5 rounded-lg border border-orange-500/40 bg-orange-500/10 px-3 py-1.5 text-[11px] font-mono font-semibold text-orange-300 hover:bg-orange-500/20 disabled:opacity-40"
+          className="inline-flex items-center gap-1.5 rounded-lg border border-orange-500/40 bg-orange-500/10 px-3 py-1.5 text-[11px] font-semibold text-orange-300 hover:bg-orange-500/20 disabled:opacity-40"
           title={
             !rec.planId
-              ? "No linked attack plan — generate/load plans first"
+              ? "Sin plan vinculado — cargá planes primero"
               : !rec.executable
-                ? "Not executable"
-                : "Authorize then run linked plan"
+                ? "No ejecutable"
+                : "Autorizar y ejecutar"
           }
         >
           {rec.executable ? (
             <>
-              <Play className="h-3 w-3" /> Authorize + Run
+              <Play className="h-3 w-3" /> Autorizar y ejecutar
             </>
           ) : (
             <>
-              <Lock className="h-3 w-3" /> Disabled
+              <Lock className="h-3 w-3" /> No disponible
             </>
           )}
         </button>
@@ -125,7 +122,6 @@ function RecCard({
 
 export function AttackRecommendationCards({
   recommendations,
-  rulesApplied,
   selectedRank,
   busy,
   onSelect,
@@ -134,7 +130,7 @@ export function AttackRecommendationCards({
   if (recommendations.length === 0) {
     return (
       <div className="rounded-lg border border-zinc-800 bg-zinc-950/60 p-4 text-xs text-zinc-500">
-        No A/B recommendations yet. Load an assessment with findings or select a plan.
+        Sin sugerencias A/B todavía. Cargá un assessment con hallazgos o abrí «Todos los planes».
       </div>
     );
   }
@@ -144,12 +140,9 @@ export function AttackRecommendationCards({
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap items-center gap-2 text-[11px] font-mono text-zinc-500">
+      <div className="flex flex-wrap items-center gap-2 text-[11px] text-zinc-500">
         <Crosshair className="h-3.5 w-3.5 text-orange-400" />
-        Deterministic A/B · humans authorize · no auto-execute
-        {rulesApplied.length > 0 && (
-          <span className="text-zinc-600">· rules: {rulesApplied.join(", ")}</span>
-        )}
+        Prioridad A / B · vos autorizás · sin auto-ejecutar
       </div>
       <div className="grid gap-3 md:grid-cols-2">
         {a && (

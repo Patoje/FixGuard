@@ -53,15 +53,23 @@ const STAGE_LABELS: Record<string, { name: string; tools: string }> = {
     name: "Secret Inspection",
     tools: "trufflehog",
   },
+  stage_deep_recon: {
+    name: "Deep Recon",
+    tools: "SPA / stack probes",
+  },
 };
 
+/** Ordered pipeline keys used for progress display (includes deep_recon). */
 const PIPELINE_ORDER = [
   "stage_1_domain_zone",
   "stage_2_port_service",
   "stage_3_web_tls",
   "stage_4_crawling_parameters",
   "stage_5_secret_inspection",
+  "stage_deep_recon",
 ] as const;
+
+const PIPELINE_TOTAL = PIPELINE_ORDER.length;
 
 function formatStageLine(stage: StageResultDto): TerminalLine {
   const meta = STAGE_LABELS[stage.stage] ?? {
@@ -242,6 +250,15 @@ export function SessionStatusCard({
   const canContinueToTriage = isReconDone || isFailed;
   const totalObs = status.stages.reduce((n, s) => n + s.observationsCount, 0);
   const showAlive = isRunning && status.alive === true;
+  const pipelineKeys = new Set<string>(PIPELINE_ORDER);
+  const stagesDone = Math.min(
+    status.stages.filter((s) => pipelineKeys.has(s.stage)).length,
+    PIPELINE_TOTAL
+  );
+  const stagesLabel =
+    isReconDone && stagesDone >= PIPELINE_TOTAL
+      ? "Pipeline completo"
+      : `${stagesDone}/${PIPELINE_TOTAL}`;
 
   return (
     <div className="rounded-xl border border-zinc-800 bg-zinc-950/80 p-6 shadow-2xl backdrop-blur-xl space-y-5">
@@ -277,7 +294,7 @@ export function SessionStatusCard({
               </span>
             </div>
             <p className="text-xs text-zinc-400 font-mono mt-0.5">
-              {status.targetDomain} · {status.assessmentId}
+              {status.targetDomain}
               {showAlive && status.lastHeartbeatAt
                 ? ` · hb ${status.lastHeartbeatAt.slice(11, 19)}`
                 : ""}
@@ -313,19 +330,22 @@ export function SessionStatusCard({
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         <div className="rounded-lg border border-zinc-800/80 bg-zinc-900/40 p-3">
           <div className="text-[11px] font-medium text-zinc-400 uppercase tracking-wider">
-            Stages Done
+            Etapas
           </div>
           <div className="mt-1 text-xl font-bold font-mono text-zinc-100">
-            {status.stages.length}/5
+            {stagesLabel}
           </div>
         </div>
         <div className="rounded-lg border border-zinc-800/80 bg-zinc-900/40 p-3">
           <div className="text-[11px] font-medium text-zinc-400 uppercase tracking-wider">
-            Observations
+            Señales / URLs vistas
           </div>
           <div className="mt-1 text-xl font-bold font-mono text-blue-400">
             {totalObs}
           </div>
+          <p className="mt-0.5 text-[10px] text-zinc-600 leading-snug">
+            Respuestas y superficies observadas (no hallazgos)
+          </p>
         </div>
         <div className="rounded-lg border border-zinc-800/80 bg-zinc-900/40 p-3">
           <div className="text-[11px] font-medium text-zinc-400 uppercase tracking-wider">
@@ -402,7 +422,7 @@ export function SessionStatusCard({
               relaunch from Stage 1 with skip-crawl + seed URLs.
             </span>
           ) : (
-            <span>5-stage orchestrated recon in progress…</span>
+            <span>Pipeline de reconocimiento en curso…</span>
           )}
         </div>
         <button
