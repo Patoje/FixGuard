@@ -26,6 +26,12 @@ import {
   selectJsLuiceTargets,
 } from '../adapters/JsLuiceAdapter.js';
 import { runSourcemapSurfaceExtraction } from '../analysis/SourcemapSurfaceExtractionService.js';
+import { defaultHttpProbeTransport } from '../../detection/IdorDifferentialDetectionService.js';
+import {
+  buildSupabaseRestTableUrlSeeds,
+  extractSupabaseTableHintsFromText,
+  isSupabaseHost,
+} from '../../supabase/SupabaseSurfaceContracts.js';
 
 import type {
   ActiveReconOrchestrationRequest,
@@ -1418,6 +1424,80 @@ export class CompositeActiveReconOrchestratorService {
                 stage4Warnings.push(
                   `sourcemap surface error on ${jsUrl}: ${mapErr instanceof Error ? mapErr.message : String(mapErr)}`
                 );
+              }
+            }
+
+            // 3d. JS client table-hint mining (`.from('table')`) → /rest/v1 seeds when Supabase host known.
+            const supabaseRestBases = new Set<string>();
+            for (const u of urls) {
+              try {
+                const host = new URL(u.url).hostname;
+                if (isSupabaseHost(host)) {
+                  supabaseRestBases.add(`https://${host}/rest/v1`);
+                }
+              } catch {
+                // ignore
+              }
+            }
+            for (const h of request.authorizedScopeGrant.boundaries.allowedHosts ?? []) {
+              if (isSupabaseHost(h)) supabaseRestBases.add(`https://${h}/rest/v1`);
+            }
+            if (supabaseRestBases.size > 0) {
+              const tableMineTargets = selectJsLuiceTargets({
+                inventoryUrls: urls,
+                maxTargets: Math.min(8, jsBudget),
+              });
+              const nowIso = new Date().toISOString();
+              for (const jsUrl of tableMineTargets) {
+                try {
+                  const jsHost = new URL(jsUrl).hostname;
+                  await coordinator.execute(jsHost, async () => {
+                    const preflight = await runAdapterPreflight({
+                      target: jsUrl,
+                      targetKind: 'url',
+                      verifiedAuthorizationDecision: request.verifiedAuthorizationDecision,
+                      authorizedScopeGrant: request.authorizedScopeGrant,
+                      lineage: request.lineage,
+                      requiredPermissions: [
+                        'endpointDiscovery',
+                        'activeCrawling',
+                        'passiveRecon',
+                        'technologyFingerprinting',
+                      ],
+                      missingPermissionReason:
+                        'Scope grant does not permit JS table-hint discovery',
+                      dnsResolver: request.dnsResolver,
+                    });
+                    if (!preflight.ok) return;
+                    const probe = await defaultHttpProbeTransport({
+                      url: jsUrl,
+                      method: 'GET',
+                      headers: {
+                        accept: 'application/javascript, text/javascript, */*',
+                        'user-agent': 'Mozilla/5.0 (FixGuard Defensive Auditor)',
+                      },
+                      timeoutMs: request.config?.timeoutMs ?? 10_000,
+                    });
+                    if (probe.statusCode < 200 || probe.statusCode >= 300) return;
+                    const hints = extractSupabaseTableHintsFromText(probe.bodyText, 30);
+                    if (hints.length === 0) return;
+                    for (const restBase of supabaseRestBases) {
+                      const seeds = buildSupabaseRestTableUrlSeeds({
+                        restBaseUrl: restBase,
+                        tableNames: hints,
+                        source: 'js_client_from_hint',
+                        discoveredAt: nowIso,
+                      });
+                      for (const seed of seeds) {
+                        urls.push(seed);
+                      }
+                    }
+                  });
+                } catch (hintErr: unknown) {
+                  stage4Warnings.push(
+                    `js table-hint error on ${jsUrl}: ${hintErr instanceof Error ? hintErr.message : String(hintErr)}`
+                  );
+                }
               }
             }
           }

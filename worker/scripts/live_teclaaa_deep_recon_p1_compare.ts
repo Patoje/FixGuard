@@ -8,7 +8,10 @@ import {
 } from '../src/v2/recon/adapters/JsLuiceAdapter.js';
 import { extractUrlSeedsFromSourcemapJson } from '../src/v2/recon/analysis/SourcemapSurfaceExtractionService.js';
 import type { AuthorizedScopeGrant } from '../src/v2/scope/AuthorizedScopeContracts.js';
-import { classifySupabaseUrl } from '../src/v2/supabase/SupabaseSurfaceContracts.js';
+import {
+  classifySupabaseUrl,
+  extractSupabaseTableHintsFromText,
+} from '../src/v2/supabase/SupabaseSurfaceContracts.js';
 
 const TARGET = 'teclaaa.vercel.app';
 const SUPABASE_FALLBACK = 'vawrzoncszqauzxwqide.supabase.co';
@@ -127,12 +130,21 @@ async function main(): Promise<void> {
   const apiPaths = new Set<string>();
   let mapsTried = 0;
   let mapsHit = 0;
+  let jsOk = 0;
+  let jsFail = 0;
 
   for (const jsUrl of ranked16) {
     try {
       const jsRes = await fetch(jsUrl, { signal: AbortSignal.timeout(10_000) });
-      if (!jsRes.ok) continue;
+      if (!jsRes.ok) {
+        jsFail += 1;
+        continue;
+      }
       const jsBody = await jsRes.text();
+      jsOk += 1;
+      for (const hint of extractSupabaseTableHintsFromText(jsBody)) {
+        tableSeeds.add(hint);
+      }
       const mapHeader = jsRes.headers.get('sourcemap') ?? jsRes.headers.get('x-sourcemap');
       const comment = jsBody.match(/\/\/[#@]\s*sourceMappingURL=([^\s'"]+)/i)?.[1];
       const mapRef = mapHeader?.trim() || comment?.trim() || `${jsUrl.split('?')[0]}.map`;
@@ -166,18 +178,12 @@ async function main(): Promise<void> {
           apiPaths.add(obs.path);
         }
       }
-      // Also mine raw JS body for rest/v1 table hints (jsluice-equivalent thin delta)
-      for (const m of jsBody.matchAll(/\/rest\/v1\/([A-Za-z_][A-Za-z0-9_]*)/g)) {
-        if (m[1]) tableSeeds.add(m[1]);
-      }
-      for (const m of jsBody.matchAll(/\.from\(\s*['"]([A-Za-z_][A-Za-z0-9_]*)['"]\s*\)/g)) {
-        if (m[1]) tableSeeds.add(m[1]);
-      }
     } catch {
-      // soft-fail per asset
+      jsFail += 1;
     }
   }
 
+  console.log(`js bodies: ok=${jsOk} fail=${jsFail}`);
   console.log(`sourcemap probes: tried=${mapsTried} hit=${mapsHit}`);
   console.log(`table seeds: ${tableSeeds.size} → ${Array.from(tableSeeds).sort().join(', ') || '(none)'}`);
   console.log(`api/rest paths: ${apiPaths.size} → ${Array.from(apiPaths).sort().slice(0, 20).join(', ') || '(none)'}`);

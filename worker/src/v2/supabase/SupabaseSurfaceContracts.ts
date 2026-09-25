@@ -90,3 +90,106 @@ export function classifySupabaseUrl(rawUrl: string): {
     pathKind,
   };
 }
+
+const TABLE_NAME_RE = /^[A-Za-z_][A-Za-z0-9_]{0,63}$/;
+
+/**
+ * Hermetic: mine PostgREST / Supabase client table name hints from JS or HTML text.
+ * Sources: `.from('table')`, `.from("table")`, `/rest/v1/{table}` path segments.
+ * Never returns secrets; names only.
+ */
+export function extractSupabaseTableHintsFromText(
+  text: string,
+  maxHints: number = 40
+): readonly string[] {
+  if (typeof text !== 'string' || text.length === 0) return Object.freeze([]);
+  const cap = maxHints > 0 ? Math.floor(maxHints) : 40;
+  const out: string[] = [];
+  const seen = new Set<string>();
+  const push = (raw: string): void => {
+    if (out.length >= cap) return;
+    const name = raw.trim();
+    if (!TABLE_NAME_RE.test(name)) return;
+    const lower = name.toLowerCase();
+    // Skip common non-table identifiers
+    if (
+      lower === 'schema' ||
+      lower === 'rpc' ||
+      lower === 'select' ||
+      lower === 'public' ||
+      lower === 'storage' ||
+      lower === 'auth'
+    ) {
+      return;
+    }
+    if (seen.has(lower)) return;
+    seen.add(lower);
+    out.push(name);
+  };
+
+  for (const m of text.matchAll(/\.from\(\s*['"]([A-Za-z_][A-Za-z0-9_]*)['"]\s*\)/g)) {
+    if (m[1]) push(m[1]);
+  }
+  for (const m of text.matchAll(/\/rest\/v1\/([A-Za-z_][A-Za-z0-9_]*)/g)) {
+    if (m[1]) push(m[1]);
+  }
+  return Object.freeze(out);
+}
+
+/**
+ * Build absolute /rest/v1/{table} URL observation seeds for a known Supabase project.
+ */
+export function buildSupabaseRestTableUrlSeeds(args: {
+  readonly restBaseUrl: string;
+  readonly tableNames: readonly string[];
+  readonly source: string;
+  readonly discoveredAt: string;
+}): readonly {
+  readonly url: string;
+  readonly host: string;
+  readonly path: string;
+  readonly sources: readonly string[];
+  readonly discoveredAt: string;
+  readonly collectedAt: string;
+  readonly freshness: 'live';
+  readonly sourceReliability: 'inferred_relationship' | 'direct_observation';
+}[] {
+  let host = '';
+  try {
+    host = new URL(args.restBaseUrl).hostname;
+  } catch {
+    return Object.freeze([]);
+  }
+  if (!isSupabaseHost(host)) return Object.freeze([]);
+  const base = args.restBaseUrl.replace(/\/$/, '');
+  const out: {
+    readonly url: string;
+    readonly host: string;
+    readonly path: string;
+    readonly sources: readonly string[];
+    readonly discoveredAt: string;
+    readonly collectedAt: string;
+    readonly freshness: 'live';
+    readonly sourceReliability: 'inferred_relationship' | 'direct_observation';
+  }[] = [];
+  const seen = new Set<string>();
+  for (const name of args.tableNames) {
+    if (!TABLE_NAME_RE.test(name)) continue;
+    const url = `${base}/${name}`;
+    if (seen.has(url)) continue;
+    seen.add(url);
+    out.push(
+      Object.freeze({
+        url,
+        host,
+        path: `/rest/v1/${name}`,
+        sources: Object.freeze([args.source]),
+        discoveredAt: args.discoveredAt,
+        collectedAt: args.discoveredAt,
+        freshness: 'live' as const,
+        sourceReliability: 'inferred_relationship' as const,
+      })
+    );
+  }
+  return Object.freeze(out);
+}

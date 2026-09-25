@@ -14,6 +14,7 @@ import { TechnologyFingerprintService } from '../recon/analysis/TechnologyFinger
 import type { DetectedTechnology, TechEcosystemProfile } from '../core/TechnologyContracts.js';
 import {
   classifySupabaseUrl,
+  extractSupabaseTableHintsFromText,
   isSupabaseHost,
 } from '../supabase/SupabaseSurfaceContracts.js';
 
@@ -473,6 +474,20 @@ export function buildSupabaseRestCandidatesFromRecon(
     if (matches) {
       for (const m of matches.slice(0, 20)) {
         ingest(m);
+      }
+    }
+  }
+
+  // Client `.from('table')` / rest path hints → seed tables on known rest bases.
+  const bodyBlobs: string[] = [];
+  for (const w of aggregated.webObservations) {
+    if (typeof w.bodyText === 'string' && w.bodyText.length > 0) bodyBlobs.push(w.bodyText);
+  }
+  if (bodyBlobs.length > 0 && byRestBase.size > 0) {
+    const hints = extractSupabaseTableHintsFromText(bodyBlobs.join('\n'), 40);
+    for (const restBase of byRestBase.keys()) {
+      for (const table of hints) {
+        ingest(`${restBase}/${table}`);
       }
     }
   }

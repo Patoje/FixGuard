@@ -93,6 +93,7 @@ import { looksLikeSupabaseAnonKey } from '../supabase/SupabaseCredentialMaterial
 import {
   classifySupabaseUrl,
   isSupabaseHost,
+  buildSupabaseRestTableUrlSeeds,
 } from '../supabase/SupabaseSurfaceContracts.js';
 import { runSessionFixationDetection } from '../detection/SessionFixationDetectionService.js';
 import { runCredentialedCorsDetection } from '../detection/CredentialedCorsDetectionService.js';
@@ -4924,6 +4925,29 @@ export class OrchestratedAssessmentApplicationService {
 
             if (tableNames.length === 0) {
               continue;
+            }
+
+            // P2: feed OpenAPI / seed relations back into recon URL inventory (discovery-only).
+            const fed = buildSupabaseRestTableUrlSeeds({
+              restBaseUrl: sbCandidate.restBaseUrl,
+              tableNames,
+              source: 'postgrest_openapi',
+              discoveredAt: new Date().toISOString(),
+            });
+            if (fed.length > 0 && reconResult.status === 'success') {
+              const existing = new Set(
+                reconResult.aggregatedObservations.urls.map((u) => u.url)
+              );
+              const merged = [
+                ...reconResult.aggregatedObservations.urls,
+                ...fed.filter((u) => !existing.has(u.url)),
+              ];
+              Object.assign(reconResult, {
+                aggregatedObservations: {
+                  ...reconResult.aggregatedObservations,
+                  urls: Object.freeze(merged),
+                },
+              });
             }
 
             const rlsResult = await runSupabaseRlsAbuseDetection({

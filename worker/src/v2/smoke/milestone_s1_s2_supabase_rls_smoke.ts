@@ -482,6 +482,28 @@ async function runTests(): Promise<void> {
     if (!(cand.seedTableNames ?? []).includes('profiles')) {
       throw new Error(`Test 6 Failed: expected seedTableNames to include profiles`);
     }
+
+    // P2: `.from('shop_items')` in body → seed table when supabase host known
+    const withFrom: AggregatedReconObservations = {
+      ...aggregated,
+      webObservations: [
+        {
+          ...aggregated.webObservations[0]!,
+          bodyText:
+            'const c=createClient("https://xyzcompany.supabase.co"); c.from("shop_items").select("*");',
+        },
+      ],
+    };
+    const bridge2 = buildDetectionTargetsFromRecon({
+      targetDomain: 'app.example.com',
+      aggregatedObservations: withFrom,
+    });
+    const cand2 = bridge2.supabaseRestCandidates[0];
+    if (!(cand2?.seedTableNames ?? []).includes('shop_items')) {
+      throw new Error(
+        `Test 6b Failed: expected shop_items from .from() hint, got ${JSON.stringify(cand2?.seedTableNames)}`
+      );
+    }
     console.log('  [PASS] Bridge + hasSupabase');
   }
 
