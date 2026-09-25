@@ -85,7 +85,12 @@ export class ArjunAdapter implements ParameterDiscoveryTool {
 
     args.push('-oJ', tempFilePath);
 
-    const timeoutMs = request.timeoutMs ?? 60_000;
+    const timeoutMs = Math.min(
+      typeof request.timeoutMs === 'number' && request.timeoutMs > 0
+        ? request.timeoutMs
+        : 45_000,
+      45_000
+    );
 
     let output;
     let rawJsonContent = '';

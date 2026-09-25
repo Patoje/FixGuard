@@ -6,7 +6,6 @@ import {
   CheckCircle,
   AlertCircle,
   Loader2,
-  RefreshCw,
   ArrowRight,
   Check,
   X,
@@ -203,15 +202,11 @@ export function EvidenceTriageBoard({
 
         <button
           type="button"
-          onClick={() => void loadDrafts()}
-          disabled={loadingDrafts || !assessmentId}
-          title="Re-fetch drafts if the pipeline finished more while you were here"
-          className="inline-flex items-center gap-1.5 rounded-md border border-zinc-800/80 bg-transparent px-2.5 py-1 text-[11px] font-medium text-zinc-500 transition hover:border-zinc-700 hover:text-zinc-300 disabled:opacity-40"
+          onClick={onContinueToAttack}
+          className="inline-flex items-center gap-2 rounded-lg bg-orange-600 px-4 py-2 text-xs font-semibold text-white transition hover:bg-orange-500"
         >
-          <RefreshCw
-            className={`h-3 w-3 ${loadingDrafts ? "animate-spin" : ""}`}
-          />
-          Refresh
+          Continue to Attack
+          <ArrowRight className="h-3.5 w-3.5" />
         </button>
       </div>
 
@@ -247,8 +242,17 @@ export function EvidenceTriageBoard({
                           {item.version}
                         </span>
                       ) : null}
-                      <span className="text-[9px] uppercase text-zinc-600">
-                        {item.epistemic === "OBSERVED" ? "obs" : "inf"}
+                      <span
+                        className="text-[9px] text-zinc-600"
+                        title={
+                          item.epistemic === "OBSERVED"
+                            ? "Visto en respuestas reales del target"
+                            : "Hipótesis derivada (aún no confirmada en respuesta)"
+                        }
+                      >
+                        {item.epistemic === "OBSERVED"
+                          ? "Observado"
+                          : "Inferido"}
                       </span>
                     </span>
                   ))}
@@ -279,17 +283,18 @@ export function EvidenceTriageBoard({
       )}
 
       <div className="mt-6 space-y-3">
-        {promotedFindings.length > 0 && (
+        {/* RLS always above cosmetics — even when only promoted findings exist. */}
+        {promotedFindings.length > 0 ? (
           <div className="space-y-2 rounded-lg border border-orange-500/30 bg-orange-500/5 p-3">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <p className="text-xs font-semibold text-orange-200">
-                Hallazgos auto-promovidos ({promotedFindings.length}) — ya en
-                Attack Mode
+                Hallazgos RLS / access-control ({promotedFindings.length}) — ya
+                en Attack Mode
               </p>
             </div>
             <p className="text-[10px] text-zinc-500">
-              Señales RLS / access-control que pasaron el gate de auto-promote.
-              Los drafts de abajo son filtro opcional de ruido.
+              Señales que pasaron el gate de auto-promote. Los drafts de abajo
+              son filtro opcional de ruido.
             </p>
             <div className="space-y-2">
               {promotedFindings.map((f, idx) => {
@@ -340,6 +345,16 @@ export function EvidenceTriageBoard({
                 );
               })}
             </div>
+          </div>
+        ) : (
+          <div className="rounded-lg border border-dashed border-orange-500/20 bg-orange-500/[0.03] px-3 py-2.5">
+            <p className="text-[11px] font-medium text-orange-200/80">
+              RLS / access-control
+            </p>
+            <p className="mt-0.5 text-[10px] text-zinc-600">
+              Sin hallazgos RLS auto-promovidos en este assessment. Si aparecen
+              drafts RLS en pendientes, quedan arriba del bloque cosmético.
+            </p>
           </div>
         )}
 
@@ -472,7 +487,20 @@ export function EvidenceTriageBoard({
 
             return (
               <>
-                {primary.map(renderDraft)}
+                {primary.length > 0 && (
+                  <div className="space-y-2">
+                    {primary.some(
+                      (d) =>
+                        d.differentialContext?.detectionKind ===
+                        "supabase_rls_abuse"
+                    ) && (
+                      <p className="text-[10px] font-mono uppercase tracking-wide text-orange-400/80">
+                        RLS / access — pendientes de triage
+                      </p>
+                    )}
+                    {primary.map(renderDraft)}
+                  </div>
+                )}
                 {lowInfo.length > 0 && (
                   <div className="pt-2 space-y-2">
                     <p className="text-[10px] font-mono uppercase tracking-wide text-zinc-600">
@@ -486,17 +514,6 @@ export function EvidenceTriageBoard({
             );
           })()
         )}
-      </div>
-
-      <div className="mt-6 flex items-center justify-end border-t border-zinc-800/60 pt-4">
-        <button
-          type="button"
-          onClick={onContinueToAttack}
-          className="inline-flex items-center gap-2 rounded-lg bg-orange-600 px-4 py-2 text-xs font-semibold text-white transition hover:bg-orange-500"
-        >
-          Continue to Attack
-          <ArrowRight className="h-3.5 w-3.5" />
-        </button>
       </div>
     </div>
   );

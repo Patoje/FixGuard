@@ -4785,6 +4785,32 @@ export class OrchestratedAssessmentApplicationService {
             };
           });
         },
+        onActivityPulse: async (info) => {
+          activityDeadline?.touch();
+          heartbeat?.setHint({
+            stageHint: info.stage,
+            toolHint: info.toolHint,
+          });
+          await this.repository.update(record.assessmentId, (prev) => {
+            if (prev.status !== 'running' && prev.status !== 'pending') {
+              return prev;
+            }
+            return {
+              ...prev,
+              heartbeat: {
+                lastHeartbeatAt: new Date().toISOString(),
+                stageHint: info.stage,
+                toolHint: info.toolHint,
+                ...(prev.heartbeat?.sessionKeepAliveAt
+                  ? { sessionKeepAliveAt: prev.heartbeat.sessionKeepAliveAt }
+                  : {}),
+                ...(prev.heartbeat?.sessionKeepAliveHint
+                  ? { sessionKeepAliveHint: prev.heartbeat.sessionKeepAliveHint }
+                  : {}),
+              },
+            };
+          });
+        },
         onStageComplete: async (stageResult) => {
           activityDeadline?.touch();
           await this.repository.update(record.assessmentId, (prev) => {

@@ -6,7 +6,6 @@ import { useSearchParams } from "next/navigation";
 import {
   Crosshair,
   ArrowLeft,
-  RefreshCw,
   AlertCircle,
   ChevronDown,
   ChevronRight,
@@ -30,7 +29,7 @@ import {
   getOrchestratedAssessmentSummary,
   type LineageTuple,
 } from "@/lib/v2Api";
-import { generateInvestigationId, isStrictSafeId } from "@/lib/v2/idGenerator";
+import { isStrictSafeId } from "@/lib/v2/idGenerator";
 import { AttackPlansList } from "./components/AttackPlansList";
 import { AttackAuthorizationModal } from "./components/AttackAuthorizationModal";
 import { StepExecutionMonitor } from "./components/StepExecutionMonitor";
@@ -115,11 +114,10 @@ function AttackModeContent({
   const [investigationId, setInvestigationId] = useState("");
   const [investigationSnapshot, setInvestigationSnapshot] =
     useState<ActiveInvestigationSnapshotDto | null>(null);
-  const [investigationBusy, setInvestigationBusy] = useState(false);
   const [authorizeThenExecute, setAuthorizeThenExecute] = useState(false);
   const [showTechDetails, setShowTechDetails] = useState(false);
   const [resultsPanel, setResultsPanel] = useState<ResultsPanel>("chains");
-  const [showMorePlans, setShowMorePlans] = useState(false);
+  const [showMorePlans, setShowMorePlans] = useState(true);
 
   const [isLoading, setIsLoading] = useState(false);
   const [busyPlanId, setBusyPlanId] = useState<string | null>(null);
@@ -236,91 +234,6 @@ function AttackModeContent({
     },
     [lineage, targetDomain]
   );
-
-  const handleStartInvestigation = async () => {
-    if (!assessmentId || !isStrictSafeId(assessmentId)) {
-      setError("Carga un assessment válido primero");
-      return;
-    }
-    if (!isStrictSafeId(operatorId)) {
-      setError("Operator ID inválido");
-      return;
-    }
-
-    const nextId =
-      investigationId && isStrictSafeId(investigationId)
-        ? investigationId
-        : generateInvestigationId();
-
-    setInvestigationBusy(true);
-    setError(null);
-    setSuccessMsg(null);
-    try {
-      const res = await v2AttackApi.startActiveInvestigation(assessmentId, {
-        investigationId: nextId,
-        budget: {
-          maxRequests: 50,
-          maxDurationMs: 15 * 60 * 1000,
-          maxConcurrentSteps: 1,
-          requestsPerSecondCeiling: 5,
-          maxConcurrencyCeiling: 2,
-        },
-        openHypothesisRefs: plans.slice(0, 8).map((p) => p.planId),
-      });
-      setInvestigationId(res.snapshot.investigationId);
-      setInvestigationSnapshot(res.snapshot);
-      setSuccessMsg(
-        `Investigación iniciada · presupuesto ${res.snapshot.budget.maxRequests} req`
-      );
-    } catch (err) {
-      if (err instanceof V2ApiError) {
-        setError(`[${err.errorType}] ${err.message}${err.reasonCode ? ` (${err.reasonCode})` : ""}`);
-      } else {
-        setError(err instanceof Error ? err.message : "No se pudo iniciar la investigación");
-      }
-    } finally {
-      setInvestigationBusy(false);
-    }
-  };
-
-  const handleCancelInvestigation = async (mode: "cancel" | "kill_switch") => {
-    if (!assessmentId || !isStrictSafeId(assessmentId)) {
-      setError("Assessment inválido");
-      return;
-    }
-    if (!investigationId || !isStrictSafeId(investigationId)) {
-      setError("No hay investigación activa");
-      return;
-    }
-    if (!isStrictSafeId(operatorId)) {
-      setError("Operator ID inválido");
-      return;
-    }
-
-    setInvestigationBusy(true);
-    setError(null);
-    setSuccessMsg(null);
-    try {
-      const res = await v2AttackApi.cancelActiveInvestigation(assessmentId, investigationId, {
-        operatorId,
-        mode,
-      });
-      setInvestigationSnapshot(res.snapshot);
-      setSuccessMsg(
-        mode === "kill_switch"
-          ? `Parado todo · ${res.reasonCode}`
-          : `Investigación cancelada · ${res.reasonCode}`
-      );
-    } catch (err) {
-      if (err instanceof V2ApiError) {
-        setError(`[${err.errorType}] ${err.message}${err.reasonCode ? ` (${err.reasonCode})` : ""}`);
-      } else {
-        setError(err instanceof Error ? err.message : "No se pudo detener la investigación");
-      }
-    } finally {
-      setInvestigationBusy(false);
-    }
-  };
 
   const handleAuthorize = async (blastRadiusClass: BlastRadiusClass) => {
     if (!authModalPlan) return;
@@ -521,6 +434,42 @@ function AttackModeContent({
     }
   };
 
+  const attackSurfaceHints = useMemo(() => {
+    const routes = new Set<string>();
+    const endpoints = new Set<string>();
+    const tables = new Set<string>();
+    for (const p of displayPlans) {
+      if (p.targetUrl) {
+        try {
+          const u = new URL(p.targetUrl);
+          endpoints.add(`${u.pathname}${u.search}`);
+          if (u.pathname.includes("/rest/v1/")) {
+            const seg = u.pathname.split("/rest/v1/")[1]?.split("/")[0];
+            if (seg) tables.add(seg);
+          }
+        } catch {
+          endpoints.add(p.targetUrl);
+        }
+      }
+      const tableMatch = /table['\s:=]+([a-z0-9_]+)/i.exec(p.reasoning ?? "");
+      if (tableMatch?.[1]) tables.add(tableMatch[1]);
+      if (/^\//.test(p.title)) routes.add(p.title);
+      const pathInTitle = /\/[a-z0-9/_-]+/i.exec(p.title);
+      if (pathInTitle) routes.add(pathInTitle[0]);
+    }
+    return {
+      routes: Array.from(routes).slice(0, 12),
+      endpoints: Array.from(endpoints).slice(0, 12),
+      tables: Array.from(tables).slice(0, 12),
+    };
+  }, [displayPlans]);
+
+  useEffect(() => {
+    if (recommendations.length === 0 && displayPlans.length > 0) {
+      setShowMorePlans(true);
+    }
+  }, [recommendations.length, displayPlans.length]);
+
   const triageHref = assessmentId
     ? `/v2?assessmentId=${encodeURIComponent(assessmentId)}`
     : "/v2";
@@ -592,71 +541,53 @@ function AttackModeContent({
             )}
           </div>
         )}
-        {/* Simplified header */}
+
         <section className="rounded-xl border border-zinc-900 bg-zinc-950/80 p-4 space-y-3">
-          <div className="flex flex-wrap items-end gap-3">
-            <label className="block space-y-1 flex-1 min-w-[200px]">
-              <span className="text-[10px] font-medium uppercase tracking-wider text-zinc-500">
-                Target domain
-              </span>
-              <input
-                value={targetDomain}
-                onChange={(e) => setTargetDomain(e.target.value.trim())}
-                placeholder="example.com"
-                className="w-full rounded-lg border border-zinc-800 bg-zinc-900 px-3 py-2.5 text-sm font-mono text-zinc-100 focus:outline-none focus:border-emerald-500/40"
-              />
-            </label>
-            <button
-              type="button"
-              disabled={isLoading || !assessmentId}
-              onClick={() => void loadAll(assessmentId)}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2.5 text-xs font-medium text-zinc-300 hover:bg-zinc-800 disabled:opacity-40"
-            >
-              <RefreshCw className={`h-3.5 w-3.5 ${isLoading ? "animate-spin" : ""}`} />
-              Actualizar
-            </button>
+          <div>
+            <span className="text-[10px] font-medium uppercase tracking-wider text-zinc-500">
+              Target actual
+            </span>
+            <p className="mt-1 font-mono text-sm text-zinc-100">
+              {targetDomain || "—"}
+            </p>
+            <p className="mt-0.5 text-[10px] text-zinc-600">
+              Del assessment en curso — autorizá y ejecutá planes (sin investigación aparte).
+            </p>
           </div>
 
-          <div className="flex flex-wrap items-center gap-2">
-            <button
-              type="button"
-              disabled={investigationBusy || isLoading || !assessmentId}
-              onClick={() => void handleStartInvestigation()}
-              title="Abre una investigación con presupuesto de requests para ejecutar planes autorizados"
-              className="inline-flex items-center gap-1.5 rounded-lg border border-sky-500/40 bg-sky-500/10 px-3 py-1.5 text-xs font-semibold text-sky-300 hover:bg-sky-500/20 disabled:opacity-40"
-            >
-              Iniciar
-            </button>
-            <button
-              type="button"
-              disabled={investigationBusy || !investigationId || !isStrictSafeId(investigationId)}
-              onClick={() => void handleCancelInvestigation("cancel")}
-              title="Cancelar: detiene la investigación de forma ordenada (cancel)"
-              className="inline-flex items-center gap-1.5 rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-1.5 text-xs font-semibold text-amber-300 hover:bg-amber-500/20 disabled:opacity-40"
-            >
-              Cancelar
-            </button>
-            <button
-              type="button"
-              disabled={investigationBusy || !investigationId || !isStrictSafeId(investigationId)}
-              onClick={() => void handleCancelInvestigation("kill_switch")}
-              title="Parar todo: kill switch — corta ejecución y presupuesto de inmediato"
-              className="inline-flex items-center gap-1.5 rounded-lg border border-rose-500/40 bg-rose-500/10 px-3 py-1.5 text-xs font-semibold text-rose-300 hover:bg-rose-500/20 disabled:opacity-40"
-            >
-              Parar todo
-            </button>
-            {investigationSnapshot && (
-              <span className="text-[11px] text-zinc-500 self-center">
-                {investigationSnapshot.status === "running" ? "en curso" : investigationSnapshot.status}
-                {" · "}
-                {investigationSnapshot.consumption.requestsConsumed}/
-                {investigationSnapshot.budget.maxRequests} req
-              </span>
-            )}
-          </div>
-          <p className="text-[10px] text-zinc-600">
-            Iniciar abre presupuesto · Cancelar detiene ordenado · Parar todo = kill switch
-          </p>
+          {(attackSurfaceHints.routes.length > 0 ||
+            attackSurfaceHints.endpoints.length > 0 ||
+            attackSurfaceHints.tables.length > 0) && (
+            <div className="space-y-2 border-t border-zinc-900 pt-3">
+              <p className="text-[10px] font-medium uppercase tracking-wider text-zinc-500">
+                Superficie desde planes
+              </p>
+              {attackSurfaceHints.routes.length > 0 && (
+                <div>
+                  <span className="text-[10px] text-zinc-600">Rutas · </span>
+                  <span className="font-mono text-[11px] text-zinc-400">
+                    {attackSurfaceHints.routes.join(" · ")}
+                  </span>
+                </div>
+              )}
+              {attackSurfaceHints.endpoints.length > 0 && (
+                <div>
+                  <span className="text-[10px] text-zinc-600">Endpoints · </span>
+                  <span className="font-mono text-[11px] text-zinc-400 break-all">
+                    {attackSurfaceHints.endpoints.join(" · ")}
+                  </span>
+                </div>
+              )}
+              {attackSurfaceHints.tables.length > 0 && (
+                <div>
+                  <span className="text-[10px] text-zinc-600">Tablas · </span>
+                  <span className="font-mono text-[11px] text-amber-400/90">
+                    {attackSurfaceHints.tables.join(" · ")}
+                  </span>
+                </div>
+              )}
+            </div>
+          )}
 
           <button
             type="button"
@@ -674,7 +605,6 @@ function AttackModeContent({
             <div className="rounded-lg border border-zinc-900 bg-black/40 p-3 space-y-2 text-[10px] font-mono text-zinc-500">
               <div>assessment: {assessmentId || "—"}</div>
               <div>operator: {operatorId}</div>
-              <div>investigation: {investigationId || "—"}</div>
               {lineage && (
                 <>
                   <div>grant: {lineage.authorizationGrantId}</div>
@@ -822,18 +752,6 @@ function AttackModeContent({
           </ResultsAccordion>
         </section>
       </main>
-
-      {embedded && onContinueToReport && (
-        <div className="mt-4 flex justify-end border-t border-zinc-800/60 pt-4">
-          <button
-            type="button"
-            onClick={onContinueToReport}
-            className="inline-flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-xs font-semibold text-white transition hover:bg-emerald-500"
-          >
-            Continue to Report →
-          </button>
-        </div>
-      )}
 
       {authModalPlan && (
         <AttackAuthorizationModal

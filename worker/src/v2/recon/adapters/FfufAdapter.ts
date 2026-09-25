@@ -85,7 +85,12 @@ export class FfufAdapter implements ContentDiscoveryTool {
       args.push('-recursion', '-recursion-depth', String(request.recursionDepth));
     }
 
-    const timeoutMs = request.timeoutMs ?? 60_000;
+    const timeoutMs = Math.min(
+      typeof request.timeoutMs === 'number' && request.timeoutMs > 0
+        ? request.timeoutMs
+        : 60_000,
+      60_000
+    );
 
     let output;
     try {

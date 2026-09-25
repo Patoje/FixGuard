@@ -14,6 +14,17 @@ import {
   type UrlDiscoveryTool,
 } from './UrlDiscoveryContracts.js';
 
+/** Hard caps — hung gau must not block assessment_activity_idle (~15m). */
+export const GAU_HARD_TIMEOUT_MS = 45_000;
+export const KATANA_HARD_TIMEOUT_MS = 60_000;
+
+function capTimeout(requested: number | undefined, hardCap: number): number {
+  if (typeof requested === 'number' && Number.isFinite(requested) && requested > 0) {
+    return Math.min(requested, hardCap);
+  }
+  return hardCap;
+}
+
 export class CompositeUrlDiscoveryAdapter implements UrlDiscoveryTool {
   constructor(
     private readonly processRunner: ProcessRunner,
@@ -50,22 +61,42 @@ export class CompositeUrlDiscoveryAdapter implements UrlDiscoveryTool {
     const targetHost = preflight.targetHost!;
     const targetUrl = preflight.targetUrl ?? `https://${targetHost}`;
 
-    // 7. Composite Invocation: Katana (modern crawling) + Gau (legacy archive scraping)
-    const timeoutMs = request.timeoutMs ?? 60_000;
+    // Per-tool hard timeouts (gau historically hung past idle; kill+degrade loud).
+    const katanaTimeoutMs = capTimeout(request.timeoutMs, KATANA_HARD_TIMEOUT_MS);
+    const gauTimeoutMs = capTimeout(request.timeoutMs, GAU_HARD_TIMEOUT_MS);
     const maxDepth = typeof request.maxDepth === 'number' && request.maxDepth > 0 ? request.maxDepth : 3;
 
     const [katanaOutput, gauOutput] = await Promise.all([
       this.processRunner.execute({
         binary: 'katana',
         args: ['-u', targetUrl, '-silent', '-json', '-depth', String(maxDepth), '-jc', '-jsl'],
-        timeoutMs,
+        timeoutMs: katanaTimeoutMs,
       }),
       this.processRunner.execute({
         binary: 'gau',
+        // Host-scoped once — caller must not amplify per path/rootUrl.
         args: ['--json', targetHost],
-        timeoutMs,
+        timeoutMs: gauTimeoutMs,
       }),
     ]);
+
+    const degradeWarnings: string[] = [];
+    if (katanaOutput.timedOut) {
+      degradeWarnings.push(
+        `katana timed out after ${katanaTimeoutMs}ms — degraded (partial URL discovery)`
+      );
+    } else if (katanaOutput.exitCode !== 0) {
+      degradeWarnings.push(
+        `katana exit ${katanaOutput.exitCode} — degraded`
+      );
+    }
+    if (gauOutput.timedOut) {
+      degradeWarnings.push(
+        `gau timed out after ${gauTimeoutMs}ms — degraded (archive scrape skipped)`
+      );
+    } else if (gauOutput.exitCode !== 0) {
+      degradeWarnings.push(`gau exit ${gauOutput.exitCode} — degraded`);
+    }
 
     // If both engines failed completely or timed out
     if (katanaOutput.exitCode !== 0 && gauOutput.exitCode !== 0) {
@@ -74,11 +105,13 @@ export class CompositeUrlDiscoveryAdapter implements UrlDiscoveryTool {
         contractVersion: URL_DISCOVERY_CONTRACT_VERSION,
         targetUrlOrDomain: rawTarget,
         reasonCode: 'composite_execution_failed',
-        reason: `Both discovery engines failed: Katana exit ${katanaOutput.exitCode}, Gau exit ${gauOutput.exitCode}`,
+        reason: `Both discovery engines failed: Katana exit ${katanaOutput.exitCode}${katanaOutput.timedOut ? ' (timed out)' : ''}, Gau exit ${gauOutput.exitCode}${gauOutput.timedOut ? ' (timed out)' : ''}${degradeWarnings.length > 0 ? ` · ${degradeWarnings.join('; ')}` : ''}`,
         explicitNonClaims: URL_DISCOVERY_NON_CLAIMS,
         lineage: request.lineage,
         exitCode: katanaOutput.exitCode,
-        stderr: [katanaOutput.stderr, gauOutput.stderr].filter(Boolean).join('; '),
+        stderr: [katanaOutput.stderr, gauOutput.stderr, ...degradeWarnings]
+          .filter(Boolean)
+          .join('; '),
         durationMs: Math.max(katanaOutput.durationMs, gauOutput.durationMs),
       };
     }
@@ -196,10 +229,10 @@ export class CompositeUrlDiscoveryAdapter implements UrlDiscoveryTool {
       }
     };
 
-    if (katanaOutput.exitCode === 0) {
+    if (katanaOutput.exitCode === 0 && !katanaOutput.timedOut) {
       parseEngineLines(katanaOutput.stdout, 'modern_crawler');
     }
-    if (gauOutput.exitCode === 0) {
+    if (gauOutput.exitCode === 0 && !gauOutput.timedOut) {
       parseEngineLines(gauOutput.stdout, 'archive_legacy');
     }
 
@@ -236,6 +269,7 @@ export class CompositeUrlDiscoveryAdapter implements UrlDiscoveryTool {
       explicitNonClaims: URL_DISCOVERY_NON_CLAIMS,
       lineage: request.lineage,
       durationMs: Math.max(katanaOutput.durationMs, gauOutput.durationMs),
+      ...(degradeWarnings.length > 0 ? { warnings: degradeWarnings } : {}),
     };
   }
 }

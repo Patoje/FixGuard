@@ -70,28 +70,35 @@ export function classifyTechArchitecture(
       epistemic: "OBSERVED",
     };
     const cat = t.category.toLowerCase();
+    // Order matters: language / data / hosting before generic "framework" category.
     if (
+      cat === "runtime" ||
+      cat === "language" ||
+      /^(javascript|typescript|node\.?js|python|php|ruby|go|java|kotlin|swift|rust)$/i.test(
+        lower
+      )
+    ) {
+      pushUnique(languages, lower, item);
+    } else if (
+      cat === "database" ||
+      /postgres|mysql|mongo|redis|supabase/i.test(lower)
+    ) {
+      pushUnique(databases, lower, item);
+    } else if (/postgrest/i.test(lower)) {
+      pushUnique(services, "postgrest", { ...item, name: "PostgREST" });
+    } else if (
+      cat === "cdn" ||
+      cat === "server" ||
+      cat === "hosting" ||
+      /vercel|netlify|cloudflare|aws|azure|heroku|fastly/i.test(lower)
+    ) {
+      pushUnique(hosting, lower, item);
+    } else if (
       cat === "framework" ||
       cat === "frontend" ||
       /next|react|vue|angular|nuxt|svelte/i.test(lower)
     ) {
       pushUnique(frameworks, lower, item);
-    } else if (
-      cat === "runtime" ||
-      /javascript|typescript|node\.?js|python|php|ruby|go\b/i.test(lower)
-    ) {
-      pushUnique(languages, lower, item);
-    } else if (
-      cat === "cdn" ||
-      cat === "server" ||
-      /vercel|netlify|cloudflare|aws|azure|heroku|fastly/i.test(lower)
-    ) {
-      pushUnique(hosting, lower, item);
-    } else if (
-      cat === "database" ||
-      /postgres|mysql|mongo|redis|supabase|postgrest/i.test(lower)
-    ) {
-      pushUnique(databases, lower, item);
     } else {
       pushUnique(services, lower, item);
     }
@@ -228,7 +235,10 @@ export function classifyTechArchitecture(
     groups.push({ label: "Hosting / cloud", items: [...hosting.values()] });
   }
   if (languages.size > 0) {
-    groups.push({ label: "Lenguajes", items: [...languages.values()] });
+    groups.push({
+      label: "Tecnologías / Lenguajes",
+      items: [...languages.values()],
+    });
   }
   if (databases.size > 0) {
     groups.push({

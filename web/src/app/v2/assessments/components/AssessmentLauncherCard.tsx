@@ -9,7 +9,6 @@ import {
   Key,
   ChevronDown,
   ChevronRight,
-  Lock,
   UserCheck,
 } from "lucide-react";
 import {
@@ -30,13 +29,13 @@ interface AssessmentLauncherCardProps {
 
 const TECLAAA_SUPABASE = "vawrzoncszqauzxwqide.supabase.co";
 
+/** Soft-defaults only — never skip Stage 2/4; full recon is the default. */
 const KNOWN_TARGET_DEFAULTS: Record<
   string,
   {
     relatedHosts: string;
     seedUrls?: string[];
     seedPaths?: string[];
-    skipSlowCrawl?: boolean;
   }
 > = {
   "teclaaa.vercel.app": {
@@ -46,7 +45,6 @@ const KNOWN_TARGET_DEFAULTS: Record<
       `https://${TECLAAA_SUPABASE}/rest/v1/shop_items`,
     ],
     seedPaths: ["/carrera/93kpw", "/login", "/perfil"],
-    skipSlowCrawl: true,
   },
 };
 
@@ -68,6 +66,45 @@ function isPrivateOrLoopbackHost(hostname: string): boolean {
   return false;
 }
 
+function mapTokenOrCookie(raw: string): {
+  headers: Record<string, string>;
+  cookies: Record<string, string>;
+} {
+  const headers: Record<string, string> = {};
+  const cookies: Record<string, string> = {};
+  const value = raw.trim();
+  if (!value) return { headers, cookies };
+
+  const lower = value.toLowerCase();
+  if (
+    lower.startsWith("bearer ") ||
+    lower.startsWith("basic ") ||
+    /^eyj[a-z0-9_-]+\.[a-z0-9_-]+\.[a-z0-9_-]+$/i.test(value)
+  ) {
+    headers["authorization"] = lower.startsWith("bearer ")
+      ? value
+      : `Bearer ${value}`;
+    return { headers, cookies };
+  }
+
+  if (value.includes("=") && !value.includes(" ")) {
+    const [k, ...v] = value.split("=");
+    cookies[k.trim()] = v.join("=").trim();
+    return { headers, cookies };
+  }
+
+  if (value.includes("=")) {
+    const first = value.split(";")[0] ?? value;
+    const [k, ...v] = first.split("=");
+    cookies[k.trim()] = v.join("=").trim();
+    return { headers, cookies };
+  }
+
+  headers["authorization"] = `Bearer ${value}`;
+  cookies["session"] = value;
+  return { headers, cookies };
+}
+
 function parseHostList(input: string): string[] {
   return input
     .split(/[\s,;]+/)
@@ -87,21 +124,15 @@ export function AssessmentLauncherCard({
 }: AssessmentLauncherCardProps) {
   const [domainInput, setDomainInput] = useState<string>("teclaaa.vercel.app");
   const [actorId, setActorId] = useState<string>("usr_secops_lead");
-  const [relatedHostsInput, setRelatedHostsInput] = useState<string>(
-    TECLAAA_SUPABASE
-  );
-  const [skipSlowCrawl, setSkipSlowCrawl] = useState<boolean>(true);
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [loading, setLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
 
-  const [identityAId, setIdentityAId] = useState<string>("operator_identity_a");
-  const [identityAAuthHeader, setIdentityAAuthHeader] = useState<string>("");
-  const [identityACookie, setIdentityACookie] = useState<string>("");
-  const [enableIdentityB, setEnableIdentityB] = useState<boolean>(false);
-  const [identityBId, setIdentityBId] = useState<string>("operator_identity_b");
-  const [identityBAuthHeader, setIdentityBAuthHeader] = useState<string>("");
-  const [identityBCookie, setIdentityBCookie] = useState<string>("");
+  const [byotUsuario, setByotUsuario] = useState("");
+  const [byotTokenOrCookie, setByotTokenOrCookie] = useState("");
+  const [enableIdentityB, setEnableIdentityB] = useState(false);
+  const [byotUsuarioB, setByotUsuarioB] = useState("");
+  const [byotTokenOrCookieB, setByotTokenOrCookieB] = useState("");
 
   const cleaned = cleanDomain(domainInput);
   const isValidFormat =
@@ -129,77 +160,46 @@ export function AssessmentLauncherCard({
       const known = KNOWN_TARGET_DEFAULTS[cleaned];
 
       let sessionIdentities: ByotSessionIdentityBundleDto | undefined;
-      if (identityAAuthHeader.trim() || identityACookie.trim()) {
-        const headersA: Record<string, string> = {};
-        if (identityAAuthHeader.trim()) {
-          headersA["authorization"] = identityAAuthHeader.trim();
-        }
-        const cookiesA: Record<string, string> = {};
-        if (identityACookie.trim()) {
-          const cookieStr = identityACookie.trim();
-          if (cookieStr.includes("=")) {
-            const [k, ...v] = cookieStr.split("=");
-            cookiesA[k.trim()] = v.join("=").trim();
-          } else {
-            cookiesA["session"] = cookieStr;
-          }
-        }
+      if (byotTokenOrCookie.trim() || byotUsuario.trim()) {
+        const mapped = mapTokenOrCookie(byotTokenOrCookie);
+        const identityId = byotUsuario.trim() || "operator_identity_a";
 
         let identityB: ByotIdentityDto | undefined;
         if (
           enableIdentityB &&
-          (identityBAuthHeader.trim() || identityBCookie.trim())
+          (byotTokenOrCookieB.trim() || byotUsuarioB.trim())
         ) {
-          const headersB: Record<string, string> = {};
-          if (identityBAuthHeader.trim()) {
-            headersB["authorization"] = identityBAuthHeader.trim();
-          }
-          const cookiesB: Record<string, string> = {};
-          if (identityBCookie.trim()) {
-            const cookieStr = identityBCookie.trim();
-            if (cookieStr.includes("=")) {
-              const [k, ...v] = cookieStr.split("=");
-              cookiesB[k.trim()] = v.join("=").trim();
-            } else {
-              cookiesB["session"] = cookieStr;
-            }
-          }
+          const mappedB = mapTokenOrCookie(byotTokenOrCookieB);
           identityB = {
-            identityId: identityBId.trim() || "operator_identity_b",
-            ...(Object.keys(headersB).length > 0
-              ? { injectHeaders: headersB }
+            identityId: byotUsuarioB.trim() || "operator_identity_b",
+            ...(Object.keys(mappedB.headers).length > 0
+              ? { injectHeaders: mappedB.headers }
               : {}),
-            ...(Object.keys(cookiesB).length > 0
-              ? { injectCookies: cookiesB }
+            ...(Object.keys(mappedB.cookies).length > 0
+              ? { injectCookies: mappedB.cookies }
               : {}),
           };
         }
 
         sessionIdentities = {
           identityA: {
-            identityId: identityAId.trim() || "operator_identity_a",
-            ...(Object.keys(headersA).length > 0
-              ? { injectHeaders: headersA }
+            identityId,
+            ...(Object.keys(mapped.headers).length > 0
+              ? { injectHeaders: mapped.headers }
               : {}),
-            ...(Object.keys(cookiesA).length > 0
-              ? { injectCookies: cookiesA }
+            ...(Object.keys(mapped.cookies).length > 0
+              ? { injectCookies: mapped.cookies }
               : {}),
           },
           ...(identityB ? { identityB } : {}),
         };
       }
 
-      let relatedAllowedHosts = parseHostList(relatedHostsInput);
-      if (relatedAllowedHosts.length === 0 && known) {
-        relatedAllowedHosts = parseHostList(known.relatedHosts);
-      }
-
-      const seedUrls = known?.seedUrls;
-      const seedPaths = known?.seedPaths;
-      const effectiveSkip = skipSlowCrawl || (known?.skipSlowCrawl ?? false);
-      const skipStages = effectiveSkip
-        ? (["stage_2_port_service", "stage_4_crawling_parameters"] as const)
-        : undefined;
+      const relatedAllowedHosts = known
+        ? parseHostList(known.relatedHosts)
+        : [];
+      const seedUrls = known?.seedUrls ?? [];
+      const seedPaths = known?.seedPaths ?? [];
 
       const result = await startOrchestratedAssessment({
         targetDomain: cleaned,
@@ -208,11 +208,8 @@ export function AssessmentLauncherCard({
         ...(relatedAllowedHosts.length > 0
           ? { relatedAllowedHosts }
           : {}),
-        ...(seedUrls && seedUrls.length > 0 ? { seedUrls } : {}),
-        ...(seedPaths && seedPaths.length > 0 ? { seedPaths } : {}),
-        ...(skipStages
-          ? { config: { skipStages: [...skipStages] } }
-          : {}),
+        ...(seedUrls.length > 0 ? { seedUrls } : {}),
+        ...(seedPaths.length > 0 ? { seedPaths } : {}),
       });
       onAssessmentStarted(result, cleaned);
     } catch (err) {
@@ -340,84 +337,33 @@ export function AssessmentLauncherCard({
                 />
               </div>
 
-              <div>
-                <label
-                  htmlFor="relatedAllowedHosts"
-                  className="block text-xs font-medium text-zinc-400"
-                >
-                  Related hosts{" "}
-                  <span className="font-normal text-zinc-600">
-                    (Supabase / APIs)
-                  </span>
-                </label>
-                <input
-                  id="relatedAllowedHosts"
-                  type="text"
-                  value={relatedHostsInput}
-                  onChange={(e) => {
-                    setRelatedHostsInput(e.target.value);
-                    if (error) setError(null);
-                  }}
-                  placeholder="project.supabase.co"
-                  disabled={loading || isRunning}
-                  className="mt-1.5 w-full rounded-lg border border-zinc-800 bg-zinc-950 py-2 px-3 text-xs font-mono text-white placeholder-zinc-600 focus:border-emerald-500/60 focus:outline-none"
-                />
-                <p className="mt-1 text-[10px] text-zinc-600">
-                  Teclaaa: vacío →{" "}
-                  <span className="font-mono text-zinc-500">
-                    {TECLAAA_SUPABASE}
-                  </span>
-                  . Otros targets: agregá el host a mano.
-                </p>
-              </div>
-
-              <label className="flex items-start gap-2 text-xs text-zinc-400">
-                <input
-                  type="checkbox"
-                  checked={skipSlowCrawl}
-                  onChange={(e) => setSkipSlowCrawl(e.target.checked)}
-                  disabled={loading || isRunning}
-                  className="mt-0.5 rounded border-zinc-700"
-                />
-                <span>Skip ports + crawl lento (recomendado SPA / RLS)</span>
-              </label>
-
               <div className="rounded-lg border border-zinc-800/80 bg-zinc-950/50 overflow-hidden">
                 <div className="flex items-center gap-2 px-3 py-2 text-xs text-zinc-400">
-                  <Key className="h-3.5 w-3.5 text-amber-500/80" />
-                  <span>BYOT / identidades (opcional)</span>
+                  <Key className="h-3.5 w-3.5 text-emerald-500/80" />
+                  <span>Sesión del target (opcional)</span>
                 </div>
                 <div className="space-y-3 border-t border-zinc-800/60 p-3">
-                  <div className="flex items-start gap-2 rounded-md border border-zinc-800 bg-zinc-900/40 p-2 text-[10px] text-zinc-500 font-mono">
-                    <Lock className="h-3 w-3 shrink-0 mt-0.5" />
-                    Efímero — no se persiste.
-                  </div>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                  <p className="text-[11px] text-zinc-500 leading-relaxed">
+                    Si tenés una cuenta de prueba, pegá usuario y cookie/token
+                    para revisar como usuario autenticado.
+                  </p>
+                  <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
                     <input
                       type="text"
-                      value={identityAId}
-                      onChange={(e) => setIdentityAId(e.target.value)}
-                      placeholder="identity_a id"
+                      value={byotUsuario}
+                      onChange={(e) => setByotUsuario(e.target.value)}
+                      placeholder="Usuario (email / nombre)"
                       disabled={loading || isRunning}
-                      className="rounded-md border border-zinc-800 bg-zinc-950 px-2 py-1.5 text-xs font-mono text-white"
+                      className="rounded-md border border-zinc-800 bg-zinc-950 px-2 py-1.5 text-xs text-white placeholder-zinc-600"
                     />
                     <input
                       type="password"
                       autoComplete="off"
-                      value={identityAAuthHeader}
-                      onChange={(e) => setIdentityAAuthHeader(e.target.value)}
-                      placeholder="Authorization"
+                      value={byotTokenOrCookie}
+                      onChange={(e) => setByotTokenOrCookie(e.target.value)}
+                      placeholder="Cookie / Token"
                       disabled={loading || isRunning}
-                      className="rounded-md border border-zinc-800 bg-zinc-950 px-2 py-1.5 text-xs font-mono text-white"
-                    />
-                    <input
-                      type="password"
-                      autoComplete="off"
-                      value={identityACookie}
-                      onChange={(e) => setIdentityACookie(e.target.value)}
-                      placeholder="Cookie"
-                      disabled={loading || isRunning}
-                      className="rounded-md border border-zinc-800 bg-zinc-950 px-2 py-1.5 text-xs font-mono text-white md:col-span-2"
+                      className="rounded-md border border-zinc-800 bg-zinc-950 px-2 py-1.5 text-xs font-mono text-white placeholder-zinc-600"
                     />
                   </div>
                   <label className="flex items-center gap-2 text-xs text-zinc-500">
@@ -429,37 +375,28 @@ export function AssessmentLauncherCard({
                       className="rounded border-zinc-700"
                     />
                     <UserCheck className="h-3.5 w-3.5 text-zinc-500" />
-                    Identity B (IDOR diferencial)
+                    Segunda identidad (comparar dos usuarios)
                   </label>
                   {enableIdentityB && (
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                    <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
                       <input
                         type="text"
-                        value={identityBId}
-                        onChange={(e) => setIdentityBId(e.target.value)}
-                        placeholder="identity_b id"
+                        value={byotUsuarioB}
+                        onChange={(e) => setByotUsuarioB(e.target.value)}
+                        placeholder="Usuario B"
                         disabled={loading || isRunning}
-                        className="rounded-md border border-zinc-800 bg-zinc-950 px-2 py-1.5 text-xs font-mono text-white"
+                        className="rounded-md border border-zinc-800 bg-zinc-950 px-2 py-1.5 text-xs text-white placeholder-zinc-600"
                       />
                       <input
                         type="password"
                         autoComplete="off"
-                        value={identityBAuthHeader}
+                        value={byotTokenOrCookieB}
                         onChange={(e) =>
-                          setIdentityBAuthHeader(e.target.value)
+                          setByotTokenOrCookieB(e.target.value)
                         }
-                        placeholder="Authorization"
+                        placeholder="Cookie / Token B"
                         disabled={loading || isRunning}
-                        className="rounded-md border border-zinc-800 bg-zinc-950 px-2 py-1.5 text-xs font-mono text-white"
-                      />
-                      <input
-                        type="password"
-                        autoComplete="off"
-                        value={identityBCookie}
-                        onChange={(e) => setIdentityBCookie(e.target.value)}
-                        placeholder="Cookie"
-                        disabled={loading || isRunning}
-                        className="rounded-md border border-zinc-800 bg-zinc-950 px-2 py-1.5 text-xs font-mono text-white md:col-span-2"
+                        className="rounded-md border border-zinc-800 bg-zinc-950 px-2 py-1.5 text-xs font-mono text-white placeholder-zinc-600"
                       />
                     </div>
                   )}

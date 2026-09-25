@@ -353,7 +353,7 @@ export default function V2DashboardPage() {
               <button
                 type="button"
                 onClick={resetToFreshLaunch}
-                className="inline-flex items-center gap-1.5 text-[11px] font-medium text-zinc-500 hover:text-zinc-300 transition"
+                className="inline-flex items-center gap-1.5 rounded-lg border border-zinc-700 bg-zinc-900/80 px-3 py-1.5 text-[11px] font-medium text-zinc-300 hover:border-zinc-500 hover:text-white transition"
                 title="Descarta el assessment en curso y vuelve a un launch limpio"
               >
                 <Home className="h-3.5 w-3.5" />
@@ -424,30 +424,112 @@ export default function V2DashboardPage() {
             </nav>
           </>
         ) : (
-          <div className="mb-6 flex items-end justify-between gap-4">
-            <div>
-              <h1 className="text-lg font-semibold tracking-tight text-zinc-100">
-                Nuevo assessment
-              </h1>
-              <p className="mt-0.5 text-sm text-zinc-500">
-                Pegá el dominio y dale a Iniciar.
-              </p>
-            </div>
+          <div className="relative mb-8 flex flex-col items-center text-center">
+            <h1 className="text-4xl sm:text-5xl font-bold tracking-tight text-white">
+              Fix<span className="text-emerald-500/90">Guard</span>
+            </h1>
+            <p className="mt-2 text-sm text-zinc-500 max-w-md">
+              Pegá el dominio y dale a Iniciar.
+            </p>
             <Link
               href="/v2/assessments"
-              className="shrink-0 text-[11px] font-mono text-zinc-600 hover:text-zinc-400 transition"
+              className="mt-3 text-[11px] font-mono text-zinc-600 hover:text-zinc-400 transition"
             >
               Pipeline →
             </Link>
           </div>
         )}
 
-        <div className="space-y-6">
+        <div
+          className={`space-y-6 ${
+            activeStage === "stage1_launch" ? "relative" : ""
+          }`}
+        >
           {activeStage === "stage1_launch" && (
-            <TargetLaunchCard
-              onAssessmentStarted={handleAssessmentStarted}
-              isRunning={status?.status === "running"}
-            />
+            <div className="relative mx-auto w-full max-w-2xl">
+              {/* Subtle radar atmosphere behind the URL card */}
+              <div
+                aria-hidden
+                className="pointer-events-none absolute left-1/2 top-1/2 -z-0 h-[28rem] w-[28rem] -translate-x-1/2 -translate-y-1/2 opacity-40"
+              >
+                <svg viewBox="0 0 400 400" className="h-full w-full">
+                  <defs>
+                    <radialGradient id="fgRadarFade" cx="50%" cy="50%" r="50%">
+                      <stop offset="0%" stopColor="#10b981" stopOpacity="0.18" />
+                      <stop offset="55%" stopColor="#10b981" stopOpacity="0.06" />
+                      <stop offset="100%" stopColor="#10b981" stopOpacity="0" />
+                    </radialGradient>
+                  </defs>
+                  <circle cx="200" cy="200" r="180" fill="url(#fgRadarFade)" />
+                  <circle
+                    cx="200"
+                    cy="200"
+                    r="160"
+                    fill="none"
+                    stroke="#10b981"
+                    strokeOpacity="0.12"
+                    strokeWidth="1"
+                  />
+                  <circle
+                    cx="200"
+                    cy="200"
+                    r="110"
+                    fill="none"
+                    stroke="#10b981"
+                    strokeOpacity="0.16"
+                    strokeWidth="1"
+                  />
+                  <circle
+                    cx="200"
+                    cy="200"
+                    r="60"
+                    fill="none"
+                    stroke="#10b981"
+                    strokeOpacity="0.22"
+                    strokeWidth="1"
+                  />
+                  <line
+                    x1="200"
+                    y1="20"
+                    x2="200"
+                    y2="380"
+                    stroke="#10b981"
+                    strokeOpacity="0.1"
+                  />
+                  <line
+                    x1="20"
+                    y1="200"
+                    x2="380"
+                    y2="200"
+                    stroke="#10b981"
+                    strokeOpacity="0.1"
+                  />
+                  <g className="origin-center animate-[spin_12s_linear_infinite]">
+                    <path
+                      d="M200 200 L200 40 A160 160 0 0 1 320 80 Z"
+                      fill="#10b981"
+                      fillOpacity="0.08"
+                    />
+                    <line
+                      x1="200"
+                      y1="200"
+                      x2="200"
+                      y2="40"
+                      stroke="#34d399"
+                      strokeOpacity="0.45"
+                      strokeWidth="1.5"
+                    />
+                  </g>
+                  <circle cx="200" cy="200" r="3" fill="#34d399" fillOpacity="0.7" />
+                </svg>
+              </div>
+              <div className="relative z-10">
+                <TargetLaunchCard
+                  onAssessmentStarted={handleAssessmentStarted}
+                  isRunning={status?.status === "running"}
+                />
+              </div>
+            </div>
           )}
 
           {activeStage === "stage2_overview" && (

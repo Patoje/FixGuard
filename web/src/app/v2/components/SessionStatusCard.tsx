@@ -71,10 +71,11 @@ const PIPELINE_TOTAL = PIPELINE_ORDER.length;
 /** UI throttle for heartbeat console lines (~25s), even if poller is faster. */
 const CONSOLE_HEARTBEAT_MIN_GAP_MS = 25_000;
 
+/** Format stage/total duration for console: seconds, or Xm Ys if ≥60s. */
 function formatDurationMs(ms: number): string {
-  if (!Number.isFinite(ms) || ms < 0) return `${ms}ms`;
-  if (ms < 60_000) return `${Math.round(ms)}ms`;
-  const totalSec = Math.floor(ms / 1000);
+  if (!Number.isFinite(ms) || ms < 0) return "—";
+  const totalSec = Math.max(0, Math.round(ms / 1000));
+  if (totalSec < 60) return `${totalSec}s`;
   const m = Math.floor(totalSec / 60);
   const s = totalSec % 60;
   return `${m}m ${s}s`;
@@ -324,6 +325,15 @@ export function SessionStatusCard({
             </p>
           </div>
         </div>
+        <button
+          type="button"
+          onClick={onContinueToTriage}
+          disabled={!canContinueToTriage}
+          className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-xs font-semibold text-white transition hover:bg-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/40 disabled:cursor-not-allowed disabled:opacity-40 shadow-lg shadow-blue-600/20"
+        >
+          Continue to Triage
+          <ArrowRight className="h-3.5 w-3.5" />
+        </button>
       </div>
 
       {isFailed && status.error && (
@@ -378,7 +388,7 @@ export function SessionStatusCard({
       <div className="rounded-lg border border-zinc-800 bg-black overflow-hidden">
         <div className="flex items-center gap-2 border-b border-zinc-900 bg-zinc-950 px-3 py-1.5 text-[10px] font-mono text-zinc-500">
           <Terminal className="h-3 w-3 text-emerald-500" />
-          orchestrated recon console
+          console
           {isRunning && (
             <span className="ml-auto text-blue-400 animate-pulse">● running</span>
           )}
@@ -416,32 +426,21 @@ export function SessionStatusCard({
         )}
       </div>
 
-      <div className="flex items-center justify-between border-t border-zinc-800/60 pt-4">
-        <div className="text-xs text-zinc-400">
+      {(isReconDone || isFailed) && (
+        <div className="text-xs text-zinc-400 border-t border-zinc-800/60 pt-3">
           {isReconDone ? (
             <span className="flex items-center gap-1.5 text-emerald-400 font-medium">
               <CheckCircle2 className="h-4 w-4" />
               Reconnaissance finished — continue to evidence triage
             </span>
-          ) : isFailed ? (
+          ) : (
             <span className="text-rose-400">
               Pipeline stopped. You can still open Triage (may be empty) or
               start a fresh assessment from inicio.
             </span>
-          ) : (
-            <span>Pipeline de reconocimiento en curso…</span>
           )}
         </div>
-        <button
-          type="button"
-          onClick={onContinueToTriage}
-          disabled={!canContinueToTriage}
-          className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-xs font-semibold text-white transition hover:bg-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/40 disabled:cursor-not-allowed disabled:opacity-40 shadow-lg shadow-blue-600/20"
-        >
-          Continue to Triage
-          <ArrowRight className="h-3.5 w-3.5" />
-        </button>
-      </div>
+      )}
     </div>
   );
 }

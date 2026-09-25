@@ -464,6 +464,56 @@ async function runMilestone67SmokeTests() {
     console.log('    -> Empty tool outputs cleanly yielded zero observations without synthetic records');
   }
 
+  // -------------------------------------------------------------------------
+  // Assertion 9: Gau timeout → loud degrade, katana partial success
+  // -------------------------------------------------------------------------
+  console.log('[*] Assertion 9: Gau timedOut degrades loud; katana-only success');
+  {
+    const runner = new MockProcessRunner();
+    runner.katanaOutput = {
+      stdout: JSON.stringify({ url: 'https://example.com/live' }) + '\n',
+      stderr: '',
+      exitCode: 0,
+      durationMs: 40,
+      timedOut: false,
+    };
+    runner.gauOutput = {
+      stdout: '',
+      stderr: 'killed',
+      exitCode: 124,
+      durationMs: 45_000,
+      timedOut: true,
+    };
+
+    const adapter = new CompositeUrlDiscoveryAdapter(runner);
+    const auth = setupAuthorizedContext();
+
+    const result = await adapter.discoverUrls({
+      targetUrlOrDomain: 'example.com',
+      ...auth,
+      timeoutMs: 120_000, // request higher; adapter still caps gau at 45s
+    });
+
+    assert.strictEqual(result.status, 'success');
+    if (result.status === 'success') {
+      assert.ok(
+        (result.warnings ?? []).some((w) => /gau timed out/i.test(w)),
+        'Must surface gau timeout warning'
+      );
+      assert.ok(
+        result.observations.some((o) => o.path === '/live'),
+        'Katana results retained after gau timeout'
+      );
+      const gauCall = runner.calls.find((c) => c.binary === 'gau');
+      assert(gauCall, 'Gau must be called');
+      assert.ok(
+        (gauCall.timeoutMs ?? 0) <= 45_000,
+        `Gau hard timeout must be ≤45s, got ${gauCall.timeoutMs}`
+      );
+    }
+    console.log('    -> Gau timeout degraded loudly without failing the whole discovery');
+  }
+
   console.log('\n[✔] ALL MILESTONE 67 URL DISCOVERY ADAPTER SMOKE ASSERTIONS PASSED SUCCESSFULLY.');
 }
 

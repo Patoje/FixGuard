@@ -457,6 +457,20 @@ export class CompositeActiveReconOrchestratorService {
       }
     }
 
+    async function notifyActivityPulse(
+      stage: ReconStageName,
+      toolHint: string
+    ): Promise<void> {
+      if (!request.onActivityPulse) {
+        return;
+      }
+      try {
+        await request.onActivityPulse({ stage, toolHint });
+      } catch {
+        // Non-blocking
+      }
+    }
+
     const buildCircuitBrokenResult = (host: string): ActiveReconOrchestrationResult => ({
       status: 'circuit_broken',
       contractVersion: ACTIVE_RECON_ORCHESTRATION_CONTRACT_VERSION,
@@ -1302,35 +1316,103 @@ export class CompositeActiveReconOrchestratorService {
         rootUrls.push(`https://${request.targetDomain}`);
       }
 
+      // Once-per-host crawl roots (gau is host-scoped — never amplify per path).
+      const hostToCrawlRoot = new Map<string, string>();
       for (const rootUrl of rootUrls) {
-        let currentHost = request.targetDomain;
         try {
-          const parsed = new URL(rootUrl);
-          currentHost = parsed.hostname;
+          const host = new URL(rootUrl).hostname.toLowerCase().replace(/\.$/, '');
+          if (!hostToCrawlRoot.has(host)) {
+            hostToCrawlRoot.set(host, rootUrl);
+          }
+        } catch {
+          // ignore malformed roots
+        }
+      }
+      const uniqueHostRoots = Array.from(hostToCrawlRoot.entries()).sort(([a], [b]) => {
+        if (a === request.targetDomain) return -1;
+        if (b === request.targetDomain) return 1;
+        return a.localeCompare(b);
+      });
 
-          // 1. Composite URL crawling (Katana + Gau)
-          const urlResult: UrlDiscoveryResult = await coordinator.execute(
-            parsed.hostname,
-            () =>
-              this.tools.urlTool.discoverUrls({
-                targetUrlOrDomain: rootUrl,
-                verifiedAuthorizationDecision: request.verifiedAuthorizationDecision,
-                authorizedScopeGrant: request.authorizedScopeGrant,
-                lineage: request.lineage,
-                timeoutMs: request.config?.timeoutMs,
-              })
+      // Cap legacy ffuf/arjun spray: primary host roots only, max 3.
+      const MAX_LEGACY_FUZZ_ROOTS = 3;
+      const fuzzRoots: string[] = [];
+      for (const [, url] of uniqueHostRoots) {
+        if (fuzzRoots.length >= MAX_LEGACY_FUZZ_ROOTS) break;
+        fuzzRoots.push(url);
+      }
+      if (fuzzRoots.length === 0) {
+        fuzzRoots.push(`https://${request.targetDomain}`);
+      }
+
+      const primaryResolveBase =
+        hostToCrawlRoot.get(request.targetDomain) ??
+        uniqueHostRoots[0]?.[1] ??
+        `https://${request.targetDomain}`;
+
+      // 1. Composite URL crawling (Katana + Gau) — once per unique host
+      for (const [host, rootUrl] of uniqueHostRoots) {
+        try {
+          await notifyActivityPulse('stage_4_crawling_parameters', `gau,katana@${host}`);
+          const urlResult: UrlDiscoveryResult = await coordinator.execute(host, () =>
+            this.tools.urlTool.discoverUrls({
+              targetUrlOrDomain: rootUrl,
+              verifiedAuthorizationDecision: request.verifiedAuthorizationDecision,
+              authorizedScopeGrant: request.authorizedScopeGrant,
+              lineage: request.lineage,
+              // Adapter enforces per-tool hard caps (gau ≤45s, katana ≤60s).
+              timeoutMs: request.config?.timeoutMs,
+            })
           );
 
           if (urlResult.status === 'success') {
             for (const obs of urlResult.observations) {
               urls.push(obs);
             }
+            if (urlResult.warnings && urlResult.warnings.length > 0) {
+              for (const w of urlResult.warnings) {
+                stage4Warnings.push(`${host}: ${w}`);
+              }
+            }
+          } else if (urlResult.status === 'execution_failed') {
+            stage4Warnings.push(
+              `URL discovery failed on ${host}: ${urlResult.reason}`
+            );
           }
+        } catch (err) {
+          if (err instanceof TargetInstabilityError || coordinator.isCircuitOpen(host)) {
+            createDraft('stage_4_crawling_parameters', request.targetDomain, 'discovered_urls', urls.length);
+            createDraft('stage_4_crawling_parameters', request.targetDomain, 'discovered_content', content.length);
+            createDraft('stage_4_crawling_parameters', request.targetDomain, 'discovered_parameters', parameters.length);
+            createDraft('stage_4_crawling_parameters', request.targetDomain, 'discovered_spa_observations', spaObservations.length);
+            await recordStageResult({
+              stage: 'stage_4_crawling_parameters',
+              status: 'partial_failure',
+              durationMs: Date.now() - stage4Start,
+              observationsCount: urls.length + content.length + parameters.length + spaObservations.length,
+              warnings: [`Circuit breaker tripped on ${host}`],
+            });
+            return buildCircuitBrokenResult(host);
+          }
+          stage4Warnings.push(
+            `URL discovery error on ${rootUrl}: ${err instanceof Error ? err.message : String(err)}`
+          );
+        }
+      }
 
-          // 2–3. Content/parameter discovery.
-          // When enableGatedDictTopK: defer to a single top-K pass after inventory grows.
-          // Otherwise: legacy per-root ffuf (if wordlist) + arjun.
-          if (request.config?.enableGatedDictTopK !== true) {
+      // 2–3. Content/parameter discovery (capped roots — not every seed path).
+      // When enableGatedDictTopK: defer to a single top-K pass after inventory grows.
+      if (request.config?.enableGatedDictTopK !== true) {
+        for (const rootUrl of fuzzRoots) {
+          let currentHost = request.targetDomain;
+          try {
+            const parsed = new URL(rootUrl);
+            currentHost = parsed.hostname;
+            await notifyActivityPulse(
+              'stage_4_crawling_parameters',
+              `ffuf,arjun@${currentHost}`
+            );
+
             if (request.config?.wordlistPath) {
               const rawWl = request.config.wordlistPath.trim();
               const useGatedDefault =
@@ -1358,6 +1440,10 @@ export class CompositeActiveReconOrchestratorService {
                 for (const obs of contentResult.observations) {
                   content.push(obs);
                 }
+              } else if (contentResult.status === 'execution_failed') {
+                stage4Warnings.push(
+                  `ffuf on ${rootUrl}: ${contentResult.reason}`
+                );
               }
             }
 
@@ -1377,200 +1463,214 @@ export class CompositeActiveReconOrchestratorService {
               for (const obs of paramResult.observations) {
                 parameters.push(obs);
               }
+            } else if (paramResult.status === 'execution_failed') {
+              stage4Warnings.push(
+                `arjun on ${rootUrl}: ${paramResult.reason}`
+              );
             }
-          }
-
-          // 3b. jsluice discovery-only mining — ranked budget (app chunks > vendor) + one re-feed pass.
-          if (this.tools.jsLuiceTool) {
-            const jsBudget =
-              typeof request.config?.jsLuiceMaxTargets === 'number' &&
-              request.config.jsLuiceMaxTargets > 0
-                ? Math.floor(request.config.jsLuiceMaxTargets)
-                : JSLUICE_MAX_TARGETS_DEFAULT;
-            const minedJs = new Set<string>();
-            let remaining = jsBudget;
-            for (let pass = 0; pass < 2 && remaining > 0; pass++) {
-              const jsTargets = selectJsLuiceTargets({
-                inventoryUrls: urls,
-                maxTargets: remaining,
-                excludeUrls: Array.from(minedJs),
+          } catch (err) {
+            if (err instanceof TargetInstabilityError || coordinator.isCircuitOpen(currentHost)) {
+              createDraft('stage_4_crawling_parameters', request.targetDomain, 'discovered_urls', urls.length);
+              createDraft('stage_4_crawling_parameters', request.targetDomain, 'discovered_content', content.length);
+              createDraft('stage_4_crawling_parameters', request.targetDomain, 'discovered_parameters', parameters.length);
+              createDraft('stage_4_crawling_parameters', request.targetDomain, 'discovered_spa_observations', spaObservations.length);
+              await recordStageResult({
+                stage: 'stage_4_crawling_parameters',
+                status: 'partial_failure',
+                durationMs: Date.now() - stage4Start,
+                observationsCount: urls.length + content.length + parameters.length + spaObservations.length,
+                warnings: [`Circuit breaker tripped on ${currentHost}`],
               });
-              if (jsTargets.length === 0) break;
-              for (const jsUrl of jsTargets) {
-                if (minedJs.has(jsUrl) || remaining <= 0) continue;
-                minedJs.add(jsUrl);
-                remaining -= 1;
-                try {
-                  const jsHost = new URL(jsUrl).hostname;
-                  const jsResult = await coordinator.execute(jsHost, () =>
-                    this.tools.jsLuiceTool!.discoverFromJavaScript({
-                      targetJsUrlOrPath: jsUrl,
-                      resolvePathsBase: rootUrl,
-                      verifiedAuthorizationDecision: request.verifiedAuthorizationDecision,
-                      authorizedScopeGrant: request.authorizedScopeGrant,
-                      lineage: request.lineage,
-                      timeoutMs: request.config?.timeoutMs,
-                    })
-                  );
-                  if (jsResult.status === 'success') {
-                    for (const obs of jsResult.urlObservations) {
-                      urls.push(obs);
-                    }
-                    for (const obs of jsResult.parameterObservations) {
-                      parameters.push({
-                        url: obs.sourceUrl,
-                        method: 'GET',
-                        parameterName: obs.parameterName,
-                        discoveredAt: obs.discoveredAt,
-                      });
-                    }
-                    for (const obs of jsResult.secretObservations) {
-                      secrets.push(obs);
-                    }
-                  } else if (jsResult.status === 'tool_unavailable') {
-                    stage4Warnings.push(jsResult.reason);
-                    remaining = 0;
-                    break;
-                  }
-                } catch (jsErr: unknown) {
-                  stage4Warnings.push(
-                    `jsluice error on ${jsUrl}: ${jsErr instanceof Error ? jsErr.message : String(jsErr)}`
-                  );
-                }
-              }
+              return buildCircuitBrokenResult(currentHost);
             }
+            stage4Warnings.push(
+              `Fuzz/param error on ${rootUrl}: ${err instanceof Error ? err.message : String(err)}`
+            );
+          }
+        }
+      }
 
-            // 3c. Sourcemap surface extraction (discovery-only → URL seeds; never Critical from unpack).
-            const mapBudget =
-              typeof request.config?.sourcemapSurfaceMaxTargets === 'number' &&
-              request.config.sourcemapSurfaceMaxTargets > 0
-                ? Math.floor(request.config.sourcemapSurfaceMaxTargets)
-                : SOURCEMAP_SURFACE_MAX_TARGETS_DEFAULT;
-            const mapTargets = selectJsLuiceTargets({
+      // 3b–3d. jsluice / sourcemap / table-hints — once after inventory (not per rootUrl).
+      if (this.tools.jsLuiceTool) {
+        const resolveBase = primaryResolveBase;
+        try {
+          await notifyActivityPulse('stage_4_crawling_parameters', 'jsluice');
+          const jsBudget =
+            typeof request.config?.jsLuiceMaxTargets === 'number' &&
+            request.config.jsLuiceMaxTargets > 0
+              ? Math.floor(request.config.jsLuiceMaxTargets)
+              : JSLUICE_MAX_TARGETS_DEFAULT;
+          const minedJs = new Set<string>();
+          let remaining = jsBudget;
+          for (let pass = 0; pass < 2 && remaining > 0; pass++) {
+            const jsTargets = selectJsLuiceTargets({
               inventoryUrls: urls,
-              maxTargets: mapBudget,
+              maxTargets: remaining,
+              excludeUrls: Array.from(minedJs),
             });
-            for (const jsUrl of mapTargets) {
+            if (jsTargets.length === 0) break;
+            for (const jsUrl of jsTargets) {
+              if (minedJs.has(jsUrl) || remaining <= 0) continue;
+              minedJs.add(jsUrl);
+              remaining -= 1;
               try {
                 const jsHost = new URL(jsUrl).hostname;
-                const mapResult = await coordinator.execute(jsHost, () =>
-                  runSourcemapSurfaceExtraction({
-                    sourceJsUrl: jsUrl,
-                    resolvePathsBase: rootUrl,
+                await notifyActivityPulse('stage_4_crawling_parameters', `jsluice@${jsHost}`);
+                const jsResult = await coordinator.execute(jsHost, () =>
+                  this.tools.jsLuiceTool!.discoverFromJavaScript({
+                    targetJsUrlOrPath: jsUrl,
+                    resolvePathsBase: resolveBase,
                     verifiedAuthorizationDecision: request.verifiedAuthorizationDecision,
                     authorizedScopeGrant: request.authorizedScopeGrant,
                     lineage: request.lineage,
                     timeoutMs: request.config?.timeoutMs,
-                    dnsResolver: request.dnsResolver,
                   })
                 );
-                if (mapResult.status === 'success') {
-                  for (const obs of mapResult.urlObservations) {
+                if (jsResult.status === 'success') {
+                  for (const obs of jsResult.urlObservations) {
                     urls.push(obs);
                   }
+                  for (const obs of jsResult.parameterObservations) {
+                    parameters.push({
+                      url: obs.sourceUrl,
+                      method: 'GET',
+                      parameterName: obs.parameterName,
+                      discoveredAt: obs.discoveredAt,
+                    });
+                  }
+                  for (const obs of jsResult.secretObservations) {
+                    secrets.push(obs);
+                  }
+                } else if (jsResult.status === 'tool_unavailable') {
+                  stage4Warnings.push(jsResult.reason);
+                  remaining = 0;
+                  break;
                 }
-              } catch (mapErr: unknown) {
+              } catch (jsErr: unknown) {
                 stage4Warnings.push(
-                  `sourcemap surface error on ${jsUrl}: ${mapErr instanceof Error ? mapErr.message : String(mapErr)}`
+                  `jsluice error on ${jsUrl}: ${jsErr instanceof Error ? jsErr.message : String(jsErr)}`
                 );
               }
             }
+          }
 
-            // 3d. JS client table-hint mining (`.from('table')`) → /rest/v1 seeds when Supabase host known.
-            const supabaseRestBases = new Set<string>();
-            for (const u of urls) {
-              try {
-                const host = new URL(u.url).hostname;
-                if (isSupabaseHost(host)) {
-                  supabaseRestBases.add(`https://${host}/rest/v1`);
+          const mapBudget =
+            typeof request.config?.sourcemapSurfaceMaxTargets === 'number' &&
+            request.config.sourcemapSurfaceMaxTargets > 0
+              ? Math.floor(request.config.sourcemapSurfaceMaxTargets)
+              : SOURCEMAP_SURFACE_MAX_TARGETS_DEFAULT;
+          const mapTargets = selectJsLuiceTargets({
+            inventoryUrls: urls,
+            maxTargets: mapBudget,
+          });
+          for (const jsUrl of mapTargets) {
+            try {
+              const jsHost = new URL(jsUrl).hostname;
+              await notifyActivityPulse('stage_4_crawling_parameters', `sourcemap@${jsHost}`);
+              const mapResult = await coordinator.execute(jsHost, () =>
+                runSourcemapSurfaceExtraction({
+                  sourceJsUrl: jsUrl,
+                  resolvePathsBase: resolveBase,
+                  verifiedAuthorizationDecision: request.verifiedAuthorizationDecision,
+                  authorizedScopeGrant: request.authorizedScopeGrant,
+                  lineage: request.lineage,
+                  timeoutMs: request.config?.timeoutMs,
+                  dnsResolver: request.dnsResolver,
+                })
+              );
+              if (mapResult.status === 'success') {
+                for (const obs of mapResult.urlObservations) {
+                  urls.push(obs);
                 }
-              } catch {
-                // ignore
               }
+            } catch (mapErr: unknown) {
+              stage4Warnings.push(
+                `sourcemap surface error on ${jsUrl}: ${mapErr instanceof Error ? mapErr.message : String(mapErr)}`
+              );
             }
-            for (const h of request.authorizedScopeGrant.boundaries.allowedHosts ?? []) {
-              if (isSupabaseHost(h)) supabaseRestBases.add(`https://${h}/rest/v1`);
+          }
+
+          const supabaseRestBases = new Set<string>();
+          for (const u of urls) {
+            try {
+              const host = new URL(u.url).hostname;
+              if (isSupabaseHost(host)) {
+                supabaseRestBases.add(`https://${host}/rest/v1`);
+              }
+            } catch {
+              // ignore
             }
-            if (supabaseRestBases.size > 0) {
-              const tableMineTargets = selectJsLuiceTargets({
-                inventoryUrls: urls,
-                maxTargets: Math.min(8, jsBudget),
-              });
-              const nowIso = new Date().toISOString();
-              for (const jsUrl of tableMineTargets) {
-                try {
-                  const jsHost = new URL(jsUrl).hostname;
-                  await coordinator.execute(jsHost, async () => {
-                    const preflight = await runAdapterPreflight({
-                      target: jsUrl,
-                      targetKind: 'url',
-                      verifiedAuthorizationDecision: request.verifiedAuthorizationDecision,
-                      authorizedScopeGrant: request.authorizedScopeGrant,
-                      lineage: request.lineage,
-                      requiredPermissions: [
-                        'endpointDiscovery',
-                        'activeCrawling',
-                        'passiveRecon',
-                        'technologyFingerprinting',
-                      ],
-                      missingPermissionReason:
-                        'Scope grant does not permit JS table-hint discovery',
-                      dnsResolver: request.dnsResolver,
-                    });
-                    if (!preflight.ok) return;
-                    const probe = await defaultHttpProbeTransport({
-                      url: jsUrl,
-                      method: 'GET',
-                      headers: {
-                        accept: 'application/javascript, text/javascript, */*',
-                        'user-agent': 'Mozilla/5.0 (FixGuard Defensive Auditor)',
-                      },
-                      timeoutMs: request.config?.timeoutMs ?? 10_000,
-                    });
-                    if (probe.statusCode < 200 || probe.statusCode >= 300) return;
-                    const hints = extractSupabaseTableHintsFromText(probe.bodyText, 30);
-                    if (hints.length === 0) return;
-                    for (const restBase of supabaseRestBases) {
-                      const seeds = buildSupabaseRestTableUrlSeeds({
-                        restBaseUrl: restBase,
-                        tableNames: hints,
-                        source: 'js_client_from_hint',
-                        discoveredAt: nowIso,
-                      });
-                      for (const seed of seeds) {
-                        urls.push(seed);
-                      }
-                    }
+          }
+          for (const h of request.authorizedScopeGrant.boundaries.allowedHosts ?? []) {
+            if (isSupabaseHost(h)) supabaseRestBases.add(`https://${h}/rest/v1`);
+          }
+          if (supabaseRestBases.size > 0) {
+            const tableMineTargets = selectJsLuiceTargets({
+              inventoryUrls: urls,
+              maxTargets: Math.min(8, jsBudget),
+            });
+            const nowIso = new Date().toISOString();
+            for (const jsUrl of tableMineTargets) {
+              try {
+                const jsHost = new URL(jsUrl).hostname;
+                await coordinator.execute(jsHost, async () => {
+                  const preflight = await runAdapterPreflight({
+                    target: jsUrl,
+                    targetKind: 'url',
+                    verifiedAuthorizationDecision: request.verifiedAuthorizationDecision,
+                    authorizedScopeGrant: request.authorizedScopeGrant,
+                    lineage: request.lineage,
+                    requiredPermissions: [
+                      'endpointDiscovery',
+                      'activeCrawling',
+                      'passiveRecon',
+                      'technologyFingerprinting',
+                    ],
+                    missingPermissionReason:
+                      'Scope grant does not permit JS table-hint discovery',
+                    dnsResolver: request.dnsResolver,
                   });
-                } catch (hintErr: unknown) {
-                  stage4Warnings.push(
-                    `js table-hint error on ${jsUrl}: ${hintErr instanceof Error ? hintErr.message : String(hintErr)}`
-                  );
-                }
+                  if (!preflight.ok) return;
+                  const probe = await defaultHttpProbeTransport({
+                    url: jsUrl,
+                    method: 'GET',
+                    headers: {
+                      accept: 'application/javascript, text/javascript, */*',
+                      'user-agent': 'Mozilla/5.0 (FixGuard Defensive Auditor)',
+                    },
+                    timeoutMs: request.config?.timeoutMs ?? 10_000,
+                  });
+                  if (probe.statusCode < 200 || probe.statusCode >= 300) return;
+                  const hints = extractSupabaseTableHintsFromText(probe.bodyText, 30);
+                  if (hints.length === 0) return;
+                  for (const restBase of supabaseRestBases) {
+                    const seeds = buildSupabaseRestTableUrlSeeds({
+                      restBaseUrl: restBase,
+                      tableNames: hints,
+                      source: 'js_client_from_hint',
+                      discoveredAt: nowIso,
+                    });
+                    for (const seed of seeds) {
+                      urls.push(seed);
+                    }
+                  }
+                });
+              } catch (hintErr: unknown) {
+                stage4Warnings.push(
+                  `js table-hint error on ${jsUrl}: ${hintErr instanceof Error ? hintErr.message : String(hintErr)}`
+                );
               }
             }
           }
         } catch (err) {
-          if (err instanceof TargetInstabilityError || coordinator.isCircuitOpen(currentHost)) {
-            createDraft('stage_4_crawling_parameters', request.targetDomain, 'discovered_urls', urls.length);
-            createDraft('stage_4_crawling_parameters', request.targetDomain, 'discovered_content', content.length);
-            createDraft('stage_4_crawling_parameters', request.targetDomain, 'discovered_parameters', parameters.length);
-            createDraft('stage_4_crawling_parameters', request.targetDomain, 'discovered_spa_observations', spaObservations.length);
-            await recordStageResult({
-              stage: 'stage_4_crawling_parameters',
-              status: 'partial_failure',
-              durationMs: Date.now() - stage4Start,
-              observationsCount: urls.length + content.length + parameters.length + spaObservations.length,
-              warnings: [`Circuit breaker tripped on ${currentHost}`],
-            });
-            return buildCircuitBrokenResult(currentHost);
-          }
-          stage4Warnings.push(`Crawling/parameter error on ${rootUrl}: ${err instanceof Error ? err.message : String(err)}`);
+          stage4Warnings.push(
+            `JS mining error: ${err instanceof Error ? err.message : String(err)}`
+          );
         }
       }
 
       // Deep recon P4 — gated ffuf/arjun on top-K inventory only (opt-in).
-      // Runs after per-root URL/JS mining so inventory is richer; WAF canary aborts spray.
+      // Runs after per-host URL/JS mining so inventory is richer; WAF canary aborts spray.
       if (request.config?.enableGatedDictTopK === true) {
         try {
           const rawWl = (request.config.wordlistPath ?? 'api').trim();

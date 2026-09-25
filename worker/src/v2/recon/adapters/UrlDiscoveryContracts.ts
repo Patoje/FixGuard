@@ -58,6 +58,8 @@ export type UrlDiscoveryResult =
       readonly explicitNonClaims: UrlDiscoveryExplicitNonClaims;
       readonly lineage: AuthorizedActiveReconRequestLineage;
       readonly durationMs: number;
+      /** Loud degrade notices (e.g. gau/katana timeout kill). */
+      readonly warnings?: readonly string[];
     }
   | {
       readonly status: 'preflight_denied';
