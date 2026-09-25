@@ -137,6 +137,7 @@ export default function V2DashboardPage() {
       errorCount: 0,
       warningCount: 0,
       lineage: data.lineage,
+      alive: true,
     });
     setCompletedThrough(0);
     setMaxUnlockedIndex(1);

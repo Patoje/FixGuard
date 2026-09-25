@@ -143,6 +143,12 @@ export function PipelineStageTracker({
             </div>
             <p className="text-xs text-zinc-400 font-mono mt-0.5">
               Assessment ID: {status.assessmentId}
+              {isRunning && status.alive
+                ? ` · alive${status.lastHeartbeatAt ? ` @ ${status.lastHeartbeatAt.slice(11, 19)}` : ""}`
+                : ""}
+              {isRunning && status.heartbeatStageHint
+                ? ` · ${status.heartbeatStageHint}`
+                : ""}
             </p>
           </div>
         </div>

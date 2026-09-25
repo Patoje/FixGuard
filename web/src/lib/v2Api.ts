@@ -139,6 +139,10 @@ export interface OrchestratedAssessmentStatusResponse {
   readonly warningCount: number;
   readonly lineage: LineageTuple;
   readonly pendingEvidenceDraftCount?: number;
+  readonly lastHeartbeatAt?: string;
+  readonly alive?: boolean;
+  readonly heartbeatStageHint?: string;
+  readonly heartbeatToolHint?: string;
   readonly error?: string;
 }
 

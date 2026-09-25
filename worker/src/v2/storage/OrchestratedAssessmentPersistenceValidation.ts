@@ -276,11 +276,41 @@ export function validateOrchestratedAssessmentRecord(
       'pendingEvidenceDrafts',
       'attackSurfaceGraph',
       'degradedCapabilities',
+      'heartbeat',
       'error',
       'reasonCode',
     ])
   ) {
     return false;
+  }
+  if (value.heartbeat !== undefined) {
+    if (
+      value.heartbeat === null ||
+      typeof value.heartbeat !== 'object' ||
+      Array.isArray(value.heartbeat) ||
+      !isExactKeyObject(value.heartbeat, ['lastHeartbeatAt'], [
+        'stageHint',
+        'toolHint',
+        'sessionKeepAliveAt',
+        'sessionKeepAliveHint',
+      ]) ||
+      !isNonEmptyString((value.heartbeat as Record<string, unknown>).lastHeartbeatAt)
+    ) {
+      return false;
+    }
+    const hb = value.heartbeat as Record<string, unknown>;
+    if (hb.stageHint !== undefined && !isNonEmptyString(hb.stageHint)) {
+      return false;
+    }
+    if (hb.toolHint !== undefined && !isNonEmptyString(hb.toolHint)) {
+      return false;
+    }
+    if (hb.sessionKeepAliveAt !== undefined && !isNonEmptyString(hb.sessionKeepAliveAt)) {
+      return false;
+    }
+    if (hb.sessionKeepAliveHint !== undefined && !isNonEmptyString(hb.sessionKeepAliveHint)) {
+      return false;
+    }
   }
   if (
     value.contractVersion !== ORCHESTRATED_ASSESSMENT_CONTRACT_VERSION ||

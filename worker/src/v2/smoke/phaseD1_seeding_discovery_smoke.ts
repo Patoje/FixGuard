@@ -39,7 +39,10 @@ const DEEP_SEED = 'https://example.com/deep/admin/settings';
 const NEXT_SEED = 'https://example.com/dashboard';
 const OUT_OF_SCOPE_SEED = 'https://evil-out-of-scope.example/steal';
 
-function createMockReconAdapters(invocationCount: { count: number }): ReconToolAdapters {
+function createMockReconAdapters(
+  invocationCount: { count: number },
+  httpTransport?: IdorHttpProbeTransport
+): ReconToolAdapters {
   return {
     subdomainTool: {
       async discoverSubdomains(req) {
@@ -93,6 +96,48 @@ function createMockReconAdapters(invocationCount: { count: number }): ReconToolA
     webTool: {
       async inspectWeb(req) {
         invocationCount.count += 1;
+        if (httpTransport) {
+          const start = Date.now();
+          const probe = await httpTransport({
+            url: req.targetUrl,
+            method: 'GET',
+            headers: { 'User-Agent': 'FixGuard-V2-PhaseD1-Smoke/1.0' },
+          });
+          const serverHeader = probe.headers['server'];
+          const technologies: string[] = [];
+          if (serverHeader) technologies.push(serverHeader);
+          if (probe.headers['x-powered-by']) technologies.push(probe.headers['x-powered-by']);
+          const capturedHeaders: Record<string, string> = {};
+          for (const [k, v] of Object.entries(probe.headers)) {
+            if (typeof v === 'string') {
+              capturedHeaders[k.toLowerCase()] = v;
+            }
+          }
+          const observedAt = new Date().toISOString();
+          return {
+            status: 'success' as const,
+            contractVersion: 'fixguard-web-inspection/v0',
+            targetUrl: req.targetUrl,
+            observations: [
+              {
+                url: req.targetUrl,
+                method: 'GET' as const,
+                statusCode: probe.statusCode,
+                webServer: serverHeader,
+                technologies,
+                headers: Object.freeze(capturedHeaders),
+                bodyText: probe.bodyText,
+                discoveredAt: observedAt,
+                collectedAt: observedAt,
+                freshness: 'live' as const,
+                sourceReliability: 'direct_observation' as const,
+              },
+            ],
+            explicitNonClaims: WEB_INSPECTION_NON_CLAIMS,
+            lineage: req.lineage,
+            durationMs: Date.now() - start,
+          };
+        }
         return {
           status: 'success',
           contractVersion: 'fixguard-web-inspection/v0',
@@ -243,7 +288,10 @@ function createService(
   options?: {
     httpTransport?: IdorHttpProbeTransport;
     availabilityRunner?: ProcessRunner;
-    /** When true, omit custom reconAdapters so default stubs + loud degradation apply. */
+    /**
+     * When true, webTool captures headers/body via injected httpTransport
+     * (hermetic stand-in for default gated HTTP composition — no CLI spawn).
+     */
     useDefaultReconAdapters?: boolean;
   }
 ): OrchestratedAssessmentApplicationService {
@@ -266,9 +314,10 @@ function createService(
 
   return new OrchestratedAssessmentApplicationService({
     repository,
-    ...(options?.useDefaultReconAdapters
-      ? {}
-      : { reconAdapters: createMockReconAdapters(invocationCount) }),
+    reconAdapters: createMockReconAdapters(
+      invocationCount,
+      options?.useDefaultReconAdapters ? mockHttpTransport : undefined
+    ),
     httpTransport: mockHttpTransport,
     dnsResolver: mockDnsResolver,
     availabilityService: mockAvailabilityService,

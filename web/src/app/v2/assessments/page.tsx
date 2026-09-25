@@ -95,7 +95,8 @@ export default function OrchestratedAssessmentsPage() {
       timing: { startedAt: new Date().toISOString() },
       errorCount: 0,
       warningCount: 0,
-      lineage: data.lineage
+      lineage: data.lineage,
+      alive: true,
     });
 
     setIsPolling(true);

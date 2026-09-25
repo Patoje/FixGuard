@@ -3,8 +3,9 @@
  *
  * Registers wrappers around EXISTING verified defensive services plus
  * native A7 capabilities (LFI path traversal, SQL oracle advancement),
- * A8 nuclei XSS scan (allowlisted templates only), and
- * A9 sqlmap error-based SQL injection verification (technique=E only).
+ * A8 nuclei XSS scan (allowlisted templates only),
+ * A9 sqlmap error-based SQL injection verification (technique=E only), and
+ * dalfox-backed parameter_reflection_probe (legacy/reflection preference).
  * Capabilities are authorized verification — not free exploitation.
  * Unregistered plan kinds fail closed (not-implemented), never fake success.
  */
@@ -20,6 +21,7 @@ import { toStrictSafeId } from '../reporting-boundary/DefensiveReportContracts.j
 import { createLfiPathTraversalCapability } from './capabilities/LFIPathTraversalCapability.js';
 import { createSqlOracleAdvancementCapability } from './capabilities/SqlOracleAdvancementCapability.js';
 import { createNucleiXssScanCapability } from './capabilities/NucleiXssScanCapability.js';
+import { createDalfoxParameterReflectionCapability } from './capabilities/DalfoxXssCapability.js';
 import { createSqlInjectionVerificationCapability } from './capabilities/SqlInjectionVerificationCapability.js';
 import { createCorsChainExploitCapability } from './capabilities/CorsChainExploitCapability.js';
 import { createAuthBypassProbeCapability } from './capabilities/AuthBypassProbeCapability.js';
@@ -125,6 +127,7 @@ export class AttackCapabilityRegistry {
         createLfiPathTraversalCapability(),
         createSqlOracleAdvancementCapability(),
         createNucleiXssScanCapability(),
+        createDalfoxParameterReflectionCapability(),
         createSqlInjectionVerificationCapability(),
         createCredentialReuseCapability({ vault: new CredentialVaultService() }),
       ] as const);

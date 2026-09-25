@@ -422,6 +422,21 @@ export class CompositeActiveReconOrchestratorService {
       }
     }
 
+    async function notifyStageStart(stage: ReconStageName): Promise<void> {
+      if (!request.onStageStart) {
+        return;
+      }
+      const tools = STAGE_DEGRADED_BINARIES[stage] ?? [];
+      try {
+        await request.onStageStart({
+          stage,
+          toolHint: tools.join(','),
+        });
+      } catch {
+        // Non-blocking containment — liveness hints must never abort recon.
+      }
+    }
+
     const buildCircuitBrokenResult = (host: string): ActiveReconOrchestrationResult => ({
       status: 'circuit_broken',
       contractVersion: ACTIVE_RECON_ORCHESTRATION_CONTRACT_VERSION,
@@ -466,6 +481,7 @@ export class CompositeActiveReconOrchestratorService {
         observationsCount: 0,
       });
     } else {
+      await notifyStageStart('stage_1_domain_zone');
       const stage1Warnings: string[] = [];
 
       try {
@@ -617,6 +633,7 @@ export class CompositeActiveReconOrchestratorService {
         observationsCount: 0,
       });
     } else {
+      await notifyStageStart('stage_2_port_service');
       const stage2Warnings: string[] = [];
 
       // Collect target hosts/IPs from Stage 1 or root domain
@@ -691,6 +708,7 @@ export class CompositeActiveReconOrchestratorService {
         observationsCount: 0,
       });
     } else {
+      await notifyStageStart('stage_3_web_tls');
       const stage3Warnings: string[] = [];
 
       // Build target URLs from discovered open ports or standard defaults
@@ -1205,6 +1223,7 @@ export class CompositeActiveReconOrchestratorService {
         observationsCount: 0,
       });
     } else {
+      await notifyStageStart('stage_4_crawling_parameters');
       const stage4Warnings: string[] = [];
 
       // Collect root URLs from Stage 3 web discoveries or default
@@ -1535,6 +1554,7 @@ export class CompositeActiveReconOrchestratorService {
         observationsCount: 0,
       });
     } else {
+      await notifyStageStart('stage_5_secret_inspection');
       const stage5Warnings: string[] = [];
 
       // Collect target endpoints/scripts to inspect

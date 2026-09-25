@@ -79,6 +79,22 @@ export interface OrchestratedAssessmentTiming {
   readonly durationMs?: number;
 }
 
+/**
+ * Soft liveness signal while orchestrated recon / pipeline work is in flight.
+ * Does not authorize anything and must not weaken security timeouts.
+ * Optional sessionKeepAlive* fields are operator-safe hints from target
+ * soft-pings (no secrets).
+ */
+export interface OrchestratedAssessmentHeartbeat {
+  readonly lastHeartbeatAt: string;
+  readonly stageHint?: string;
+  readonly toolHint?: string;
+  /** ISO timestamp of the most recent target session keep-alive tick. */
+  readonly sessionKeepAliveAt?: string;
+  /** Operator-safe summary, e.g. "A:ok;B:error" — never cookies/tokens. */
+  readonly sessionKeepAliveHint?: string;
+}
+
 export interface DifferentialEvidenceContext {
   readonly endpointUrl: string;
   readonly detectionKind:
@@ -278,6 +294,8 @@ export interface OrchestratedAssessmentRecord {
    * or replaced by shallow stubs (e.g. `degraded_mode_missing_binary: naabu`).
    */
   readonly degradedCapabilities?: readonly string[];
+  /** Soft liveness while status is running/pending. */
+  readonly heartbeat?: OrchestratedAssessmentHeartbeat;
   readonly error?: string;
   readonly reasonCode?: string;
 }
@@ -293,6 +311,16 @@ export interface OrchestratedAssessmentStatusDto {
   readonly warningCount: number;
   readonly lineage: AuthorizedActiveReconRequestLineage;
   readonly pendingEvidenceDraftCount?: number;
+  /** ISO timestamp of the most recent pipeline heartbeat tick. */
+  readonly lastHeartbeatAt?: string;
+  /** True when status is in-flight and lastHeartbeatAt is within the alive window. */
+  readonly alive: boolean;
+  readonly heartbeatStageHint?: string;
+  readonly heartbeatToolHint?: string;
+  /** ISO timestamp of last target session keep-alive soft-ping (BYOT). */
+  readonly sessionKeepAliveAt?: string;
+  /** Operator-safe keep-alive summary (no secrets). */
+  readonly sessionKeepAliveHint?: string;
   readonly error?: string;
   readonly reasonCode?: string;
 }

@@ -1241,7 +1241,7 @@ export function generateAttackPlans(input: AttackPlanGeneratorInput): AttackPlan
           capability: 'parameter_reflection_probe',
           title: 'Parameter reflection validation',
           reasoning:
-            'Observed parameter reflection. Recommend active reflection re-validation after human authorization.',
+            'Observed parameter reflection. Prefer dalfox-backed parameter_reflection_probe on legacy/reflection paths after human authorization (deprioritize on SPA-primary).',
           blastRadius: 'single_parameter',
           capabilityGained: 'active_validation',
           finding,

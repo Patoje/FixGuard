@@ -159,6 +159,14 @@ export interface ActiveReconOrchestrationRequest {
   readonly dnsResolver?: PreSpawnDnsResolver;
   readonly onStageComplete?: (stageResult: ReconStageExecutionResult) => Promise<void> | void;
   /**
+   * Fired when a stage begins executing (not when skipped). Used for liveness
+   * heartbeat stage/tool hints — must never authorize or execute network work.
+   */
+  readonly onStageStart?: (info: {
+    readonly stage: ReconStageName;
+    readonly toolHint: string;
+  }) => Promise<void> | void;
+  /**
    * Phase D1 — pre-validated absolute seed URLs (scope + egress already enforced).
    * Injected as live OBSERVED URL observations; also used as crawl roots.
    * Stage 3 issues an HTTP GET probe per seed alongside root host probes.

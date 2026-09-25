@@ -67,6 +67,7 @@ function registeredSet(): Set<AttackCapabilityKind> {
     'lfi_path_traversal',
     'sql_oracle_advancement',
     'nuclei_xss_scan',
+    'parameter_reflection_probe',
     'sql_injection_verification',
     'credential_reuse',
   ];

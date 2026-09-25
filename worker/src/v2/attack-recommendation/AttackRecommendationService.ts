@@ -429,9 +429,9 @@ function buildCandidatesForFinding(args: {
         {
           capabilityKind: 'nuclei_xss_scan',
           humanLabel: CAPABILITY_LABELS.nuclei_xss_scan,
-          score: 90,
+          score: 70,
           reasonKind: 'OBSERVED',
-          reason: 'Reflection/XSS on legacy/PHP/CMS stack — nuclei XSS templates preferred',
+          reason: 'Reflection/XSS on legacy/PHP/CMS stack — nuclei XSS templates',
           suggestedFlags: {
             templates: 'xss',
             ...(param ? { parameter: param } : {}),
@@ -445,14 +445,18 @@ function buildCandidatesForFinding(args: {
         {
           capabilityKind: 'parameter_reflection_probe',
           humanLabel: CAPABILITY_LABELS.parameter_reflection_probe,
-          score: 45,
-          reasonKind: 'INFERRED',
-          reason: 'Secondary: classic reflection probe (often not registered)',
-          suggestedFlags: { ...(param ? { parameter: param } : {}) },
-          commandSummary: `parameter_reflection_probe ${target}${param ? ` param=${param}` : ''}`,
+          score: 88,
+          reasonKind: 'OBSERVED',
+          reason:
+            'Legacy/PHP/CMS reflection path — prefer dalfox parameter_reflection_probe under human authorize',
+          suggestedFlags: { ...(param ? { parameter: param } : {}), tool: 'dalfox' },
+          commandSummary: `dalfox url ${target}${param ? ` -p ${param}` : ''} --silence --format json`,
           executable: registered.has('parameter_reflection_probe'),
+          ...(!registered.has('parameter_reflection_probe')
+            ? { disabilityReason: 'capability_not_implemented: parameter_reflection_probe' }
+            : {}),
         },
-        'rule_xss_reflection_secondary'
+        'rule_xss_legacy_dalfox'
       );
     } else if (spaStack || vercelNext) {
       push(
@@ -468,6 +472,21 @@ function buildCandidatesForFinding(args: {
           executable: true,
         },
         'rule_xss_spa_deprioritize'
+      );
+      push(
+        {
+          capabilityKind: 'parameter_reflection_probe',
+          humanLabel: CAPABILITY_LABELS.parameter_reflection_probe,
+          score: 20,
+          reasonKind: 'INFERRED',
+          reason:
+            'SPA-primary stack — dalfox/reflection probe deprioritized (prefer authz differentials)',
+          suggestedFlags: { deprioritized: true, ...(param ? { parameter: param } : {}) },
+          commandSummary: `dalfox url ${target} # deprioritized on SPA/Next`,
+          executable: false,
+          disabilityReason: 'stack_policy: deprioritize dalfox reflection on SPA-primary',
+        },
+        'rule_xss_spa_dalfox_deprioritize'
       );
       // Prefer authz if BYOT available as alternate on SPA
       if (preconditions.identityCount >= 2) {

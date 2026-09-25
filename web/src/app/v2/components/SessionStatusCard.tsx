@@ -87,6 +87,7 @@ export function SessionStatusCard({
   const [lines, setLines] = useState<TerminalLine[]>([]);
   const seenStagesRef = useRef<Set<string>>(new Set());
   const lastStatusRef = useRef<string | null>(null);
+  const lastHeartbeatRef = useRef<string | null>(null);
   const terminalRef = useRef<HTMLPreElement>(null);
 
   useEffect(() => {
@@ -94,6 +95,7 @@ export function SessionStatusCard({
       setLines([]);
       seenStagesRef.current = new Set();
       lastStatusRef.current = null;
+      lastHeartbeatRef.current = null;
       return;
     }
 
@@ -166,6 +168,29 @@ export function SessionStatusCard({
       }
     }
 
+    // Soft liveness from server heartbeat (~every 7s) — keep terminal moving
+    if (
+      status.status === "running" &&
+      status.lastHeartbeatAt &&
+      status.lastHeartbeatAt !== lastHeartbeatRef.current
+    ) {
+      const hbStamp = status.lastHeartbeatAt.slice(11, 19) || stamp();
+      const stagePart = status.heartbeatStageHint
+        ? STAGE_LABELS[status.heartbeatStageHint]?.name ??
+          status.heartbeatStageHint
+        : "pipeline";
+      const toolPart = status.heartbeatToolHint
+        ? ` · ${status.heartbeatToolHint}`
+        : "";
+      next.push({
+        id: `hb-${status.lastHeartbeatAt}`,
+        at: hbStamp,
+        stream: "event",
+        text: `[${hbStamp}] hb still running… ${stagePart}${toolPart}`,
+      });
+      lastHeartbeatRef.current = status.lastHeartbeatAt;
+    }
+
     if (
       (status.status === "completed" || status.status === "circuit_broken") &&
       !seenStagesRef.current.has("done-banner")
@@ -214,6 +239,7 @@ export function SessionStatusCard({
   const isFailed =
     status.status === "failed" || status.status === "preflight_denied";
   const totalObs = status.stages.reduce((n, s) => n + s.observationsCount, 0);
+  const showAlive = isRunning && status.alive === true;
 
   return (
     <div className="rounded-xl border border-zinc-800 bg-zinc-950/80 p-6 shadow-2xl backdrop-blur-xl space-y-5">
@@ -250,6 +276,9 @@ export function SessionStatusCard({
             </div>
             <p className="text-xs text-zinc-400 font-mono mt-0.5">
               {status.targetDomain} · {status.assessmentId}
+              {showAlive && status.lastHeartbeatAt
+                ? ` · hb ${status.lastHeartbeatAt.slice(11, 19)}`
+                : ""}
             </p>
           </div>
         </div>
@@ -258,7 +287,7 @@ export function SessionStatusCard({
           {isPolling && (
             <span className="hidden sm:flex items-center gap-1.5 rounded-full border border-emerald-500/20 bg-emerald-500/10 px-3 py-1 text-[11px] font-mono text-emerald-400">
               <Radio className="h-3 w-3 animate-pulse" />
-              Live
+              {showAlive ? "Alive" : "Live"}
             </span>
           )}
           <button

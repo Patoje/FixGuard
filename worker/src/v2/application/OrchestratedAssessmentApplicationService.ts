@@ -32,26 +32,32 @@ import type {
   ActiveReconOrchestrationConfig,
 } from '../recon/orchestration/ActiveReconOrchestrationContracts.js';
 import { CompositeActiveReconOrchestratorService } from '../recon/orchestration/CompositeActiveReconOrchestratorService.js';
-import { DNS_RESOLUTION_NON_CLAIMS } from '../recon/adapters/DnsResolutionContracts.js';
-import { PORT_DISCOVERY_NON_CLAIMS } from '../recon/adapters/PortDiscoveryContracts.js';
 import {
   WEB_INSPECTION_NON_CLAIMS,
   WEB_INSPECTION_CONTRACT_VERSION,
   WEB_OBSERVATION_BODY_CHUNK_MAX_BYTES,
 } from '../recon/adapters/WebInspectionContracts.js';
 import { runAdapterPreflight } from '../recon/adapters/AdapterPreflightPipeline.js';
+import { SUBDOMAIN_DISCOVERY_NON_CLAIMS } from '../recon/adapters/SubdomainDiscoveryContracts.js';
+import { DNS_RESOLUTION_NON_CLAIMS } from '../recon/adapters/DnsResolutionContracts.js';
+import { PORT_DISCOVERY_NON_CLAIMS } from '../recon/adapters/PortDiscoveryContracts.js';
 import { TLS_INSPECTION_NON_CLAIMS } from '../recon/adapters/TlsInspectionContracts.js';
-import { URL_DISCOVERY_NON_CLAIMS } from '../recon/adapters/UrlDiscoveryContracts.js';
-import { CONTENT_DISCOVERY_NON_CLAIMS } from '../recon/adapters/ContentDiscoveryContracts.js';
 import { PARAMETER_DISCOVERY_NON_CLAIMS } from '../recon/adapters/ParameterDiscoveryContracts.js';
 import { SECRET_DISCOVERY_NON_CLAIMS } from '../recon/adapters/SecretDiscoveryContracts.js';
+import { URL_DISCOVERY_NON_CLAIMS } from '../recon/adapters/UrlDiscoveryContracts.js';
+import { CONTENT_DISCOVERY_NON_CLAIMS } from '../recon/adapters/ContentDiscoveryContracts.js';
 import { PlaywrightSpaAdapter } from '../recon/adapters/PlaywrightSpaAdapter.js';
 import { CrtShAdapter } from '../recon/adapters/CrtShAdapter.js';
 import { LocalProcessRunner } from '../core/ProcessRunner.js';
 import { CompositeUrlDiscoveryAdapter } from '../recon/adapters/CompositeUrlDiscoveryAdapter.js';
 import { FfufAdapter } from '../recon/adapters/FfufAdapter.js';
 import { JsLuiceAdapter } from '../recon/adapters/JsLuiceAdapter.js';
-import { SUBDOMAIN_DISCOVERY_NON_CLAIMS } from '../recon/adapters/SubdomainDiscoveryContracts.js';
+import { SubfinderAdapter } from '../recon/adapters/SubfinderAdapter.js';
+import { DnsxAdapter } from '../recon/adapters/DnsxAdapter.js';
+import { NaabuPortDiscoveryAdapter } from '../recon/adapters/NaabuPortDiscoveryAdapter.js';
+import { TlsxAdapter } from '../recon/adapters/TlsxAdapter.js';
+import { ArjunAdapter } from '../recon/adapters/ArjunAdapter.js';
+import { TrufflehogAdapter } from '../recon/adapters/TrufflehogAdapter.js';
 import type { SubdomainDiscoveryTool } from '../recon/adapters/SubdomainDiscoveryContracts.js';
 
 import type {
@@ -192,8 +198,39 @@ import {
   type EphemeralByotSessionMeta,
 } from '../byot/EphemeralByotSessionStore.js';
 
-export const ASSESSMENT_GLOBAL_TIMEOUT_MS = 30 * 60 * 1000; // 30 minutes
+import {
+  ASSESSMENT_HEARTBEAT_INTERVAL_MS,
+  AssessmentLivenessHeartbeat,
+  buildAssessmentHeartbeatState,
+  isAssessmentHeartbeatAlive,
+} from '../runtime/AssessmentLivenessHeartbeat.js';
+import {
+  ASSESSMENT_ACTIVITY_IDLE_MS,
+  ASSESSMENT_GLOBAL_TIMEOUT_MS,
+  ASSESSMENT_HARD_MAX_MS,
+  AssessmentActivityDeadline,
+  deadlineBreachError,
+  deadlineBreachMessage,
+  deadlineBreachReasonCode,
+  startAssessmentDeadlineMonitor,
+  type AssessmentDeadlineBreach,
+} from '../runtime/AssessmentActivityDeadline.js';
+import {
+  TARGET_SESSION_KEEPALIVE_INTERVAL_MS,
+  TargetSessionKeepAlive,
+  byotBundleHasAuthenticatedIdentity,
+  formatKeepAliveHint,
+} from '../runtime/TargetSessionKeepAlive.js';
 
+export {
+  ASSESSMENT_GLOBAL_TIMEOUT_MS,
+  ASSESSMENT_HARD_MAX_MS,
+  ASSESSMENT_ACTIVITY_IDLE_MS,
+};
+
+/** Re-export canonical 7s liveness interval for composition / tests. */
+export { ASSESSMENT_HEARTBEAT_INTERVAL_MS };
+export { TARGET_SESSION_KEEPALIVE_INTERVAL_MS };
 function byotIdentityToExecuteMaterial(identity: ByotIdentity): EphemeralByotIdentityMaterial {
   const headers: Record<string, string> = {};
   if (identity.injectHeaders) {
@@ -322,6 +359,14 @@ export interface OrchestratedAssessmentServiceDependencies {
   readonly lateralMovementService?: LateralMovementService;
   readonly impactAssessmentService?: ImpactAssessmentService;
   readonly activeInvestigationRuntime?: ActiveInvestigationRuntimeService;
+  /** Override default 7000ms heartbeat interval (tests only). */
+  readonly heartbeatIntervalMs?: number;
+  /** Override target session keep-alive interval (tests only). */
+  readonly sessionKeepAliveIntervalMs?: number;
+  /** Override absolute hard-max assessment timeout (tests only). */
+  readonly assessmentHardMaxMs?: number;
+  /** Override activity idle timeout (tests only). */
+  readonly assessmentIdleMs?: number;
 }
 
 /** Pure helper exposed for tests / composition — builds query service over a graph. */
@@ -720,17 +765,165 @@ function createDefaultPassiveCtTool(
   };
 }
 
+/**
+ * Default production composition wires real CLI adapters (not shallow stubs).
+ * Missing binaries surface as degraded_mode_missing_binary via availability
+ * preflight (and loud spawn failures) — never silent stub success.
+ * Web inspection uses gated HTTP transport (real network; httpx CLI remains
+ * available as HttpxInspectionAdapter for explicit injection).
+ * CT transport remains fail-closed without live fetch injection (hermetic-safe).
+ *
+ * Hermetic smoke suites may set FIXGUARD_V2_HERMETIC_RECON=1 to use shallow
+ * stubs (fast, deterministic). Production / live assessments leave it unset.
+ */
 function createDefaultReconAdapters(
   dnsResolver: (host: string) => Promise<string[]>,
   httpTransport: IdorHttpProbeTransport
 ): ReconToolAdapters {
+  if (process.env.FIXGUARD_V2_HERMETIC_RECON === '1') {
+    return createHermeticStubReconAdapters(dnsResolver, httpTransport);
+  }
+  return createProductionReconAdapters(dnsResolver, httpTransport);
+}
+
+function createProductionReconAdapters(
+  dnsResolver: (host: string) => Promise<string[]>,
+  httpTransport: IdorHttpProbeTransport
+): ReconToolAdapters {
   const processRunner = new LocalProcessRunner();
-  const urlTool = new CompositeUrlDiscoveryAdapter(processRunner, dnsResolver);
-  const contentTool = new FfufAdapter(processRunner, dnsResolver);
-  const jsLuiceTool = new JsLuiceAdapter(processRunner, dnsResolver);
 
   return {
-    // Hermetic-safe active subdomain stub (empty success). Inject SubfinderAdapter for live runs.
+    subdomainTool: new SubfinderAdapter(processRunner, dnsResolver),
+    passiveCtTool: createDefaultPassiveCtTool(dnsResolver),
+    dnsTool: new DnsxAdapter(processRunner, dnsResolver),
+    portTool: new NaabuPortDiscoveryAdapter(processRunner, dnsResolver),
+    webTool: createGatedHttpWebTool(dnsResolver, httpTransport),
+    tlsTool: new TlsxAdapter(processRunner, dnsResolver),
+    urlTool: new CompositeUrlDiscoveryAdapter(processRunner, dnsResolver),
+    contentTool: new FfufAdapter(processRunner, dnsResolver),
+    parameterTool: new ArjunAdapter(processRunner, dnsResolver),
+    secretTool: new TrufflehogAdapter(processRunner, dnsResolver),
+    spaDiscoveryTool: new PlaywrightSpaAdapter(undefined, dnsResolver),
+    jsLuiceTool: new JsLuiceAdapter(processRunner, dnsResolver),
+  };
+}
+
+function createGatedHttpWebTool(
+  dnsResolver: (host: string) => Promise<string[]>,
+  httpTransport: IdorHttpProbeTransport
+): ReconToolAdapters['webTool'] {
+  return {
+    async inspectWeb(req) {
+      const start = Date.now();
+      const rawTarget = typeof req.targetUrl === 'string' ? req.targetUrl.trim() : '';
+
+      const preflight = await runAdapterPreflight({
+        target: rawTarget,
+        targetKind: 'url',
+        unsupportedProtocolReasonCode: 'unsupported_url_protocol',
+        verifiedAuthorizationDecision: req.verifiedAuthorizationDecision,
+        authorizedScopeGrant: req.authorizedScopeGrant,
+        lineage: req.lineage,
+        permissionCheck: (ps) => {
+          let hasPermission = Boolean(
+            ps.technologyFingerprinting ||
+              ps.endpointDiscovery ||
+              ps.activeValidation ||
+              ps.lightValidation
+          );
+          if (!hasPermission && 'activeRecon' in ps) {
+            const ext = ps as typeof ps & { activeRecon?: boolean };
+            if (ext.activeRecon) hasPermission = true;
+          }
+          return hasPermission;
+        },
+        missingPermissionReason:
+          'Scope grant does not permit technology fingerprinting or active reconnaissance',
+        targetOutOfScopeReason: 'Target URL host is outside authorized scope boundaries',
+        dnsResolver,
+      });
+
+      if (!preflight.ok) {
+        return {
+          status: 'preflight_denied' as const,
+          contractVersion: WEB_INSPECTION_CONTRACT_VERSION,
+          targetUrl: rawTarget,
+          reasonCode: preflight.reasonCode,
+          reason: preflight.reason,
+          explicitNonClaims: WEB_INSPECTION_NON_CLAIMS,
+          lineage: req.lineage,
+        };
+      }
+
+      try {
+        const probe = await httpTransport({
+          url: rawTarget,
+          method: 'GET',
+          headers: { 'User-Agent': 'FixGuard-V2-Orchestrator/1.0' },
+        });
+        const serverHeader = probe.headers['server'];
+        const technologies: string[] = [];
+        if (serverHeader) technologies.push(serverHeader);
+        if (probe.headers['x-powered-by']) technologies.push(probe.headers['x-powered-by']);
+
+        const capturedHeaders: Record<string, string> = {};
+        for (const [k, v] of Object.entries(probe.headers)) {
+          if (typeof v === 'string') {
+            capturedHeaders[k.toLowerCase()] = v;
+          }
+        }
+        const bodyChunk =
+          probe.bodyText.length > WEB_OBSERVATION_BODY_CHUNK_MAX_BYTES
+            ? probe.bodyText.slice(0, WEB_OBSERVATION_BODY_CHUNK_MAX_BYTES)
+            : probe.bodyText;
+        const observedAt = new Date().toISOString();
+
+        return {
+          status: 'success' as const,
+          contractVersion: WEB_INSPECTION_CONTRACT_VERSION,
+          targetUrl: rawTarget,
+          observations: [
+            {
+              url: rawTarget,
+              method: 'GET',
+              statusCode: probe.statusCode,
+              webServer: serverHeader,
+              technologies,
+              headers: Object.freeze(capturedHeaders),
+              bodyText: bodyChunk,
+              discoveredAt: observedAt,
+              collectedAt: observedAt,
+              freshness: 'live' as const,
+              sourceReliability: 'direct_observation' as const,
+            },
+          ],
+          explicitNonClaims: WEB_INSPECTION_NON_CLAIMS,
+          lineage: req.lineage,
+          durationMs: Date.now() - start,
+        };
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err);
+        return {
+          status: 'execution_failed' as const,
+          contractVersion: WEB_INSPECTION_CONTRACT_VERSION,
+          targetUrl: rawTarget,
+          reasonCode: 'http_probe_failed',
+          reason: msg,
+          explicitNonClaims: WEB_INSPECTION_NON_CLAIMS,
+          lineage: req.lineage,
+          durationMs: Date.now() - start,
+        };
+      }
+    },
+  };
+}
+
+/** Shallow stubs for hermetic smoke suites (FIXGUARD_V2_HERMETIC_RECON=1). */
+function createHermeticStubReconAdapters(
+  dnsResolver: (host: string) => Promise<string[]>,
+  httpTransport: IdorHttpProbeTransport
+): ReconToolAdapters {
+  return {
     subdomainTool: {
       async discoverSubdomains(req) {
         return {
@@ -744,7 +937,6 @@ function createDefaultReconAdapters(
         };
       },
     },
-    // PART1 follow-up: CrtShAdapter wired as passiveCtTool (CT ≠ live).
     passiveCtTool: createDefaultPassiveCtTool(dnsResolver),
     dnsTool: {
       async resolveDns(req) {
@@ -792,111 +984,7 @@ function createDefaultReconAdapters(
         };
       },
     },
-    webTool: {
-      async inspectWeb(req) {
-        const start = Date.now();
-        const rawTarget = typeof req.targetUrl === 'string' ? req.targetUrl.trim() : '';
-
-        // Double gate: verified authorization + scope + egress SSRF (same as HttpxInspectionAdapter).
-        const preflight = await runAdapterPreflight({
-          target: rawTarget,
-          targetKind: 'url',
-          unsupportedProtocolReasonCode: 'unsupported_url_protocol',
-          verifiedAuthorizationDecision: req.verifiedAuthorizationDecision,
-          authorizedScopeGrant: req.authorizedScopeGrant,
-          lineage: req.lineage,
-          permissionCheck: (ps) => {
-            let hasPermission = Boolean(
-              ps.technologyFingerprinting ||
-                ps.endpointDiscovery ||
-                ps.activeValidation ||
-                ps.lightValidation
-            );
-            if (!hasPermission && 'activeRecon' in ps) {
-              const ext = ps as typeof ps & { activeRecon?: boolean };
-              if (ext.activeRecon) hasPermission = true;
-            }
-            return hasPermission;
-          },
-          missingPermissionReason:
-            'Scope grant does not permit technology fingerprinting or active reconnaissance',
-          targetOutOfScopeReason: 'Target URL host is outside authorized scope boundaries',
-          dnsResolver,
-        });
-
-        if (!preflight.ok) {
-          return {
-            status: 'preflight_denied' as const,
-            contractVersion: WEB_INSPECTION_CONTRACT_VERSION,
-            targetUrl: rawTarget,
-            reasonCode: preflight.reasonCode,
-            reason: preflight.reason,
-            explicitNonClaims: WEB_INSPECTION_NON_CLAIMS,
-            lineage: req.lineage,
-          };
-        }
-
-        try {
-          const probe = await httpTransport({
-            url: rawTarget,
-            method: 'GET',
-            headers: { 'User-Agent': 'FixGuard-V2-Orchestrator/1.0' },
-          });
-          const serverHeader = probe.headers['server'];
-          const technologies: string[] = [];
-          if (serverHeader) technologies.push(serverHeader);
-          if (probe.headers['x-powered-by']) technologies.push(probe.headers['x-powered-by']);
-
-          const capturedHeaders: Record<string, string> = {};
-          for (const [k, v] of Object.entries(probe.headers)) {
-            if (typeof v === 'string') {
-              capturedHeaders[k.toLowerCase()] = v;
-            }
-          }
-          const bodyChunk =
-            probe.bodyText.length > WEB_OBSERVATION_BODY_CHUNK_MAX_BYTES
-              ? probe.bodyText.slice(0, WEB_OBSERVATION_BODY_CHUNK_MAX_BYTES)
-              : probe.bodyText;
-          const observedAt = new Date().toISOString();
-
-          return {
-            status: 'success' as const,
-            contractVersion: WEB_INSPECTION_CONTRACT_VERSION,
-            targetUrl: rawTarget,
-            observations: [
-              {
-                url: rawTarget,
-                method: 'GET',
-                statusCode: probe.statusCode,
-                webServer: serverHeader,
-                technologies,
-                headers: Object.freeze(capturedHeaders),
-                bodyText: bodyChunk,
-                discoveredAt: observedAt,
-                collectedAt: observedAt,
-                freshness: 'live' as const,
-                sourceReliability: 'direct_observation' as const,
-              },
-            ],
-            explicitNonClaims: WEB_INSPECTION_NON_CLAIMS,
-            lineage: req.lineage,
-            durationMs: Date.now() - start,
-          };
-        } catch (err: unknown) {
-          const msg = err instanceof Error ? err.message : String(err);
-          return {
-            status: 'execution_failed' as const,
-            contractVersion: WEB_INSPECTION_CONTRACT_VERSION,
-            targetUrl: rawTarget,
-            reasonCode: 'http_probe_failed',
-            reason: msg,
-            explicitNonClaims: WEB_INSPECTION_NON_CLAIMS,
-            lineage: req.lineage,
-            durationMs: Date.now() - start,
-          };
-        }
-      },
-    },
+    webTool: createGatedHttpWebTool(dnsResolver, httpTransport),
     tlsTool: {
       async inspectTls(req) {
         return {
@@ -910,8 +998,33 @@ function createDefaultReconAdapters(
         };
       },
     },
-    urlTool,
-    contentTool,
+    urlTool: {
+      async discoverUrls(req) {
+        return {
+          status: 'success',
+          contractVersion: 'fixguard-url-discovery/v0',
+          targetUrlOrDomain: req.targetUrlOrDomain,
+          observations: [],
+          explicitNonClaims: URL_DISCOVERY_NON_CLAIMS,
+          lineage: req.lineage,
+          durationMs: 5,
+        };
+      },
+    },
+    contentTool: {
+      async discoverContent(req) {
+        return {
+          status: 'success' as const,
+          contractVersion: 'fixguard-content-discovery/v0' as const,
+          targetUrl: req.targetUrl,
+          wordlistPath: req.wordlistPath ?? '/dev/null',
+          observations: [] as const,
+          explicitNonClaims: CONTENT_DISCOVERY_NON_CLAIMS,
+          lineage: req.lineage,
+          durationMs: 5,
+        };
+      },
+    },
     parameterTool: {
       async discoverParameters(req) {
         return {
@@ -945,8 +1058,6 @@ function createDefaultReconAdapters(
         };
       },
     },
-    spaDiscoveryTool: new PlaywrightSpaAdapter(undefined, dnsResolver),
-    jsLuiceTool,
   };
 }
 
@@ -968,7 +1079,7 @@ export class OrchestratedAssessmentApplicationService {
   private readonly httpTransport: IdorHttpProbeTransport;
   private readonly dnsResolver: (host: string) => Promise<string[]>;
   private readonly availabilityService: ReconToolAvailabilityService;
-  private readonly usingDefaultReconAdapters: boolean;
+  private readonly usingHermeticStubReconAdapters: boolean;
   private readonly attackPlanRepository: AttackPlanRepository;
   private readonly attackPlanGenerator: AttackPlanGeneratorService;
   private readonly attackChainRepository: AttackChainRepository;
@@ -980,6 +1091,10 @@ export class OrchestratedAssessmentApplicationService {
   private readonly impactAssessmentService: ImpactAssessmentService;
   private readonly activeInvestigationRuntime: ActiveInvestigationRuntimeService;
   private readonly activeAssessments = new Map<string, Promise<void>>();
+  private readonly heartbeatIntervalMs: number;
+  private readonly sessionKeepAliveIntervalMs: number;
+  private readonly assessmentHardMaxMs: number;
+  private readonly assessmentIdleMs: number;
   /**
    * Process-local sealed VerifiedAuthorizationDecision refs (WeakSet-branded).
    * Same pattern as A4 AttackAuthorizationService.sealedTokens / getRuntimeToken —
@@ -1014,10 +1129,34 @@ export class OrchestratedAssessmentApplicationService {
       deps.impactAssessmentService ?? new ImpactAssessmentService();
     this.activeInvestigationRuntime =
       deps.activeInvestigationRuntime ?? new ActiveInvestigationRuntimeService();
-    this.usingDefaultReconAdapters = deps.reconAdapters === undefined;
+    this.usingHermeticStubReconAdapters =
+      deps.reconAdapters === undefined && process.env.FIXGUARD_V2_HERMETIC_RECON === '1';
     this.reconAdapters =
-      deps.reconAdapters ??
-      createDefaultReconAdapters(this.dnsResolver, this.httpTransport);
+      deps.reconAdapters ?? createDefaultReconAdapters(this.dnsResolver, this.httpTransport);
+    this.heartbeatIntervalMs =
+      typeof deps.heartbeatIntervalMs === 'number' &&
+      Number.isFinite(deps.heartbeatIntervalMs) &&
+      deps.heartbeatIntervalMs > 0
+        ? deps.heartbeatIntervalMs
+        : ASSESSMENT_HEARTBEAT_INTERVAL_MS;
+    this.sessionKeepAliveIntervalMs =
+      typeof deps.sessionKeepAliveIntervalMs === 'number' &&
+      Number.isFinite(deps.sessionKeepAliveIntervalMs) &&
+      deps.sessionKeepAliveIntervalMs > 0
+        ? deps.sessionKeepAliveIntervalMs
+        : TARGET_SESSION_KEEPALIVE_INTERVAL_MS;
+    this.assessmentHardMaxMs =
+      typeof deps.assessmentHardMaxMs === 'number' &&
+      Number.isFinite(deps.assessmentHardMaxMs) &&
+      deps.assessmentHardMaxMs > 0
+        ? deps.assessmentHardMaxMs
+        : ASSESSMENT_HARD_MAX_MS;
+    this.assessmentIdleMs =
+      typeof deps.assessmentIdleMs === 'number' &&
+      Number.isFinite(deps.assessmentIdleMs) &&
+      deps.assessmentIdleMs > 0
+        ? deps.assessmentIdleMs
+        : ASSESSMENT_ACTIVITY_IDLE_MS;
   }
 
   /** Etapa 2 · F1 — process-local ActiveInvestigationRuntime. */
@@ -1153,8 +1292,8 @@ export class OrchestratedAssessmentApplicationService {
     }
 
     // Pre-Scan Tool Availability — Phase D1 Step 2 loud degraded mode.
-    // Missing CLIs no longer hard-abort; they are recorded and stages run via
-    // shallow stubs / available adapters with explicit degradation notices.
+    // Missing CLIs no longer hard-abort; they are recorded and stages run with
+    // available adapters + explicit degradation notices (no silent stub success).
     const skipStages = new Set(command.config?.skipStages ?? []);
     const requiredToolSet = new Set<ReconToolName>();
     for (const stage of ALL_STAGE_NAMES) {
@@ -1173,9 +1312,9 @@ export class OrchestratedAssessmentApplicationService {
       degradedBinarySet.add(missing);
     }
 
-    // Default composition substitutes shallow stubs for several CLIs — surface them.
-    if (this.usingDefaultReconAdapters) {
-      const defaultStubByStage: Readonly<Record<ReconStageName, readonly string[]>> = {
+    // Hermetic stub composition substitutes shallow stubs for several CLIs — surface them.
+    if (this.usingHermeticStubReconAdapters) {
+      const hermeticStubByStage: Readonly<Record<ReconStageName, readonly string[]>> = {
         stage_1_domain_zone: ['subfinder'],
         stage_2_port_service: ['naabu'],
         stage_3_web_tls: ['tlsx'],
@@ -1184,7 +1323,7 @@ export class OrchestratedAssessmentApplicationService {
       };
       for (const stage of ALL_STAGE_NAMES) {
         if (skipStages.has(stage)) continue;
-        for (const stubBinary of defaultStubByStage[stage]) {
+        for (const stubBinary of hermeticStubByStage[stage]) {
           degradedBinarySet.add(stubBinary);
         }
       }
@@ -1344,6 +1483,11 @@ export class OrchestratedAssessmentApplicationService {
       findings: [],
       pendingEvidenceDrafts: [],
       recommendations: [],
+      heartbeat: {
+        lastHeartbeatAt: nowIso,
+        stageHint: 'pipeline_boot',
+        toolHint: 'orchestrator',
+      },
       ...(degradedBinaries.length > 0
         ? {
             degradedCapabilities: Object.freeze(
@@ -1491,6 +1635,26 @@ export class OrchestratedAssessmentApplicationService {
       warningCount: record.warningCount,
       lineage: record.lineage,
       pendingEvidenceDraftCount: record.pendingEvidenceDrafts?.length ?? 0,
+      alive: isAssessmentHeartbeatAlive(
+        record.heartbeat?.lastHeartbeatAt,
+        record.status,
+        Date.now()
+      ),
+      ...(record.heartbeat?.lastHeartbeatAt
+        ? { lastHeartbeatAt: record.heartbeat.lastHeartbeatAt }
+        : {}),
+      ...(record.heartbeat?.stageHint
+        ? { heartbeatStageHint: record.heartbeat.stageHint }
+        : {}),
+      ...(record.heartbeat?.toolHint
+        ? { heartbeatToolHint: record.heartbeat.toolHint }
+        : {}),
+      ...(record.heartbeat?.sessionKeepAliveAt
+        ? { sessionKeepAliveAt: record.heartbeat.sessionKeepAliveAt }
+        : {}),
+      ...(record.heartbeat?.sessionKeepAliveHint
+        ? { sessionKeepAliveHint: record.heartbeat.sessionKeepAliveHint }
+        : {}),
       ...(record.error ? { error: record.error } : {}),
       ...(record.reasonCode ? { reasonCode: record.reasonCode } : {}),
     };
@@ -1649,6 +1813,7 @@ export class OrchestratedAssessmentApplicationService {
           'lfi_path_traversal',
           'sql_oracle_advancement',
           'nuclei_xss_scan',
+          'parameter_reflection_probe',
           'sql_injection_verification',
           'credential_reuse',
         ] as const
@@ -4282,17 +4447,91 @@ export class OrchestratedAssessmentApplicationService {
     degradedBinaries?: readonly string[]
   ): Promise<void> {
     const startTime = Date.now();
-    let timeoutTimer: NodeJS.Timeout | undefined;
+    let deadlineMonitor: ReturnType<typeof startAssessmentDeadlineMonitor> | undefined;
+    let breachKind: AssessmentDeadlineBreach | null = null;
+
+    const activityDeadline = new AssessmentActivityDeadline({
+      hardMaxMs: this.assessmentHardMaxMs,
+      idleMs: this.assessmentIdleMs,
+      startedAtMs: startTime,
+    });
+
+    const heartbeat = new AssessmentLivenessHeartbeat(
+      async (tick) => {
+        await this.repository.update(record.assessmentId, (prev) => {
+          if (prev.status !== 'running' && prev.status !== 'pending') {
+            return prev;
+          }
+          // UI liveness must NOT touch activity deadline. Preserve keep-alive hints.
+          const nextHeartbeat = {
+            ...buildAssessmentHeartbeatState(tick),
+            ...(prev.heartbeat?.sessionKeepAliveAt
+              ? { sessionKeepAliveAt: prev.heartbeat.sessionKeepAliveAt }
+              : {}),
+            ...(prev.heartbeat?.sessionKeepAliveHint
+              ? { sessionKeepAliveHint: prev.heartbeat.sessionKeepAliveHint }
+              : {}),
+          };
+          return {
+            ...prev,
+            heartbeat: nextHeartbeat,
+          };
+        });
+      },
+      { intervalMs: this.heartbeatIntervalMs }
+    );
+    heartbeat.setHint({
+      stageHint: 'pipeline_boot',
+      toolHint: 'orchestrator',
+    });
+    heartbeat.start();
+
+    let sessionKeepAlive: TargetSessionKeepAlive | undefined;
+    if (byotBundleHasAuthenticatedIdentity(sessionIdentities)) {
+      sessionKeepAlive = new TargetSessionKeepAlive({
+        targetDomain: record.targetDomain,
+        verifiedAuthorizationDecision: verifiedDecision,
+        authorizedScopeGrant: scopeGrant,
+        lineage,
+        sessionIdentities: sessionIdentities!,
+        buildProbeAuthContext,
+        transport: this.httpTransport,
+        dnsResolver: this.dnsResolver,
+        intervalMs: this.sessionKeepAliveIntervalMs,
+        onActivity: () => {
+          activityDeadline.touch();
+        },
+        onTick: async (tick) => {
+          const hint = formatKeepAliveHint(tick);
+          await this.repository.update(record.assessmentId, (prev) => {
+            if (prev.status !== 'running' && prev.status !== 'pending') {
+              return prev;
+            }
+            return {
+              ...prev,
+              heartbeat: {
+                lastHeartbeatAt: prev.heartbeat?.lastHeartbeatAt ?? tick.at,
+                ...(prev.heartbeat?.stageHint
+                  ? { stageHint: prev.heartbeat.stageHint }
+                  : {}),
+                ...(prev.heartbeat?.toolHint
+                  ? { toolHint: prev.heartbeat.toolHint }
+                  : {}),
+                sessionKeepAliveAt: tick.at,
+                sessionKeepAliveHint: hint,
+              },
+            };
+          });
+        },
+      });
+      sessionKeepAlive.start();
+    }
 
     const timeoutPromise = new Promise<never>((_, reject) => {
-      timeoutTimer = setTimeout(() => {
-        const err = new Error('Assessment exceeded global execution timeout limit (30m limit)');
-        err.name = 'AssessmentTimeoutError';
-        reject(err);
-      }, ASSESSMENT_GLOBAL_TIMEOUT_MS);
-      if (typeof timeoutTimer.unref === 'function') {
-        timeoutTimer.unref();
-      }
+      deadlineMonitor = startAssessmentDeadlineMonitor(activityDeadline, (breach) => {
+        breachKind = breach;
+        reject(deadlineBreachError(breach));
+      });
     });
 
     try {
@@ -4306,17 +4545,24 @@ export class OrchestratedAssessmentApplicationService {
           config,
           sessionIdentities,
           seedUrls,
-          degradedBinaries
+          degradedBinaries,
+          heartbeat,
+          activityDeadline
         ),
         timeoutPromise,
       ]);
     } catch (err: unknown) {
       if (err instanceof Error && err.name === 'AssessmentTimeoutError') {
+        const reason =
+          breachKind ??
+          (typeof err.message === 'string' && err.message.includes('idle')
+            ? 'assessment_activity_idle'
+            : 'assessment_hard_max');
         await this.repository.update(record.assessmentId, (prev) => ({
           ...prev,
           status: 'failed',
-          error: 'Assessment global timeout exceeded (30m limit)',
-          reasonCode: 'assessment_global_timeout',
+          error: deadlineBreachMessage(reason),
+          reasonCode: deadlineBreachReasonCode(reason),
           errorCount: prev.errorCount + 1,
           timing: {
             startedAt: prev.timing.startedAt,
@@ -4358,9 +4604,10 @@ export class OrchestratedAssessmentApplicationService {
         },
       }));
     } finally {
-      if (timeoutTimer) {
-        clearTimeout(timeoutTimer);
-      }
+      heartbeat.stop();
+      sessionKeepAlive?.stop();
+      deadlineMonitor?.clear();
+      void timeoutPromise.catch(() => undefined);
       this.activeAssessments.delete(record.assessmentId);
     }
   }
@@ -4374,7 +4621,9 @@ export class OrchestratedAssessmentApplicationService {
     config?: ActiveReconOrchestrationConfig,
     sessionIdentities?: ByotSessionIdentityBundle,
     seedUrls?: readonly string[],
-    degradedBinaries?: readonly string[]
+    degradedBinaries?: readonly string[],
+    heartbeat?: AssessmentLivenessHeartbeat,
+    activityDeadline?: AssessmentActivityDeadline
   ): Promise<void> {
     const coordinator = new TargetExecutionCoordinator({
       requestsPerSecond: 5,
@@ -4403,12 +4652,56 @@ export class OrchestratedAssessmentApplicationService {
         ...(degradedBinaries && degradedBinaries.length > 0
           ? { degradedBinaries }
           : {}),
+        onStageStart: async (info) => {
+          activityDeadline?.touch();
+          heartbeat?.setHint({
+            stageHint: info.stage,
+            toolHint: info.toolHint,
+          });
+          await this.repository.update(record.assessmentId, (prev) => {
+            if (prev.status !== 'running' && prev.status !== 'pending') {
+              return prev;
+            }
+            return {
+              ...prev,
+              heartbeat: {
+                lastHeartbeatAt: new Date().toISOString(),
+                stageHint: info.stage,
+                toolHint: info.toolHint,
+                ...(prev.heartbeat?.sessionKeepAliveAt
+                  ? { sessionKeepAliveAt: prev.heartbeat.sessionKeepAliveAt }
+                  : {}),
+                ...(prev.heartbeat?.sessionKeepAliveHint
+                  ? { sessionKeepAliveHint: prev.heartbeat.sessionKeepAliveHint }
+                  : {}),
+              },
+            };
+          });
+        },
         onStageComplete: async (stageResult) => {
+          activityDeadline?.touch();
           await this.repository.update(record.assessmentId, (prev) => {
             const existingStages = prev.stages.filter((s) => s.stage !== stageResult.stage);
             return {
               ...prev,
               stages: [...existingStages, stageResult],
+              ...(prev.status === 'running' || prev.status === 'pending'
+                ? {
+                    heartbeat: {
+                      lastHeartbeatAt: new Date().toISOString(),
+                      stageHint: stageResult.stage,
+                      ...(prev.heartbeat?.toolHint
+                        ? { toolHint: prev.heartbeat.toolHint }
+                        : {}),
+                      ...(prev.heartbeat?.sessionKeepAliveAt
+                        ? { sessionKeepAliveAt: prev.heartbeat.sessionKeepAliveAt }
+                        : {}),
+                      ...(prev.heartbeat?.sessionKeepAliveHint
+                        ? { sessionKeepAliveHint: prev.heartbeat.sessionKeepAliveHint }
+                        : {}),
+                    },
+                  }
+                : {}),
             };
           });
         },
@@ -4495,6 +4788,23 @@ export class OrchestratedAssessmentApplicationService {
 
       // 2. F4 Vulnerability Detection Verticals (CORS & Parameter Reflection)
       // Phase D1 bridge: feed OBSERVED app endpoints into detection (exclude /_next/static heavy probes).
+      heartbeat?.setHint({
+        stageHint: 'detection_verticals',
+        toolHint: 'http_probes',
+      });
+      await this.repository.update(record.assessmentId, (prev) => {
+        if (prev.status !== 'running' && prev.status !== 'pending') {
+          return prev;
+        }
+        return {
+          ...prev,
+          heartbeat: {
+            lastHeartbeatAt: new Date().toISOString(),
+            stageHint: 'detection_verticals',
+            toolHint: 'http_probes',
+          },
+        };
+      });
       const detectionBridge = buildDetectionTargetsFromRecon({
         targetDomain: record.targetDomain,
         aggregatedObservations: reconResult.aggregatedObservations,
