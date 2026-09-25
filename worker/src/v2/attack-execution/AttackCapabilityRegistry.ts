@@ -27,6 +27,8 @@ import { createCorsChainExploitCapability } from './capabilities/CorsChainExploi
 import { createAuthBypassProbeCapability } from './capabilities/AuthBypassProbeCapability.js';
 import { createSupabaseRlsReadConfirmCapability } from './capabilities/SupabaseRlsReadConfirmCapability.js';
 import { createSupabaseRlsWriteProbeCapability } from './capabilities/SupabaseRlsWriteProbeCapability.js';
+import { createSupabaseAuthzWriteMatrixCapability } from './capabilities/SupabaseAuthzWriteMatrixCapability.js';
+import { createNextServerActionDiffCapability } from './capabilities/NextServerActionDiffCapability.js';
 import { createJwtAlgNoneProbeCapability } from './capabilities/JwtAlgNoneProbeCapability.js';
 import { createCredentialReuseCapability } from './capabilities/CredentialReuseCapability.js';
 import { CredentialVaultService } from '../post-exploitation/CredentialVaultService.js';
@@ -127,6 +129,8 @@ export class AttackCapabilityRegistry {
         createAuthBypassProbeCapability(),
         createSupabaseRlsReadConfirmCapability(),
         createSupabaseRlsWriteProbeCapability(),
+        createSupabaseAuthzWriteMatrixCapability(),
+        createNextServerActionDiffCapability(),
         createJwtAlgNoneProbeCapability(),
         createLfiPathTraversalCapability(),
         createSqlOracleAdvancementCapability(),
@@ -172,6 +176,8 @@ export { createCorsChainExploitCapability } from './capabilities/CorsChainExploi
 export { createAuthBypassProbeCapability } from './capabilities/AuthBypassProbeCapability.js';
 export { createSupabaseRlsReadConfirmCapability } from './capabilities/SupabaseRlsReadConfirmCapability.js';
 export { createSupabaseRlsWriteProbeCapability } from './capabilities/SupabaseRlsWriteProbeCapability.js';
+export { createSupabaseAuthzWriteMatrixCapability } from './capabilities/SupabaseAuthzWriteMatrixCapability.js';
+export { createNextServerActionDiffCapability } from './capabilities/NextServerActionDiffCapability.js';
 export { createJwtAlgNoneProbeCapability } from './capabilities/JwtAlgNoneProbeCapability.js';
 export { createLfiPathTraversalCapability } from './capabilities/LFIPathTraversalCapability.js';
 export { createSqlOracleAdvancementCapability } from './capabilities/SqlOracleAdvancementCapability.js';

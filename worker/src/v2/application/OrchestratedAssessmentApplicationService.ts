@@ -94,6 +94,8 @@ import {
   classifySupabaseUrl,
   isSupabaseHost,
   buildSupabaseRestTableUrlSeeds,
+  preferSupabaseRlsTableOrder,
+  SUPABASE_PREFERRED_RLS_SEED_TABLES,
 } from '../supabase/SupabaseSurfaceContracts.js';
 import { runSessionFixationDetection } from '../detection/SessionFixationDetectionService.js';
 import { runCredentialedCorsDetection } from '../detection/CredentialedCorsDetectionService.js';
@@ -639,7 +641,10 @@ function objectiveForCapability(capability: AttackCapabilityKind): ChainObjectiv
       return 'data_access';
     case 'supabase_rls_read_confirm':
     case 'supabase_rls_write_probe':
+    case 'supabase_authz_write_matrix':
       return 'data_access';
+    case 'next_server_action_diff':
+      return 'privilege_escalation';
     case 'auth_bypass_probe':
     case 'jwt_alg_none_probe':
     case 'session_fixation_probe':
@@ -664,6 +669,8 @@ function declaredImpactForCapability(capability: AttackCapabilityKind): ImpactLe
       return 'authorization_bypass';
     case 'supabase_rls_read_confirm':
     case 'supabase_rls_write_probe':
+    case 'supabase_authz_write_matrix':
+    case 'next_server_action_diff':
       return 'authorization_bypass';
     case 'auth_bypass_probe':
     case 'jwt_alg_none_probe':
@@ -1873,6 +1880,8 @@ export class OrchestratedAssessmentApplicationService {
           'credential_reuse',
           'supabase_rls_read_confirm',
           'supabase_rls_write_probe',
+          'supabase_authz_write_matrix',
+          'next_server_action_diff',
         ] as const
       ).filter((k) => registry.get(k) !== null)
     );
@@ -4899,10 +4908,11 @@ export class OrchestratedAssessmentApplicationService {
       ) {
         for (const sbCandidate of supabaseCandidates.slice(0, 3)) {
           try {
-            const seedTables = [
+            const seedTables = preferSupabaseRlsTableOrder([
               ...(sbCandidate.seedTableNames ?? []),
               ...(sbCandidate.tableName ? [sbCandidate.tableName] : []),
-            ].filter((name, idx, arr) => arr.indexOf(name) === idx);
+              ...SUPABASE_PREFERRED_RLS_SEED_TABLES,
+            ]);
             const enumResult = await runPostgrestOpenApiEnum({
               contractVersion: POSTGREST_OPENAPI_ENUM_CONTRACT_VERSION,
               kind: 'postgrest_openapi_enum_request',
@@ -4916,15 +4926,16 @@ export class OrchestratedAssessmentApplicationService {
               scopeGrant,
               restBaseUrl: sbCandidate.restBaseUrl,
               anonApiKey: supabaseAnonKey,
-              seedTableNames: seedTables.length > 0 ? seedTables : ['profiles'],
+              seedTableNames: seedTables.length > 0 ? seedTables : [...SUPABASE_PREFERRED_RLS_SEED_TABLES],
               transport: this.httpTransport,
               dnsResolver: this.dnsResolver,
             });
 
-            const tableNames = enumResult.relations
-              .filter((r) => r.relationKind === 'table' || r.relationKind === 'view')
-              .map((r) => r.name)
-              .slice(0, 12);
+            const tableNames = preferSupabaseRlsTableOrder(
+              enumResult.relations
+                .filter((r) => r.relationKind === 'table' || r.relationKind === 'view')
+                .map((r) => r.name)
+            ).slice(0, 12);
 
             if (tableNames.length === 0) {
               continue;

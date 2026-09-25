@@ -83,6 +83,8 @@ const CAPABILITY_LABELS: Readonly<Record<AttackCapabilityKind, string>> = {
   credential_reuse: 'Credential reuse (lateral)',
   supabase_rls_read_confirm: 'Supabase RLS world-readable read confirm',
   supabase_rls_write_probe: 'Supabase RLS write canary (HITL mutation)',
+  supabase_authz_write_matrix: 'Supabase authz write matrix BOLA/BFLA (HITL)',
+  next_server_action_diff: 'Next.js Server Action differential (unauth↔BYOT)',
 };
 
 function sha16(content: string): string {
@@ -277,29 +279,80 @@ function buildCandidatesForFinding(args: {
   // --- IDOR / BOLA ---
   if (isIdorFinding(finding)) {
     const byotOk = preconditions.identityCount >= 2;
-    push(
-      {
-        capabilityKind: 'idor_read_differential',
-        humanLabel: CAPABILITY_LABELS.idor_read_differential,
-        score: byotOk ? 100 : 55,
-        reasonKind: 'OBSERVED',
-        reason: byotOk
-          ? 'BROKEN_ACCESS_CONTROL observed with BYOT A+B identities available'
-          : 'BROKEN_ACCESS_CONTROL observed but BYOT requires ≥2 identities',
-        suggestedFlags: {
-          method: 'GET',
-          differential: true,
-          identityCount: preconditions.identityCount,
-          ...(param ? { resourceParam: param } : {}),
+    const isSupabaseRls = finding.metadata.kind === 'supabase_rls_abuse_metadata';
+
+    if (isSupabaseRls) {
+      push(
+        {
+          capabilityKind: 'supabase_rls_read_confirm',
+          humanLabel: CAPABILITY_LABELS.supabase_rls_read_confirm,
+          score: 99,
+          reasonKind: 'OBSERVED',
+          reason: 'Supabase RLS world-readable table — prefer read confirm over generic IDOR',
+          suggestedFlags: { method: 'GET', mode: 'rls_read_confirm', limit: 1 },
+          commandSummary: `supabase_rls_read_confirm GET ${target}?select=*&limit=1`,
+          executable: registered.has('supabase_rls_read_confirm'),
         },
-        commandSummary: `idor_read_differential GET ${target} identities=${preconditions.identityCount}`,
-        executable: byotOk,
-        ...(byotOk
-          ? {}
-          : { disabilityReason: 'prerequisite_missing: identity_count_at_least_2 (BYOT A+B)' }),
-      },
-      'rule_idor_byot'
-    );
+        'rule_supabase_rls_read'
+      );
+      push(
+        {
+          capabilityKind: 'supabase_rls_write_probe',
+          humanLabel: CAPABILITY_LABELS.supabase_rls_write_probe,
+          score: 70,
+          reasonKind: 'INFERRED',
+          reason:
+            'Advisory canary write — executable only after HITL mutation scope (state_change_benign)',
+          suggestedFlags: { method: 'POST', mode: 'rls_write_canary', mutation: true },
+          commandSummary: `supabase_rls_write_probe POST ${target} (HITL mutation)`,
+          executable: false,
+          disabilityReason: 'requires_hitl_mutation_scope: allowStateChangingRequests',
+        },
+        'rule_supabase_rls_write'
+      );
+      push(
+        {
+          capabilityKind: 'supabase_authz_write_matrix',
+          humanLabel: CAPABILITY_LABELS.supabase_authz_write_matrix,
+          score: byotOk ? 85 : 50,
+          reasonKind: 'INFERRED',
+          reason: byotOk
+            ? 'Authz write matrix applicable with BYOT A+B — still requires mutation scope at execute'
+            : 'Authz write matrix requires BYOT A+B and HITL mutation scope',
+          suggestedFlags: { method: 'POST', differential: true, mutation: true },
+          commandSummary: `supabase_authz_write_matrix POST ${target} identities=${preconditions.identityCount}`,
+          executable: false,
+          disabilityReason: byotOk
+            ? 'requires_hitl_mutation_scope: allowStateChangingRequests'
+            : 'prerequisite_missing: identity_count_at_least_2 (BYOT A+B) + mutation scope',
+        },
+        'rule_supabase_authz_write_matrix'
+      );
+    } else {
+      push(
+        {
+          capabilityKind: 'idor_read_differential',
+          humanLabel: CAPABILITY_LABELS.idor_read_differential,
+          score: byotOk ? 100 : 55,
+          reasonKind: 'OBSERVED',
+          reason: byotOk
+            ? 'BROKEN_ACCESS_CONTROL observed with BYOT A+B identities available'
+            : 'BROKEN_ACCESS_CONTROL observed but BYOT requires ≥2 identities',
+          suggestedFlags: {
+            method: 'GET',
+            differential: true,
+            identityCount: preconditions.identityCount,
+            ...(param ? { resourceParam: param } : {}),
+          },
+          commandSummary: `idor_read_differential GET ${target} identities=${preconditions.identityCount}`,
+          executable: byotOk,
+          ...(byotOk
+            ? {}
+            : { disabilityReason: 'prerequisite_missing: identity_count_at_least_2 (BYOT A+B)' }),
+        },
+        'rule_idor_byot'
+      );
+    }
   }
 
   // --- CORS + creds ---

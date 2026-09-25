@@ -57,7 +57,9 @@ export type AttackCapabilityKind =
   | 'sql_injection_verification'
   | 'credential_reuse'
   | 'supabase_rls_read_confirm'
-  | 'supabase_rls_write_probe';
+  | 'supabase_rls_write_probe'
+  | 'supabase_authz_write_matrix'
+  | 'next_server_action_diff';
 
 export type CapabilityGained =
   | 'read_escalated'
@@ -731,7 +733,10 @@ export function suggestBlastRadiusForCapability(
     case 'supabase_rls_read_confirm':
       return 'read_escalated';
     case 'supabase_rls_write_probe':
+    case 'supabase_authz_write_matrix':
       return 'state_change_benign';
+    case 'next_server_action_diff':
+      return 'read_escalated';
     case 'sql_error_oracle_probe':
     case 'sql_oracle_advancement':
     case 'sql_injection_verification':

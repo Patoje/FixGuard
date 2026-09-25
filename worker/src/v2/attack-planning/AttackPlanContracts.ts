@@ -51,7 +51,9 @@ export type AttackCapabilityKind =
   | 'sql_injection_verification'
   | 'credential_reuse'
   | 'supabase_rls_read_confirm'
-  | 'supabase_rls_write_probe';
+  | 'supabase_rls_write_probe'
+  | 'supabase_authz_write_matrix'
+  | 'next_server_action_diff';
 
 /**
  * Capability expected if a human later authorizes a defensive validation step.
@@ -194,9 +196,11 @@ export type AttackPlanSurfaceResourceClass =
 export interface AttackPlanSurfaceHint {
   readonly endpointUrl: string;
   readonly path: string;
-  readonly signalKind: 'auth_surface';
+  readonly signalKind: 'auth_surface' | 'next_server_action';
   /** When omitted, generator classifies from URL/path heuristics. */
   readonly resourceClass?: AttackPlanSurfaceResourceClass;
+  /** OBSERVED Next-Action id when signalKind is next_server_action. */
+  readonly actionId?: string;
 }
 
 export interface AttackPlanGeneratorInput {

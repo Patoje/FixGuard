@@ -942,6 +942,53 @@ function generateSurfaceInvestigationPlans(
   const emitted = new Set<string>();
 
   for (const hint of hints) {
+    if (hint.signalKind === 'next_server_action') {
+      const actionId = hint.actionId?.trim() ?? '';
+      if (actionId.length < 8) continue;
+      const sourceKey = `surface_nsa_${sha256Short(`${hint.endpointUrl}:${actionId}`)}`;
+      if (emitted.has(sourceKey)) continue;
+      emitted.add(sourceKey);
+
+      const actionPrereq: AttackPrerequisite = {
+        kind: 'parameter_present',
+        description: 'Requires OBSERVED Next-Action id (never invented)',
+        satisfied: true,
+        detail: `actionIdRedacted=${actionId.slice(0, 8)}…`,
+      };
+
+      plans.push(
+        buildInvestigationPlan({
+          assessmentId: input.assessmentId,
+          scanId: input.scanId,
+          capability: 'next_server_action_diff',
+          sourceKey,
+          title: 'Investigate OBSERVED Next.js Server Action',
+          reasoning:
+            'OBSERVED Next-Action id from RSC/network. Advisory unauth↔BYOT differential — does not invent action ids or claim Critical severity. Fail-closed without OBSERVED id.',
+          blastRadius: 'single_endpoint',
+          capabilityGained: 'active_validation',
+          sourceFindingTypes: ['BROKEN_ACCESS_CONTROL'],
+          prerequisites: [observedSurfacePrereq(hint.path), actionPrereq],
+          steps: [
+            {
+              stepId: `${sourceKey}_step_1`,
+              ordinal: 1,
+              title: 'Authorize Server Action differential',
+              description:
+                'Human-authorized POST with OBSERVED Next-Action header. Compare unauth vs optional BYOT.',
+              requiredPermissions: ['active_http_post'],
+            },
+          ],
+          lineage: input.lineage,
+          createdAt: generatedAt,
+          planOrigin: 'observed_surface',
+          targetUrl: hint.endpointUrl,
+          parameterName: actionId,
+        })
+      );
+      continue;
+    }
+
     if (hint.signalKind !== 'auth_surface') continue;
     if (!AUTH_SURFACE_PATH_RE.test(hint.path) && !AUTH_SURFACE_PATH_RE.test(hint.endpointUrl)) {
       // Allow explicit auth_surface hints even if path regex misses (e.g. supabase hosts).
@@ -1104,6 +1151,38 @@ export function generateAttackPlans(input: AttackPlanGeneratorInput): AttackPlan
               title: 'Authorize Supabase RLS write canary',
               description:
                 'HITL-gated POST canary row then DELETE cleanup. Fail-closed without mutation scope.',
+              requiredPermissions: ['active_http_get', 'active_http_post'],
+            },
+          ],
+          lineage: input.lineage,
+          createdAt: generatedAt,
+          targetUrl: targetFromFinding(finding),
+        })
+      );
+      // Authz write matrix — BYOT A+B + mutation; advisory until authorize.
+      const writeMatrixPrereqs = [
+        ...prereqs,
+        identityCountPrereq(identities),
+      ];
+      plans.push(
+        buildPlan({
+          assessmentId: input.assessmentId,
+          scanId: input.scanId,
+          capability: 'supabase_authz_write_matrix',
+          title: `Authz write matrix (BOLA/BFLA) on '${tableName}'`,
+          reasoning:
+            'RECOMMENDED: human-authorized pairwise write differential (A↔B, unauth↔credentialed). Fail-closed without BYOT A+B and allowStateChangingRequests. Never auto-execute.',
+          blastRadius: 'single_resource',
+          capabilityGained: 'active_validation',
+          finding,
+          prerequisites: writeMatrixPrereqs,
+          steps: [
+            {
+              stepId: `${finding.id}_awm_step_1`,
+              ordinal: 1,
+              title: 'Authorize authz write matrix pairs',
+              description:
+                'HITL-gated BOLA/BFLA write-pair expansion. Requires BYOT A+B and mutation scope.',
               requiredPermissions: ['active_http_get', 'active_http_post'],
             },
           ],

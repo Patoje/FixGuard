@@ -58,7 +58,11 @@ export function planDeepReconMethods(input: {
     });
   }
 
-  if (input.enableByotHarvest === true && input.stack.hasJwtIdentity === true) {
+  const byotTokenPresent = (process.env.FG_ACCESS_TOKEN?.trim() ?? '').length >= 20;
+  if (
+    input.enableByotHarvest === true &&
+    (input.stack.hasJwtIdentity === true || byotTokenPresent)
+  ) {
     candidates.push({
       method: 'byot_network_harvest',
       expectedRequestCost: 10,

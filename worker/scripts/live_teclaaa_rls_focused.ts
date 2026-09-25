@@ -174,10 +174,18 @@ async function main(): Promise<void> {
   );
 
   let promoted = 0;
-  if (rls.status === 'pending_human_review' && rls.evidenceDraft && rls.observations[0]) {
-    const obs = rls.observations[0];
-    const draft: EnrichedEvidenceDraft = {
-      ...rls.evidenceDraft,
+  const findingTitles: string[] = [];
+  if (rls.status === 'pending_human_review' && rls.evidenceDraft && rls.observations.length > 0) {
+    const drafts: EnrichedEvidenceDraft[] = rls.observations.slice(0, 8).map((obs, idx) => ({
+      ...rls.evidenceDraft!,
+      draftId:
+        idx === 0
+          ? rls.evidenceDraft!.draftId
+          : `${rls.evidenceDraft!.draftId}_${obs.tableName}`.slice(0, 64),
+      safeRationale:
+        idx === 0
+          ? rls.evidenceDraft!.safeRationale
+          : `OBSERVED Supabase Data API table '${obs.tableName}' world-readable via anon role`,
       differentialContext: {
         endpointUrl: obs.tableUrl,
         detectionKind: 'supabase_rls_abuse',
@@ -193,11 +201,11 @@ async function main(): Promise<void> {
           ? { supabaseRowCountHint: obs.rowCountHint }
           : {}),
       },
-    };
-    const gate = evaluateFindingAutoPromotion(draft);
+    }));
+    const gate = evaluateFindingAutoPromotion(drafts[0]!);
     console.log(`auto_promote gate=${gate.decision} ${gate.reasonCode}`);
     const applied = applyFindingAutoPromotion({
-      drafts: [draft],
+      drafts,
       assessmentId: lineage.assessmentId,
       scanId: lineage.scanId,
       targetDomain: host,
@@ -205,8 +213,77 @@ async function main(): Promise<void> {
       evaluatedAt: now,
     });
     promoted = applied.findings.length;
+    for (const f of applied.findings) findingTitles.push(f.title);
     console.log(
-      `findings=${promoted} title=${applied.findings[0]?.title ?? 'n/a'}`
+      `findings=${promoted} titles=${findingTitles.join(' | ') || 'n/a'}`
+    );
+  }
+
+  // Optional storage path probe (Fase 6 lite) — only if JS yields OBSERVED paths.
+  let storageProbe: {
+    readonly status: string;
+    readonly reason: string;
+    readonly publicHits: number;
+    readonly pathHints: readonly string[];
+  } | null = null;
+  try {
+    const html = await (await fetch(`https://${TARGET}/carrera/93kpw`)).text();
+    const scripts = Array.from(
+      html.matchAll(/src="(\/_next\/static\/[^"]+\.js)"/g),
+      (m) => m[1]!
+    );
+    const bodies = [html];
+    for (const p of scripts.slice(0, 25)) {
+      try {
+        bodies.push(await (await fetch(`https://${TARGET}${p}`)).text());
+      } catch {
+        // ignore
+      }
+    }
+    const { extractSupabaseStoragePathHintsFromText } = await import(
+      '../src/v2/supabase/SupabaseSurfaceContracts.js'
+    );
+    const { runSupabaseStorageSignedUrlProbe } = await import(
+      '../src/v2/supabase/SupabaseStorageSignedUrlProbeService.js'
+    );
+    const { SUPABASE_STORAGE_SIGNED_URL_PROBE_CONTRACT_VERSION } = await import(
+      '../src/v2/supabase/SupabaseStorageSignedUrlProbeContracts.js'
+    );
+    const pathHints = extractSupabaseStoragePathHintsFromText(bodies.join('\n'));
+    if (pathHints.length > 0) {
+      const storage = await runSupabaseStorageSignedUrlProbe({
+        contractVersion: SUPABASE_STORAGE_SIGNED_URL_PROBE_CONTRACT_VERSION,
+        kind: 'supabase_storage_signed_url_probe_request',
+        detectionId: 'det_live_teclaaa_storage',
+        ...lineage,
+        verifiedAuthorizationDecision: auth.decision,
+        scopeGrant,
+        storageBaseUrl: `https://${host}/storage/v1`,
+        anonApiKey: key,
+        objectPaths: pathHints,
+        probeBucketList: true,
+      });
+      storageProbe = {
+        status: storage.status,
+        reason: storage.reasonCode,
+        publicHits: storage.observations.filter((o) => o.publicReadable).length,
+        pathHints,
+      };
+      console.log(
+        `storage status=${storage.status} reason=${storage.reasonCode} hints=${pathHints.length} publicHits=${storageProbe.publicHits}`
+      );
+    } else {
+      console.log('storage pathHints=0 (skip live storage probe)');
+      storageProbe = {
+        status: 'skipped',
+        reason: 'no_storage_paths_in_js',
+        publicHits: 0,
+        pathHints: [],
+      };
+    }
+  } catch (err: unknown) {
+    console.log(
+      `storage probe soft-fail: ${err instanceof Error ? err.message : 'error'}`
     );
   }
 
@@ -233,6 +310,8 @@ async function main(): Promise<void> {
       claim: o.claimKind,
     })),
     promoted,
+    findingTitles,
+    storageProbe,
     charmarketSupabase,
   };
   writeFileSync('/tmp/fixguard_teclaaa_rls_focused.json', JSON.stringify(out, null, 2));

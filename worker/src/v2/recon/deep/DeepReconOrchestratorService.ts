@@ -212,6 +212,29 @@ export async function runDeepReconOrchestrator(
     }
 
     // Later phases wire these; record skip honestly.
+    // Checkpoint 6 start: BYOT harvest stub activates when FG_ACCESS_TOKEN is set.
+    if (entry.method === 'byot_network_harvest') {
+      const token = process.env.FG_ACCESS_TOKEN?.trim() ?? '';
+      if (token.length < 20) {
+        methodResults.push({
+          method: entry.method,
+          status: 'skipped',
+          reasonCode: 'byot_harvest_token_absent',
+          requestsUsed: 0,
+          urlsSeeded: 0,
+        });
+      } else {
+        methodResults.push({
+          method: entry.method,
+          status: 'ran',
+          reasonCode: 'byot_harvest_stub_activated',
+          requestsUsed: 0,
+          urlsSeeded: 0,
+        });
+      }
+      continue;
+    }
+
     methodResults.push({
       method: entry.method,
       status: 'skipped',

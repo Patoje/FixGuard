@@ -37,6 +37,110 @@ export function isSupabaseHost(hostname: string): boolean {
   return host === 'supabase.co' || host.endsWith('.supabase.co');
 }
 
+/** Preferred Teclaaa / common Data API seed order for RLS probe budget. */
+export const SUPABASE_PREFERRED_RLS_SEED_TABLES: readonly string[] = Object.freeze([
+  'profiles',
+  'shop_items',
+  'wallets',
+  'runs',
+]);
+
+/**
+ * Stable prefer-order for RLS table probing: preferred seeds first, then others.
+ */
+export function preferSupabaseRlsTableOrder(
+  tableNames: readonly string[]
+): readonly string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  const push = (name: string): void => {
+    const key = name.toLowerCase();
+    if (seen.has(key)) return;
+    seen.add(key);
+    out.push(name);
+  };
+  for (const pref of SUPABASE_PREFERRED_RLS_SEED_TABLES) {
+    const hit = tableNames.find((t) => t.toLowerCase() === pref);
+    if (hit) push(hit);
+  }
+  for (const t of tableNames) push(t);
+  return Object.freeze(out);
+}
+
+/**
+ * Hermetic: mine Storage public-object path hints from JS/HTML.
+ * Sources: /storage/v1/object/public/{bucket}/{key}, storage.from('bucket').
+ * Returns "bucket/key" or "bucket/" seeds — never secrets.
+ */
+export function extractSupabaseStoragePathHintsFromText(
+  text: string,
+  maxHints: number = 20
+): readonly string[] {
+  if (typeof text !== 'string' || text.length === 0) return Object.freeze([]);
+  const cap = maxHints > 0 ? Math.floor(maxHints) : 20;
+  const out: string[] = [];
+  const seen = new Set<string>();
+  const push = (raw: string): void => {
+    if (out.length >= cap) return;
+    let p = raw.trim().replace(/^\/+/, '');
+    if (p.startsWith('object/public/')) p = p.slice('object/public/'.length);
+    if (p.startsWith('storage/v1/object/public/')) {
+      p = p.slice('storage/v1/object/public/'.length);
+    }
+    if (!/^[A-Za-z0-9_][A-Za-z0-9_./-]{0,200}$/.test(p)) return;
+    const key = p.toLowerCase();
+    if (seen.has(key)) return;
+    seen.add(key);
+    out.push(p);
+  };
+
+  for (const m of text.matchAll(
+    /\/storage\/v1\/object\/public\/([A-Za-z0-9_./-]+)/g
+  )) {
+    if (m[1]) push(m[1]);
+  }
+  for (const m of text.matchAll(
+    /storage\.from\(\s*['"]([A-Za-z_][A-Za-z0-9_]*)['"]\s*\)/g
+  )) {
+    if (m[1]) push(`${m[1]}/`);
+  }
+  return Object.freeze(out);
+}
+
+/**
+ * Hermetic: mine OBSERVED Next-Action id hints from RSC/flight/JS text.
+ * Never invents ids; returns opaque hashes/ids only (min length 8).
+ */
+export function extractNextServerActionIdHintsFromText(
+  text: string,
+  maxHints: number = 10
+): readonly string[] {
+  if (typeof text !== 'string' || text.length === 0) return Object.freeze([]);
+  const cap = maxHints > 0 ? Math.floor(maxHints) : 10;
+  const out: string[] = [];
+  const seen = new Set<string>();
+  const push = (raw: string): void => {
+    if (out.length >= cap) return;
+    const id = raw.trim();
+    if (id.length < 8 || id.length > 128) return;
+    if (!/^[A-Za-z0-9_+\/=.-]+$/.test(id)) return;
+    if (seen.has(id)) return;
+    seen.add(id);
+    out.push(id);
+  };
+
+  for (const m of text.matchAll(/["']next-action["']\s*[:=]\s*["']([^"']+)["']/gi)) {
+    if (m[1]) push(m[1]);
+  }
+  for (const m of text.matchAll(/Next-Action["']?\s*[:=]\s*["']([^"']+)["']/g)) {
+    if (m[1]) push(m[1]);
+  }
+  for (const m of text.matchAll(/\$ACTION_ID_([A-Za-z0-9]+)/g)) {
+    if (m[1]) push(m[1]);
+  }
+  return Object.freeze(out);
+}
+
 export function extractSupabaseProjectRef(hostname: string): string | undefined {
   const host = hostname.trim().toLowerCase().replace(/\.$/, '');
   const match = /^([a-z0-9]+)\.supabase\.co$/i.exec(host);
