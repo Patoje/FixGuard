@@ -727,6 +727,7 @@ export function suggestBlastRadiusForCapability(
       return 'read_authenticated';
     case 'idor_read_differential':
     case 'cors_chain_exploit':
+    case 'supabase_rls_read_confirm':
       return 'read_escalated';
     case 'sql_error_oracle_probe':
     case 'sql_oracle_advancement':
