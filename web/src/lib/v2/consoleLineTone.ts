@@ -47,7 +47,23 @@ const GREEN_PATTERNS: readonly RegExp[] = [
   /continue-ready/i,
 ];
 
+/** Final pipeline summary line: green if errors=0; amber/red when errors or hard failure. */
+function classifyPipelineCompletedLine(text: string): ConsoleLineTone | null {
+  if (!/pipeline\s+completed/i.test(text)) return null;
+  const errorsMatch = text.match(/errors?\s*=\s*(\d+)/i);
+  const errors = errorsMatch ? Number(errorsMatch[1]) : 0;
+  if (errors > 0 || /\b(hard[_ ]?fail|fatal|aborted)\b/i.test(text)) {
+    return "error";
+  }
+  if (/\bwarnings?\s*=\s*[1-9]/i.test(text) || /\bpartial_failure\b/i.test(text)) {
+    return "warning";
+  }
+  return "success";
+}
+
 export function classifyConsoleLineTone(text: string): ConsoleLineTone {
+  const pipelineTone = classifyPipelineCompletedLine(text);
+  if (pipelineTone) return pipelineTone;
   if (RED_PATTERNS.some((re) => re.test(text))) return "error";
   if (YELLOW_PATTERNS.some((re) => re.test(text))) return "warning";
   if (GREEN_PATTERNS.some((re) => re.test(text))) return "success";

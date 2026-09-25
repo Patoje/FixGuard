@@ -79,13 +79,11 @@ function AttackModeContent({
   const [targetDomain, setTargetDomain] = useState("");
   const [lineage, setLineage] = useState<LineageTuple | null>(null);
 
-  const [prevQueryId, setPrevQueryId] = useState(assessmentIdFromQuery);
-  if (assessmentIdFromQuery !== prevQueryId) {
-    setPrevQueryId(assessmentIdFromQuery);
-    if (assessmentIdFromQuery) {
+  useEffect(() => {
+    if (assessmentIdFromQuery && assessmentIdFromQuery !== assessmentId) {
       setAssessmentId(assessmentIdFromQuery);
     }
-  }
+  }, [assessmentIdFromQuery, assessmentId]);
 
   const [plans, setPlans] = useState<readonly AttackPlan[]>([]);
   const [chains, setChains] = useState<readonly AttackChain[]>([]);
@@ -115,7 +113,6 @@ function AttackModeContent({
   const [investigationSnapshot, setInvestigationSnapshot] =
     useState<ActiveInvestigationSnapshotDto | null>(null);
   const [authorizeThenExecute, setAuthorizeThenExecute] = useState(false);
-  const [showTechDetails, setShowTechDetails] = useState(false);
   const [resultsPanel, setResultsPanel] = useState<ResultsPanel>("chains");
   const [showMorePlans, setShowMorePlans] = useState(true);
 
@@ -125,11 +122,6 @@ function AttackModeContent({
   const [lateralBusy, setLateralBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
-
-  const selectedPlan = useMemo(
-    () => plans.find((p) => p.planId === selectedPlanId) ?? null,
-    [plans, selectedPlanId]
-  );
 
   const displayPlans = useMemo(() => {
     return plans.map((p) => {
@@ -542,91 +534,6 @@ function AttackModeContent({
           </div>
         )}
 
-        <section className="rounded-xl border border-zinc-900 bg-zinc-950/80 p-4 space-y-3">
-          <div>
-            <span className="text-[10px] font-medium uppercase tracking-wider text-zinc-500">
-              Target actual
-            </span>
-            <p className="mt-1 font-mono text-sm text-zinc-100">
-              {targetDomain || "—"}
-            </p>
-            <p className="mt-0.5 text-[10px] text-zinc-600">
-              Del assessment en curso — autorizá y ejecutá planes (sin investigación aparte).
-            </p>
-          </div>
-
-          {(attackSurfaceHints.routes.length > 0 ||
-            attackSurfaceHints.endpoints.length > 0 ||
-            attackSurfaceHints.tables.length > 0) && (
-            <div className="space-y-2 border-t border-zinc-900 pt-3">
-              <p className="text-[10px] font-medium uppercase tracking-wider text-zinc-500">
-                Superficie desde planes
-              </p>
-              {attackSurfaceHints.routes.length > 0 && (
-                <div>
-                  <span className="text-[10px] text-zinc-600">Rutas · </span>
-                  <span className="font-mono text-[11px] text-zinc-400">
-                    {attackSurfaceHints.routes.join(" · ")}
-                  </span>
-                </div>
-              )}
-              {attackSurfaceHints.endpoints.length > 0 && (
-                <div>
-                  <span className="text-[10px] text-zinc-600">Endpoints · </span>
-                  <span className="font-mono text-[11px] text-zinc-400 break-all">
-                    {attackSurfaceHints.endpoints.join(" · ")}
-                  </span>
-                </div>
-              )}
-              {attackSurfaceHints.tables.length > 0 && (
-                <div>
-                  <span className="text-[10px] text-zinc-600">Tablas · </span>
-                  <span className="font-mono text-[11px] text-amber-400/90">
-                    {attackSurfaceHints.tables.join(" · ")}
-                  </span>
-                </div>
-              )}
-            </div>
-          )}
-
-          <button
-            type="button"
-            onClick={() => setShowTechDetails((v) => !v)}
-            className="inline-flex items-center gap-1 text-[10px] font-mono text-zinc-600 hover:text-zinc-400"
-          >
-            {showTechDetails ? (
-              <ChevronDown className="h-3 w-3" />
-            ) : (
-              <ChevronRight className="h-3 w-3" />
-            )}
-            Detalles técnicos
-          </button>
-          {showTechDetails && (
-            <div className="rounded-lg border border-zinc-900 bg-black/40 p-3 space-y-2 text-[10px] font-mono text-zinc-500">
-              <div>assessment: {assessmentId || "—"}</div>
-              <div>operator: {operatorId}</div>
-              {lineage && (
-                <>
-                  <div>grant: {lineage.authorizationGrantId}</div>
-                  <div>scan: {lineage.scanId}</div>
-                  <div>actor: {lineage.actorId}</div>
-                </>
-              )}
-              {lastAuthMeta && (
-                <div>
-                  last auth: class={lastAuthMeta.blastRadiusClass} · by=
-                  {lastAuthMeta.authorizedBy}
-                </div>
-              )}
-              {selectedPlan && (
-                <div>
-                  plan seleccionado: {selectedPlan.title} ({selectedPlan.steps.length} steps)
-                </div>
-              )}
-            </div>
-          )}
-        </section>
-
         {error && (
           <div className="flex items-start justify-between gap-3 rounded-lg border border-rose-500/30 bg-rose-500/10 p-3 text-xs text-rose-300">
             <div className="flex items-start gap-2">
@@ -645,65 +552,135 @@ function AttackModeContent({
           </div>
         )}
 
-        {/* Main: suggested attacks + docked console */}
-        <div className="grid gap-4 lg:grid-cols-[1fr_minmax(280px,34%)]">
-          <section className="rounded-xl border border-zinc-900 bg-zinc-950/60 p-4 space-y-4 min-h-[280px]">
-            <div>
-              <h2 className="text-sm font-semibold text-zinc-100">Ataques sugeridos</h2>
-              <p className="text-[11px] text-zinc-500 mt-0.5">
-                Prioridad A/B y planes listos. Autorizá antes de ejecutar — nada corre solo.
-              </p>
-            </div>
-
-            <AttackRecommendationCards
-              recommendations={recommendations}
-              rulesApplied={rulesApplied}
-              selectedRank={selectedRecRank}
-              busy={busyPlanId !== null || isAuthorizing}
-              onSelect={(r) => setSelectedRecRank(r.rank)}
-              onAuthorizeRun={(r) => void handleRecommendAuthorizeRun(r)}
-            />
-
-            <div className="border-t border-zinc-900 pt-3">
-              <button
-                type="button"
-                onClick={() => setShowMorePlans((v) => !v)}
-                className="inline-flex items-center gap-1 text-[11px] font-medium text-zinc-400 hover:text-zinc-200"
-              >
-                {showMorePlans ? (
-                  <ChevronDown className="h-3.5 w-3.5" />
-                ) : (
-                  <ChevronRight className="h-3.5 w-3.5" />
-                )}
-                Todos los planes ({displayPlans.length})
-              </button>
-              {showMorePlans && (
-                <div className="mt-3">
-                  <AttackPlansList
-                    plans={displayPlans}
-                    completedPlanIds={completedPlanIds}
-                    selectedPlanId={selectedPlanId}
-                    busyPlanId={busyPlanId}
-                    onSelectPlan={(p) => setSelectedPlanId(p.planId)}
-                    onAuthorizeClick={(p) => {
-                      setAuthorizeThenExecute(false);
-                      setAuthModalPlan(p);
-                    }}
-                    onExecuteClick={(p) => void handleExecute(p)}
-                  />
-                </div>
-              )}
-            </div>
+        {/* Surface from plans — large Endpoints / Tablas */}
+        <div className="grid gap-4 md:grid-cols-2">
+          <section className="rounded-xl border border-zinc-800 bg-zinc-950/70 p-4 min-h-[10rem]">
+            <h2 className="text-sm font-semibold text-zinc-100">Endpoints</h2>
+            <p className="text-[11px] text-zinc-500 mt-0.5 mb-3">
+              Superficie derivada de planes del assessment (no inventada).
+            </p>
+            {attackSurfaceHints.endpoints.length === 0 &&
+            attackSurfaceHints.routes.length === 0 ? (
+              <p className="text-xs text-zinc-600">Sin endpoints en planes todavía.</p>
+            ) : (
+              <ul className="space-y-1.5 max-h-64 overflow-auto">
+                {[...attackSurfaceHints.endpoints, ...attackSurfaceHints.routes].map((ep) => (
+                  <li
+                    key={ep}
+                    className="rounded-lg border border-zinc-900 bg-black/40 px-3 py-2 font-mono text-[12px] text-zinc-300 break-all"
+                  >
+                    {ep}
+                  </li>
+                ))}
+              </ul>
+            )}
           </section>
+          <section className="rounded-xl border border-zinc-800 bg-zinc-950/70 p-4 min-h-[10rem]">
+            <h2 className="text-sm font-semibold text-zinc-100">Tablas</h2>
+            <p className="text-[11px] text-zinc-500 mt-0.5 mb-3">
+              Tablas PostgREST / Data API vistas en planes.
+            </p>
+            {attackSurfaceHints.tables.length === 0 ? (
+              <p className="text-xs text-zinc-600">Sin tablas en planes todavía.</p>
+            ) : (
+              <ul className="grid gap-2 sm:grid-cols-2">
+                {attackSurfaceHints.tables.map((t) => (
+                  <li
+                    key={t}
+                    className="rounded-lg border border-amber-500/20 bg-amber-500/5 px-3 py-2.5 font-mono text-sm text-amber-300/90"
+                  >
+                    {t}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
+        </div>
 
-          <aside className="rounded-xl border border-zinc-900 bg-zinc-950/80 p-3 lg:sticky lg:top-20 lg:self-start space-y-2">
-            <h2 className="text-xs font-semibold text-zinc-300 px-1">Consola</h2>
-            <p className="text-[10px] text-zinc-600 px-1">
+        <details className="rounded-lg border border-zinc-900 bg-zinc-950/40 px-3 py-2">
+          <summary className="cursor-pointer text-[10px] font-mono text-zinc-600 hover:text-zinc-400">
+            Detalles técnicos
+          </summary>
+          <div className="mt-2 space-y-1 text-[10px] font-mono text-zinc-500">
+            <div>target: {targetDomain || "—"}</div>
+            <div>assessment: {assessmentId || "—"}</div>
+            <div>operator: {operatorId}</div>
+            {lineage && (
+              <>
+                <div>grant: {lineage.authorizationGrantId}</div>
+                <div>scan: {lineage.scanId}</div>
+                <div>actor: {lineage.actorId}</div>
+              </>
+            )}
+            {lastAuthMeta && (
+              <div>
+                last auth: class={lastAuthMeta.blastRadiusClass} · by=
+                {lastAuthMeta.authorizedBy}
+              </div>
+            )}
+          </div>
+        </details>
+
+        {/* Plans + recommendations */}
+        <section className="rounded-xl border border-zinc-900 bg-zinc-950/60 p-4 space-y-4 min-h-[280px]">
+          <div>
+            <h2 className="text-sm font-semibold text-zinc-100">Ataques sugeridos</h2>
+            <p className="text-[11px] text-zinc-500 mt-0.5">
+              Prioridad A/B y planes listos. Autorizá antes de ejecutar — nada corre solo.
+            </p>
+          </div>
+
+          <AttackRecommendationCards
+            recommendations={recommendations}
+            rulesApplied={rulesApplied}
+            selectedRank={selectedRecRank}
+            busy={busyPlanId !== null || isAuthorizing}
+            onSelect={(r) => setSelectedRecRank(r.rank)}
+            onAuthorizeRun={(r) => void handleRecommendAuthorizeRun(r)}
+          />
+
+          <div className="border-t border-zinc-900 pt-3">
+            <button
+              type="button"
+              onClick={() => setShowMorePlans((v) => !v)}
+              className="inline-flex items-center gap-1 text-[11px] font-medium text-zinc-400 hover:text-zinc-200"
+            >
+              {showMorePlans ? (
+                <ChevronDown className="h-3.5 w-3.5" />
+              ) : (
+                <ChevronRight className="h-3.5 w-3.5" />
+              )}
+              Todos los planes ({displayPlans.length})
+            </button>
+            {showMorePlans && (
+              <div className="mt-3">
+                <AttackPlansList
+                  plans={displayPlans}
+                  completedPlanIds={completedPlanIds}
+                  selectedPlanId={selectedPlanId}
+                  busyPlanId={busyPlanId}
+                  onSelectPlan={(p) => setSelectedPlanId(p.planId)}
+                  onAuthorizeClick={(p) => {
+                    setAuthorizeThenExecute(false);
+                    setAuthModalPlan(p);
+                  }}
+                  onExecuteClick={(p) => void handleExecute(p)}
+                />
+              </div>
+            )}
+          </div>
+        </section>
+
+        {/* Console — expanded by default, full width */}
+        <section className="rounded-xl border border-zinc-800 bg-zinc-950/80 p-4 space-y-2 min-h-[16rem]">
+          <div>
+            <h2 className="text-sm font-semibold text-zinc-100">Consola</h2>
+            <p className="text-[11px] text-zinc-500">
               Salida de ejecución — siempre visible
             </p>
-            <StepExecutionMonitor record={executionRecord} lastError={executionError} />
-          </aside>
-        </div>
+          </div>
+          <StepExecutionMonitor record={executionRecord} lastError={executionError} />
+        </section>
 
         {/* Results accordion */}
         <section className="rounded-xl border border-zinc-900 bg-zinc-950/60 overflow-hidden">

@@ -35,6 +35,7 @@ import {
   extractNextServerActionIdHintsFromText,
   isSupabaseHost,
 } from '../../supabase/SupabaseSurfaceContracts.js';
+import { extractSupabaseAnonKeyFromText } from '../../supabase/SupabaseCredentialMaterialContracts.js';
 import { runDeepReconOrchestrator } from '../deep/DeepReconOrchestratorService.js';
 import { resolveByotHarvestAuthHeaders } from '../deep/ByotNetworkHarvestService.js';
 import type { ByotHarvestServerActionHint } from '../deep/ByotNetworkHarvestContracts.js';
@@ -69,6 +70,7 @@ import type {
   WebInspectionResult,
   DiscoveredWebObservation,
 } from '../adapters/WebInspectionContracts.js';
+import { WEB_OBSERVATION_BODY_CHUNK_MAX_BYTES } from '../adapters/WebInspectionContracts.js';
 import type {
   TlsInspectionResult,
   DiscoveredTlsObservation,
@@ -1641,6 +1643,28 @@ export class CompositeActiveReconOrchestratorService {
                     timeoutMs: request.config?.timeoutMs ?? 10_000,
                   });
                   if (probe.statusCode < 200 || probe.statusCode >= 300) return;
+                  const bodyChunk =
+                    typeof probe.bodyText === 'string'
+                      ? probe.bodyText.slice(0, WEB_OBSERVATION_BODY_CHUNK_MAX_BYTES)
+                      : '';
+                  // Retain OBSERVED JS body so downstream RLS can mine anon/publishable keys.
+                  if (
+                    bodyChunk.length > 0 &&
+                    (extractSupabaseAnonKeyFromText(bodyChunk) ||
+                      /supabase|rest\/v1|\.from\(/i.test(bodyChunk))
+                  ) {
+                    webObservations.push({
+                      url: jsUrl,
+                      method: 'GET',
+                      statusCode: probe.statusCode,
+                      technologies: Object.freeze(['javascript']),
+                      bodyText: bodyChunk,
+                      discoveredAt: nowIso,
+                      collectedAt: nowIso,
+                      freshness: 'live',
+                      sourceReliability: 'direct_observation',
+                    });
+                  }
                   const hints = extractSupabaseTableHintsFromText(probe.bodyText, 30);
                   if (hints.length === 0) return;
                   for (const restBase of supabaseRestBases) {

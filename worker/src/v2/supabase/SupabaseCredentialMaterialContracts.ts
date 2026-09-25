@@ -40,3 +40,42 @@ export function looksLikeSupabaseAnonKey(value: string): boolean {
   if (/^sb_publishable_[A-Za-z0-9_-]+$/.test(v)) return true;
   return /^eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(v);
 }
+
+function decodeJwtPayloadJson(jwt: string): { role?: string; iss?: string } | null {
+  try {
+    const payload = jwt.split('.')[1];
+    if (!payload) return null;
+    const pad = '='.repeat((4 - (payload.length % 4)) % 4);
+    return JSON.parse(
+      Buffer.from(payload + pad, 'base64url').toString('utf8')
+    ) as { role?: string; iss?: string };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Mine OBSERVED anon/publishable key material from JS/HTML body text.
+ * Never invents keys. Prefer sb_publishable_*, then eyJ… with role=anon / iss=supabase.
+ * Raw key stays in-process only — never persist to findings/drafts/reports.
+ */
+export function extractSupabaseAnonKeyFromText(text: string): string | undefined {
+  if (typeof text !== 'string' || text.length === 0) return undefined;
+
+  const publishable = text.match(/sb_publishable_[A-Za-z0-9_-]+/);
+  if (publishable && looksLikeSupabaseAnonKey(publishable[0])) {
+    return publishable[0];
+  }
+
+  const jwts = text.match(/eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+/g);
+  if (!jwts) return undefined;
+  for (const jwt of jwts) {
+    if (!looksLikeSupabaseAnonKey(jwt)) continue;
+    const json = decodeJwtPayloadJson(jwt);
+    if (!json) continue;
+    if (json.role === 'anon' || json.iss === 'supabase') {
+      return jwt;
+    }
+  }
+  return undefined;
+}

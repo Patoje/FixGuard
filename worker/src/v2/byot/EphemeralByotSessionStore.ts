@@ -123,6 +123,63 @@ export class EphemeralByotSessionStore {
     };
   }
 
+  /**
+   * Attach OBSERVED Supabase anon/publishable apikey for in-process RLS execute.
+   * Does not count as authenticated BYOT for plan prerequisites (meta.identityCount unchanged
+   * when merging into an existing session; anon-only sessions register identityCount=0 semantics
+   * via a dedicated non-BYOT identity id that recommendation code must not treat as BYOT A).
+   * Never serializes the raw key to API responses.
+   */
+  public attachObservedSupabaseAnonKey(
+    assessmentId: string,
+    anonApiKey: string
+  ): boolean {
+    if (!isSafeId(assessmentId)) return false;
+    const key = anonApiKey.trim();
+    if (key.length < 20 || key.length > 4096) return false;
+
+    const existing = this.sessions.get(assessmentId);
+    if (existing) {
+      const mergedHeaders: Record<string, string> = {
+        ...(existing.identityA.headers ?? {}),
+        apikey: key,
+      };
+      // Prefer Authorization Bearer only when none was provided (anon role).
+      if (!Object.keys(mergedHeaders).some((k) => k.toLowerCase() === 'authorization')) {
+        mergedHeaders['Authorization'] = `Bearer ${key}`;
+      }
+      this.sessions.set(assessmentId, {
+        ...existing,
+        identityA: Object.freeze({
+          identityId: existing.identityA.identityId,
+          headers: freezeHeaders(mergedHeaders),
+        }),
+      });
+      return true;
+    }
+
+    const meta: EphemeralByotSessionMeta = Object.freeze({
+      assessmentId,
+      // identityCount 0 — OBSERVED anon key is not an authenticated BYOT identity.
+      identityCount: 0,
+      identityAId: 'identity_supabase_anon_observed',
+      hasJwtA: false,
+      hasJwtB: false,
+      registeredAt: new Date().toISOString(),
+    });
+    this.sessions.set(assessmentId, {
+      meta,
+      identityA: Object.freeze({
+        identityId: 'identity_supabase_anon_observed',
+        headers: freezeHeaders({
+          apikey: key,
+          Authorization: `Bearer ${key}`,
+        }),
+      }),
+    });
+    return true;
+  }
+
   public clear(assessmentId: string): boolean {
     if (!isSafeId(assessmentId)) return false;
     return this.sessions.delete(assessmentId);

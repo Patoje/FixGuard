@@ -1,7 +1,6 @@
 "use client";
 
 import React, { useState, useCallback, useEffect, useRef } from "react";
-import Link from "next/link";
 import { AlertCircle, Check, Home } from "lucide-react";
 import {
   getOrchestratedAssessmentStatus,
@@ -109,6 +108,13 @@ export default function V2DashboardPage() {
   }, []);
 
   const resetToFreshLaunch = useCallback(() => {
+    if (
+      !window.confirm(
+        "¿Seguro? Se perderán los datos del análisis"
+      )
+    ) {
+      return;
+    }
     stopPolling();
     clearStoredAssessment();
     try {
@@ -349,17 +355,22 @@ export default function V2DashboardPage() {
 
         {showStageChrome ? (
           <>
-            <div className="mb-4 flex justify-end">
-              <button
-                type="button"
-                onClick={resetToFreshLaunch}
-                className="inline-flex items-center gap-1.5 rounded-lg border border-zinc-700 bg-zinc-900/80 px-3 py-1.5 text-[11px] font-medium text-zinc-300 hover:border-zinc-500 hover:text-white transition"
-                title="Descarta el assessment en curso y vuelve a un launch limpio"
-              >
-                <Home className="h-3.5 w-3.5" />
-                Volver a inicio
-              </button>
-            </div>
+            <header className="mb-6 -mx-6 px-6 border-b border-zinc-800 bg-black/40 backdrop-blur-xl">
+              <div className="relative flex h-16 items-center justify-center">
+                <span className="font-bold tracking-tight text-xl text-white">
+                  Fix<span className="text-zinc-500">Guard</span>
+                </span>
+                <button
+                  type="button"
+                  onClick={resetToFreshLaunch}
+                  className="absolute right-0 inline-flex items-center gap-1.5 rounded-lg border border-zinc-700 bg-zinc-900/80 px-3 py-1.5 text-[11px] font-medium text-zinc-300 hover:border-zinc-500 hover:text-white transition"
+                  title="Descarta el assessment en curso y vuelve a un launch limpio"
+                >
+                  <Home className="h-3.5 w-3.5" />
+                  Volver a inicio
+                </button>
+              </div>
+            </header>
             <nav
               className="mb-8 grid grid-cols-2 gap-2 sm:grid-cols-5"
               aria-label="Assessment Pipeline Stages"
@@ -431,12 +442,6 @@ export default function V2DashboardPage() {
             <p className="mt-2 text-sm text-zinc-500 max-w-md">
               Pegá el dominio y dale a Iniciar.
             </p>
-            <Link
-              href="/v2/assessments"
-              className="mt-3 text-[11px] font-mono text-zinc-600 hover:text-zinc-400 transition"
-            >
-              Pipeline →
-            </Link>
           </div>
         )}
 

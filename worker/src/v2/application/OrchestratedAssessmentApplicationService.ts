@@ -30,6 +30,7 @@ import { TargetInstabilityError } from '../runtime/CircuitBreakerContracts.js';
 import type {
   ReconToolAdapters,
   ActiveReconOrchestrationConfig,
+  AggregatedReconObservations,
 } from '../recon/orchestration/ActiveReconOrchestrationContracts.js';
 import { CompositeActiveReconOrchestratorService } from '../recon/orchestration/CompositeActiveReconOrchestratorService.js';
 import {
@@ -89,13 +90,12 @@ import { runPostgrestOpenApiEnum } from '../supabase/PostgrestOpenApiEnumService
 import { POSTGREST_OPENAPI_ENUM_CONTRACT_VERSION } from '../supabase/PostgrestOpenApiEnumContracts.js';
 import { runSupabaseRlsAbuseDetection } from '../supabase/SupabaseRlsAbuseDetectionService.js';
 import { SUPABASE_RLS_ABUSE_DETECTION_CONTRACT_VERSION } from '../supabase/SupabaseRlsAbuseDetectionContracts.js';
-import { looksLikeSupabaseAnonKey } from '../supabase/SupabaseCredentialMaterialContracts.js';
+import { looksLikeSupabaseAnonKey, extractSupabaseAnonKeyFromText } from '../supabase/SupabaseCredentialMaterialContracts.js';
 import {
   classifySupabaseUrl,
   isSupabaseHost,
   buildSupabaseRestTableUrlSeeds,
   preferSupabaseRlsTableOrder,
-  SUPABASE_PREFERRED_RLS_SEED_TABLES,
 } from '../supabase/SupabaseSurfaceContracts.js';
 import { runSessionFixationDetection } from '../detection/SessionFixationDetectionService.js';
 import { runCredentialedCorsDetection } from '../detection/CredentialedCorsDetectionService.js';
@@ -333,6 +333,24 @@ export function extractSupabaseAnonKeyFromSession(
   return undefined;
 }
 
+/**
+ * Mine OBSERVED anon/publishable key from recon body text (JS bundles / HTML).
+ * Prefer session BYOT apikey when present; never invent keys.
+ */
+export function extractSupabaseAnonKeyFromRecon(
+  aggregated: AggregatedReconObservations | undefined
+): string | undefined {
+  if (!aggregated) return undefined;
+  const blobs: string[] = [];
+  for (const w of aggregated.webObservations ?? []) {
+    if (typeof w.bodyText === 'string' && w.bodyText.length > 0) {
+      blobs.push(w.bodyText);
+    }
+  }
+  if (blobs.length === 0) return undefined;
+  return extractSupabaseAnonKeyFromText(blobs.join('\n'));
+}
+
 import type {
   DifferentialEvidenceContext,
   EnrichedEvidenceDraft,
@@ -531,11 +549,17 @@ function buildDraftSignals(
     if (!isAttackPlanDraftEligible(ctx.detectionKind)) {
       continue;
     }
+    const parameterName =
+      typeof ctx.parameterName === 'string'
+        ? ctx.parameterName
+        : typeof ctx.supabaseTableName === 'string'
+          ? ctx.supabaseTableName
+          : undefined;
     signals.push({
       draftId: draft.draftId,
       detectionKind: ctx.detectionKind,
       endpointUrl: ctx.endpointUrl,
-      ...(typeof ctx.parameterName === 'string' ? { parameterName: ctx.parameterName } : {}),
+      ...(parameterName ? { parameterName } : {}),
       ...(typeof ctx.resourceParamName === 'string'
         ? { resourceParamName: ctx.resourceParamName }
         : {}),
@@ -4955,7 +4979,15 @@ export class OrchestratedAssessmentApplicationService {
       let pendingEvidenceDrafts: EnrichedEvidenceDraft[] = [];
 
       // Supabase / PostgREST RLS thin slice — once per assessment when candidates + OBSERVED anon key.
-      const supabaseAnonKey = extractSupabaseAnonKeyFromSession(sessionIdentities);
+      const supabaseAnonKey =
+        extractSupabaseAnonKeyFromSession(sessionIdentities) ??
+        extractSupabaseAnonKeyFromRecon(reconResult.aggregatedObservations);
+      if (supabaseAnonKey) {
+        ephemeralByotSessionStore.attachObservedSupabaseAnonKey(
+          record.assessmentId,
+          supabaseAnonKey
+        );
+      }
       const supabaseCandidates = [...detectionBridge.supabaseRestCandidates];
       // Operator-explicit related hosts in the sealed grant (e.g. project.supabase.co).
       for (const host of scopeGrant.boundaries.allowedHosts ?? []) {
@@ -4981,7 +5013,6 @@ export class OrchestratedAssessmentApplicationService {
             const seedTables = preferSupabaseRlsTableOrder([
               ...(sbCandidate.seedTableNames ?? []),
               ...(sbCandidate.tableName ? [sbCandidate.tableName] : []),
-              ...SUPABASE_PREFERRED_RLS_SEED_TABLES,
             ]);
             const enumResult = await runPostgrestOpenApiEnum({
               contractVersion: POSTGREST_OPENAPI_ENUM_CONTRACT_VERSION,
@@ -4996,7 +5027,8 @@ export class OrchestratedAssessmentApplicationService {
               scopeGrant,
               restBaseUrl: sbCandidate.restBaseUrl,
               anonApiKey: supabaseAnonKey,
-              seedTableNames: seedTables.length > 0 ? seedTables : [...SUPABASE_PREFERRED_RLS_SEED_TABLES],
+              // Seeds only when OBSERVED (JS .from / rest path / soft operator seeds). Never invent preferred tables.
+              ...(seedTables.length > 0 ? { seedTableNames: seedTables } : {}),
               transport: this.httpTransport,
               dnsResolver: this.dnsResolver,
             });

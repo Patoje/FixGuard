@@ -29,7 +29,9 @@ interface AssessmentLauncherCardProps {
 
 const TECLAAA_SUPABASE = "vawrzoncszqauzxwqide.supabase.co";
 
-/** Soft-defaults only — never skip Stage 2/4; full recon is the default. */
+/** Soft-defaults only — never skip Stage 2/4; full recon is the default.
+ * seedUrls are soft rest fallbacks; prefer live OBSERVED JS/OpenAPI when available.
+ */
 const KNOWN_TARGET_DEFAULTS: Record<
   string,
   {

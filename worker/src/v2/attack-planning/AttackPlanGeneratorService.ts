@@ -663,6 +663,26 @@ function draftCapabilityMapping(
     };
   }
 
+  if (kind === 'supabase_rls_abuse') {
+    const tableHint =
+      typeof signal.parameterName === 'string' && signal.parameterName.trim().length > 0
+        ? signal.parameterName.trim()
+        : 'table';
+    return {
+      capability: 'supabase_rls_read_confirm',
+      title: `Confirm Supabase RLS read on '${tableHint}'`,
+      blastRadius: 'single_resource',
+      capabilityGained: 'read_authenticated',
+      findingTypeLabel: 'BROKEN_ACCESS_CONTROL',
+      // Anon Data API confirm — no authenticated BYOT identity required.
+      extraPrereqs: [],
+      stepTitle: 'Authorize Supabase RLS read confirm',
+      stepDescription:
+        'Human-authorized anon GET ?select=*&limit=1 from a pending RLS draft. Read-only — not a write probe.',
+      requiredPermissions: ['active_http_get'],
+    };
+  }
+
   if (kind === 'sql_error_oracle') {
     return {
       capability: 'sql_error_oracle_probe',
@@ -1009,6 +1029,55 @@ function generateSurfaceInvestigationPlans(
       continue;
     }
 
+    // PostgREST table URLs → RLS anon read confirm (no BYOT identity). Never auth_bypass noise.
+    if (resourceClass === 'supabase_boundary') {
+      let tableName: string | undefined;
+      try {
+        const pathname = new URL(hint.endpointUrl).pathname;
+        const after = pathname.split('/rest/v1/')[1];
+        const seg = after?.split('/')[0]?.split('?')[0];
+        if (seg && seg !== 'rpc' && /^[A-Za-z_][A-Za-z0-9_]{0,63}$/.test(seg)) {
+          tableName = seg;
+        }
+      } catch {
+        tableName = undefined;
+      }
+      if (tableName) {
+        const sourceKey = `surface_sbrls_${sha256Short(hint.endpointUrl)}`;
+        if (emitted.has(sourceKey)) continue;
+        emitted.add(sourceKey);
+        plans.push(
+          buildInvestigationPlan({
+            assessmentId: input.assessmentId,
+            scanId: input.scanId,
+            capability: 'supabase_rls_read_confirm',
+            sourceKey,
+            title: `Confirm Supabase RLS read on '${tableName}'`,
+            reasoning: `OBSERVED Supabase Data API table '${tableName}' (${hint.path}). Recommend human-authorized anon GET confirm (limit=1) — no authenticated identity required, no writes.`,
+            blastRadius: 'single_resource',
+            capabilityGained: 'read_authenticated',
+            sourceFindingTypes: ['BROKEN_ACCESS_CONTROL'],
+            prerequisites: [observedSurfacePrereq(hint.path)],
+            steps: [
+              {
+                stepId: `${sourceKey}_step_1`,
+                ordinal: 1,
+                title: 'Authorize Supabase RLS read confirm',
+                description:
+                  'Human-authorized GET ?select=*&limit=1 with OBSERVED anon key. Read-only confirmation.',
+                requiredPermissions: ['active_http_get'],
+              },
+            ],
+            lineage: input.lineage,
+            createdAt: generatedAt,
+            planOrigin: 'observed_surface',
+            targetUrl: hint.endpointUrl,
+          })
+        );
+        continue;
+      }
+    }
+
     const sourceKey = `surface_auth_${sha256Short(hint.endpointUrl)}`;
     if (emitted.has(sourceKey)) continue;
     emitted.add(sourceKey);
@@ -1100,7 +1169,11 @@ export function generateAttackPlans(input: AttackPlanGeneratorInput): AttackPlan
       finding.metadata.kind === 'supabase_rls_abuse_metadata'
     ) {
       const tableName = finding.metadata.tableName;
-      const prereqs = [
+      // Anon world-readable confirm needs OBSERVED finding only — not authenticated BYOT.
+      const readConfirmPrereqs = [
+        findingPresentPrereq(finding, 'BROKEN_ACCESS_CONTROL'),
+      ];
+      const writePrereqs = [
         findingPresentPrereq(finding, 'BROKEN_ACCESS_CONTROL'),
         identityPresentPrereq(identities),
       ];
@@ -1111,11 +1184,11 @@ export function generateAttackPlans(input: AttackPlanGeneratorInput): AttackPlan
           capability: 'supabase_rls_read_confirm',
           title: `Confirm Supabase RLS read on '${tableName}'`,
           reasoning:
-            'OBSERVED Supabase Data API world-readable table. Recommend human-authorized anon GET confirm (limit=1) — no writes.',
+            'OBSERVED Supabase Data API world-readable table. Recommend human-authorized anon GET confirm (limit=1) — no authenticated identity required, no writes.',
           blastRadius: 'single_resource',
           capabilityGained: 'read_authenticated',
           finding,
-          prerequisites: prereqs,
+          prerequisites: readConfirmPrereqs,
           steps: [
             {
               stepId: `${finding.id}_sbrls_step_1`,
@@ -1143,7 +1216,7 @@ export function generateAttackPlans(input: AttackPlanGeneratorInput): AttackPlan
           blastRadius: 'single_resource',
           capabilityGained: 'active_validation',
           finding,
-          prerequisites: prereqs,
+          prerequisites: writePrereqs,
           steps: [
             {
               stepId: `${finding.id}_sbrls_w_step_1`,
@@ -1161,7 +1234,7 @@ export function generateAttackPlans(input: AttackPlanGeneratorInput): AttackPlan
       );
       // Authz write matrix — BYOT A+B + mutation; advisory until authorize.
       const writeMatrixPrereqs = [
-        ...prereqs,
+        ...writePrereqs,
         identityCountPrereq(identities),
       ];
       plans.push(

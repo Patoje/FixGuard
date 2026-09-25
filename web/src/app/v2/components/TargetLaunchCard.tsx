@@ -30,13 +30,19 @@ interface TargetLaunchCardProps {
 /** Soft-defaults for known SPA targets — never shown in primary UI. */
 const TECLAAA_SUPABASE = "vawrzoncszqauzxwqide.supabase.co";
 
-/** Soft-defaults only — never skip Stage 2/4; full recon is the default. */
+/**
+ * Soft-defaults only — never skip Stage 2/4; full recon is the default.
+ * relatedHosts: scope fallback for known backends.
+ * seedUrls: soft rest table seeds only as fallback when live JS mining is blocked —
+ *           prefer OBSERVED JS `.from()` / OpenAPI when available.
+ * seedPaths: SPA crawl roots.
+ */
 const KNOWN_TARGET_DEFAULTS: Record<
   string,
   {
     relatedHosts: string;
-    seedUrls: string[];
-    seedPaths: string[];
+    seedUrls?: string[];
+    seedPaths?: string[];
   }
 > = {
   "teclaaa.vercel.app": {
@@ -202,7 +208,7 @@ export function TargetLaunchCard({
         };
       }
 
-      // Silent soft-defaults for known targets (RLS path / SPA speed).
+      // Soft-defaults: related hosts + optional rest seeds (fallback) + SPA crawl paths.
       const relatedAllowedHosts = known
         ? parseHostList(known.relatedHosts)
         : [];
