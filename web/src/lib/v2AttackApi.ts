@@ -55,7 +55,8 @@ export type AttackCapabilityKind =
   | 'sql_oracle_advancement'
   | 'nuclei_xss_scan'
   | 'sql_injection_verification'
-  | 'credential_reuse';
+  | 'credential_reuse'
+  | 'supabase_rls_read_confirm';
 
 export type CapabilityGained =
   | 'read_escalated'

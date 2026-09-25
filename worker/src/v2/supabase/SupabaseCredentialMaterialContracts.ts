@@ -36,6 +36,7 @@ export function redactSupabaseKeyPreview(raw: string): string {
  */
 export function looksLikeSupabaseAnonKey(value: string): boolean {
   const v = value.trim();
-  if (v.length < 80 || v.length > 4096) return false;
+  if (v.length < 20 || v.length > 4096) return false;
+  if (/^sb_publishable_[A-Za-z0-9_-]+$/.test(v)) return true;
   return /^eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(v);
 }

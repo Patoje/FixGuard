@@ -1047,6 +1047,46 @@ export function generateAttackPlans(input: AttackPlanGeneratorInput): AttackPlan
   const identities = input.identities;
 
   for (const finding of input.findings) {
+    // Rule 1a: Supabase RLS world-readable → read confirm (prefer over generic IDOR)
+    if (
+      finding.type === 'BROKEN_ACCESS_CONTROL' &&
+      finding.metadata.kind === 'supabase_rls_abuse_metadata'
+    ) {
+      const tableName = finding.metadata.tableName;
+      const prereqs = [
+        findingPresentPrereq(finding, 'BROKEN_ACCESS_CONTROL'),
+        identityPresentPrereq(identities),
+      ];
+      plans.push(
+        buildPlan({
+          assessmentId: input.assessmentId,
+          scanId: input.scanId,
+          capability: 'supabase_rls_read_confirm',
+          title: `Confirm Supabase RLS read on '${tableName}'`,
+          reasoning:
+            'OBSERVED Supabase Data API world-readable table. Recommend human-authorized anon GET confirm (limit=1) — no writes.',
+          blastRadius: 'single_resource',
+          capabilityGained: 'read_authenticated',
+          finding,
+          prerequisites: prereqs,
+          steps: [
+            {
+              stepId: `${finding.id}_sbrls_step_1`,
+              ordinal: 1,
+              title: 'Authorize Supabase RLS read confirm',
+              description:
+                'Human-authorized GET ?select=*&limit=1 with OBSERVED anon key. Read-only confirmation.',
+              requiredPermissions: ['active_http_get'],
+            },
+          ],
+          lineage: input.lineage,
+          createdAt: generatedAt,
+          targetUrl: targetFromFinding(finding),
+        })
+      );
+      continue;
+    }
+
     // Rule 1: BROKEN_ACCESS_CONTROL + 2 identities → idor_read_differential
     if (finding.type === 'BROKEN_ACCESS_CONTROL') {
       const prereqs = [

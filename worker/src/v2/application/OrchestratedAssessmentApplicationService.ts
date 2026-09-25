@@ -636,6 +636,8 @@ function objectiveForCapability(capability: AttackCapabilityKind): ChainObjectiv
       return 'privilege_escalation';
     case 'cors_chain_exploit':
       return 'data_access';
+    case 'supabase_rls_read_confirm':
+      return 'data_access';
     case 'auth_bypass_probe':
     case 'jwt_alg_none_probe':
     case 'session_fixation_probe':
@@ -657,6 +659,8 @@ function objectiveForCapability(capability: AttackCapabilityKind): ChainObjectiv
 function declaredImpactForCapability(capability: AttackCapabilityKind): ImpactLevel {
   switch (capability) {
     case 'idor_read_differential':
+      return 'authorization_bypass';
+    case 'supabase_rls_read_confirm':
       return 'authorization_bypass';
     case 'auth_bypass_probe':
     case 'jwt_alg_none_probe':
@@ -1864,6 +1868,7 @@ export class OrchestratedAssessmentApplicationService {
           'parameter_reflection_probe',
           'sql_injection_verification',
           'credential_reuse',
+          'supabase_rls_read_confirm',
         ] as const
       ).filter((k) => registry.get(k) !== null)
     );

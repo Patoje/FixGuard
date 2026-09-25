@@ -25,6 +25,7 @@ import { createDalfoxParameterReflectionCapability } from './capabilities/Dalfox
 import { createSqlInjectionVerificationCapability } from './capabilities/SqlInjectionVerificationCapability.js';
 import { createCorsChainExploitCapability } from './capabilities/CorsChainExploitCapability.js';
 import { createAuthBypassProbeCapability } from './capabilities/AuthBypassProbeCapability.js';
+import { createSupabaseRlsReadConfirmCapability } from './capabilities/SupabaseRlsReadConfirmCapability.js';
 import { createJwtAlgNoneProbeCapability } from './capabilities/JwtAlgNoneProbeCapability.js';
 import { createCredentialReuseCapability } from './capabilities/CredentialReuseCapability.js';
 import { CredentialVaultService } from '../post-exploitation/CredentialVaultService.js';
@@ -123,6 +124,7 @@ export class AttackCapabilityRegistry {
         createIdorReadDifferentialCapability(),
         createCorsChainExploitCapability(),
         createAuthBypassProbeCapability(),
+        createSupabaseRlsReadConfirmCapability(),
         createJwtAlgNoneProbeCapability(),
         createLfiPathTraversalCapability(),
         createSqlOracleAdvancementCapability(),
@@ -166,6 +168,7 @@ export function createNotImplementedCapability(capability: AttackCapabilityKind)
 export { succeeded as capabilitySucceeded, refuted as capabilityRefuted, failed as capabilityFailed };
 export { createCorsChainExploitCapability } from './capabilities/CorsChainExploitCapability.js';
 export { createAuthBypassProbeCapability } from './capabilities/AuthBypassProbeCapability.js';
+export { createSupabaseRlsReadConfirmCapability } from './capabilities/SupabaseRlsReadConfirmCapability.js';
 export { createJwtAlgNoneProbeCapability } from './capabilities/JwtAlgNoneProbeCapability.js';
 export { createLfiPathTraversalCapability } from './capabilities/LFIPathTraversalCapability.js';
 export { createSqlOracleAdvancementCapability } from './capabilities/SqlOracleAdvancementCapability.js';

@@ -49,7 +49,8 @@ export type AttackCapabilityKind =
   | 'sql_oracle_advancement'
   | 'nuclei_xss_scan'
   | 'sql_injection_verification'
-  | 'credential_reuse';
+  | 'credential_reuse'
+  | 'supabase_rls_read_confirm';
 
 /**
  * Capability expected if a human later authorizes a defensive validation step.

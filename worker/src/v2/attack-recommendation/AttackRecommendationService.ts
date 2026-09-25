@@ -81,6 +81,7 @@ const CAPABILITY_LABELS: Readonly<Record<AttackCapabilityKind, string>> = {
   nuclei_xss_scan: 'Nuclei XSS template scan',
   sql_injection_verification: 'sqlmap technique=E verification',
   credential_reuse: 'Credential reuse (lateral)',
+  supabase_rls_read_confirm: 'Supabase RLS world-readable read confirm',
 };
 
 function sha16(content: string): string {
