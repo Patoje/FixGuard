@@ -50,7 +50,8 @@ export type AttackCapabilityKind =
   | 'nuclei_xss_scan'
   | 'sql_injection_verification'
   | 'credential_reuse'
-  | 'supabase_rls_read_confirm';
+  | 'supabase_rls_read_confirm'
+  | 'supabase_rls_write_probe';
 
 /**
  * Capability expected if a human later authorizes a defensive validation step.

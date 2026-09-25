@@ -82,6 +82,7 @@ const CAPABILITY_LABELS: Readonly<Record<AttackCapabilityKind, string>> = {
   sql_injection_verification: 'sqlmap technique=E verification',
   credential_reuse: 'Credential reuse (lateral)',
   supabase_rls_read_confirm: 'Supabase RLS world-readable read confirm',
+  supabase_rls_write_probe: 'Supabase RLS write canary (HITL mutation)',
 };
 
 function sha16(content: string): string {

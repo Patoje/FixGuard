@@ -1084,6 +1084,34 @@ export function generateAttackPlans(input: AttackPlanGeneratorInput): AttackPlan
           targetUrl: targetFromFinding(finding),
         })
       );
+      // Advisory write canary — HITL + state_change_benign only; never auto-execute.
+      plans.push(
+        buildPlan({
+          assessmentId: input.assessmentId,
+          scanId: input.scanId,
+          capability: 'supabase_rls_write_probe',
+          title: `Probe Supabase RLS write (canary) on '${tableName}'`,
+          reasoning:
+            'RECOMMENDED: human-authorized canary INSERT+DELETE on OBSERVED world-readable table. Requires state_change_benign authorization and allowStateChangingRequests. Do not run against production without cleanup confidence.',
+          blastRadius: 'single_resource',
+          capabilityGained: 'active_validation',
+          finding,
+          prerequisites: prereqs,
+          steps: [
+            {
+              stepId: `${finding.id}_sbrls_w_step_1`,
+              ordinal: 1,
+              title: 'Authorize Supabase RLS write canary',
+              description:
+                'HITL-gated POST canary row then DELETE cleanup. Fail-closed without mutation scope.',
+              requiredPermissions: ['active_http_get', 'active_http_post'],
+            },
+          ],
+          lineage: input.lineage,
+          createdAt: generatedAt,
+          targetUrl: targetFromFinding(finding),
+        })
+      );
       continue;
     }
 

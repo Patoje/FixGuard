@@ -26,6 +26,7 @@ import {
   selectJsLuiceTargets,
 } from '../adapters/JsLuiceAdapter.js';
 import { runSourcemapSurfaceExtraction } from '../analysis/SourcemapSurfaceExtractionService.js';
+import { runRobotsSitemapInventoryFeed } from '../analysis/RobotsSitemapInventoryFeedService.js';
 import { defaultHttpProbeTransport } from '../../detection/IdorDifferentialDetectionService.js';
 import {
   buildSupabaseRestTableUrlSeeds,
@@ -1077,6 +1078,42 @@ export class CompositeActiveReconOrchestratorService {
             `HTML hop-2 URL inspection error on ${extractedUrl}: ${err instanceof Error ? err.message : String(err)}`
           );
         }
+      }
+
+      // -----------------------------------------------------------------
+      // Deep recon P2 — robots.txt + sitemap.xml → inventory seeds (fail-soft)
+      // -----------------------------------------------------------------
+      try {
+        const feedOrigin = `https://${request.targetDomain}/`;
+        const feed = await coordinator.execute(request.targetDomain, () =>
+          runRobotsSitemapInventoryFeed({
+            originUrl: feedOrigin,
+            verifiedAuthorizationDecision: request.verifiedAuthorizationDecision,
+            authorizedScopeGrant: request.authorizedScopeGrant,
+            lineage: request.lineage,
+            timeoutMs: request.config?.timeoutMs,
+            dnsResolver: request.dnsResolver,
+          })
+        );
+        if (feed.status === 'success') {
+          const known = new Set(urls.map((u) => u.url));
+          for (const obs of feed.urlObservations) {
+            if (known.has(obs.url)) continue;
+            known.add(obs.url);
+            urls.push(obs);
+          }
+          if (feed.urlObservations.length > 0) {
+            stage3Warnings.push(
+              `robots/sitemap feed seeded ${feed.urlObservations.length} URL(s)`
+            );
+          }
+        } else if (feed.status === 'preflight_denied') {
+          stage3Warnings.push(`robots/sitemap feed preflight_denied: ${feed.reasonCode}`);
+        }
+      } catch (feedErr: unknown) {
+        stage3Warnings.push(
+          `robots/sitemap feed error: ${feedErr instanceof Error ? feedErr.message : String(feedErr)}`
+        );
       }
 
       // -----------------------------------------------------------------

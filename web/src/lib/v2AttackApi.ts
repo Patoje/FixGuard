@@ -56,7 +56,8 @@ export type AttackCapabilityKind =
   | 'nuclei_xss_scan'
   | 'sql_injection_verification'
   | 'credential_reuse'
-  | 'supabase_rls_read_confirm';
+  | 'supabase_rls_read_confirm'
+  | 'supabase_rls_write_probe';
 
 export type CapabilityGained =
   | 'read_escalated'
@@ -729,6 +730,8 @@ export function suggestBlastRadiusForCapability(
     case 'cors_chain_exploit':
     case 'supabase_rls_read_confirm':
       return 'read_escalated';
+    case 'supabase_rls_write_probe':
+      return 'state_change_benign';
     case 'sql_error_oracle_probe':
     case 'sql_oracle_advancement':
     case 'sql_injection_verification':
