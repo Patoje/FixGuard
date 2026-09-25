@@ -115,11 +115,18 @@ export interface ResponseInstance {
   url(): string;
 }
 
-/** Subset of Playwright Request used for network mining (URL/method/type only — no headers/body). */
+/**
+ * Subset of Playwright Request used for network mining.
+ * Default miners retain URL/method/type only (never Authorization/Cookie bodies).
+ * Optional `headerValue` exists solely so authenticated harvest can OBSERVE
+ * `Next-Action` ids without retaining other header values.
+ */
 export interface NetworkRequestInstance {
   url(): string;
   method(): string;
   resourceType(): string;
+  /** Optional; read a single request header by name (case-insensitive). */
+  headerValue?(name: string): string | undefined;
 }
 
 export interface PageInstance {

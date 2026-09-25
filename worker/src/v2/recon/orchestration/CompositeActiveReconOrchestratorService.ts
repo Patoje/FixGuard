@@ -1877,6 +1877,10 @@ export class CompositeActiveReconOrchestratorService {
           inventoryUrls: urls.length > 0 ? urls : [{ url: `https://${request.targetDomain}/` }],
           ...(byotHeaders ? { byotAuthHeaders: byotHeaders } : {}),
           ...(harvestPages.length > 0 ? { byotHarvestPageUrls: harvestPages } : {}),
+          ...(request.byotBrowserLauncher
+            ? { byotBrowserLauncher: request.byotBrowserLauncher }
+            : {}),
+          ...(request.byotHarvestHttpOnly === true ? { byotHttpOnly: true } : {}),
           contentTool: this.tools.contentTool,
           parameterTool: this.tools.parameterTool,
           wordlistPath: request.config?.wordlistPath,

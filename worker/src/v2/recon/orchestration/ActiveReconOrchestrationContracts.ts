@@ -172,6 +172,7 @@ export interface ActiveReconOrchestrationConfig {
 }
 
 import type { PreSpawnDnsResolver } from '../adapters/AdapterPreflightPipeline.js';
+import type { PlaywrightBrowserLauncher } from '../adapters/BrowserAutomationContracts.js';
 import type { ByotHarvestServerActionHint } from '../deep/ByotNetworkHarvestContracts.js';
 import type { IdorHttpProbeTransport } from '../../detection/DetectionContracts.js';
 
@@ -214,6 +215,10 @@ export interface ActiveReconOrchestrationRequest {
    * Never serialized to clients; never logged.
    */
   readonly byotHarvestHeaders?: Readonly<Record<string, string>>;
+  /** Injectable Playwright launcher for authenticated BYOT harvest (tests). */
+  readonly byotBrowserLauncher?: PlaywrightBrowserLauncher;
+  /** Force HTTP-only BYOT harvest (skip Playwright). */
+  readonly byotHarvestHttpOnly?: boolean;
 }
 
 export interface AggregatedReconObservations {

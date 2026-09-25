@@ -1,6 +1,8 @@
 /**
- * Deep recon P3 — BYOT authenticated HTTP harvest of XHR/RSC/Server Action metadata.
- * Fail-soft: skips cleanly without Identity A headers / FG_ACCESS_TOKEN.
+ * Deep recon P3 — BYOT authenticated network harvest.
+ * Prefer Playwright + Identity A (cookies/Bearer) to capture post-login XHR/fetch/RSC
+ * and OBSERVED Next-Action ids. Fall back to authenticated HTTP body mining when the
+ * browser is unavailable. Fail-soft: skips cleanly without Identity A / FG_ACCESS_TOKEN.
  * Never mutates; never invents Next-Action ids; never persists credentials.
  */
 
@@ -8,6 +10,13 @@ import type { VerifiedAuthorizationDecision } from '../../authorization/Verified
 import type { AuthorizedScopeGrant } from '../../scope/AuthorizedScopeContracts.js';
 import type { AuthorizedActiveReconRequestLineage } from '../../lineage/AuthorizedExecutionLineageContracts.js';
 import type { DiscoveredUrlObservation } from '../adapters/UrlDiscoveryContracts.js';
+import type { PlaywrightBrowserLauncher } from '../adapters/BrowserAutomationContracts.js';
+import {
+  classifyBrowserRouteLoad,
+  DefaultPlaywrightBrowserLauncher,
+  isBrowserUrlAllowed,
+  sanitizeDiscoveredNetworkUrl,
+} from '../adapters/PlaywrightSpaAdapter.js';
 import {
   runAdapterPreflight,
   type PreSpawnDnsResolver,
@@ -17,18 +26,22 @@ import type { IdorHttpProbeTransport } from '../../detection/DetectionContracts.
 import { extractNextServerActionIdHintsFromText } from '../../supabase/SupabaseSurfaceContracts.js';
 import { isHtmlStaticBundlePath } from '../analysis/HtmlRouteExtractionService.js';
 import {
+  BYOT_HARVEST_HYDRATION_WAIT_MS,
   BYOT_HARVEST_MAX_ACTION_IDS,
   BYOT_HARVEST_MAX_PAGES,
   BYOT_HARVEST_MAX_SCRIPTS,
   BYOT_HARVEST_MAX_URLS,
+  BYOT_HARVEST_NETWORKIDLE_WAIT_MS,
   BYOT_NETWORK_HARVEST_CONTRACT_VERSION,
   BYOT_NETWORK_HARVEST_NON_CLAIMS,
   BYOT_NETWORK_HARVEST_SOURCE,
+  type ByotHarvestMode,
   type ByotHarvestServerActionHint,
   type ByotNetworkHarvestContractVersion,
 } from './ByotNetworkHarvestContracts.js';
 
 const MIN_TOKEN_LEN = 20;
+const MINEABLE_NETWORK_RESOURCE_TYPES = Object.freeze(new Set(['xhr', 'fetch']));
 
 export interface ByotNetworkHarvestRequest {
   readonly originUrl: string;
@@ -39,6 +52,10 @@ export interface ByotNetworkHarvestRequest {
   readonly authHeaders?: Readonly<Record<string, string>>;
   /** Additional in-scope page URLs to harvest (capped). */
   readonly pageUrls?: readonly string[];
+  /** Injectable Playwright launcher (hermetic smokes / tests). */
+  readonly browserLauncher?: PlaywrightBrowserLauncher;
+  /** Force HTTP-only harvest (skip Playwright). Default false. */
+  readonly httpOnly?: boolean;
   readonly transport?: IdorHttpProbeTransport;
   readonly dnsResolver?: PreSpawnDnsResolver;
   readonly timeoutMs?: number;
@@ -54,6 +71,7 @@ export type ByotNetworkHarvestResult =
       readonly contractVersion: ByotNetworkHarvestContractVersion;
       readonly originUrl: string;
       readonly reasonCode: 'harvested' | 'harvested_empty';
+      readonly harvestMode: ByotHarvestMode;
       readonly requestsUsed: number;
       readonly urlObservations: readonly DiscoveredUrlObservation[];
       readonly serverActionHints: readonly ByotHarvestServerActionHint[];
@@ -109,6 +127,39 @@ function originRoot(originUrl: string): { origin: string; host: string } | null 
   }
 }
 
+function isBrowserUnavailableError(err: unknown): boolean {
+  const msg = err instanceof Error ? err.message : String(err);
+  return (
+    /Executable doesn't exist/i.test(msg) ||
+    /browserType\.launch/i.test(msg) ||
+    /Failed to launch (chromium|chrome|browser)/i.test(msg) ||
+    /Could not find (chromium|chrome|browser)/i.test(msg) ||
+    /playwright.*install/i.test(msg) ||
+    /chromium.*missing/i.test(msg) ||
+    /ENOENT/i.test(msg)
+  );
+}
+
+function isRscOrNextDataHint(pathname: string, search: string): boolean {
+  const path = pathname.toLowerCase();
+  if (path.includes('/_next/data/')) return true;
+  if (search.includes('_rsc')) return true;
+  return false;
+}
+
+function isMineableNetworkRequest(
+  resourceType: string,
+  pathname: string,
+  search: string
+): boolean {
+  const rt = resourceType.trim().toLowerCase();
+  if (MINEABLE_NETWORK_RESOURCE_TYPES.has(rt)) return true;
+  if ((rt === 'document' || rt === 'fetch') && isRscOrNextDataHint(pathname, search)) {
+    return true;
+  }
+  return false;
+}
+
 function extractScriptSrcs(html: string, baseUrl: string, max: number): readonly string[] {
   const out: string[] = [];
   const seen = new Set<string>();
@@ -144,7 +195,6 @@ function extractInScopePathUrls(
       if (u.protocol !== 'http:' && u.protocol !== 'https:') return;
       const path = u.pathname || '/';
       if (isHtmlStaticBundlePath(path) && !path.includes('/_next/data')) return;
-      // Prefer API / RSC / auth-ish / rest surfaces for inventory value.
       const interesting =
         /^\/api(\/|$)/i.test(path) ||
         /\/_next\/data\//i.test(path) ||
@@ -173,6 +223,398 @@ function extractInScopePathUrls(
     if (m[1]) push(m[1]);
   }
   return Object.freeze(out);
+}
+
+function buildAuthExtraHttpHeaders(
+  authHeaders: Readonly<Record<string, string>>
+): Readonly<Record<string, string>> {
+  const out: Record<string, string> = {};
+  for (const [k, v] of Object.entries(authHeaders)) {
+    if (k === 'authorization') out['Authorization'] = v;
+    else if (k === 'cookie') out['Cookie'] = v;
+    else if (k === 'apikey') out['apikey'] = v;
+    else out[k] = v;
+  }
+  return Object.freeze(out);
+}
+
+interface HarvestCollectors {
+  readonly urlObservations: DiscoveredUrlObservation[];
+  readonly serverActionHints: ByotHarvestServerActionHint[];
+  readonly seenUrls: Set<string>;
+  readonly seenActions: Set<string>;
+  readonly rootHost: string;
+  readonly maxUrls: number;
+  readonly maxActionIds: number;
+  readonly nowIso: string;
+}
+
+function pushUrl(collectors: HarvestCollectors, rawUrl: string): void {
+  if (collectors.urlObservations.length >= collectors.maxUrls) return;
+  try {
+    const parsed = new URL(rawUrl);
+    if (parsed.hostname.toLowerCase() !== collectors.rootHost) return;
+    if (collectors.seenUrls.has(parsed.href)) return;
+    collectors.seenUrls.add(parsed.href);
+    collectors.urlObservations.push({
+      url: parsed.href,
+      host: parsed.hostname.toLowerCase(),
+      path: parsed.pathname || '/',
+      ...(parsed.search.length > 1 ? { query: parsed.search.slice(1) } : {}),
+      sources: Object.freeze([BYOT_NETWORK_HARVEST_SOURCE]),
+      discoveredAt: collectors.nowIso,
+      collectedAt: collectors.nowIso,
+      freshness: 'live',
+      sourceReliability: 'direct_observation',
+    });
+  } catch {
+    // ignore
+  }
+}
+
+function pushActions(
+  collectors: HarvestCollectors,
+  endpointUrl: string,
+  text: string
+): void {
+  for (const actionId of extractNextServerActionIdHintsFromText(
+    text,
+    collectors.maxActionIds
+  )) {
+    if (collectors.serverActionHints.length >= collectors.maxActionIds) return;
+    const key = `${endpointUrl}:${actionId}`;
+    if (collectors.seenActions.has(key)) continue;
+    collectors.seenActions.add(key);
+    collectors.serverActionHints.push({
+      endpointUrl,
+      actionId,
+      source: BYOT_NETWORK_HARVEST_SOURCE,
+    });
+  }
+}
+
+function pushActionId(
+  collectors: HarvestCollectors,
+  endpointUrl: string,
+  actionId: string
+): void {
+  const id = actionId.trim();
+  if (id.length < 8) return;
+  if (collectors.serverActionHints.length >= collectors.maxActionIds) return;
+  const key = `${endpointUrl}:${id}`;
+  if (collectors.seenActions.has(key)) return;
+  collectors.seenActions.add(key);
+  collectors.serverActionHints.push({
+    endpointUrl,
+    actionId: id,
+    source: BYOT_NETWORK_HARVEST_SOURCE,
+  });
+}
+
+async function harvestViaPlaywright(input: {
+  readonly request: ByotNetworkHarvestRequest;
+  readonly authHeaders: Readonly<Record<string, string>>;
+  readonly root: { origin: string; host: string };
+  readonly pageCandidates: readonly string[];
+  readonly collectors: HarvestCollectors;
+  readonly timeoutMs: number;
+  readonly maxPages: number;
+}): Promise<{ readonly requestsUsed: number; readonly unavailable: boolean }> {
+  const launcher =
+    input.request.browserLauncher ?? new DefaultPlaywrightBrowserLauncher();
+  let browser: Awaited<ReturnType<PlaywrightBrowserLauncher['launch']>> | null =
+    null;
+  let context: Awaited<
+    ReturnType<Awaited<ReturnType<PlaywrightBrowserLauncher['launch']>>['newContext']>
+  > | null = null;
+  let requestsUsed = 0;
+
+  try {
+    try {
+      browser = await launcher.launch({ headless: true });
+    } catch (launchErr: unknown) {
+      if (isBrowserUnavailableError(launchErr)) {
+        return { requestsUsed: 0, unavailable: true };
+      }
+      throw launchErr;
+    }
+
+    context = await browser.newContext({
+      extraHTTPHeaders: buildAuthExtraHttpHeaders(input.authHeaders),
+      userAgent: 'Mozilla/5.0 (FixGuard Defensive Auditor)',
+    });
+
+    for (const pageUrl of input.pageCandidates.slice(0, input.maxPages)) {
+      const preflight = await runAdapterPreflight({
+        target: pageUrl,
+        targetKind: 'url',
+        verifiedAuthorizationDecision: input.request.verifiedAuthorizationDecision,
+        authorizedScopeGrant: input.request.authorizedScopeGrant,
+        lineage: input.request.lineage,
+        requiredPermissions: [
+          'endpointDiscovery',
+          'activeCrawling',
+          'authenticatedTesting',
+          'passiveRecon',
+          'technologyFingerprinting',
+        ],
+        missingPermissionReason:
+          'Scope grant does not permit authenticated BYOT network harvest',
+        dnsResolver: input.request.dnsResolver,
+      });
+      if (!preflight.ok) {
+        if (pageUrl === input.request.originUrl) {
+          throw Object.assign(new Error(preflight.reason ?? preflight.reasonCode), {
+            name: 'ByotHarvestPreflightDenied',
+            reasonCode: preflight.reasonCode,
+            reason: preflight.reason,
+          });
+        }
+        continue;
+      }
+
+      const page = await context.newPage();
+      try {
+        await page.route('**/*', async (route) => {
+          const req = route.request();
+          const classification = classifyBrowserRouteLoad({
+            url: req.url(),
+            resourceType: req.resourceType(),
+            authorizedScopeGrant: input.request.authorizedScopeGrant,
+          });
+          if (classification.decision === 'abort') {
+            await route.abort('blockedbyclient');
+            return;
+          }
+          await route.continue();
+        });
+
+        page.on('request', (networkReq) => {
+          try {
+            const rawUrl = networkReq.url();
+            const sanitized = sanitizeDiscoveredNetworkUrl(rawUrl);
+            if (!sanitized) return;
+            const parsed = new URL(sanitized);
+            if (
+              !isMineableNetworkRequest(
+                networkReq.resourceType(),
+                parsed.pathname,
+                parsed.search
+              )
+            ) {
+              return;
+            }
+            if (!isBrowserUrlAllowed(sanitized, input.request.authorizedScopeGrant)) {
+              return;
+            }
+            pushUrl(input.collectors, sanitized);
+
+            const nextAction =
+              typeof networkReq.headerValue === 'function'
+                ? networkReq.headerValue('next-action')
+                : undefined;
+            if (typeof nextAction === 'string' && nextAction.trim().length >= 8) {
+              pushActionId(input.collectors, sanitized, nextAction);
+            }
+          } catch {
+            // ignore malformed network events
+          }
+        });
+
+        await page.goto(pageUrl, {
+          waitUntil: 'domcontentloaded',
+          timeout: input.timeoutMs,
+        });
+        requestsUsed += 1;
+        pushUrl(input.collectors, pageUrl);
+
+        await page.waitForTimeout(BYOT_HARVEST_HYDRATION_WAIT_MS);
+        try {
+          await page.waitForLoadState('networkidle', {
+            timeout: Math.min(BYOT_HARVEST_NETWORKIDLE_WAIT_MS, input.timeoutMs),
+          });
+        } catch {
+          // best-effort
+        }
+
+        const pageText = await page.evaluate(() => {
+          try {
+            const html = document.documentElement?.innerHTML ?? '';
+            return html.length > 250_000 ? html.slice(0, 250_000) : html;
+          } catch {
+            return '';
+          }
+        });
+        if (typeof pageText === 'string' && pageText.length > 0) {
+          pushActions(input.collectors, pageUrl, pageText);
+          for (const mined of extractInScopePathUrls(
+            pageText,
+            input.root.origin,
+            input.root.host,
+            input.collectors.maxUrls
+          )) {
+            pushUrl(input.collectors, mined);
+          }
+        }
+      } finally {
+        await page.close().catch(() => undefined);
+      }
+    }
+
+    return { requestsUsed, unavailable: false };
+  } finally {
+    if (context) await context.close().catch(() => undefined);
+    if (browser) await browser.close().catch(() => undefined);
+  }
+}
+
+async function harvestViaHttp(input: {
+  readonly request: ByotNetworkHarvestRequest;
+  readonly authHeaders: Readonly<Record<string, string>>;
+  readonly root: { origin: string; host: string };
+  readonly pageCandidates: readonly string[];
+  readonly collectors: HarvestCollectors;
+  readonly timeoutMs: number;
+  readonly maxPages: number;
+  readonly maxScripts: number;
+}): Promise<{ readonly requestsUsed: number; readonly preflightDenied?: ByotNetworkHarvestResult }> {
+  const transport = input.request.transport ?? defaultHttpProbeTransport;
+  let requestsUsed = 0;
+  const scriptQueue: string[] = [];
+  const seenScripts = new Set<string>();
+
+  for (const pageUrl of input.pageCandidates.slice(0, input.maxPages)) {
+    const preflight = await runAdapterPreflight({
+      target: pageUrl,
+      targetKind: 'url',
+      verifiedAuthorizationDecision: input.request.verifiedAuthorizationDecision,
+      authorizedScopeGrant: input.request.authorizedScopeGrant,
+      lineage: input.request.lineage,
+      requiredPermissions: [
+        'endpointDiscovery',
+        'activeCrawling',
+        'authenticatedTesting',
+        'passiveRecon',
+        'technologyFingerprinting',
+      ],
+      missingPermissionReason:
+        'Scope grant does not permit authenticated BYOT network harvest',
+      dnsResolver: input.request.dnsResolver,
+    });
+    if (!preflight.ok) {
+      if (pageUrl === input.request.originUrl) {
+        return {
+          requestsUsed: 0,
+          preflightDenied: {
+            status: 'preflight_denied',
+            contractVersion: BYOT_NETWORK_HARVEST_CONTRACT_VERSION,
+            originUrl: input.request.originUrl,
+            reasonCode: preflight.reasonCode,
+            reason: preflight.reason,
+            requestsUsed: 0,
+            urlObservations: [],
+            serverActionHints: [],
+            nonClaims: BYOT_NETWORK_HARVEST_NON_CLAIMS,
+          },
+        };
+      }
+      continue;
+    }
+
+    try {
+      const probe = await transport({
+        url: pageUrl,
+        method: 'GET',
+        headers: {
+          ...input.authHeaders,
+          accept: 'text/html, application/xhtml+xml, */*',
+          'user-agent': 'Mozilla/5.0 (FixGuard Defensive Auditor)',
+        },
+        timeoutMs: input.timeoutMs,
+      });
+      requestsUsed += 1;
+      pushUrl(input.collectors, pageUrl);
+      if (probe.statusCode >= 200 && probe.statusCode < 400 && probe.bodyText) {
+        pushActions(input.collectors, pageUrl, probe.bodyText);
+        for (const mined of extractInScopePathUrls(
+          probe.bodyText,
+          input.root.origin,
+          input.root.host,
+          input.collectors.maxUrls
+        )) {
+          pushUrl(input.collectors, mined);
+        }
+        for (const src of extractScriptSrcs(
+          probe.bodyText,
+          pageUrl,
+          input.maxScripts
+        )) {
+          if (seenScripts.has(src)) continue;
+          seenScripts.add(src);
+          if (scriptQueue.length < input.maxScripts) scriptQueue.push(src);
+        }
+      }
+    } catch {
+      requestsUsed += 1;
+    }
+  }
+
+  for (const scriptUrl of scriptQueue) {
+    if (
+      input.collectors.urlObservations.length >= input.collectors.maxUrls &&
+      input.collectors.serverActionHints.length >= input.collectors.maxActionIds
+    ) {
+      break;
+    }
+    const preflight = await runAdapterPreflight({
+      target: scriptUrl,
+      targetKind: 'url',
+      verifiedAuthorizationDecision: input.request.verifiedAuthorizationDecision,
+      authorizedScopeGrant: input.request.authorizedScopeGrant,
+      lineage: input.request.lineage,
+      requiredPermissions: [
+        'endpointDiscovery',
+        'activeCrawling',
+        'authenticatedTesting',
+        'passiveRecon',
+        'technologyFingerprinting',
+      ],
+      missingPermissionReason:
+        'Scope grant does not permit authenticated BYOT script harvest',
+      dnsResolver: input.request.dnsResolver,
+    });
+    if (!preflight.ok) continue;
+
+    try {
+      const probe = await transport({
+        url: scriptUrl,
+        method: 'GET',
+        headers: {
+          ...input.authHeaders,
+          accept: 'application/javascript, text/javascript, */*',
+          'user-agent': 'Mozilla/5.0 (FixGuard Defensive Auditor)',
+        },
+        timeoutMs: input.timeoutMs,
+      });
+      requestsUsed += 1;
+      if (probe.statusCode >= 200 && probe.statusCode < 300 && probe.bodyText) {
+        pushUrl(input.collectors, scriptUrl);
+        pushActions(input.collectors, input.request.originUrl, probe.bodyText);
+        for (const mined of extractInScopePathUrls(
+          probe.bodyText,
+          input.root.origin,
+          input.root.host,
+          input.collectors.maxUrls
+        )) {
+          pushUrl(input.collectors, mined);
+        }
+      }
+    } catch {
+      requestsUsed += 1;
+    }
+  }
+
+  return { requestsUsed };
 }
 
 export async function runByotNetworkHarvest(
@@ -222,8 +664,6 @@ export async function runByotNetworkHarvest(
     typeof request.maxUrls === 'number' && request.maxUrls > 0
       ? Math.floor(request.maxUrls)
       : BYOT_HARVEST_MAX_URLS;
-
-  const transport = request.transport ?? defaultHttpProbeTransport;
   const timeoutMs = request.timeoutMs ?? 12_000;
   const nowIso = new Date().toISOString();
 
@@ -233,183 +673,90 @@ export async function runByotNetworkHarvest(
     if (!pageCandidates.includes(p)) pageCandidates.push(p);
   }
 
-  const urlObservations: DiscoveredUrlObservation[] = [];
-  const serverActionHints: ByotHarvestServerActionHint[] = [];
-  const seenUrls = new Set<string>();
-  const seenActions = new Set<string>();
+  const collectors: HarvestCollectors = {
+    urlObservations: [],
+    serverActionHints: [],
+    seenUrls: new Set<string>(),
+    seenActions: new Set<string>(),
+    rootHost: root.host,
+    maxUrls,
+    maxActionIds,
+    nowIso,
+  };
+
+  let harvestMode: ByotHarvestMode = 'http_fallback';
   let requestsUsed = 0;
 
-  const pushUrl = (rawUrl: string): void => {
-    if (urlObservations.length >= maxUrls) return;
+  if (request.httpOnly !== true) {
     try {
-      const parsed = new URL(rawUrl);
-      if (parsed.hostname.toLowerCase() !== root.host) return;
-      if (seenUrls.has(parsed.href)) return;
-      seenUrls.add(parsed.href);
-      urlObservations.push({
-        url: parsed.href,
-        host: parsed.hostname.toLowerCase(),
-        path: parsed.pathname || '/',
-        ...(parsed.search.length > 1 ? { query: parsed.search.slice(1) } : {}),
-        sources: Object.freeze([BYOT_NETWORK_HARVEST_SOURCE]),
-        discoveredAt: nowIso,
-        collectedAt: nowIso,
-        freshness: 'live',
-        sourceReliability: 'direct_observation',
+      const pw = await harvestViaPlaywright({
+        request,
+        authHeaders,
+        root,
+        pageCandidates,
+        collectors,
+        timeoutMs,
+        maxPages,
       });
-    } catch {
-      // ignore
-    }
-  };
-
-  const pushActions = (endpointUrl: string, text: string): void => {
-    for (const actionId of extractNextServerActionIdHintsFromText(text, maxActionIds)) {
-      if (serverActionHints.length >= maxActionIds) return;
-      const key = `${endpointUrl}:${actionId}`;
-      if (seenActions.has(key)) continue;
-      seenActions.add(key);
-      serverActionHints.push({
-        endpointUrl,
-        actionId,
-        source: BYOT_NETWORK_HARVEST_SOURCE,
-      });
-    }
-  };
-
-  const scriptQueue: string[] = [];
-  const seenScripts = new Set<string>();
-
-  for (const pageUrl of pageCandidates.slice(0, maxPages)) {
-    const preflight = await runAdapterPreflight({
-      target: pageUrl,
-      targetKind: 'url',
-      verifiedAuthorizationDecision: request.verifiedAuthorizationDecision,
-      authorizedScopeGrant: request.authorizedScopeGrant,
-      lineage: request.lineage,
-      requiredPermissions: [
-        'endpointDiscovery',
-        'activeCrawling',
-        'authenticatedTesting',
-        'passiveRecon',
-        'technologyFingerprinting',
-      ],
-      missingPermissionReason:
-        'Scope grant does not permit authenticated BYOT network harvest',
-      dnsResolver: request.dnsResolver,
-    });
-    if (!preflight.ok) {
-      if (pageUrl === request.originUrl) {
+      if (!pw.unavailable) {
+        harvestMode = 'playwright';
+        requestsUsed = pw.requestsUsed;
+      }
+    } catch (err: unknown) {
+      if (
+        err &&
+        typeof err === 'object' &&
+        'name' in err &&
+        (err as { name?: string }).name === 'ByotHarvestPreflightDenied'
+      ) {
+        const denied = err as {
+          reasonCode?: string;
+          reason?: string;
+        };
         return {
           status: 'preflight_denied',
           contractVersion: BYOT_NETWORK_HARVEST_CONTRACT_VERSION,
           originUrl: request.originUrl,
-          reasonCode: preflight.reasonCode,
-          reason: preflight.reason,
+          reasonCode: denied.reasonCode ?? 'preflight_denied',
+          reason: denied.reason,
           requestsUsed: 0,
           urlObservations: [],
           serverActionHints: [],
           nonClaims: BYOT_NETWORK_HARVEST_NON_CLAIMS,
         };
       }
-      continue;
-    }
-
-    try {
-      const probe = await transport({
-        url: pageUrl,
-        method: 'GET',
-        headers: {
-          ...authHeaders,
-          accept: 'text/html, application/xhtml+xml, */*',
-          'user-agent': 'Mozilla/5.0 (FixGuard Defensive Auditor)',
-        },
-        timeoutMs,
-      });
-      requestsUsed += 1;
-      pushUrl(pageUrl);
-      if (probe.statusCode >= 200 && probe.statusCode < 400 && probe.bodyText) {
-        pushActions(pageUrl, probe.bodyText);
-        for (const mined of extractInScopePathUrls(
-          probe.bodyText,
-          root.origin,
-          root.host,
-          maxUrls
-        )) {
-          pushUrl(mined);
-        }
-        for (const src of extractScriptSrcs(probe.bodyText, pageUrl, maxScripts)) {
-          if (seenScripts.has(src)) continue;
-          seenScripts.add(src);
-          if (scriptQueue.length < maxScripts) scriptQueue.push(src);
-        }
-      }
-    } catch {
-      requestsUsed += 1;
+      // Non-unavailable browser errors: fall through to HTTP fallback.
     }
   }
 
-  for (const scriptUrl of scriptQueue) {
-    if (urlObservations.length >= maxUrls && serverActionHints.length >= maxActionIds) {
-      break;
-    }
-    const preflight = await runAdapterPreflight({
-      target: scriptUrl,
-      targetKind: 'url',
-      verifiedAuthorizationDecision: request.verifiedAuthorizationDecision,
-      authorizedScopeGrant: request.authorizedScopeGrant,
-      lineage: request.lineage,
-      requiredPermissions: [
-        'endpointDiscovery',
-        'activeCrawling',
-        'authenticatedTesting',
-        'passiveRecon',
-        'technologyFingerprinting',
-      ],
-      missingPermissionReason:
-        'Scope grant does not permit authenticated BYOT script harvest',
-      dnsResolver: request.dnsResolver,
+  if (harvestMode !== 'playwright') {
+    const http = await harvestViaHttp({
+      request,
+      authHeaders,
+      root,
+      pageCandidates,
+      collectors,
+      timeoutMs,
+      maxPages,
+      maxScripts,
     });
-    if (!preflight.ok) continue;
-
-    try {
-      const probe = await transport({
-        url: scriptUrl,
-        method: 'GET',
-        headers: {
-          ...authHeaders,
-          accept: 'application/javascript, text/javascript, */*',
-          'user-agent': 'Mozilla/5.0 (FixGuard Defensive Auditor)',
-        },
-        timeoutMs,
-      });
-      requestsUsed += 1;
-      if (probe.statusCode >= 200 && probe.statusCode < 300 && probe.bodyText) {
-        pushUrl(scriptUrl);
-        pushActions(request.originUrl, probe.bodyText);
-        for (const mined of extractInScopePathUrls(
-          probe.bodyText,
-          root.origin,
-          root.host,
-          maxUrls
-        )) {
-          pushUrl(mined);
-        }
-      }
-    } catch {
-      requestsUsed += 1;
-    }
+    if (http.preflightDenied) return http.preflightDenied;
+    requestsUsed = http.requestsUsed;
+    harvestMode = 'http_fallback';
   }
 
   const empty =
-    urlObservations.length === 0 && serverActionHints.length === 0;
+    collectors.urlObservations.length === 0 &&
+    collectors.serverActionHints.length === 0;
   return {
     status: 'success',
     contractVersion: BYOT_NETWORK_HARVEST_CONTRACT_VERSION,
     originUrl: request.originUrl,
     reasonCode: empty ? 'harvested_empty' : 'harvested',
+    harvestMode,
     requestsUsed,
-    urlObservations: Object.freeze(urlObservations),
-    serverActionHints: Object.freeze(serverActionHints),
+    urlObservations: Object.freeze(collectors.urlObservations),
+    serverActionHints: Object.freeze(collectors.serverActionHints),
     nonClaims: BYOT_NETWORK_HARVEST_NON_CLAIMS,
   };
 }

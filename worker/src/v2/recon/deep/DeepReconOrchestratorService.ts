@@ -12,6 +12,7 @@ import type { IdorHttpProbeTransport } from '../../detection/DetectionContracts.
 import type { PreSpawnDnsResolver } from '../adapters/AdapterPreflightPipeline.js';
 import type { ContentDiscoveryTool } from '../adapters/ContentDiscoveryContracts.js';
 import type { ParameterDiscoveryTool } from '../adapters/ParameterDiscoveryContracts.js';
+import type { PlaywrightBrowserLauncher } from '../adapters/BrowserAutomationContracts.js';
 import { runRobotsSitemapInventoryFeed } from '../analysis/RobotsSitemapInventoryFeedService.js';
 import {
   DEEP_RECON_CONTRACT_VERSION,
@@ -46,6 +47,10 @@ export interface DeepReconOrchestratorRequest {
   readonly byotAuthHeaders?: Readonly<Record<string, string>>;
   /** Extra page seeds for BYOT harvest (capped inside harvest). */
   readonly byotHarvestPageUrls?: readonly string[];
+  /** Injectable Playwright launcher for authenticated BYOT harvest. */
+  readonly byotBrowserLauncher?: PlaywrightBrowserLauncher;
+  /** Force HTTP-only BYOT harvest (skip Playwright). */
+  readonly byotHttpOnly?: boolean;
   readonly contentTool?: ContentDiscoveryTool;
   readonly parameterTool?: ParameterDiscoveryTool;
   readonly wordlistPath?: string;
@@ -251,6 +256,10 @@ export async function runDeepReconOrchestrator(
         ...(request.byotHarvestPageUrls && request.byotHarvestPageUrls.length > 0
           ? { pageUrls: request.byotHarvestPageUrls }
           : {}),
+        ...(request.byotBrowserLauncher
+          ? { browserLauncher: request.byotBrowserLauncher }
+          : {}),
+        ...(request.byotHttpOnly === true ? { httpOnly: true } : {}),
         transport: request.transport,
         dnsResolver: request.dnsResolver,
         timeoutMs: request.timeoutMs,

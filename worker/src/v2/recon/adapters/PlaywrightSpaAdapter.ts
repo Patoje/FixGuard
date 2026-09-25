@@ -171,6 +171,17 @@ class PlaywrightPageWrapper implements PageInstance {
           url: () => rawReq.url(),
           method: () => rawReq.method(),
           resourceType: () => rawReq.resourceType(),
+          headerValue: (name: string): string | undefined => {
+            const wanted = name.trim().toLowerCase();
+            if (wanted.length === 0) return undefined;
+            const headers = rawReq.headers();
+            for (const [key, value] of Object.entries(headers)) {
+              if (key.toLowerCase() === wanted && typeof value === 'string' && value.length > 0) {
+                return value;
+              }
+            }
+            return undefined;
+          },
         });
       });
     }
