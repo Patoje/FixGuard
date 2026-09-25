@@ -8,11 +8,9 @@ export type PlanWorkbenchBucket = "proposed" | "authorized" | "completed";
 interface AttackPlansListProps {
   readonly plans: readonly AttackPlan[];
   readonly completedPlanIds: ReadonlySet<string>;
-  readonly selectedPlanId: string | null;
-  readonly onSelectPlan: (plan: AttackPlan) => void;
+  readonly busyPlanId: string | null;
   readonly onAuthorizeClick: (plan: AttackPlan) => void;
   readonly onExecuteClick: (plan: AttackPlan) => void;
-  readonly busyPlanId: string | null;
 }
 
 function bucketForPlan(
@@ -68,9 +66,7 @@ function PlanRow({
 }: {
   readonly plan: AttackPlan;
   readonly bucket: PlanWorkbenchBucket;
-  readonly selected: boolean;
   readonly busy: boolean;
-  readonly onSelect: () => void;
   readonly onAuthorize: () => void;
   readonly onExecute: () => void;
 }) {
@@ -185,8 +181,6 @@ function PlanRow({
 export function AttackPlansList({
   plans,
   completedPlanIds,
-  selectedPlanId,
-  onSelectPlan,
   onAuthorizeClick,
   onExecuteClick,
   busyPlanId,
@@ -234,9 +228,7 @@ export function AttackPlansList({
                   key={plan.planId}
                   plan={plan}
                   bucket={key}
-                  selected={selectedPlanId === plan.planId}
                   busy={busyPlanId === plan.planId}
-                  onSelect={() => onSelectPlan(plan)}
                   onAuthorize={() => onAuthorizeClick(plan)}
                   onExecute={() => onExecuteClick(plan)}
                 />

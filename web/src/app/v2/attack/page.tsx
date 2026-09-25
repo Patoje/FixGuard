@@ -657,9 +657,7 @@ function AttackModeContent({
                 <AttackPlansList
                   plans={displayPlans}
                   completedPlanIds={completedPlanIds}
-                  selectedPlanId={selectedPlanId}
                   busyPlanId={busyPlanId}
-                  onSelectPlan={(p) => setSelectedPlanId(p.planId)}
                   onAuthorizeClick={(p) => {
                     setAuthorizeThenExecute(false);
                     setAuthModalPlan(p);
