@@ -55,9 +55,10 @@ const TOOL_PROBE_SPECS: Record<ReconToolName, ToolProbeSpec> = {
     versionArgs: ['--version'],
     versionPattern: /version:\s*v?(\d+\.\d+(?:\.\d+)?(?:-[a-zA-Z0-9.]+)?)/i,
   },
+  // arjun has no --version; -h prints usage and exits 0 (presence signal).
   arjun: {
-    versionArgs: ['--version'],
-    versionPattern: /v?(\d+\.\d+(?:\.\d+)?(?:-[a-zA-Z0-9.]+)?)/i,
+    versionArgs: ['-h'],
+    versionPattern: /Arjun\s+v?(\d+\.\d+(?:\.\d+)?)/i,
   },
   trufflehog: {
     versionArgs: ['--version'],
