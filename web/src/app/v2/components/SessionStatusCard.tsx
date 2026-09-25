@@ -136,12 +136,13 @@ export function SessionStatusCard({
       if (seenStagesRef.current.has(seenKey)) continue;
       seenStagesRef.current.add(seenKey);
       next.push(formatStageLine(stage));
-      if (stage.warnings.length > 0) {
+      const warnings = Array.isArray(stage.warnings) ? stage.warnings : [];
+      if (warnings.length > 0) {
         next.push({
-          id: `warn-${stage.stage}-${stage.warnings.length}`,
+          id: `warn-${stage.stage}-${warnings.length}`,
           at: stamp(),
           stream: "event",
-          text: `[${stamp()}]   ↳ warnings: ${stage.warnings.slice(0, 3).join("; ")}`,
+          text: `[${stamp()}]   ↳ warnings: ${warnings.slice(0, 3).join("; ")}`,
         });
       }
     }
@@ -238,6 +239,7 @@ export function SessionStatusCard({
     status.status === "completed" || status.status === "circuit_broken";
   const isFailed =
     status.status === "failed" || status.status === "preflight_denied";
+  const canContinueToTriage = isReconDone || isFailed;
   const totalObs = status.stages.reduce((n, s) => n + s.observationsCount, 0);
   const showAlive = isRunning && status.alive === true;
 
@@ -396,7 +398,8 @@ export function SessionStatusCard({
             </span>
           ) : isFailed ? (
             <span className="text-rose-400">
-              Pipeline stopped. Relaunch from Stage 1 or inspect errors above.
+              Pipeline stopped. You can still open Triage (may be empty) or
+              relaunch from Stage 1 with skip-crawl + seed URLs.
             </span>
           ) : (
             <span>5-stage orchestrated recon in progress…</span>
@@ -405,7 +408,7 @@ export function SessionStatusCard({
         <button
           type="button"
           onClick={onContinueToTriage}
-          disabled={!isReconDone}
+          disabled={!canContinueToTriage}
           className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-xs font-semibold text-white transition hover:bg-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/40 disabled:cursor-not-allowed disabled:opacity-40 shadow-lg shadow-blue-600/20"
         >
           Continue to Triage

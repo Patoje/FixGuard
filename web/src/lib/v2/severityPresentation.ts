@@ -52,6 +52,7 @@ const HIGH_KINDS = new Set<string>([
   "static_secret_exposure",
   "sql_error_oracle",
   "dependency_confusion",
+  "supabase_rls_abuse",
 ]);
 
 /** Meaningful misconfig / disclosure with attack value — light yellow (medium). */
@@ -163,6 +164,7 @@ const KIND_TITLES: Readonly<Record<string, string>> = {
   oob_canary_interaction: "Out-of-band canary interaction",
   blind_ssrf: "Blind SSRF signal",
   blind_xss: "Blind XSS signal",
+  supabase_rls_abuse: "Supabase RLS world-readable (anon)",
   custom_difference: "Response difference (review)",
 };
 
@@ -215,6 +217,8 @@ const KIND_WHY: Readonly<Record<string, string>> = {
     "Confirmed callback means stored/reflected XSS reached a browser context.",
   oob_canary_interaction:
     "Confirmed callback interaction strengthens the related finding.",
+  supabase_rls_abuse:
+    "Anon role can read table rows via the Data API — RLS is missing or misconfigured. No JWT required.",
 };
 
 export function draftPlainTitle(

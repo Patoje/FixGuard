@@ -69,16 +69,29 @@ export function TargetLaunchCard({
 }: TargetLaunchCardProps) {
   const [domainInput, setDomainInput] = useState<string>("teclaaa.vercel.app");
   const [actorId, setActorId] = useState<string>("usr_secops_lead");
+  const [relatedHostsInput, setRelatedHostsInput] = useState<string>(
+    "vawrzoncszqauzxwqide.supabase.co"
+  );
+  const [seedUrlsInput, setSeedUrlsInput] = useState<string>(
+    "https://vawrzoncszqauzxwqide.supabase.co/rest/v1/profiles\nhttps://vawrzoncszqauzxwqide.supabase.co/rest/v1/shop_items"
+  );
+  const [seedPathsInput, setSeedPathsInput] = useState<string>(
+    "/carrera/93kpw, /login, /perfil"
+  );
+  const [skipSlowCrawl, setSkipSlowCrawl] = useState<boolean>(true);
+  const [showAdvanced, setShowAdvanced] = useState(true);
   const [loading, setLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
 
   const [showByot, setShowByot] = useState(false);
   const [identityAId, setIdentityAId] = useState("operator_identity_a");
   const [identityAAuthHeader, setIdentityAAuthHeader] = useState("");
+  const [identityAApiKey, setIdentityAApiKey] = useState("");
   const [identityACookie, setIdentityACookie] = useState("");
   const [enableIdentityB, setEnableIdentityB] = useState(false);
   const [identityBId, setIdentityBId] = useState("operator_identity_b");
   const [identityBAuthHeader, setIdentityBAuthHeader] = useState("");
+  const [identityBApiKey, setIdentityBApiKey] = useState("");
   const [identityBCookie, setIdentityBCookie] = useState("");
 
   const cleaned = cleanDomain(domainInput);
@@ -104,18 +117,41 @@ export function TargetLaunchCard({
 
     try {
       let sessionIdentities: ByotSessionIdentityBundleDto | undefined;
-      if (showByot && (identityAAuthHeader.trim() || identityACookie.trim())) {
+      if (
+        showByot &&
+        (identityAAuthHeader.trim() ||
+          identityAApiKey.trim() ||
+          identityACookie.trim())
+      ) {
         const headersA: Record<string, string> = {};
         if (identityAAuthHeader.trim()) {
           headersA["authorization"] = identityAAuthHeader.trim();
         }
+        if (identityAApiKey.trim()) {
+          headersA["apikey"] = identityAApiKey.trim();
+          // Anon RLS: Authorization Bearer often mirrors the publishable key.
+          if (!headersA["authorization"]) {
+            headersA["authorization"] = `Bearer ${identityAApiKey.trim()}`;
+          }
+        }
         const cookiesA = parseCookieInput(identityACookie);
 
         let identityB: ByotIdentityDto | undefined;
-        if (enableIdentityB && (identityBAuthHeader.trim() || identityBCookie.trim())) {
+        if (
+          enableIdentityB &&
+          (identityBAuthHeader.trim() ||
+            identityBApiKey.trim() ||
+            identityBCookie.trim())
+        ) {
           const headersB: Record<string, string> = {};
           if (identityBAuthHeader.trim()) {
             headersB["authorization"] = identityBAuthHeader.trim();
+          }
+          if (identityBApiKey.trim()) {
+            headersB["apikey"] = identityBApiKey.trim();
+            if (!headersB["authorization"]) {
+              headersB["authorization"] = `Bearer ${identityBApiKey.trim()}`;
+            }
           }
           const cookiesB = parseCookieInput(identityBCookie);
           identityB = {
@@ -135,10 +171,43 @@ export function TargetLaunchCard({
         };
       }
 
+      const relatedAllowedHosts = relatedHostsInput
+        .split(/[\s,;]+/)
+        .map((h) =>
+          h
+            .trim()
+            .toLowerCase()
+            .replace(/^https?:\/\//, "")
+            .replace(/\/.*$/, "")
+        )
+        .filter((h) => h.length > 0 && /^[a-z0-9.-]+\.[a-z]{2,}$/i.test(h));
+
+      const seedUrls = seedUrlsInput
+        .split(/[\n,;]+/)
+        .map((u) => u.trim())
+        .filter((u) => /^https?:\/\/.+/i.test(u));
+
+      const seedPaths = seedPathsInput
+        .split(/[\s,;]+/)
+        .map((p) => p.trim())
+        .filter((p) => p.startsWith("/"));
+
+      const skipStages = skipSlowCrawl
+        ? (["stage_2_port_service", "stage_4_crawling_parameters"] as const)
+        : undefined;
+
       const result = await startOrchestratedAssessment({
         targetDomain: cleaned,
         actorId: actorId.trim() || undefined,
         ...(sessionIdentities ? { sessionIdentities } : {}),
+        ...(relatedAllowedHosts.length > 0
+          ? { relatedAllowedHosts }
+          : {}),
+        ...(seedUrls.length > 0 ? { seedUrls } : {}),
+        ...(seedPaths.length > 0 ? { seedPaths } : {}),
+        ...(skipStages
+          ? { config: { skipStages: [...skipStages] } }
+          : {}),
       });
       onAssessmentStarted(result, cleaned);
     } catch (err) {
@@ -237,6 +306,108 @@ export function TargetLaunchCard({
           </div>
         </div>
 
+        <div>
+          <label
+            htmlFor="relatedAllowedHosts"
+            className="block text-xs font-medium text-zinc-300"
+          >
+            Related allowed hosts{" "}
+            <span className="font-normal text-zinc-500">
+              (optional — e.g. Supabase project for RLS)
+            </span>
+          </label>
+          <input
+            id="relatedAllowedHosts"
+            type="text"
+            value={relatedHostsInput}
+            onChange={(e) => {
+              setRelatedHostsInput(e.target.value);
+              if (error) setError(null);
+            }}
+            placeholder="project.supabase.co"
+            className="mt-1.5 block w-full rounded-lg border border-zinc-800 bg-zinc-900/60 px-3.5 py-2.5 text-sm font-mono text-zinc-100 placeholder-zinc-600 focus:border-emerald-500/50 focus:outline-none focus:ring-2 focus:ring-emerald-500/20"
+            disabled={loading || isRunning}
+          />
+          <p className="mt-1 text-[10px] text-zinc-500">
+            Comma-separated. Added to authorized scope so deep recon can probe
+            backend APIs (anon RLS needs no JWT).
+          </p>
+        </div>
+
+        <div className="rounded-lg border border-zinc-800/80 bg-zinc-900/40 overflow-hidden">
+          <button
+            type="button"
+            onClick={() => setShowAdvanced(!showAdvanced)}
+            className="w-full flex items-center justify-between p-3 text-xs text-left hover:bg-zinc-800/40 transition"
+          >
+            <div className="flex items-center gap-2 text-zinc-200 font-medium">
+              <span>Advanced scope seeds</span>
+              <span className="text-[10px] font-mono text-zinc-500 uppercase tracking-wider">
+                seedUrls · skip crawl
+              </span>
+            </div>
+            {showAdvanced ? (
+              <ChevronDown className="h-4 w-4 text-zinc-400" />
+            ) : (
+              <ChevronRight className="h-4 w-4 text-zinc-400" />
+            )}
+          </button>
+          {showAdvanced && (
+            <div className="p-3 pt-0 border-t border-zinc-800/60 space-y-3">
+              <label className="flex items-start gap-2 text-xs text-zinc-300">
+                <input
+                  type="checkbox"
+                  checked={skipSlowCrawl}
+                  onChange={(e) => setSkipSlowCrawl(e.target.checked)}
+                  disabled={loading || isRunning}
+                  className="mt-0.5 rounded border-zinc-700"
+                />
+                <span>
+                  Skip slow ports + crawl (stage_2 / stage_4) — recommended for
+                  SPA + Supabase RLS; avoids gau idle timeout.
+                </span>
+              </label>
+              <div>
+                <label
+                  htmlFor="seedUrls"
+                  className="block text-xs font-medium text-zinc-300"
+                >
+                  Seed URLs{" "}
+                  <span className="font-normal text-zinc-500">
+                    (REST tables / known paths)
+                  </span>
+                </label>
+                <textarea
+                  id="seedUrls"
+                  rows={3}
+                  value={seedUrlsInput}
+                  onChange={(e) => setSeedUrlsInput(e.target.value)}
+                  placeholder="https://project.supabase.co/rest/v1/profiles"
+                  disabled={loading || isRunning}
+                  className="mt-1.5 block w-full rounded-lg border border-zinc-800 bg-zinc-950 px-3 py-2 text-xs font-mono text-zinc-100 placeholder-zinc-600 focus:border-emerald-500/50 focus:outline-none focus:ring-2 focus:ring-emerald-500/20"
+                />
+              </div>
+              <div>
+                <label
+                  htmlFor="seedPaths"
+                  className="block text-xs font-medium text-zinc-300"
+                >
+                  Seed paths
+                </label>
+                <input
+                  id="seedPaths"
+                  type="text"
+                  value={seedPathsInput}
+                  onChange={(e) => setSeedPathsInput(e.target.value)}
+                  placeholder="/carrera/93kpw, /login"
+                  disabled={loading || isRunning}
+                  className="mt-1.5 block w-full rounded-lg border border-zinc-800 bg-zinc-950 px-3 py-2 text-xs font-mono text-zinc-100 placeholder-zinc-600 focus:border-emerald-500/50 focus:outline-none focus:ring-2 focus:ring-emerald-500/20"
+                />
+              </div>
+            </div>
+          )}
+        </div>
+
         <div className="rounded-lg border border-zinc-800/80 bg-zinc-900/40 overflow-hidden">
           <button
             type="button"
@@ -260,9 +431,10 @@ export function TargetLaunchCard({
             <div className="p-3 pt-0 border-t border-zinc-800/60 space-y-3">
               <div className="flex items-start gap-2 rounded-md border border-amber-500/20 bg-amber-500/5 p-2 text-[10px] text-amber-300 font-mono">
                 <Lock className="h-3 w-3 shrink-0 mt-0.5" />
-                Ephemeral only — never persisted to DB, logs, or reports.
+                Ephemeral only — never persisted. For Supabase RLS: paste OBSERVED
+                sb_publishable_… into apikey (anon; no user JWT required).
               </div>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
                 <input
                   type="text"
                   value={identityAId}
@@ -274,9 +446,18 @@ export function TargetLaunchCard({
                 <input
                   type="password"
                   autoComplete="off"
+                  value={identityAApiKey}
+                  onChange={(e) => setIdentityAApiKey(e.target.value)}
+                  placeholder="apikey (sb_publishable_…)"
+                  disabled={loading || isRunning}
+                  className="rounded-md border border-zinc-800 bg-zinc-950 px-2 py-1.5 text-xs font-mono text-white"
+                />
+                <input
+                  type="password"
+                  autoComplete="off"
                   value={identityAAuthHeader}
                   onChange={(e) => setIdentityAAuthHeader(e.target.value)}
-                  placeholder="Authorization header"
+                  placeholder="Authorization (optional if apikey set)"
                   disabled={loading || isRunning}
                   className="rounded-md border border-zinc-800 bg-zinc-950 px-2 py-1.5 text-xs font-mono text-white"
                 />
@@ -302,7 +483,7 @@ export function TargetLaunchCard({
                 Enable Identity B (differential IDOR)
               </label>
               {enableIdentityB && (
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
                   <input
                     type="text"
                     value={identityBId}
@@ -314,9 +495,18 @@ export function TargetLaunchCard({
                   <input
                     type="password"
                     autoComplete="off"
+                    value={identityBApiKey}
+                    onChange={(e) => setIdentityBApiKey(e.target.value)}
+                    placeholder="apikey (sb_publishable_…)"
+                    disabled={loading || isRunning}
+                    className="rounded-md border border-zinc-800 bg-zinc-950 px-2 py-1.5 text-xs font-mono text-white"
+                  />
+                  <input
+                    type="password"
+                    autoComplete="off"
                     value={identityBAuthHeader}
                     onChange={(e) => setIdentityBAuthHeader(e.target.value)}
-                    placeholder="Authorization header"
+                    placeholder="Authorization (optional if apikey set)"
                     disabled={loading || isRunning}
                     className="rounded-md border border-zinc-800 bg-zinc-950 px-2 py-1.5 text-xs font-mono text-white"
                   />
@@ -344,6 +534,15 @@ export function TargetLaunchCard({
                 type="button"
                 onClick={() => {
                   setDomainInput(domain);
+                  if (domain === "teclaaa.vercel.app") {
+                    setRelatedHostsInput("vawrzoncszqauzxwqide.supabase.co");
+                    setSeedUrlsInput(
+                      "https://vawrzoncszqauzxwqide.supabase.co/rest/v1/profiles\nhttps://vawrzoncszqauzxwqide.supabase.co/rest/v1/shop_items"
+                    );
+                    setSeedPathsInput("/carrera/93kpw, /login, /perfil");
+                    setSkipSlowCrawl(true);
+                    setShowAdvanced(true);
+                  }
                   setError(null);
                 }}
                 disabled={loading || isRunning}

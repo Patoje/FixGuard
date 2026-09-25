@@ -51,6 +51,7 @@ export function AssessmentLauncherCard({
 }: AssessmentLauncherCardProps) {
   const [domainInput, setDomainInput] = useState<string>("charmarket.vercel.app");
   const [actorId, setActorId] = useState<string>("usr_secops_lead");
+  const [relatedHostsInput, setRelatedHostsInput] = useState<string>("");
   const [loading, setLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -136,10 +137,24 @@ export function AssessmentLauncherCard({
         };
       }
 
+      const relatedAllowedHosts = relatedHostsInput
+        .split(/[\s,;]+/)
+        .map((h) =>
+          h
+            .trim()
+            .toLowerCase()
+            .replace(/^https?:\/\//, "")
+            .replace(/\/.*$/, "")
+        )
+        .filter((h) => h.length > 0 && /^[a-z0-9.-]+\.[a-z]{2,}$/i.test(h));
+
       const result = await startOrchestratedAssessment({
         targetDomain: cleaned,
         actorId: actorId.trim() || undefined,
         ...(sessionIdentities ? { sessionIdentities } : {}),
+        ...(relatedAllowedHosts.length > 0
+          ? { relatedAllowedHosts }
+          : {}),
       });
       onAssessmentStarted(result, cleaned);
     } catch (err) {
@@ -237,6 +252,30 @@ export function AssessmentLauncherCard({
               className="w-full rounded-xl border border-zinc-800 bg-zinc-900/80 py-2.5 px-3.5 text-xs font-mono text-white placeholder-zinc-500 focus:border-blue-500/60 focus:bg-zinc-900 focus:outline-none focus:ring-1 focus:ring-blue-500/40 transition disabled:opacity-50"
             />
           </div>
+        </div>
+
+        <div className="space-y-1.5">
+          <label htmlFor="relatedAllowedHosts" className="block text-xs font-medium text-zinc-300">
+            Related allowed hosts{" "}
+            <span className="font-normal text-zinc-500">
+              (optional — Supabase / backend APIs)
+            </span>
+          </label>
+          <input
+            id="relatedAllowedHosts"
+            type="text"
+            value={relatedHostsInput}
+            onChange={(e) => {
+              setRelatedHostsInput(e.target.value);
+              if (error) setError(null);
+            }}
+            placeholder="project.supabase.co"
+            disabled={loading || isRunning}
+            className="w-full rounded-xl border border-zinc-800 bg-zinc-900/80 py-2.5 px-3.5 text-xs font-mono text-white placeholder-zinc-500 focus:border-emerald-500/60 focus:bg-zinc-900 focus:outline-none focus:ring-1 focus:ring-emerald-500/40 transition disabled:opacity-50"
+          />
+          <p className="text-[10px] text-zinc-500">
+            Separados por coma. Entran al scope autorizado para deep recon / RLS anon.
+          </p>
         </div>
 
         {/* BYOT Session Injection Collapsible Section */}

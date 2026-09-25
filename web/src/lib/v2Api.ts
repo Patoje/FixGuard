@@ -20,20 +20,30 @@ export interface StageResultDto {
   readonly status: 'success' | 'partial_failure' | 'failed' | 'skipped';
   readonly observationsCount: number;
   readonly durationMs: number;
-  readonly warnings: readonly string[];
+  readonly warnings?: readonly string[];
   readonly error?: string;
 }
 
 export interface FindingDto {
   readonly id: string;
   readonly type: string;
-  readonly severity: 'critical' | 'high' | 'medium' | 'low' | 'info';
+  readonly severity: 'critical' | 'high' | 'medium' | 'low' | 'info' | string;
   readonly title: string;
   readonly target: string;
-  readonly evidence: string;
-  readonly line: number;
-  readonly timestamp: string;
-  readonly hash: string;
+  readonly evidence?: string;
+  readonly description?: string;
+  readonly line?: number;
+  readonly timestamp?: string;
+  readonly hash?: string;
+  readonly confidence?: number;
+  readonly verificationState?: string;
+  readonly metadata?: {
+    readonly kind?: string;
+    readonly tableName?: string;
+    readonly claimKind?: string;
+    readonly category?: string;
+    readonly [key: string]: unknown;
+  };
 }
 
 export interface RecommendationDto {
@@ -119,6 +129,10 @@ export interface StartOrchestratedAssessmentParams {
     readonly timeoutPerStageMs?: number;
   };
   readonly sessionIdentities?: ByotSessionIdentityBundleDto;
+  /** Operator-explicit related hosts (e.g. Supabase project) added to authorized scope. */
+  readonly relatedAllowedHosts?: readonly string[];
+  readonly seedUrls?: readonly string[];
+  readonly seedPaths?: readonly string[];
 }
 
 export interface StartOrchestratedAssessmentResponse {
@@ -182,6 +196,7 @@ export interface DifferentialEvidenceContextDto {
     | 'oob_canary_interaction'
     | 'blind_ssrf'
     | 'blind_xss'
+    | 'supabase_rls_abuse'
     | 'custom_difference';
   readonly baselineStatusCode?: number;
   readonly baselineBodyHash?: string;
@@ -312,6 +327,11 @@ export interface DifferentialEvidenceContextDto {
   readonly injectedCanaryUrl?: string;
   readonly interactionConfirmed?: boolean;
   readonly injectedPayloadSnippet?: string;
+  readonly supabaseTableName?: string;
+  readonly supabaseClaimKind?: string;
+  readonly supabaseAnonEqualsAuth?: boolean;
+  readonly supabaseTopLevelJsonKeys?: readonly string[];
+  readonly supabaseRowCountHint?: number;
 }
 
 

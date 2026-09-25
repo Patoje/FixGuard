@@ -13,9 +13,11 @@ import {
 } from "lucide-react";
 import {
   getEvidenceDrafts,
+  getOrchestratedAssessmentSummary,
   reviewEvidenceDraft,
   V2ApiError,
   type EvidenceDraftDto,
+  type FindingDto,
 } from "@/lib/v2Api";
 import {
   draftPlainTitle,
@@ -23,6 +25,7 @@ import {
   presentSeverity,
   severityFromDetectionKind,
 } from "@/lib/v2/severityPresentation";
+import Link from "next/link";
 
 /** Default reviewer for promote API — not shown in UI. */
 const DEFAULT_REVIEWER_ID = "op_lead_analyst_01";
@@ -72,6 +75,7 @@ export function EvidenceTriageBoard({
   onContinueToReport,
 }: EvidenceTriageBoardProps) {
   const [drafts, setDrafts] = useState<EvidenceDraftDto[]>([]);
+  const [promotedFindings, setPromotedFindings] = useState<FindingDto[]>([]);
   const [loadingDrafts, setLoadingDrafts] = useState<boolean>(false);
   const [reviewingDraftId, setReviewingDraftId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -83,7 +87,10 @@ export function EvidenceTriageBoard({
     setLoadingDrafts(true);
     setError(null);
     try {
-      const response = await getEvidenceDrafts(assessmentId);
+      const [response, summary] = await Promise.all([
+        getEvidenceDrafts(assessmentId),
+        getOrchestratedAssessmentSummary(assessmentId).catch(() => null),
+      ]);
       const sorted = [...response.drafts].sort((a, b) => {
         const ra = draftSortRank(a);
         const rb = draftSortRank(b);
@@ -91,6 +98,17 @@ export function EvidenceTriageBoard({
         return a.draftId.localeCompare(b.draftId);
       });
       setDrafts(sorted);
+      const findings = summary?.findings ?? [];
+      const rlsOrAccess = findings.filter((f) => {
+        const kind = f.metadata?.kind ?? "";
+        const title = (f.title ?? "").toLowerCase();
+        return (
+          kind === "supabase_rls_abuse_metadata" ||
+          title.includes("supabase rls") ||
+          f.type === "BROKEN_ACCESS_CONTROL"
+        );
+      });
+      setPromotedFindings(rlsOrAccess);
     } catch (err) {
       if (err instanceof V2ApiError) {
         setError(err.message);
@@ -98,6 +116,7 @@ export function EvidenceTriageBoard({
         setError((err as Error).message || "Failed to load drafts");
       }
       setDrafts([]);
+      setPromotedFindings([]);
     } finally {
       setLoadingDrafts(false);
     }
@@ -184,6 +203,77 @@ export function EvidenceTriageBoard({
       )}
 
       <div className="mt-6 space-y-3">
+        {promotedFindings.length > 0 && (
+          <div className="space-y-2 rounded-lg border border-orange-500/30 bg-orange-500/5 p-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <p className="text-xs font-semibold text-orange-200">
+                Auto-promoted findings ({promotedFindings.length}) — already in
+                Attack Mode
+              </p>
+              <Link
+                href={`/v2/attack?assessmentId=${encodeURIComponent(assessmentId)}`}
+                className="text-[11px] font-mono text-orange-300 hover:text-orange-200 underline-offset-2 hover:underline"
+              >
+                Open Attack Mode →
+              </Link>
+            </div>
+            <p className="text-[10px] text-zinc-500">
+              RLS / access-control signals that met auto-promote gates skip the
+              draft queue. Review plans there; drafts below are optional noise
+              filter.
+            </p>
+            <div className="space-y-2">
+              {promotedFindings.map((f, idx) => {
+                const severity = presentSeverity(
+                  severityFromDetectionKind(
+                    f.metadata?.kind === "supabase_rls_abuse_metadata"
+                      ? "supabase_rls_abuse"
+                      : undefined,
+                    { findingSeverity: f.severity }
+                  )
+                );
+                const table =
+                  typeof f.metadata?.tableName === "string"
+                    ? f.metadata.tableName
+                    : undefined;
+                return (
+                  <div
+                    key={`${f.id}-${idx}`}
+                    className="rounded-md border border-orange-500/20 bg-zinc-950/60 p-3"
+                  >
+                    <div className="flex flex-wrap items-center gap-2">
+                      <h3 className="text-sm font-semibold text-zinc-100">
+                        {f.title}
+                      </h3>
+                      <span
+                        className={`rounded border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${severity.badgeClass}`}
+                      >
+                        {severity.label}
+                      </span>
+                    </div>
+                    {f.description && (
+                      <p className="mt-1 text-[11px] text-zinc-400 leading-relaxed">
+                        {f.description}
+                      </p>
+                    )}
+                    <p className="mt-1 truncate font-mono text-[10px] text-zinc-500">
+                      {f.target}
+                    </p>
+                    {table && (
+                      <p className="mt-0.5 text-[10px] font-mono text-amber-400/90">
+                        table: {table}
+                        {typeof f.metadata?.claimKind === "string"
+                          ? ` · ${f.metadata.claimKind}`
+                          : ""}
+                      </p>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
         <div className="flex items-center justify-between text-xs text-zinc-400">
           <span className="font-semibold text-zinc-300">
             Pending drafts ({drafts.length})
@@ -254,6 +344,18 @@ export function EvidenceTriageBoard({
                     <p className="truncate font-mono text-[10px] text-zinc-500">
                       {target}
                     </p>
+                    {draft.differentialContext?.supabaseTableName && (
+                      <p className="text-[10px] font-mono text-amber-400/90">
+                        table: {draft.differentialContext.supabaseTableName}
+                        {draft.differentialContext.supabaseClaimKind
+                          ? ` · ${draft.differentialContext.supabaseClaimKind}`
+                          : ""}
+                        {typeof draft.differentialContext.supabaseRowCountHint ===
+                        "number"
+                          ? ` · ~${draft.differentialContext.supabaseRowCountHint} rows`
+                          : ""}
+                      </p>
+                    )}
                   </div>
 
                   <div className="flex shrink-0 items-center gap-2">

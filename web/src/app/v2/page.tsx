@@ -105,6 +105,22 @@ export default function V2DashboardPage() {
         }
       } catch (err) {
         if (err instanceof V2ApiError) {
+          if (err.errorType === "NotFound" || err.status === 404) {
+            try {
+              sessionStorage.removeItem("fg_v2_active_assessment");
+            } catch {
+              // ignore
+            }
+            setAssessmentId(null);
+            setStatus(null);
+            setIsPolling(false);
+            setActiveStage("stage1_launch");
+            setMaxUnlockedIndex(0);
+            setGlobalError(
+              "Assessment session expired (worker restart / memory). Launch again from Stage 1."
+            );
+            return;
+          }
           setGlobalError(`Status poll failed (${err.errorType}): ${err.message}`);
         } else {
           setGlobalError(
@@ -127,6 +143,18 @@ export default function V2DashboardPage() {
     setTargetDomain(domain);
     setReviewedDraftIds([]);
     setGlobalError(null);
+    try {
+      sessionStorage.setItem(
+        "fg_v2_active_assessment",
+        JSON.stringify({
+          assessmentId: data.assessmentId,
+          scanId: data.scanId,
+          targetDomain: domain,
+        })
+      );
+    } catch {
+      // ignore storage quota / private mode
+    }
     setStatus({
       assessmentId: data.assessmentId,
       scanId: data.scanId,
@@ -144,6 +172,42 @@ export default function V2DashboardPage() {
     setActiveStage("stage2_overview");
     setIsPolling(true);
   };
+
+  // Resume mid-run after reload / Stage-2 crash (sessionStorage or ?assessmentId=)
+  useEffect(() => {
+    if (assessmentId) return;
+    let resumeId: string | null = null;
+    let resumeDomain = "";
+    try {
+      const params = new URLSearchParams(window.location.search);
+      resumeId = params.get("assessmentId");
+      if (!resumeId) {
+        const raw = sessionStorage.getItem("fg_v2_active_assessment");
+        if (raw) {
+          const parsed = JSON.parse(raw) as {
+            assessmentId?: string;
+            targetDomain?: string;
+          };
+          if (typeof parsed.assessmentId === "string") {
+            resumeId = parsed.assessmentId;
+            resumeDomain =
+              typeof parsed.targetDomain === "string"
+                ? parsed.targetDomain
+                : "";
+          }
+        }
+      }
+    } catch {
+      return;
+    }
+    if (!resumeId) return;
+    setAssessmentId(resumeId);
+    setTargetDomain(resumeDomain);
+    setCompletedThrough(0);
+    setMaxUnlockedIndex(1);
+    setActiveStage("stage2_overview");
+    setIsPolling(true);
+  }, [assessmentId]);
 
   useEffect(() => {
     if (!assessmentId || !isPolling) return;
