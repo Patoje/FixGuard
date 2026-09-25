@@ -22,7 +22,67 @@ import {
 import type { DiscoveredUrlObservation } from './UrlDiscoveryContracts.js';
 import type { DiscoveredSecretObservation } from './SecretDiscoveryContracts.js';
 
-const MAX_JS_TARGETS_DEFAULT = 8;
+/** Default budget for ranked JS mining (deep recon P1 — was effectively 6 in orchestrator). */
+export const JSLUICE_MAX_TARGETS_DEFAULT = 16;
+
+/** Soft cap on sourcemap surface probes per stage_4 root (discovery-only). */
+export const SOURCEMAP_SURFACE_MAX_TARGETS_DEFAULT = 4;
+
+const MAX_JS_TARGETS_DEFAULT = JSLUICE_MAX_TARGETS_DEFAULT;
+
+/**
+ * Rank JS assets for mining: app chunks > webpack/runtime > vendor/framework.
+ * Higher score = higher priority. Used by selectJsLuiceTargets.
+ */
+export function scoreJsAssetForMining(url: string): number {
+  let pathname = '';
+  try {
+    pathname = new URL(url).pathname.toLowerCase();
+  } catch {
+    return 0;
+  }
+  const file = pathname.split('/').pop() ?? pathname;
+
+  // Explicit vendor / framework / polyfill — lowest priority
+  if (
+    /(?:^|\/)(?:vendor|framework|polyfills?)(?:[-.]|$)/i.test(file) ||
+    /(?:^|\/)(?:vendor|framework|polyfills?)(?:\/|$)/i.test(pathname) ||
+    /node_modules|react-dom|scheduler\.production/i.test(pathname)
+  ) {
+    return 10;
+  }
+
+  // Next.js app / pages router chunks — highest
+  if (/\/_next\/static\/chunks\/(?:app|pages)\//i.test(pathname)) {
+    return 100;
+  }
+  if (/(?:^|\/)(?:page|layout|template|loading|error|route)-/i.test(file)) {
+    return 95;
+  }
+  if (/\/_next\/static\/chunks\/app[-_/]/i.test(pathname)) {
+    return 90;
+  }
+
+  // Named app-ish chunks (exclude main-app which is often framework shell)
+  if (/\/_next\/static\/chunks\//i.test(pathname) && !/main-app|webpack|polyfill/i.test(file)) {
+    if (/^[0-9a-f]{4,}-/i.test(file) || /chunk/i.test(file)) {
+      return 75;
+    }
+    return 70;
+  }
+
+  // Webpack runtime / main entry — medium (needed for chunk graph hints)
+  if (/webpack|runtime|main[-.]|main-app/i.test(file)) {
+    return 45;
+  }
+
+  // Generic *.js on origin
+  if (/\.js$/i.test(pathname)) {
+    return 40;
+  }
+
+  return 20;
+}
 
 function redactSecretValue(raw: string): string {
   if (raw.length <= 8) return '***';
@@ -327,28 +387,35 @@ export class JsLuiceAdapter implements JsLuiceDiscoveryTool {
 export function selectJsLuiceTargets(args: {
   readonly inventoryUrls: readonly { readonly url: string }[];
   readonly maxTargets?: number;
+  /** URLs already mined — excluded from selection (re-feed / multi-pass). */
+  readonly excludeUrls?: readonly string[];
 }): readonly string[] {
   const max =
     typeof args.maxTargets === 'number' && args.maxTargets > 0
       ? Math.floor(args.maxTargets)
       : MAX_JS_TARGETS_DEFAULT;
-  const out: string[] = [];
+  const excluded = new Set(
+    (args.excludeUrls ?? []).map((u) => u.trim()).filter((u) => u.length > 0)
+  );
+  const scored: { readonly url: string; readonly score: number }[] = [];
   const seen = new Set<string>();
   for (const item of args.inventoryUrls) {
     const url = typeof item.url === 'string' ? item.url.trim() : '';
-    if (!url || seen.has(url)) continue;
+    if (!url || seen.has(url) || excluded.has(url)) continue;
     try {
       const u = new URL(url);
       if (!/\.js(\?|$)/i.test(u.pathname) && !/\/_next\/static\/chunks\//i.test(u.pathname)) {
         continue;
       }
-      // Prefer app chunks over huge vendor bundles when possible
       seen.add(url);
-      out.push(url);
-      if (out.length >= max) break;
+      scored.push({ url, score: scoreJsAssetForMining(url) });
     } catch {
       continue;
     }
   }
-  return Object.freeze(out);
+  scored.sort((a, b) => {
+    if (b.score !== a.score) return b.score - a.score;
+    return a.url.localeCompare(b.url);
+  });
+  return Object.freeze(scored.slice(0, max).map((s) => s.url));
 }

@@ -20,7 +20,12 @@ import {
   CIRCUIT_OPEN_REASON_CODE,
   TargetInstabilityError,
 } from '../../runtime/CircuitBreakerContracts.js';
-import { selectJsLuiceTargets } from '../adapters/JsLuiceAdapter.js';
+import {
+  JSLUICE_MAX_TARGETS_DEFAULT,
+  SOURCEMAP_SURFACE_MAX_TARGETS_DEFAULT,
+  selectJsLuiceTargets,
+} from '../adapters/JsLuiceAdapter.js';
+import { runSourcemapSurfaceExtraction } from '../analysis/SourcemapSurfaceExtractionService.js';
 
 import type {
   ActiveReconOrchestrationRequest,
@@ -1320,43 +1325,98 @@ export class CompositeActiveReconOrchestratorService {
             }
           }
 
-          // 3b. jsluice discovery-only mining of in-scope JS assets (endpoints/params/secrets).
+          // 3b. jsluice discovery-only mining — ranked budget (app chunks > vendor) + one re-feed pass.
           if (this.tools.jsLuiceTool) {
-            const jsTargets = selectJsLuiceTargets({ inventoryUrls: urls, maxTargets: 6 });
-            for (const jsUrl of jsTargets) {
+            const jsBudget =
+              typeof request.config?.jsLuiceMaxTargets === 'number' &&
+              request.config.jsLuiceMaxTargets > 0
+                ? Math.floor(request.config.jsLuiceMaxTargets)
+                : JSLUICE_MAX_TARGETS_DEFAULT;
+            const minedJs = new Set<string>();
+            let remaining = jsBudget;
+            for (let pass = 0; pass < 2 && remaining > 0; pass++) {
+              const jsTargets = selectJsLuiceTargets({
+                inventoryUrls: urls,
+                maxTargets: remaining,
+                excludeUrls: Array.from(minedJs),
+              });
+              if (jsTargets.length === 0) break;
+              for (const jsUrl of jsTargets) {
+                if (minedJs.has(jsUrl) || remaining <= 0) continue;
+                minedJs.add(jsUrl);
+                remaining -= 1;
+                try {
+                  const jsHost = new URL(jsUrl).hostname;
+                  const jsResult = await coordinator.execute(jsHost, () =>
+                    this.tools.jsLuiceTool!.discoverFromJavaScript({
+                      targetJsUrlOrPath: jsUrl,
+                      resolvePathsBase: rootUrl,
+                      verifiedAuthorizationDecision: request.verifiedAuthorizationDecision,
+                      authorizedScopeGrant: request.authorizedScopeGrant,
+                      lineage: request.lineage,
+                      timeoutMs: request.config?.timeoutMs,
+                    })
+                  );
+                  if (jsResult.status === 'success') {
+                    for (const obs of jsResult.urlObservations) {
+                      urls.push(obs);
+                    }
+                    for (const obs of jsResult.parameterObservations) {
+                      parameters.push({
+                        url: obs.sourceUrl,
+                        method: 'GET',
+                        parameterName: obs.parameterName,
+                        discoveredAt: obs.discoveredAt,
+                      });
+                    }
+                    for (const obs of jsResult.secretObservations) {
+                      secrets.push(obs);
+                    }
+                  } else if (jsResult.status === 'tool_unavailable') {
+                    stage4Warnings.push(jsResult.reason);
+                    remaining = 0;
+                    break;
+                  }
+                } catch (jsErr: unknown) {
+                  stage4Warnings.push(
+                    `jsluice error on ${jsUrl}: ${jsErr instanceof Error ? jsErr.message : String(jsErr)}`
+                  );
+                }
+              }
+            }
+
+            // 3c. Sourcemap surface extraction (discovery-only → URL seeds; never Critical from unpack).
+            const mapBudget =
+              typeof request.config?.sourcemapSurfaceMaxTargets === 'number' &&
+              request.config.sourcemapSurfaceMaxTargets > 0
+                ? Math.floor(request.config.sourcemapSurfaceMaxTargets)
+                : SOURCEMAP_SURFACE_MAX_TARGETS_DEFAULT;
+            const mapTargets = selectJsLuiceTargets({
+              inventoryUrls: urls,
+              maxTargets: mapBudget,
+            });
+            for (const jsUrl of mapTargets) {
               try {
                 const jsHost = new URL(jsUrl).hostname;
-                const jsResult = await coordinator.execute(jsHost, () =>
-                  this.tools.jsLuiceTool!.discoverFromJavaScript({
-                    targetJsUrlOrPath: jsUrl,
+                const mapResult = await coordinator.execute(jsHost, () =>
+                  runSourcemapSurfaceExtraction({
+                    sourceJsUrl: jsUrl,
                     resolvePathsBase: rootUrl,
                     verifiedAuthorizationDecision: request.verifiedAuthorizationDecision,
                     authorizedScopeGrant: request.authorizedScopeGrant,
                     lineage: request.lineage,
                     timeoutMs: request.config?.timeoutMs,
+                    dnsResolver: request.dnsResolver,
                   })
                 );
-                if (jsResult.status === 'success') {
-                  for (const obs of jsResult.urlObservations) {
+                if (mapResult.status === 'success') {
+                  for (const obs of mapResult.urlObservations) {
                     urls.push(obs);
                   }
-                  for (const obs of jsResult.parameterObservations) {
-                    parameters.push({
-                      url: obs.sourceUrl,
-                      method: 'GET',
-                      parameterName: obs.parameterName,
-                      discoveredAt: obs.discoveredAt,
-                    });
-                  }
-                  for (const obs of jsResult.secretObservations) {
-                    secrets.push(obs);
-                  }
-                } else if (jsResult.status === 'tool_unavailable') {
-                  stage4Warnings.push(jsResult.reason);
                 }
-              } catch (jsErr: unknown) {
+              } catch (mapErr: unknown) {
                 stage4Warnings.push(
-                  `jsluice error on ${jsUrl}: ${jsErr instanceof Error ? jsErr.message : String(jsErr)}`
+                  `sourcemap surface error on ${jsUrl}: ${mapErr instanceof Error ? mapErr.message : String(mapErr)}`
                 );
               }
             }

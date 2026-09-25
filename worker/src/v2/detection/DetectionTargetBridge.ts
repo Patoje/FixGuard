@@ -74,6 +74,8 @@ export interface DetectionSupabaseRestCandidate {
   readonly authBaseUrl: string;
   readonly projectRef?: string;
   readonly tableName?: string;
+  /** All OBSERVED table path segments mined from recon (jsluice / sourcemap / URLs). */
+  readonly seedTableNames?: readonly string[];
   readonly sourceUrl: string;
   readonly epistemicStatus: 'OBSERVED';
 }
@@ -475,9 +477,18 @@ export function buildSupabaseRestCandidatesFromRecon(
     }
   }
 
-  const candidates = Array.from(byRestBase.values()).sort((a, b) =>
-    a.restBaseUrl.localeCompare(b.restBaseUrl)
-  );
+  const candidates = Array.from(byRestBase.values())
+    .map((c) => {
+      const seeds = seedTablesByBase.get(c.restBaseUrl);
+      if (!seeds || seeds.size === 0) return c;
+      const seedTableNames = Object.freeze(Array.from(seeds).sort());
+      return Object.freeze({
+        ...c,
+        seedTableNames,
+        tableName: c.tableName ?? seedTableNames[0],
+      });
+    })
+    .sort((a, b) => a.restBaseUrl.localeCompare(b.restBaseUrl));
   return candidates.slice(0, maxCandidates);
 }
 

@@ -119,6 +119,30 @@ async function main(): Promise<void> {
   {
     const selected = selectJsLuiceTargets({
       inventoryUrls: [
+        { url: 'https://example.com/_next/static/chunks/vendor.js' },
+        { url: 'https://example.com/_next/static/chunks/framework.js' },
+        { url: 'https://example.com/_next/static/chunks/app/dashboard/page-abc.js' },
+        { url: 'https://example.com/index.html' },
+        { url: 'https://example.com/_next/static/chunks/webpack-123.js' },
+        { url: 'https://example.com/_next/static/chunks/polyfills.js' },
+      ],
+      maxTargets: 2,
+    });
+    assert.equal(selected.length, 2);
+    assert.ok(
+      selected[0]?.includes('/chunks/app/dashboard/'),
+      `expected app chunk first, got ${selected[0]}`
+    );
+    assert.ok(
+      !selected.some((u) => /vendor|framework|polyfills/i.test(u)),
+      'vendor/framework/polyfills must lose to app when budget is tight'
+    );
+    console.log('[+] selectJsLuiceTargets ranking (app > vendor) OK');
+  }
+
+  {
+    const selected = selectJsLuiceTargets({
+      inventoryUrls: [
         { url: 'https://example.com/app.js' },
         { url: 'https://example.com/index.html' },
         { url: 'https://example.com/_next/static/chunks/main.js' },

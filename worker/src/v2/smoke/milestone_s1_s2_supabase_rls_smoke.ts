@@ -479,6 +479,9 @@ async function runTests(): Promise<void> {
     if (cand.tableName !== 'profiles') {
       throw new Error(`Test 6 Failed: expected table profiles, got ${cand.tableName}`);
     }
+    if (!(cand.seedTableNames ?? []).includes('profiles')) {
+      throw new Error(`Test 6 Failed: expected seedTableNames to include profiles`);
+    }
     console.log('  [PASS] Bridge + hasSupabase');
   }
 

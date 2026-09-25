@@ -4896,8 +4896,9 @@ export class OrchestratedAssessmentApplicationService {
         for (const sbCandidate of supabaseCandidates.slice(0, 3)) {
           try {
             const seedTables = [
+              ...(sbCandidate.seedTableNames ?? []),
               ...(sbCandidate.tableName ? [sbCandidate.tableName] : []),
-            ];
+            ].filter((name, idx, arr) => arr.indexOf(name) === idx);
             const enumResult = await runPostgrestOpenApiEnum({
               contractVersion: POSTGREST_OPENAPI_ENUM_CONTRACT_VERSION,
               kind: 'postgrest_openapi_enum_request',

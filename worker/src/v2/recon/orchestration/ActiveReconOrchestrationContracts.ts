@@ -141,6 +141,13 @@ export interface ActiveReconOrchestrationConfig {
   readonly enableSpaDiscovery?: boolean;
   /** Cap on Playwright page navigations (default SPA_DISCOVERY_MAX_PAGES). */
   readonly spaDiscoveryMaxPages?: number;
+  /** Cap on ranked jsluice JS targets per stage_4 root (default JSLUICE_MAX_TARGETS_DEFAULT). */
+  readonly jsLuiceMaxTargets?: number;
+  /**
+   * Cap on sourcemap surface probes per stage_4 root (discovery-only URL seeds).
+   * Does not create exposure findings — see SourcemapExposureDetection for that.
+   */
+  readonly sourcemapSurfaceMaxTargets?: number;
 }
 
 import type { PreSpawnDnsResolver } from '../adapters/AdapterPreflightPipeline.js';
