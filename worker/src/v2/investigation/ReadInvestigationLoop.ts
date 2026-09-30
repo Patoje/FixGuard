@@ -58,11 +58,21 @@ import {
 } from './AssessmentTranscript.js';
 import { appendProbeCandidates, type ProbeCandidate } from './ProbeInventory.js';
 import type { ProbeInventory } from './ProbeInventoryContracts.js';
-import { isPublicStaticAssetUrl } from '../detection/PublicStaticAsset.js';
+import {
+  isPublicStaticAssetUrl,
+  isVercelSecurityChallengeUrl,
+} from '../detection/PublicStaticAsset.js';
+import {
+  classifyInventoryEntry,
+  inventoryHasScreen,
+  isJsluiceFragmentPath,
+  type InventoryRouteClass,
+} from './InventoryRouteClass.js';
 import {
   READ_INVESTIGATION_DEFAULT_STEP_BUDGET,
   READ_INVESTIGATION_DEFAULT_TIME_BUDGET_MS,
   READ_INVESTIGATION_LOOP_CONTRACT_VERSION,
+  READ_INVESTIGATION_PREFLIGHT_DENIED_CAP,
   type ReadInvestigationExecutedStep,
   type ReadInvestigationLoopRecord,
   type ReadInvestigationStepStatus,
@@ -209,10 +219,60 @@ function applicationRouteRank(plan: AttackPlan): number {
 }
 
 function skipsStaticAuthBypass(plan: AttackPlan): boolean {
-  return (
-    plan.capability === 'auth_bypass_probe' &&
-    isPublicStaticAssetUrl(plan.targetUrl ?? '')
-  );
+  const target = plan.targetUrl ?? '';
+  if (isVercelSecurityChallengeUrl(target)) {
+    return (
+      plan.capability === 'auth_bypass_probe' ||
+      plan.capability === 'auth_boundary_differential'
+    );
+  }
+  return plan.capability === 'auth_bypass_probe' && isPublicStaticAssetUrl(target);
+}
+
+/**
+ * Screen plans run first. Noise and platform paths are not runnable.
+ * When the inventory already has a screen, only screen plans are eligible.
+ */
+function routeClassForPlan(
+  plan: AttackPlan,
+  inventory: ProbeInventory
+): InventoryRouteClass | 'unlisted' {
+  const target = plan.targetUrl ?? '';
+  if (target.length === 0) return 'unlisted';
+  if (isVercelSecurityChallengeUrl(target)) return 'platform';
+  let parsed: URL;
+  try {
+    parsed = new URL(target);
+  } catch {
+    return 'unlisted';
+  }
+  const path = parsed.pathname.length > 0 ? parsed.pathname : '/';
+  if (isJsluiceFragmentPath(path)) return 'noise';
+  const sources: string[] = [];
+  for (const entry of inventory.entries) {
+    if (entry.origin !== parsed.origin || entry.path !== path) continue;
+    for (const source of entry.sources) sources.push(source);
+  }
+  if (sources.length === 0) {
+    return isPublicStaticAssetUrl(target) ? 'other' : 'unlisted';
+  }
+  return classifyInventoryEntry({ path, sources });
+}
+
+function budgetStepsConsumed(steps: readonly ReadInvestigationExecutedStep[]): number {
+  let count = 0;
+  for (const step of steps) {
+    if (step.status !== 'preflight_denied') count += 1;
+  }
+  return count;
+}
+
+function deniedSteps(steps: readonly ReadInvestigationExecutedStep[]): number {
+  let count = 0;
+  for (const step of steps) {
+    if (step.status === 'preflight_denied') count += 1;
+  }
+  return count;
 }
 
 function stringField(meta: FindingMetadata, key: string): string | undefined {
@@ -358,11 +418,10 @@ function loopStepOutcome(result: AttackExecutionResult): {
   if (!last) {
     return { status: 'completed', reasonCode: result.reasonCode };
   }
-  if (
-    last.outcome === 'failed' ||
-    last.outcome === 'preflight_denied' ||
-    last.outcome === 'capability_not_implemented'
-  ) {
+  if (last.outcome === 'preflight_denied') {
+    return { status: 'preflight_denied', reasonCode: last.reasonCode };
+  }
+  if (last.outcome === 'failed' || last.outcome === 'capability_not_implemented') {
     return { status: 'failed', reasonCode: last.reasonCode };
   }
   return { status: 'completed', reasonCode: last.reasonCode };
@@ -471,8 +530,13 @@ export async function runReadInvestigationLoop(
     readonly plan: AttackPlan;
     readonly blastRadiusClass: ReadObservationBlastRadiusClass;
   } | null> => {
+    const screensPresent = inventoryHasScreen(inventory.entries);
     const plans = [...(await input.planRepository.listByAssessmentId(input.assessmentId))].sort(
       (left, right) => {
+        const leftClass = routeClassForPlan(left, inventory);
+        const rightClass = routeClassForPlan(right, inventory);
+        const screenRank = (leftClass === 'screen' ? 0 : 1) - (rightClass === 'screen' ? 0 : 1);
+        if (screenRank !== 0) return screenRank;
         const rank = automaticReadRank(left, identityAPresent) - automaticReadRank(right, identityAPresent);
         if (rank !== 0) return rank;
         const route = applicationRouteRank(left) - applicationRouteRank(right);
@@ -484,6 +548,9 @@ export async function runReadInvestigationLoop(
     for (const plan of plans) {
       if (executedPlanIds.has(plan.planId)) continue;
       if (skipsStaticAuthBypass(plan)) continue;
+      const routeClass = routeClassForPlan(plan, inventory);
+      if (routeClass === 'noise' || routeClass === 'platform') continue;
+      if (screensPresent && routeClass !== 'screen') continue;
       if (!RUNNABLE_STATUSES.has(plan.status)) continue;
       if (plan.capability === 'idor_read_differential' && !input.secondaryIdentity) {
         continue;
@@ -672,17 +739,25 @@ export async function runReadInvestigationLoop(
       await correlateOnce();
       return finish('time_budget_exhausted');
     }
+    if (deniedSteps(executedSteps) >= READ_INVESTIGATION_PREFLIGHT_DENIED_CAP) {
+      await correlateOnce();
+      return finish('preflight_denied');
+    }
+    if (budgetStepsConsumed(executedSteps) >= stepBudget) {
+      await correlateOnce();
+      return finish('step_budget_exhausted');
+    }
     const next = await selectNext();
     if (!next) {
       if (!correlated) {
         await correlateOnce();
         continue;
       }
-      return finish('no_read_plans_remaining');
-    }
-    if (executedSteps.length >= stepBudget) {
-      await correlateOnce();
-      return finish('step_budget_exhausted');
+      return finish(
+        inventoryHasScreen(inventory.entries)
+          ? 'no_app_routes_remaining'
+          : 'no_read_plans_remaining'
+      );
     }
 
     const minted = await input.authorizationService.authorizeReadObservationFromVerifiedDecision({

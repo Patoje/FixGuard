@@ -6,7 +6,8 @@
  * spend its step budget on https://domain/ again.
  */
 
-import { isPublicStaticAssetUrl } from '../detection/PublicStaticAsset.js';
+import { isPublicStaticAssetUrl, isVercelSecurityChallengeUrl } from '../detection/PublicStaticAsset.js';
+import { isJsluiceFragmentPath } from '../investigation/InventoryRouteClass.js';
 import { isUrlInsideAuthorizedScope } from '../investigation/ProbeInventory.js';
 import { isInternalOrSsrfTarget } from '../recon/policy/PassiveEgressPolicy.js';
 import {
@@ -110,6 +111,8 @@ function eligibleApplicationUrl(
   const pathname = parsed.pathname.length > 0 ? parsed.pathname : '/';
   if (pathname === '/') return null;
   if (isPublicStaticAssetUrl(parsed.toString())) return null;
+  if (isVercelSecurityChallengeUrl(parsed.toString())) return null;
+  if (isJsluiceFragmentPath(pathname)) return null;
   const grant = spec.scopeGrant;
   if (!grant) return null;
   if (!isUrlInsideAuthorizedScope(grant, parsed.toString(), createdAt)) return null;

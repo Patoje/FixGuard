@@ -4,6 +4,7 @@
  */
 
 import { createHash } from 'node:crypto';
+import { isVercelSecurityChallengeUrl } from '../detection/PublicStaticAsset.js';
 import {
   TEST_VALIDITY_CONTRACT_VERSION,
   type DefenseControlKind,
@@ -256,6 +257,80 @@ export function observeDefensesFromHttpResponse(
     );
   }
 
+  return Object.freeze(found);
+}
+
+/**
+ * The challenge asset URL is itself the observed defense.
+ * No extra request is issued to describe it.
+ */
+export function observeKnownChallengeAsset(
+  endpointUrl: string,
+  observedAt: string
+): DefenseObservation | null {
+  if (!isVercelSecurityChallengeUrl(endpointUrl)) return null;
+  let host = '';
+  try {
+    host = new URL(endpointUrl).hostname;
+  } catch {
+    host = '';
+  }
+  return observation({
+    prefix: `challenge:${endpointUrl}`,
+    controlKind: 'bot',
+    signalSource: 'challenge_body',
+    reasonCode: 'bot_challenge_body',
+    observedAt,
+    ...(host.length > 0 ? { targetHost: host } : {}),
+    evidenceSnippet: endpointUrl,
+  });
+}
+
+function isChallengeDefense(obs: DefenseObservation): boolean {
+  return (
+    obs.signalSource === 'challenge_body' ||
+    obs.reasonCode === 'bot_challenge_body' ||
+    obs.reasonCode === 'bot_or_waf_challenge_status'
+  );
+}
+
+export function challengeDefensesFromProbes(args: {
+  readonly endpointUrl: string;
+  readonly observedAt: string;
+  readonly responses: readonly {
+    readonly statusCode: number;
+    readonly headers: Readonly<Record<string, string>>;
+    readonly bodyText: string;
+  }[];
+}): readonly DefenseObservation[] {
+  let host = '';
+  try {
+    host = new URL(args.endpointUrl).hostname;
+  } catch {
+    host = '';
+  }
+  const found: DefenseObservation[] = [];
+  const seen = new Set<string>();
+  const push = (obs: DefenseObservation): void => {
+    if (!isChallengeDefense(obs)) return;
+    if (seen.has(obs.reasonCode)) return;
+    seen.add(obs.reasonCode);
+    found.push(obs);
+  };
+  for (const response of args.responses) {
+    const observed = observeDefensesFromHttpResponse(
+      {
+        statusCode: response.statusCode,
+        headerNames: Object.keys(response.headers),
+        bodyExcerpt: response.bodyText.slice(0, 400),
+        ...(host.length > 0 ? { targetHost: host } : {}),
+      },
+      { observedAt: args.observedAt, observationIdPrefix: 'auth_probe' }
+    );
+    for (const obs of observed) push(obs);
+  }
+  const known = observeKnownChallengeAsset(args.endpointUrl, args.observedAt);
+  if (known) push(known);
   return Object.freeze(found);
 }
 

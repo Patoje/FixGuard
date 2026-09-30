@@ -15,6 +15,7 @@ import {
 import {
   IDENTICAL_BODY_SIMILARITY,
   isPublicStaticAssetUrl,
+  isVercelSecurityChallengeUrl,
 } from '../detection/PublicStaticAsset.js';
 import type {
   DifferentialEvidenceContext,
@@ -220,6 +221,14 @@ function evaluateSignalGate(
     case 'auth_bypass': {
       const endpoint = ctx.endpointUrl ?? '';
       const similarity = ctx.bodySimilarityRatio;
+      if (isVercelSecurityChallengeUrl(endpoint)) {
+        return {
+          decision: 'drop_as_noise',
+          reasonCode: 'defense_observation',
+          rationale:
+            'Vercel security challenge is a platform defense, not an authentication finding',
+        };
+      }
       if (
         isPublicStaticAssetUrl(endpoint) &&
         (similarity === undefined || similarity === IDENTICAL_BODY_SIMILARITY)

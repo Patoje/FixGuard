@@ -21,6 +21,7 @@ import { validateSessionHealth } from '../core/SessionLifecycleService.js';
 import {
   evaluateTestValidity,
 } from '../test-validity/TestValidityService.js';
+import type { DefenseObservation } from '../test-validity/TestValidityContracts.js';
 import type {
   AuthBoundaryDifferentialDetectionRequest,
   AuthBoundaryDifferentialDetectionResult,
@@ -28,6 +29,8 @@ import type {
   AuthBoundaryProbeFacet,
 } from './AuthBoundaryDifferentialContracts.js';
 import { isHtmlShellBodySignal } from './DetectionTargetBridge.js';
+import { isVercelSecurityChallengeUrl } from './PublicStaticAsset.js';
+import { observeKnownChallengeAsset } from '../test-validity/DefenseObservationService.js';
 
 function sha256(content: string): string {
   return createHash('sha256').update(content).digest('hex');
@@ -150,7 +153,10 @@ function looksExpiredOrUnauthedBaseline(facet: AuthBoundaryProbeFacet): boolean 
   return isAuthDenied(facet.statusCode, facet.redirectLocationHostPath);
 }
 
-function looksWafOrChallenge(response: HttpProbeResponse, targetHost: string): boolean {
+function challengeDefensesForResponse(
+  response: HttpProbeResponse,
+  targetHost: string
+): readonly DefenseObservation[] {
   const headerNames = Object.keys(response.headers).map((h) => h.toLowerCase());
   const headerValues: Record<string, string> = {};
   for (const [k, v] of Object.entries(response.headers)) {
@@ -166,7 +172,8 @@ function looksWafOrChallenge(response: HttpProbeResponse, targetHost: string): b
       targetHost,
     },
   });
-  return validity.verdict === 'interfered';
+  if (validity.verdict !== 'interfered') return [];
+  return validity.defenses;
 }
 
 function isSoft404OrHtmlNoise(
@@ -317,6 +324,20 @@ export async function runAuthBoundaryDifferentialDetection(
   }
 
   const targetHost = parsedUrl.hostname;
+  if (isVercelSecurityChallengeUrl(request.endpointUrl)) {
+    const defense = observeKnownChallengeAsset(request.endpointUrl, nowIso);
+    return {
+      ...resultBase(request, {
+        status: 'measurement_interfered',
+        investigationOutcome: 'interfered',
+        reasonCode: 'defense_observation',
+        safeMessage:
+          'Vercel security challenge observed. Not an authentication boundary and not a vulnerability.',
+      }),
+      ...(defense ? { defenseObservations: [defense] } : {}),
+    };
+  }
+
   let identityAHeaders = buildHeaders(request.identityA);
 
   if (request.identityA.sessionState) {
@@ -387,15 +408,22 @@ export async function runAuthBoundaryDifferentialDetection(
   const facetA = facets[0]!;
   const facetAnon = facets[1]!;
 
-  if (looksWafOrChallenge(responseA, targetHost) || looksWafOrChallenge(responseAnon, targetHost)) {
-    return resultBase(request, {
-      status: 'measurement_interfered',
-      investigationOutcome: 'interfered',
-      reasonCode: 'waf_or_challenge_interfered',
-      safeMessage:
-        'WAF/challenge/rate-limit signals observed — auth boundary measurement interfered (not secure, not validated)',
-      facets,
-    });
+  const challengeDefenses = [
+    ...challengeDefensesForResponse(responseA, targetHost),
+    ...challengeDefensesForResponse(responseAnon, targetHost),
+  ];
+  if (challengeDefenses.length > 0) {
+    return {
+      ...resultBase(request, {
+        status: 'measurement_interfered',
+        investigationOutcome: 'interfered',
+        reasonCode: 'waf_or_challenge_interfered',
+        safeMessage:
+          'WAF/challenge/rate-limit signals observed — auth boundary measurement interfered (not secure, not validated)',
+        facets,
+      }),
+      defenseObservations: challengeDefenses,
+    };
   }
 
   if (looksExpiredOrUnauthedBaseline(facetA)) {

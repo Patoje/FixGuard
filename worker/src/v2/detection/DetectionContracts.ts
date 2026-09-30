@@ -15,6 +15,7 @@ import type { HumanReviewedEvidencePromotionResult } from '../evidence-review/Hu
 import type { EvidenceRecord } from '../evidence/EvidenceBoundaryContracts.js';
 import type { ReviewedEvidenceFormalFindingCandidate, ReviewedEvidenceFindingCandidateTriageDecision } from '../finding-candidate-promotion/ReviewedEvidenceFindingCandidatePromotionContracts.js';
 import type { Finding } from '../core/Evidence.js';
+import type { DefenseObservation } from '../test-validity/TestValidityContracts.js';
 import type { PreSpawnDnsResolver } from '../recon/adapters/AdapterPreflightPipeline.js';
 import type { TargetExecutionCoordinator } from '../runtime/TargetExecutionCoordinator.js';
 import type { DiscoveredTlsObservation } from '../recon/adapters/TlsInspectionContracts.js';
@@ -629,6 +630,8 @@ export interface AuthBypassDetectionResult {
   readonly promotedEvidenceResult?: HumanReviewedEvidencePromotionResult;
   readonly findingCandidate?: ReviewedEvidenceFormalFindingCandidate;
   readonly finding?: Finding;
+  /** Present when the response is a platform challenge, not a vulnerability. */
+  readonly defenseObservations?: readonly DefenseObservation[];
   readonly error?: {
     readonly code: string;
     readonly safeMessage: string;

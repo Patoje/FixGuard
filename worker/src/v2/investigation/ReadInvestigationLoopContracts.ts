@@ -16,9 +16,17 @@ export const READ_INVESTIGATION_DEFAULT_STEP_BUDGET = 4;
 /** Wall clock for one loop invocation. Checked before each next step. */
 export const READ_INVESTIGATION_DEFAULT_TIME_BUDGET_MS = 8_000;
 
+/**
+ * preflight_denied does not spend the step budget.
+ * This many denied attempts stops the loop as preflight_denied.
+ */
+export const READ_INVESTIGATION_PREFLIGHT_DENIED_CAP = 8;
+
 export type ReadInvestigationStopReason =
   | 'no_read_plans_remaining'
+  | 'no_app_routes_remaining'
   | 'step_budget_exhausted'
+  | 'preflight_denied'
   | 'time_budget_exhausted'
   | 'circuit_open'
   | 'verified_decision_missing';
@@ -99,7 +107,9 @@ function isStringList(value: unknown): value is readonly string[] {
 function parseStopReason(value: string): ReadInvestigationStopReason | null {
   if (
     value === 'no_read_plans_remaining' ||
+    value === 'no_app_routes_remaining' ||
     value === 'step_budget_exhausted' ||
+    value === 'preflight_denied' ||
     value === 'time_budget_exhausted' ||
     value === 'circuit_open' ||
     value === 'verified_decision_missing'

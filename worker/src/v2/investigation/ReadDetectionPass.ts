@@ -30,6 +30,7 @@ import { runInformationDisclosureDetection } from '../detection/InformationDiscl
 import { runCorsMisconfigurationDetection } from '../detection/CorsMisconfigurationDetectionService.js';
 import { runParameterReflectionDetection } from '../detection/ParameterReflectionDetectionService.js';
 import { runGraphQLSurfaceDetection } from '../detection/GraphQLSurfaceDetectionService.js';
+import { isVercelSecurityChallengeUrl } from '../detection/PublicStaticAsset.js';
 import { runAuthBypassDetection } from '../detection/AuthBypassDetectionService.js';
 import { runAuthBoundaryDifferentialDetection } from '../detection/AuthBoundaryDifferentialDetectionService.js';
 import { runIdorDifferentialDetection } from '../detection/IdorDifferentialDetectionService.js';
@@ -583,7 +584,16 @@ export async function runReadDetectionPass(
       }
     }
 
-    if (input.identityA && !circuitOpen(input)) {
+    const challengeSurface = isVercelSecurityChallengeUrl(endpointUrl);
+    if (challengeSurface) {
+      skipped.push({ detector: 'auth_bypass', reasonCode: 'defense_observation' });
+      skipped.push({
+        detector: 'auth_boundary_differential',
+        reasonCode: 'defense_observation',
+      });
+    }
+
+    if (input.identityA && !circuitOpen(input) && !challengeSurface) {
       try {
         note('auth_bypass');
         const authResult = await runAuthBypassDetection({
@@ -617,7 +627,7 @@ export async function runReadDetectionPass(
       }
     }
 
-    if (input.identityA && !circuitOpen(input)) {
+    if (input.identityA && !circuitOpen(input) && !challengeSurface) {
       try {
         note('auth_boundary_differential');
         await runAuthBoundaryDifferentialDetection({

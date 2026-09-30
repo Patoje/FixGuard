@@ -19,7 +19,9 @@ export const ASSESSMENT_TRANSCRIPT_CONTRACT_VERSION =
 
 export type AssessmentTranscriptStopReason =
   | 'no_read_plans_remaining'
+  | 'no_app_routes_remaining'
   | 'step_budget_exhausted'
+  | 'preflight_denied'
   | 'time_budget_exhausted'
   | 'circuit_open'
   | 'verified_decision_missing'
@@ -126,7 +128,9 @@ function parseCapability(value: unknown): AttackCapabilityKind | null {
 function parseStopReason(value: unknown): AssessmentTranscriptStopReason | null {
   if (
     value === 'no_read_plans_remaining' ||
+    value === 'no_app_routes_remaining' ||
     value === 'step_budget_exhausted' ||
+    value === 'preflight_denied' ||
     value === 'time_budget_exhausted' ||
     value === 'circuit_open' ||
     value === 'verified_decision_missing' ||

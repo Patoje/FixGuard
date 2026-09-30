@@ -73,6 +73,7 @@ import { DETECTION_CONTRACT_VERSION } from '../detection/DetectionContracts.js';
 import { buildDetectionTargetsFromRecon } from '../detection/DetectionTargetBridge.js';
 import { acceptObservedFacts } from '../observation/ObservedFactCatalogService.js';
 import { buildProbeInventory } from '../investigation/ProbeInventory.js';
+import { classifyInventoryEntry } from '../investigation/InventoryRouteClass.js';
 import type { ProbeInventory } from '../investigation/ProbeInventoryContracts.js';
 import {
   graphqlEndpointsFromRecon,
@@ -561,6 +562,7 @@ function applicationUrlsFromInventory(inventory: ProbeInventory): readonly strin
   const urls: string[] = [];
   const seen = new Set<string>();
   for (const entry of inventory.entries) {
+    if (classifyInventoryEntry(entry) !== 'screen') continue;
     let absolute: string;
     try {
       const parsed = new URL(entry.path, entry.origin);

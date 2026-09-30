@@ -40,6 +40,7 @@ import { buildDeferredSurfaceProbePlans } from './DeferredSurfaceProbePlans.js';
 import {
   IDENTICAL_BODY_SIMILARITY,
   isPublicStaticAssetUrl,
+  isVercelSecurityChallengeUrl,
 } from '../detection/PublicStaticAsset.js';
 
 function sha256Short(content: string): string {
@@ -231,6 +232,7 @@ function bodySimilarityFromFinding(finding: Finding): number | undefined {
  * A lower similarity on that URL keeps the existing finding rule.
  */
 function skipStaticIdenticalAuthBypassPlan(url: string | undefined, similarity: number | undefined): boolean {
+  if (url && isVercelSecurityChallengeUrl(url)) return true;
   if (!url || !isPublicStaticAssetUrl(url)) return false;
   return similarity === undefined || similarity === IDENTICAL_BODY_SIMILARITY;
 }
@@ -1059,6 +1061,9 @@ function generateSurfaceInvestigationPlans(
       hint.resourceClass
     );
     if (resourceClass === 'spa_html_shell') {
+      continue;
+    }
+    if (isVercelSecurityChallengeUrl(hint.endpointUrl)) {
       continue;
     }
 

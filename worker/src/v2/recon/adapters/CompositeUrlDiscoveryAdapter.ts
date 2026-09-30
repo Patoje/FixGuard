@@ -31,7 +31,8 @@ function stderrSnippet(stderr: string): string {
 function nonZeroExitWarning(tool: 'katana' | 'gau', exitCode: number, stderr: string): string {
   const snippet = stderrSnippet(stderr);
   const base = `${tool} exit ${exitCode} — degraded`;
-  return snippet.length > 0 ? `${base}: ${snippet}` : base;
+  if (snippet.length === 0) return `${base}: stderr_empty`;
+  return `${base}: ${snippet}`;
 }
 
 function capTimeout(requested: number | undefined, hardCap: number): number {

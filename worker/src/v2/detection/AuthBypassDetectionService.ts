@@ -47,7 +47,9 @@ import { sanitizeEvidenceFragment } from '../core/EvidenceSanitizer.js';
 import {
   IDENTICAL_BODY_SIMILARITY,
   isPublicStaticAssetUrl,
+  isVercelSecurityChallengeUrl,
 } from './PublicStaticAsset.js';
+import { challengeDefensesFromProbes } from '../test-validity/DefenseObservationService.js';
 
 const SENSITIVE_HEADER_NAMES = new Set([
   'authorization',
@@ -562,6 +564,23 @@ export async function runAuthBypassDetection(
     };
   }
 
+  const challengeDefenses = challengeDefensesFromProbes({
+    endpointUrl: request.endpointUrl,
+    observedAt: nowIso,
+    responses: [
+      {
+        statusCode: probeResponseA.statusCode,
+        headers: probeResponseA.headers,
+        bodyText: probeResponseA.bodyText,
+      },
+      {
+        statusCode: probeResponseB.statusCode,
+        headers: probeResponseB.headers,
+        bodyText: probeResponseB.bodyText,
+      },
+    ],
+  });
+
   if (
     similarityRatio === IDENTICAL_BODY_SIMILARITY &&
     isPublicStaticAssetUrl(request.endpointUrl)
@@ -583,6 +602,29 @@ export async function runAuthBypassDetection(
       similarityRatio,
       baselineSnapshot,
       validationSnapshot,
+      ...(challengeDefenses.length > 0 ? { defenseObservations: challengeDefenses } : {}),
+    };
+  }
+
+  if (challengeDefenses.length > 0 || isVercelSecurityChallengeUrl(request.endpointUrl)) {
+    return {
+      contractVersion: DETECTION_CONTRACT_VERSION,
+      kind: 'auth_bypass_detection_result',
+      detectionId: request.detectionId,
+      scanId: request.scanId,
+      assessmentId: request.assessmentId,
+      authorizationGrantId: request.authorizationGrantId,
+      authorizationDecisionId: request.authorizationDecisionId,
+      actorId: request.actorId,
+      status: 'secure_target_abstained',
+      reasonCode: 'defense_observation',
+      lineage,
+      endpointUrl: request.endpointUrl,
+      bypassMechanism,
+      similarityRatio,
+      baselineSnapshot,
+      validationSnapshot,
+      ...(challengeDefenses.length > 0 ? { defenseObservations: challengeDefenses } : {}),
     };
   }
 

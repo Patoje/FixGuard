@@ -18,6 +18,7 @@ import type {
   IdorHttpProbeTransport,
   ProbeAuthContext,
 } from './DetectionContracts.js';
+import type { DefenseObservation } from '../test-validity/TestValidityContracts.js';
 
 export type AuthBoundaryInvestigationOutcome =
   | 'secure'
@@ -88,6 +89,7 @@ export interface AuthBoundaryDifferentialDetectionResult {
   readonly endpointUrl: string;
   readonly facets?: readonly AuthBoundaryProbeFacet[];
   readonly bodySimilarityRatio?: number;
+  readonly defenseObservations?: readonly DefenseObservation[];
   readonly error?: {
     readonly code: string;
     readonly safeMessage: string;
