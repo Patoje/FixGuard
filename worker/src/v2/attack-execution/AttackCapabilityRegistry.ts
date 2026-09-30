@@ -31,6 +31,8 @@ import { createSupabaseAuthzWriteMatrixCapability } from './capabilities/Supabas
 import { createNextServerActionDiffCapability } from './capabilities/NextServerActionDiffCapability.js';
 import { createJwtAlgNoneProbeCapability } from './capabilities/JwtAlgNoneProbeCapability.js';
 import { createCredentialReuseCapability } from './capabilities/CredentialReuseCapability.js';
+import { createAuthBoundaryDifferentialCapability } from './capabilities/AuthBoundaryDifferentialCapability.js';
+import { createGraphqlAuthDeltaCapability } from './capabilities/GraphqlAuthDeltaCapability.js';
 import { CredentialVaultService } from '../post-exploitation/CredentialVaultService.js';
 
 function succeeded(reasonCode: string, safeMessage: string, evidenceId?: string): AttackCapabilityExecutionResult {
@@ -138,6 +140,8 @@ export class AttackCapabilityRegistry {
         createDalfoxParameterReflectionCapability(),
         createSqlInjectionVerificationCapability(),
         createCredentialReuseCapability({ vault: new CredentialVaultService() }),
+        createAuthBoundaryDifferentialCapability(),
+        createGraphqlAuthDeltaCapability(),
       ] as const);
     for (const port of initial) {
       this.ports.set(port.capability, port);
@@ -174,6 +178,7 @@ export function createNotImplementedCapability(capability: AttackCapabilityKind)
 export { succeeded as capabilitySucceeded, refuted as capabilityRefuted, failed as capabilityFailed };
 export { createCorsChainExploitCapability } from './capabilities/CorsChainExploitCapability.js';
 export { createAuthBypassProbeCapability } from './capabilities/AuthBypassProbeCapability.js';
+export { createAuthBoundaryDifferentialCapability } from './capabilities/AuthBoundaryDifferentialCapability.js';
 export { createSupabaseRlsReadConfirmCapability } from './capabilities/SupabaseRlsReadConfirmCapability.js';
 export { createSupabaseRlsWriteProbeCapability } from './capabilities/SupabaseRlsWriteProbeCapability.js';
 export { createSupabaseAuthzWriteMatrixCapability } from './capabilities/SupabaseAuthzWriteMatrixCapability.js';

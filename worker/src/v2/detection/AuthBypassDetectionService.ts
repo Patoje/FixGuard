@@ -44,6 +44,10 @@ import type { Finding } from '../core/Evidence.js';
 import { validateSessionHealth } from '../core/SessionLifecycleService.js';
 import { pruneTransientEvidence } from '../evidence/EvidenceRetentionService.js';
 import { sanitizeEvidenceFragment } from '../core/EvidenceSanitizer.js';
+import {
+  IDENTICAL_BODY_SIMILARITY,
+  isPublicStaticAssetUrl,
+} from './PublicStaticAsset.js';
 
 const SENSITIVE_HEADER_NAMES = new Set([
   'authorization',
@@ -549,6 +553,30 @@ export async function runAuthBypassDetection(
       actorId: request.actorId,
       status: 'secure_target_abstained',
       reasonCode: 'body_divergence_insufficient_similarity',
+      lineage,
+      endpointUrl: request.endpointUrl,
+      bypassMechanism,
+      similarityRatio,
+      baselineSnapshot,
+      validationSnapshot,
+    };
+  }
+
+  if (
+    similarityRatio === IDENTICAL_BODY_SIMILARITY &&
+    isPublicStaticAssetUrl(request.endpointUrl)
+  ) {
+    return {
+      contractVersion: DETECTION_CONTRACT_VERSION,
+      kind: 'auth_bypass_detection_result',
+      detectionId: request.detectionId,
+      scanId: request.scanId,
+      assessmentId: request.assessmentId,
+      authorizationGrantId: request.authorizationGrantId,
+      authorizationDecisionId: request.authorizationDecisionId,
+      actorId: request.actorId,
+      status: 'secure_target_abstained',
+      reasonCode: 'public_static_asset_identical_body',
       lineage,
       endpointUrl: request.endpointUrl,
       bypassMechanism,

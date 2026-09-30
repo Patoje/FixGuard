@@ -640,6 +640,7 @@ export interface AuthBypassDetectionResult {
 // ---------------------------------------------------------------------------
 
 export type SourcemapExposureDetectionStatus =
+  | 'observed'
   | 'potential_weakness'
   | 'pending_human_review'
   | 'secure_target_abstained'

@@ -14,6 +14,7 @@ import type { ParameterDiscoveryTool } from '../adapters/ParameterDiscoveryContr
 import type { IdorHttpProbeTransport } from '../../detection/DetectionContracts.js';
 import type { PreSpawnDnsResolver } from '../adapters/AdapterPreflightPipeline.js';
 import type { DefenseObservation } from '../../test-validity/TestValidityContracts.js';
+import type { ObservedFact } from '../../observation/ObservedFactContracts.js';
 import {
   DEEP_RECON_NON_CLAIMS,
   type DeepReconExplicitNonClaims,
@@ -68,6 +69,7 @@ export interface GatedDictTopKResult {
   readonly parameterObservations: readonly DiscoveredParameterObservation[];
   readonly urlObservations: readonly DiscoveredUrlObservation[];
   readonly defenses?: readonly DefenseObservation[];
+  readonly observedFacts?: readonly ObservedFact[];
   readonly requestsUsed: number;
   readonly nonClaims: DeepReconExplicitNonClaims;
 }

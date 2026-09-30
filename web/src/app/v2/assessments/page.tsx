@@ -15,6 +15,7 @@ import { AssessmentLauncherCard } from "./components/AssessmentLauncherCard";
 import { PipelineStageTracker } from "./components/PipelineStageTracker";
 import { ExecutiveResultsPanel } from "./components/ExecutiveResultsPanel";
 import { AbstentionAlert } from "./components/AbstentionAlert";
+import { AssessmentTranscriptPanel } from "./components/AssessmentTranscriptPanel";
 
 export default function OrchestratedAssessmentsPage() {
   const [assessmentId, setAssessmentId] = useState<string | null>(null);
@@ -175,6 +176,12 @@ export default function OrchestratedAssessmentsPage() {
               }}
               isPolling={isPolling}
             />
+          </section>
+        )}
+
+        {status && (
+          <section aria-label="Assessment transcript">
+            <AssessmentTranscriptPanel transcript={status.transcript} />
           </section>
         )}
 

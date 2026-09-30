@@ -34,10 +34,17 @@ import { UnauthorizedGatewayError } from '../api/ApiErrors.js';
 import type { EndpointNode } from '../attack-surface/AttackSurfaceContracts.js';
 import type { ProcessRunner } from '../core/ProcessRunner.js';
 import type { RawExecutionOutput } from '../core/ExecutionContracts.js';
+import {
+  classifySeedLiveness,
+  filterSeedsByLiveness,
+} from '../application/AssessmentSeedLiveness.js';
 
 const DEEP_SEED = 'https://example.com/deep/admin/settings';
 const NEXT_SEED = 'https://example.com/dashboard';
 const OUT_OF_SCOPE_SEED = 'https://evil-out-of-scope.example/steal';
+const DEAD_SEED_404 = 'https://example.com/legacy/OrderHistory.jsp';
+const SOFT_404_CART = 'https://example.com/cart';
+const LIVE_API_SEED = 'https://example.com/api/health';
 
 function createMockReconAdapters(
   invocationCount: { count: number },
@@ -328,6 +335,77 @@ async function runPhaseD1Smoke(): Promise<void> {
   console.log('[phaseD1_seeding_discovery_smoke] Starting Phase D1 seeding + Next.js fingerprint suite...');
 
   // ---------------------------------------------------------------------------
+  // 0. Pure seed liveness classifier (soft-404 / http-404 / alive)
+  // ---------------------------------------------------------------------------
+  console.log('-> Test 0: Seed liveness classifier fail-closed...');
+  assert.strictEqual(
+    classifySeedLiveness({
+      seedUrl: DEAD_SEED_404,
+      statusCode: 404,
+      contentType: 'text/html',
+      bodyText: '<html>Not Found</html>',
+    }),
+    'http_404'
+  );
+  assert.strictEqual(
+    classifySeedLiveness({
+      seedUrl: SOFT_404_CART,
+      statusCode: 200,
+      contentType: 'text/html',
+      bodyText: '<!DOCTYPE html><html><body>Cart shell</body></html>',
+    }),
+    'soft_404'
+  );
+  assert.strictEqual(
+    classifySeedLiveness({
+      seedUrl: LIVE_API_SEED,
+      statusCode: 200,
+      contentType: 'application/json',
+      bodyText: '{"ok":true}',
+    }),
+    'alive'
+  );
+  assert.strictEqual(
+    classifySeedLiveness({
+      seedUrl: 'https://example.com/myaccount',
+      statusCode: 200,
+      contentType: 'text/html',
+      bodyText: '<!DOCTYPE html><html><body>My Account</body></html>',
+    }),
+    'alive',
+    'Account HTML pages remain alive (not opaque SPA soft-404)'
+  );
+  const filtered = await filterSeedsByLiveness({
+    seedUrls: [DEAD_SEED_404, SOFT_404_CART, LIVE_API_SEED],
+    transport: async (req) => {
+      if (req.url.includes('OrderHistory')) {
+        return {
+          statusCode: 404,
+          headers: { 'content-type': 'text/html' },
+          bodyText: 'missing',
+          responseTimeMs: 1,
+        };
+      }
+      if (req.url.endsWith('/cart')) {
+        return {
+          statusCode: 200,
+          headers: { 'content-type': 'text/html' },
+          bodyText: '<!DOCTYPE html><html></html>',
+          responseTimeMs: 1,
+        };
+      }
+      return {
+        statusCode: 200,
+        headers: { 'content-type': 'application/json' },
+        bodyText: '{"ok":true}',
+        responseTimeMs: 1,
+      };
+    },
+  });
+  assert.deepStrictEqual([...filtered.liveSeedUrls], [LIVE_API_SEED]);
+  console.log('  [PASS] Soft-404/http-404 seeds filtered; live API retained.');
+
+  // ---------------------------------------------------------------------------
   // 1. Deep seed URL → ASG endpoint with assessment_seed provenance (INFERRED
   //    until HTTP observes; this test skips stage_3 so no upgrade).
   // ---------------------------------------------------------------------------
@@ -411,6 +489,77 @@ async function runPhaseD1Smoke(): Promise<void> {
     'Out-of-scope seed must not dispatch any recon tool invocations'
   );
   console.log('  [PASS] Out-of-scope seed rejected with seed_out_of_scope and zero recon network.');
+
+  // ---------------------------------------------------------------------------
+  // 2b. Dead / soft-404 seeds filtered before ASG injection (assessment continues)
+  // ---------------------------------------------------------------------------
+  console.log('-> Test 2b: Dead/soft-404 seeds excluded from ASG; live seed retained...');
+  const inv2b = { count: 0 };
+  const livenessTransport: IdorHttpProbeTransport = async (req) => {
+    if (req.url.includes('OrderHistory') || req.url.includes('/a/b')) {
+      return {
+        statusCode: 404,
+        headers: { 'content-type': 'text/html' },
+        bodyText: 'Not Found',
+        responseTimeMs: 1,
+      };
+    }
+    if (req.url.endsWith('/cart')) {
+      return {
+        statusCode: 200,
+        headers: { 'content-type': 'text/html; charset=utf-8' },
+        bodyText: '<!DOCTYPE html><html><body>cart</body></html>',
+        responseTimeMs: 1,
+      };
+    }
+    return {
+      statusCode: 200,
+      headers: { 'content-type': 'application/json' },
+      bodyText: '{"ok":true}',
+      responseTimeMs: 1,
+    };
+  };
+  const service2b = createService(inv2b, { httpTransport: livenessTransport });
+  const start2b = await service2b.startAssessment({
+    targetDomain: 'example.com',
+    actorId: 'usr_phase_d1_liveness',
+    seedUrls: [DEAD_SEED_404, SOFT_404_CART, LIVE_API_SEED, 'https://example.com/a/b'],
+    config: {
+      skipStages: [
+        'stage_1_domain_zone',
+        'stage_2_port_service',
+        'stage_3_web_tls',
+        'stage_4_crawling_parameters',
+        'stage_deep_recon',
+        'stage_5_secret_inspection',
+      ],
+    },
+  });
+  const record2b = await service2b.awaitAssessment(start2b.assessmentId);
+  assert.ok(record2b);
+  assert.strictEqual(record2b.status, 'completed', `Expected completed, got ${record2b.status}`);
+  const asg2b = record2b.attackSurfaceGraph;
+  assert.ok(asg2b);
+  const seedUrlsInAsg = asg2b.nodes
+    .filter((n): n is EndpointNode => n.kind === 'endpoint')
+    .map((n) => n.metadata.url);
+  assert.ok(
+    seedUrlsInAsg.includes(LIVE_API_SEED),
+    'Live API seed must remain planificable in ASG'
+  );
+  assert.ok(
+    !seedUrlsInAsg.includes(DEAD_SEED_404),
+    'HTTP 404 seed must not enter ASG'
+  );
+  assert.ok(
+    !seedUrlsInAsg.includes(SOFT_404_CART),
+    'Soft-404 /cart HTML shell must not enter ASG'
+  );
+  assert.ok(
+    !seedUrlsInAsg.includes('https://example.com/a/b'),
+    'Opaque /a/b 404 seed must not enter ASG'
+  );
+  console.log('  [PASS] Dead/soft-404 seeds dropped; live seed kept; assessment not aborted.');
 
   // ---------------------------------------------------------------------------
   // 3. Vary: RSC → Next.js high-confidence fingerprint (unit)

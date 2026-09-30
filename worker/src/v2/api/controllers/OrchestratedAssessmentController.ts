@@ -33,6 +33,7 @@ import {
   parseStartOrchestratedAssessmentBody,
   parseReviewEvidenceDraftBody,
   parseGenerateHtmlReportHttpBody,
+  parseByotIdentity,
 } from '../validation/ApiRequestValidators.js';
 import { isStrictSafeId } from '../../reporting-boundary/DefensiveReportContracts.js';
 import { ApiValidationError, UnauthorizedGatewayError } from '../ApiErrors.js';
@@ -41,7 +42,29 @@ import { TargetExecutionCoordinator } from '../../runtime/TargetExecutionCoordin
 import type { Finding } from '../../core/Evidence.js';
 import type { AuthorizedScopeGrant } from '../../scope/AuthorizedScopeContracts.js';
 import type { AttackCapabilityIdentityRef } from '../../attack-execution/AttackExecutionContracts.js';
+import type { AttackStepExecutionOutcome } from '../../attack-execution/AttackExecutionContracts.js';
 import { isLateralMovementMechanism } from '../../attack-planning/LateralMovementContracts.js';
+
+function mapExecutionOutcomeToInvestigationStep(args: {
+  readonly outcome: AttackStepExecutionOutcome;
+  readonly reasonCode: string;
+}):
+  | 'succeeded'
+  | 'refuted'
+  | 'failed'
+  | 'observed'
+  | 'interfered' {
+  if (args.outcome === 'succeeded') return 'succeeded';
+  if (args.outcome === 'observed') return 'observed';
+  if (args.outcome === 'refuted') return 'refuted';
+  if (
+    args.outcome === 'failed' &&
+    /waf|challenge|interfered|rate[_ ]?limit|bot|captcha/i.test(args.reasonCode)
+  ) {
+    return 'interfered';
+  }
+  return 'failed';
+}
 
 function isAuthorizedScopeGrant(value: object): value is AuthorizedScopeGrant {
   return (
@@ -120,6 +143,50 @@ export class OrchestratedAssessmentController {
       const command = parseStartOrchestratedAssessmentBody(req.body);
       const result = await this.service.startAssessment(command);
       res.status(202).json(result);
+    } catch (err) {
+      next(err);
+    }
+  };
+
+  /**
+   * Attach session B for the actor who started the assessment.
+   * Exact body: operatorId, identityB. Does not echo header material.
+   */
+  public attachSessionIdentityB = async (
+    req: Request,
+    res: Response,
+    next: NextFunction
+  ): Promise<void> => {
+    try {
+      const assessmentId = req.params.assessmentId;
+      if (!assessmentId || typeof assessmentId !== 'string' || !isStrictSafeId(assessmentId)) {
+        throw new ApiValidationError('Field assessmentId must satisfy strict identifier format');
+      }
+      if (!req.body || typeof req.body !== 'object' || Array.isArray(req.body)) {
+        throw new ApiValidationError('Session identity B body must be a non-empty object');
+      }
+      const body = req.body as Record<string, unknown>;
+      const allowedKeys = ['operatorId', 'identityB'];
+      for (const key of Object.keys(body)) {
+        if (!allowedKeys.includes(key)) {
+          throw new ApiValidationError('Session identity B body contains unknown or forbidden field');
+        }
+      }
+      const operatorId = body.operatorId;
+      if (typeof operatorId !== 'string' || !isStrictSafeId(operatorId)) {
+        throw new ApiValidationError('Field operatorId must satisfy strict identifier format');
+      }
+      const identityB = parseByotIdentity(body.identityB, 'identityB');
+      const result = await this.service.attachSessionIdentityB({
+        assessmentId,
+        operatorId,
+        identityB,
+      });
+      res.status(200).json({
+        assessmentId: result.assessmentId,
+        identityCount: result.identityCount,
+        updatedPlanIds: result.updatedPlanIds,
+      });
     } catch (err) {
       next(err);
     }
@@ -855,6 +922,10 @@ export class OrchestratedAssessmentController {
           result.record && typeof result.record.executionId === 'string'
             ? result.record.executionId
             : planId;
+        const firstStep = result.record?.stepRecords[0];
+        const boundFinding = result.record?.updatedFindings[0];
+        const targetHostFromStep =
+          typeof firstStep?.targetHost === 'string' ? firstStep.targetHost : undefined;
         this.service.recordInvestigationExecutionStep({
           investigationId,
           stepId: `exec_${executionId}`.replace(/[^A-Za-z0-9_\-.:]/g, '_').slice(0, 128),
@@ -862,6 +933,18 @@ export class OrchestratedAssessmentController {
             result.status === 'completed'
               ? Math.max(1, result.record.stepRecords.length)
               : 0,
+          ...(firstStep
+            ? {
+                stepOutcome: mapExecutionOutcomeToInvestigationStep({
+                  outcome: firstStep.outcome,
+                  reasonCode: firstStep.reasonCode,
+                }),
+                outcomeReasonCode: firstStep.reasonCode,
+                ...(boundFinding ? { boundFinding } : {}),
+                ...(firstStep.evidenceId ? { evidenceId: firstStep.evidenceId } : {}),
+                ...(targetHostFromStep ? { targetHost: targetHostFromStep } : {}),
+              }
+            : {}),
         });
       }
 

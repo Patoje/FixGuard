@@ -11,6 +11,7 @@
 
 import assert from 'node:assert/strict';
 import process from 'node:process';
+import { pathToFileURL } from 'node:url';
 import {
   ATTACK_SURFACE_CONTRACT_VERSION,
   type AttackSurfaceGraph,
@@ -244,7 +245,7 @@ type StoredAsgRow = Record<string, unknown> & {
   graph_json: AttackSurfaceGraph;
 };
 
-class MockDurableDb {
+export class MockDurableDb {
   public assessments = new Map<string, StoredAssessmentRow>();
   public graphs = new Map<string, StoredAsgRow>();
 
@@ -457,7 +458,13 @@ async function main(): Promise<void> {
   console.log('=== Phase D2 Durable Assessment+ASG: ALL TESTS PASSED ===');
 }
 
-main().catch((err: unknown) => {
-  const message = err instanceof Error ? err.message : String(err);
-  fail(message);
-});
+const isDirectRun =
+  typeof process.argv[1] === 'string' &&
+  import.meta.url === pathToFileURL(process.argv[1]).href;
+
+if (isDirectRun) {
+  main().catch((err: unknown) => {
+    const message = err instanceof Error ? err.message : String(err);
+    fail(message);
+  });
+}

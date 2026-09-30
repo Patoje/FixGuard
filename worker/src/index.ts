@@ -1,7 +1,7 @@
 import express, { type Request, type Response } from 'express';
 import cors from 'cors';
-import { V2CompositionRoot } from './v2/api/V2CompositionRoot.js';
 import { createV2Router } from './v2/api/routes/v2Routes.js';
+import { createDurableV2CompositionFromEnv } from './v2/storage/composition/PostgresOrchestratedComposition.js';
 import { v2ErrorHandler } from './v2/api/V2ErrorHandler.js';
 import { buildCorsOptions, DEFAULT_V2_HOST } from './v2/api/createV2App.js';
 import { createV2AuthMiddleware } from './v2/api/middleware/v2AuthMiddleware.js';
@@ -48,8 +48,11 @@ const decommissionedHandler = (_req: Request, res: Response) => {
 
 app.use(['/api/scan', '/api/scans', '/api/attack'], decommissionedHandler);
 
-// Mount Canonical FixGuard V2 Routing Tree protected by Bearer authentication
-const compositionRoot = V2CompositionRoot.createDefault();
+// Mount Canonical FixGuard V2 Routing Tree protected by Bearer authentication.
+// Postgres only when the orchestrated repository env opts in; otherwise memory.
+// Attack tokens and BYOT sessions stay on the process that authorized them.
+const durableComposition = await createDurableV2CompositionFromEnv();
+const compositionRoot = durableComposition.root;
 app.use('/api/v2', createV2AuthMiddleware(), createV2Router(compositionRoot));
 
 // Centralized V2 Error Shield (information disclosure protection)

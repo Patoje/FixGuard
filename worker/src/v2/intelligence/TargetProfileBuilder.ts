@@ -25,6 +25,11 @@ import { INTELLIGENCE_CONTRACT_VERSION } from './IntelligenceContracts.js';
 import type { Finding } from '../core/Evidence.js';
 import { TechnologyFingerprintService } from '../recon/analysis/TechnologyFingerprintService.js';
 import {
+  classifyCapturedWafIdentity,
+  extractNextBuildId,
+  headerValue,
+} from './CapturedHostIdentity.js';
+import {
   classifyAuthPath,
   extractHeaderValue,
   inferHostingProviderFromCname,
@@ -76,9 +81,22 @@ export function buildTargetProfile(input: TargetProfileBuilderInput): TargetProf
 
   // 1. Analytical Technology Fingerprinting
   const fingerprintService = new TechnologyFingerprintService();
+  const sourcemapParts: string[] = [];
+  for (const text of input.aggregatedObservations?.sourcemapTexts ?? []) {
+    if (text.length > 0) sourcemapParts.push(text);
+  }
+  for (const obs of rawObservations) {
+    if (typeof obs !== 'object' || obs === null) continue;
+    const rec = obs as Record<string, unknown>;
+    if (typeof rec.sourcemapText === 'string' && rec.sourcemapText.length > 0) {
+      sourcemapParts.push(rec.sourcemapText);
+    }
+  }
+  const sourcemapText = sourcemapParts.join('\n');
   const fingerprintResult = fingerprintService.analyze({
     url: input.normalizedOrigin,
     rawObservations,
+    ...(sourcemapText.length > 0 ? { sourcemapText } : {}),
   });
 
   const technologySet = new Set<string>();
@@ -241,6 +259,9 @@ function buildDiscoveredHosts(
     cnames: Set<string>;
     providers: Set<InferredHostingProvider>;
     asn?: string;
+    observedCdn?: string;
+    nextBuildId?: string;
+    wafIdentity?: string;
     epistemicStatus: 'OBSERVED' | 'INFERRED';
   };
 
@@ -291,6 +312,8 @@ function buildDiscoveredHosts(
         }
       }
     }
+    if (dns.asn && !host.asn) host.asn = dns.asn;
+    if (dns.cdn && !host.observedCdn) host.observedCdn = dns.cdn;
   }
 
   for (const port of aggregated?.ports ?? []) {
@@ -302,6 +325,24 @@ function buildDiscoveredHosts(
       protocol: port.protocol,
       state: port.state,
     });
+  }
+
+  for (const web of aggregated?.webObservations ?? []) {
+    let hostName = rootHost.toLowerCase();
+    try {
+      hostName = new URL(web.url).hostname.toLowerCase();
+    } catch {
+      hostName = rootHost.toLowerCase();
+    }
+    const host = ensure(hostName, 'OBSERVED');
+    const buildId = extractNextBuildId(web.bodyText ?? '');
+    if (buildId) host.nextBuildId = buildId;
+    const setCookie = headerValue(web.headers, 'set-cookie');
+    const waf = classifyCapturedWafIdentity({
+      headers: web.headers,
+      ...(setCookie ? { setCookie } : {}),
+    });
+    if (waf) host.wafIdentity = waf;
   }
 
   for (const obs of rawObservations) {
@@ -344,6 +385,9 @@ function buildDiscoveredHosts(
         ...(provider ? { inferredHostingProvider: provider } : {}),
         ...(provider && isInferredCdnProvider(provider) ? { inferredCdn: true } : {}),
         ...(h.asn ? { asn: h.asn } : {}),
+        ...(h.observedCdn ? { observedCdn: h.observedCdn } : {}),
+        ...(h.nextBuildId ? { nextBuildId: h.nextBuildId } : {}),
+        ...(h.wafIdentity ? { wafIdentity: h.wafIdentity } : {}),
         epistemicStatus: h.epistemicStatus,
       };
     })

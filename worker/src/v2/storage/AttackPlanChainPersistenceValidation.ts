@@ -14,6 +14,7 @@ import {
 } from '../attack-chain/AttackChainContracts.js';
 import {
   ATTACK_PLANNING_CONTRACT_VERSION,
+  isCapabilityGained,
   type AttackPlan,
   type AttackPlanStatus,
 } from '../attack-planning/AttackPlanContracts.js';
@@ -44,6 +45,7 @@ const CHAIN_STATUSES = new Set<AttackChainStatus>([
   'partially_validated',
   'fully_validated',
   'refuted',
+  'failed',
   'abandoned',
 ]);
 
@@ -97,6 +99,24 @@ const CHAIN_REQUIRED_KEYS = [
 
 function isNonEmptyString(value: unknown): value is string {
   return typeof value === 'string' && value.length > 0;
+}
+
+const AUTHORIZATION_BLAST_RADIUS_CLASSES = new Set<string>([
+  'read_public',
+  'read_authenticated',
+  'read_escalated',
+  'sensitive_data_access',
+  'credential_use',
+  'privilege_escalation',
+  'lateral_movement',
+  'state_change_benign',
+  'state_change_impact',
+  'persistence',
+  'destructive',
+]);
+
+function isAuthorizationBlastRadiusClass(value: unknown): boolean {
+  return typeof value === 'string' && AUTHORIZATION_BLAST_RADIUS_CLASSES.has(value);
 }
 
 function isExactKeyObject(
@@ -239,6 +259,10 @@ export function validateAttackPlan(value: unknown): value is AttackPlan {
       'parameterName',
       'planOrigin',
       'sourceDraftIds',
+      'dependsOn',
+      'requiredCapabilityGained',
+      'requiredFactIds',
+      'authorizationBlastRadiusClass',
     ])
   ) {
     return false;
@@ -284,12 +308,37 @@ export function validateAttackPlan(value: unknown): value is AttackPlan {
       return false;
     }
   }
+  if (value.dependsOn !== undefined && !isNonEmptyStringList(value.dependsOn)) {
+    return false;
+  }
+  if (value.requiredFactIds !== undefined && !isNonEmptyStringList(value.requiredFactIds)) {
+    return false;
+  }
+  if (
+    value.requiredCapabilityGained !== undefined &&
+    !isCapabilityGained(value.requiredCapabilityGained)
+  ) {
+    return false;
+  }
+  if (
+    value.authorizationBlastRadiusClass !== undefined &&
+    !isAuthorizationBlastRadiusClass(value.authorizationBlastRadiusClass)
+  ) {
+    return false;
+  }
   try {
     assertNoForbiddenPersistenceKeys(value);
   } catch {
     return false;
   }
   return true;
+}
+
+function isNonEmptyStringList(value: unknown): value is readonly string[] {
+  return (
+    Array.isArray(value) &&
+    value.every((item) => typeof item === 'string' && item.length > 0)
+  );
 }
 
 export function validateAttackChain(value: unknown): value is AttackChain {

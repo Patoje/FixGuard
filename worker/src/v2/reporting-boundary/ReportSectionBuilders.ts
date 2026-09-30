@@ -18,6 +18,8 @@ import type { AuthorizedActiveReconRequestLineage } from '../lineage/AuthorizedE
 import { sanitizeEvidenceFragment } from '../core/EvidenceSanitizer.js';
 import type { AttackChain } from '../attack-chain/AttackChainContracts.js';
 import type { AttackPlan } from '../attack-planning/AttackPlanContracts.js';
+import type { ObservedFact } from '../observation/ObservedFactContracts.js';
+import type { Phase1ReadLoopRecord } from '../application/OrchestratedAssessmentContracts.js';
 import type {
   CredentialReference,
   PostExploitationState,
@@ -576,6 +578,47 @@ export function buildOperatorAttestationSection(attestation: {
 }
 
 /**
+ * Observed facts already on the assessment record. No severity and no observation text.
+ */
+export function buildObservedFactsSection(facts: readonly ObservedFact[]): string {
+  if (facts.length === 0) {
+    return `
+    <section class="card" id="section-observed-facts">
+      <h2>Observed Facts</h2>
+      <p style="color: var(--text-muted); font-size: 0.85rem;">No observed facts were recorded for this assessment.</p>
+    </section>`;
+  }
+
+  const rows = facts
+    .map((fact) => {
+      return `
+          <div class="adversarial-item">
+            <div style="font-size:0.8rem;font-family:monospace;color:var(--text-muted);">
+              Kind: ${escapeHtml(fact.factKind)} • Status: ${escapeHtml(fact.epistemicStatus)} • Source: ${escapeHtml(fact.sourceLabel ?? '')}
+            </div>
+            <p style="font-size:0.85rem;color:#ffffff;margin-top:0.35rem;">${escapeHtml(fact.value)}</p>
+            <div style="font-size:0.75rem;font-family:monospace;color:var(--text-dim);margin-top:0.25rem;">${escapeHtml(fact.sourceUrl)}</div>
+          </div>`;
+    })
+    .join('\n');
+
+  return `
+    <section class="card" id="section-observed-facts">
+      <h2>Observed Facts</h2>
+      ${rows}
+    </section>`;
+}
+
+export function buildPhase1ReadLoopSection(loop: Phase1ReadLoopRecord | undefined): string {
+  if (!loop) return '';
+  return `
+    <section class="card" id="section-read-loop">
+      <h2>Read loop</h2>
+      <p>status: ${escapeHtml(loop.status)}</p>
+    </section>`;
+}
+
+/**
  * Section 4 — Attack Execution Record
  * Timeline of authorized plans and chain-step execution outcomes (no secrets).
  */
@@ -599,7 +642,7 @@ export function buildAttackExecutionRecordSection(params: {
               <span style="font-family:monospace;font-size:0.75rem;color:#a1a1aa;">${escapeHtml(p.status)}</span>
             </div>
             <div style="font-size:0.8rem;font-family:monospace;color:var(--text-muted);margin-top:0.35rem;">
-              Plan: ${escapeHtml(p.planId)} • Capability: ${escapeHtml(p.capability)} • Steps completed: ${completedSteps}/${p.steps.length}
+              Plan: ${escapeHtml(p.planId)} • Capability: ${escapeHtml(p.capability)} • Depends on: ${escapeHtml((p.dependsOn ?? []).join(', '))} • Executable: ${escapeHtml(String(p.executable))} • Steps completed: ${completedSteps}/${p.steps.length}
             </div>
             <p style="font-size:0.85rem;color:var(--text-muted);margin-top:0.5rem;">${escapeHtml(p.reasoning)}</p>
           </div>`;

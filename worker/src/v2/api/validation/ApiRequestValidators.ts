@@ -238,16 +238,18 @@ export function parseByotIdentity(raw: unknown, identityLabel: string = 'ByotIde
       );
     }
     const cookieEntries = Object.entries(injectCookies);
-    if (cookieEntries.length > 20) {
+    // Real retail BYOT sessions often exceed 20 cookies (CF + F5 + app session).
+    if (cookieEntries.length > 64) {
       throw new ApiValidationError(
-        `Field 'injectCookies' in ${identityLabel} cannot contain more than 20 entries`
+        `Field 'injectCookies' in ${identityLabel} cannot contain more than 64 entries`
       );
     }
     parsedCookies = {};
     for (const [k, v] of cookieEntries) {
-      if (typeof k !== 'string' || k.trim().length === 0 || !/^[a-zA-Z0-9_.-]+$/.test(k)) {
+      // Allow % for URL-encoded names (e.g. Adobe AMCV_*\%40AdobeOrg).
+      if (typeof k !== 'string' || k.trim().length === 0 || !/^[a-zA-Z0-9_.%-]+$/.test(k)) {
         throw new ApiValidationError(
-          `Invalid cookie name '${k}' in ${identityLabel}. Must be alphanumeric with hyphens/underscores/dots.`
+          `Invalid cookie name '${k}' in ${identityLabel}. Must be alphanumeric with hyphens/underscores/dots/percent.`
         );
       }
       if (typeof v !== 'string') {

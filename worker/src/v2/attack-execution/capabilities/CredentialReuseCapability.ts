@@ -76,7 +76,7 @@ export interface CredentialReuseAttemptInput {
   readonly credentialRef: CredentialReference;
   readonly targetHost: string;
   readonly targetUrl: string;
-  readonly token: AttackAuthorizationToken;
+  readonly token: AttackAuthorizationToken | undefined;
   readonly scopeGrant: AuthorizedScopeGrant;
   readonly transport?: IdorHttpProbeTransport;
   readonly dnsResolver?: PreSpawnDnsResolver;

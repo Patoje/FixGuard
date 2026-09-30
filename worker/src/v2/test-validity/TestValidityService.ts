@@ -178,8 +178,26 @@ export function evaluateTestValidityFromReasonCode(
 ): TestValidityEvaluation {
   const evaluatedAt = options?.evaluatedAt ?? new Date().toISOString();
   const code = reasonCode.toLowerCase();
+
+  // Soft-404 / both-404 / expired session / insufficient signal → inconclusive
+  // (MUST NOT advance or refute VerificationState as if the test were valid).
+  // Checked before interference so codes like both_404_inconclusive are not
+  // misclassified by substring matches (e.g. "bot" inside "both").
+  const inconclusive =
+    /inconclusive|soft.?404|html.?shell|both.?404|session.?expired|insufficient.?signal|baseline_not_authenticated|spa_html|unauthenticated_baseline/.test(
+      code
+    );
+  if (inconclusive) {
+    return buildEvaluation({
+      verdict: 'inconclusive',
+      reasonCode: 'capability_reason_indicates_inconclusive',
+      defenses: [],
+      evaluatedAt,
+    });
+  }
+
   const interfered =
-    /waf|challenge|rate[_ ]?limit|bot|cloudflare|vercel.?security|interfered|captcha|403_blocked|blocked_by_defense/.test(
+    /waf|challenge|rate[_ ]?limit|\bbot\b|cloudflare|vercel.?security|interfered|captcha|403_blocked|blocked_by_defense/.test(
       code
     );
 
@@ -190,7 +208,7 @@ export function evaluateTestValidityFromReasonCode(
       observationId: `def_rc_${code.slice(0, 24)}`,
       controlKind: /rate/.test(code)
         ? ('rate_limit' as const)
-        : /bot|captcha|challenge/.test(code)
+        : /\bbot\b|captcha|challenge/.test(code)
           ? ('bot' as const)
           : ('waf' as const),
       signalSource: 'error_signal' as const,

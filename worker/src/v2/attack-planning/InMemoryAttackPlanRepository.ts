@@ -6,7 +6,7 @@
 
 import type { AttackPlan } from './AttackPlanContracts.js';
 import type { AttackPlanRepository } from './AttackPlanRepository.js';
-import { PersistenceConflictError } from '../storage/StorageErrors.js';
+import { PersistenceConflictError, RecordNotFoundError } from '../storage/StorageErrors.js';
 
 function isAttackPlanShape(value: unknown): value is AttackPlan {
   if (typeof value !== 'object' || value === null) {
@@ -66,6 +66,28 @@ export class InMemoryAttackPlanRepository implements AttackPlanRepository {
       saved.push(await this.savePlan(plan));
     }
     return saved;
+  }
+
+  async replacePlan(plan: AttackPlan): Promise<AttackPlan> {
+    if (!isAttackPlanShape(plan)) {
+      throw new Error('Invalid AttackPlan: failed exact-key shape validation');
+    }
+    if (plan.executable !== false) {
+      throw new Error('Invalid AttackPlan: executable must be false');
+    }
+    const existing = this.plans.get(plan.planId);
+    if (!existing) {
+      throw new RecordNotFoundError(`Attack plan '${plan.planId}' was not found`, plan.planId);
+    }
+    if (existing.assessmentId !== plan.assessmentId) {
+      throw new PersistenceConflictError(
+        `Attack plan '${plan.planId}' belongs to a different assessment`,
+        plan.planId
+      );
+    }
+    const cloned = this.clone({ ...plan, executable: false });
+    this.plans.set(cloned.planId, cloned);
+    return this.clone(cloned);
   }
 
   async getPlan(planId: string): Promise<AttackPlan | null> {

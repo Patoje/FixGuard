@@ -14,6 +14,53 @@ import {
   type DnsResolutionTool,
 } from './DnsResolutionContracts.js';
 
+const ASN_TOKEN_RE = /^AS\d{1,10}$/;
+const CDN_TOKEN_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
+
+function collectStrings(value: unknown, out: string[]): void {
+  if (typeof value === 'string' && value.length > 0) {
+    out.push(value);
+    return;
+  }
+  if (Array.isArray(value)) {
+    for (const item of value) collectStrings(item, out);
+    return;
+  }
+  if (value !== null && typeof value === 'object') {
+    for (const nested of Object.values(value as Record<string, unknown>)) {
+      collectStrings(nested, out);
+    }
+  }
+}
+
+function firstLiteral(
+  rec: Record<string, unknown>,
+  keys: readonly string[],
+  rawLine: string,
+  shape: RegExp
+): string | undefined {
+  for (const key of keys) {
+    const strings: string[] = [];
+    collectStrings(rec[key], strings);
+    for (const token of strings) {
+      if (shape.test(token) && rawLine.includes(token)) return token;
+    }
+  }
+  return undefined;
+}
+
+function literalDnsxEnrichment(
+  rec: Record<string, unknown>,
+  rawLine: string
+): { readonly asn?: string; readonly cdn?: string } {
+  const asn = firstLiteral(rec, ['asn', 'as_number'], rawLine, ASN_TOKEN_RE);
+  const cdn = firstLiteral(rec, ['cdn', 'cdn_name'], rawLine, CDN_TOKEN_RE);
+  return {
+    ...(asn ? { asn } : {}),
+    ...(cdn ? { cdn } : {}),
+  };
+}
+
 export class DnsxAdapter implements DnsResolutionTool {
   constructor(
     private readonly processRunner: ProcessRunner,
@@ -196,6 +243,8 @@ export class DnsxAdapter implements DnsResolutionTool {
         seen.add(dedupKey);
 
         const collectedAt = new Date().toISOString();
+        const enrichment =
+          host === targetDomain ? literalDnsxEnrichment(rec, trimmed) : {};
         observations.push({
           domain: host,
           recordType: type,
@@ -204,6 +253,7 @@ export class DnsxAdapter implements DnsResolutionTool {
           collectedAt,
           freshness: 'live',
           sourceReliability: 'direct_observation',
+          ...enrichment,
         });
       };
 

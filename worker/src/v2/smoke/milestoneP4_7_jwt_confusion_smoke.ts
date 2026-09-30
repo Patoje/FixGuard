@@ -385,61 +385,19 @@ async function runTests(): Promise<void> {
     const jwtDraft = draftsResponse.drafts.find(
       (d) => d.differentialContext?.detectionKind === 'jwt_algorithm_confusion'
     );
-
     if (jwtDraft) {
-      if (
-        jwtDraft.differentialContext?.originalAlgorithm !== 'HS256' ||
-        jwtDraft.differentialContext?.manipulatedAlgorithm !== 'none'
-      ) {
-        throw new Error(
-          `Test 5 Failed: Expected HS256 -> none, got ${jwtDraft.differentialContext?.originalAlgorithm} -> ${jwtDraft.differentialContext?.manipulatedAlgorithm}`
-        );
-      }
-
-      const reviewResult = await appService.reviewEvidenceDraft({
-        assessmentId: startRes.assessmentId,
-        draftId: jwtDraft.draftId,
-        decision: 'approve_evidence',
-        reviewerId: 'usr_secops_lead',
-        reviewedAt: new Date().toISOString(),
-        notes: 'Confirmed JWT signature bypass via alg: none in staging.',
-      });
-
-      if (reviewResult.decision !== 'approve_evidence' || !reviewResult.findingCreated) {
-        throw new Error(`Test 5 Failed: Review promotion failed: ${JSON.stringify(reviewResult)}`);
-      }
-
-      const promotedFinding = reviewResult.findingCreated;
-      if (promotedFinding.type !== 'BROKEN_AUTHENTICATION') {
-        throw new Error(
-          `Test 5 Failed: Expected finding type 'BROKEN_AUTHENTICATION', got '${promotedFinding.type}'`
-        );
-      }
-
-      const findingMeta = promotedFinding.metadata as JwtAlgorithmConfusionMetadata;
-      if (
-        findingMeta.kind !== 'jwt_algorithm_confusion_metadata' ||
-        findingMeta.manipulatedAlgorithm !== 'none'
-      ) {
-        throw new Error(`Test 5 Failed: Invalid promoted finding metadata: ${JSON.stringify(findingMeta)}`);
-      }
+      throw new Error('Test 5 Failed: phase 1 must not emit a jwt_algorithm_confusion draft');
     }
 
     const summary = await appService.getSummary(startRes.assessmentId);
     const summaryFinding = summary.findings.find(
       (f: Finding) => f.metadata?.kind === 'jwt_algorithm_confusion_metadata'
     );
-    if (!summaryFinding) {
-      throw new Error(
-        'Test 5 Failed: Expected JWT confusion draft (HITL) or auto-promoted finding in summary'
-      );
+    if (summaryFinding) {
+      throw new Error('Test 5 Failed: phase 1 must not emit a JWT confusion finding without a later execute');
     }
 
-    console.log(
-      jwtDraft
-        ? '✓ Test 5 Passed: HITL review approved and promoted JWT confusion draft to formal Finding'
-        : '✓ Test 5 Passed: JWT confusion auto-promoted to formal Finding'
-    );
+    console.log('✓ Test 5 Passed: Phase 1 assessment does not auto-emit JWT confusion drafts or findings');
   }
 
   console.log('\n[milestoneP4_7_jwt_confusion_smoke] ALL 5 TESTS PASSED SUCCESSFULLY! (100% compliant)');

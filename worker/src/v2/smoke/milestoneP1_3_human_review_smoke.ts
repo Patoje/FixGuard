@@ -313,23 +313,21 @@ async function runSmokeTests(): Promise<void> {
 
     const autoFindings = completedRecord.findings;
     assert(
-      autoFindings.some(
-        (f) =>
-          f.metadata.kind === 'security_misconfiguration_metadata' ||
-          f.metadata.kind === 'credentialed_cors_metadata' ||
-          f.type === 'CORS_MISCONFIGURATION' ||
-          f.type === 'SECURITY_MISCONFIGURATION'
-      ),
-      'CORS confirmed signal must auto-promote to a Finding'
+      !autoFindings.some((f) => f.metadata.kind === 'credentialed_cors_metadata'),
+      'Generic CORS must not promote credentialed_cors_metadata'
     );
+    const seededPlans = await orchestratedService.getAttackPlans(assessmentId);
+    const corsPlan = seededPlans.plans.find((plan) => plan.capability === 'cors_misconfiguration_probe');
+    assert(corsPlan, 'Pipeline must seed a non-executing CORS plan');
+    assert.equal(corsPlan.executable, false);
     assert(
-      autoFindings.some(
+      !autoFindings.some(
         (f) =>
           f.metadata.kind === 'input_validation_flaw_metadata' ||
           f.type === 'INPUT_VALIDATION_FLAW' ||
           f.type === 'PARAMETER_REFLECTION'
       ),
-      'Parameter reflection with canary must auto-promote to a Finding'
+      'Phase 1 must not emit parameter reflection findings without a later execute'
     );
     assert.ok(
       autoFindings.every((f) => f.verificationState !== 'exploitability_confirmed'),
@@ -343,17 +341,13 @@ async function runSmokeTests(): Promise<void> {
     );
     assert(
       !pendingDrafts.some((d) => d.differentialContext?.detectionKind === 'cors_misconfiguration'),
-      'CORS must not remain as pending draft after auto-promotion'
+      'CORS must not be auto-drafted by the pipeline'
     );
     assert(
       !pendingDrafts.some((d) => d.differentialContext?.detectionKind === 'parameter_reflection'),
       'Parameter reflection must not remain as pending draft after auto-promotion'
     );
 
-    const headerDraft = pendingDrafts.find(
-      (d) => d.differentialContext?.detectionKind === 'missing_security_headers'
-    );
-    assert(headerDraft, 'Must retain missing_security_headers draft for optional HITL');
     const softDrafts = pendingDrafts.filter(
       (d) =>
         d.differentialContext?.detectionKind === 'missing_security_headers' ||
@@ -384,12 +378,12 @@ async function runSmokeTests(): Promise<void> {
     assert.strictEqual(draftsData.draftCount, pendingDrafts.length);
     assert.strictEqual(draftsData.drafts.length, pendingDrafts.length);
 
-    const fetchedHeaderDraft = draftsData.drafts.find((d) => d.draftId === headerDraft.draftId);
-    assert(fetchedHeaderDraft, 'Fetched drafts must include headers draft');
+    const fetchedHeaderDraft = draftsData.drafts.find((d) => d.draftId === approveTarget.draftId);
+    assert(fetchedHeaderDraft, 'Fetched drafts must include the HITL draft');
     assert(fetchedHeaderDraft.differentialContext, 'Draft must include differentialContext');
     assert.strictEqual(
       fetchedHeaderDraft.differentialContext.detectionKind,
-      'missing_security_headers'
+      approveTarget.differentialContext?.detectionKind
     );
     console.log('[milestoneP1_3_human_review_smoke] Phase 2: Leftover draft differential context verified.');
 

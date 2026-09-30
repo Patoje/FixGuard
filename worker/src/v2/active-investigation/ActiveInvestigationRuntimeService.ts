@@ -8,18 +8,46 @@
  * - InvestigationAuthorizationBundle binding existing WeakSet auth brands
  * - TargetExecutionCoordinator ceiling wiring from InvestigationBudget
  *
- * Does NOT execute AttackPlans. Gate-only — humans authorize execute separately.
+ * F2.2 read loop may execute only GET-class read_public and read_authenticated
+ * capabilities that are already registered (auth boundary, RLS read confirm).
+ * credential_use, state_change_*, and lateral_movement stay recommendations.
+ * Kill-switch and cancel still stop the loop. Plans stay executable: false
+ * until a human authorizes that step. This service does not self-authorize.
+ * allowAssessmentAuthForCapabilities may run those two reads under the
+ * assessment's verified decision without an attack token or authorizePlan.
  */
 
-import type { AttackAuthorizationToken } from '../attack-authorization/AttackAuthorizationContracts.js';
+import type {
+  AttackAuthorizationToken,
+  BlastRadiusClass,
+} from '../attack-authorization/AttackAuthorizationContracts.js';
 import {
   ATTACK_AUTHORIZATION_CONTRACT_VERSION,
   isAuthorizableBlastRadiusClass,
 } from '../attack-authorization/AttackAuthorizationContracts.js';
+import {
+  AttackCapabilityRegistry,
+  createNotImplementedCapability,
+} from '../attack-execution/AttackCapabilityRegistry.js';
+import type {
+  AttackCapabilityInvocationContext,
+  AttackStepExecutionOutcome,
+} from '../attack-execution/AttackExecutionContracts.js';
+import type { AttackCapabilityKind } from '../attack-planning/AttackPlanContracts.js';
+import { isAccountBoundaryPath } from '../attack-planning/AttackPlanGeneratorService.js';
+import { recordExecutedReadOnChain } from '../attack-planning/F3ChainProposal.js';
+import type { AttackChainService } from '../attack-chain/AttackChainService.js';
 import { isRuntimeAuthorizedForBlastRadius } from '../attack-authorization/AttackAuthorizationService.js';
 import type { VerifiedAuthorizationDecision } from '../authorization/VerifiedAuthorizationDecisionContracts.js';
 import { isRuntimeEstablishedVerifiedAuthorizationDecision } from '../authorization/VerifiedAuthorizationDecisionService.js';
+import type { Finding } from '../core/Evidence.js';
+import { nextVerificationState } from '../core/VerificationStateContracts.js';
+import { VerificationStateService } from '../core/VerificationStateService.js';
 import { TargetExecutionCoordinator } from '../runtime/TargetExecutionCoordinator.js';
+import {
+  canMutateVerificationState,
+  evaluateTestValidityFromReasonCode,
+} from '../test-validity/TestValidityService.js';
 import {
   ACTIVE_INVESTIGATION_CONTRACT_VERSION,
   DEFAULT_INVESTIGATION_BUDGET,
@@ -38,6 +66,8 @@ import {
   type InvestigationBudget,
   type InvestigationBudgetConsumption,
   type RecordInvestigationStepRequest,
+  type VerificationMutationKind,
+
   type RecordInvestigationStepResult,
   type StartActiveInvestigationRequest,
   type StartActiveInvestigationResult,
@@ -270,6 +300,144 @@ export function isRuntimeInvestigationAuthorizationBundle(
 
 function elapsedMs(startedAt: string, nowIso: string): number {
   return Date.parse(nowIso) - Date.parse(startedAt);
+}
+
+export interface ReadOnlyLoopStep {
+  readonly stepId: string;
+  readonly capability: AttackCapabilityKind;
+  readonly blastRadiusClass: BlastRadiusClass;
+  readonly context?: AttackCapabilityInvocationContext;
+}
+
+export interface ReadOnlyLoopStepResult {
+  readonly stepId: string;
+  readonly capability: AttackCapabilityKind;
+  readonly disposition: 'executed' | 'recommended' | 'not_implemented';
+  readonly reasonCode: string;
+}
+
+export interface ReadOnlyLoopResult {
+  readonly status: 'completed' | 'stopped';
+  readonly reasonCode: string;
+  readonly steps: readonly ReadOnlyLoopStepResult[];
+  readonly executedCapabilities: readonly AttackCapabilityKind[];
+}
+
+export interface ReadLoopChainRecord {
+  readonly service: AttackChainService;
+  readonly chainId: string;
+  readonly sourceStepId: string;
+}
+
+export interface ReadOnlyLoopRequest {
+  readonly investigationId: string;
+  readonly registry: AttackCapabilityRegistry;
+  readonly steps: readonly ReadOnlyLoopStep[];
+  readonly nowIso: string;
+  /** When set, an executed GET is appended with sourceStepId. Epistemic status is not raised. */
+  readonly chainRecord?: ReadLoopChainRecord;
+  /**
+   * When a step's capability is in this set, the loop may execute it under the
+   * verified assessment decision. It does not call authorizePlan and does not
+   * require an attack token. Absent: every step still needs a branded token.
+   */
+  readonly allowAssessmentAuthForCapabilities?: ReadonlySet<AttackCapabilityKind>;
+  /**
+   * Assessment coordinator. The first waf_or_challenge_interfered result
+   * notes the host so later probes on it stay at min(current, 2) per second.
+   */
+  readonly coordinator?: TargetExecutionCoordinator;
+}
+
+const READ_LOOP_CAPABILITIES = new Set<AttackCapabilityKind>([
+  'auth_boundary_differential',
+  'supabase_rls_read_confirm',
+]);
+
+function isReadLoopBlast(
+  value: BlastRadiusClass
+): value is 'read_public' | 'read_authenticated' {
+  return value === 'read_public' || value === 'read_authenticated';
+}
+
+const OBSERVED_TABLE_NAME = /^[A-Za-z_][A-Za-z0-9_]{0,63}$/;
+
+function isPresentScopeGrant(value: unknown): boolean {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  return Reflect.get(value, 'kind') === 'authorized_scope_grant';
+}
+
+function hasPrimaryIdentity(ctx: AttackCapabilityInvocationContext): boolean {
+  const identityId = ctx.primaryIdentity?.identityId;
+  return typeof identityId === 'string' && identityId.trim().length > 0;
+}
+
+function tableNameFromRestPath(targetUrl: string): string | null {
+  let parsed: URL;
+  try {
+    parsed = new URL(targetUrl);
+  } catch {
+    return null;
+  }
+  const after = parsed.pathname.split('/rest/v1/')[1];
+  const segment = after?.split('/')[0]?.split('?')[0] ?? '';
+  if (segment.length === 0 || segment === 'rpc' || !OBSERVED_TABLE_NAME.test(segment)) return null;
+  return segment;
+}
+
+function hasObservedTable(ctx: AttackCapabilityInvocationContext): boolean {
+  const parameterName = ctx.plan.parameterName?.trim() ?? '';
+  if (OBSERVED_TABLE_NAME.test(parameterName)) return true;
+  if (tableNameFromRestPath(ctx.targetUrl)) return true;
+  for (const finding of ctx.findings) {
+    if (finding.metadata.kind !== 'supabase_rls_abuse_metadata') continue;
+    if (OBSERVED_TABLE_NAME.test(finding.metadata.tableName.trim())) return true;
+  }
+  return false;
+}
+
+function readLoopStepHost(step: ReadOnlyLoopStep): string {
+  const targetUrl = step.context?.targetUrl;
+  if (typeof targetUrl === 'string' && targetUrl.length > 0) {
+    try {
+      const host = new URL(targetUrl).hostname.toLowerCase();
+      if (host.length > 0) return host;
+    } catch {
+      // Non-URL targets do not share a host key with a parsed URL.
+    }
+  }
+  return (step.context?.targetHost ?? '').trim().toLowerCase();
+}
+
+function recordableOutcome(
+  outcome: AttackStepExecutionOutcome
+): 'succeeded' | 'refuted' | 'failed' | 'observed' {
+  if (outcome === 'succeeded' || outcome === 'refuted' || outcome === 'observed') {
+    return outcome;
+  }
+  return 'failed';
+}
+
+function readInvocationContext(
+  ctx: AttackCapabilityInvocationContext,
+  includeToken: boolean
+): AttackCapabilityInvocationContext {
+  return {
+    plan: ctx.plan,
+    step: ctx.step,
+    ...(includeToken && ctx.token ? { token: ctx.token } : {}),
+    targetHost: ctx.targetHost,
+    targetUrl: ctx.targetUrl,
+    scopeGrant: ctx.scopeGrant,
+    findings: ctx.findings,
+    ...(ctx.primaryIdentity ? { primaryIdentity: ctx.primaryIdentity } : {}),
+    ...(ctx.secondaryIdentity ? { secondaryIdentity: ctx.secondaryIdentity } : {}),
+    ...(ctx.verifiedAuthorizationDecision
+      ? { verifiedAuthorizationDecision: ctx.verifiedAuthorizationDecision }
+      : {}),
+    ...(ctx.transport ? { transport: ctx.transport } : {}),
+    ...(ctx.dnsResolver ? { dnsResolver: ctx.dnsResolver } : {}),
+  };
 }
 
 export class ActiveInvestigationRuntimeService {
@@ -937,6 +1105,69 @@ export class ActiveInvestigationRuntimeService {
       }
     }
 
+    const stepOutcomeRaw = Reflect.get(request, 'stepOutcome');
+    const outcomeReasonRaw = Reflect.get(request, 'outcomeReasonCode');
+    const boundFindingRaw = Reflect.get(request, 'boundFinding');
+    const targetHostRaw = Reflect.get(request, 'targetHost');
+    const evidenceIdRaw = Reflect.get(request, 'evidenceId');
+    const allowedOutcomes = new Set([
+      'succeeded',
+      'refuted',
+      'failed',
+      'observed',
+      'interfered',
+    ]);
+    if (stepOutcomeRaw !== undefined) {
+      if (typeof stepOutcomeRaw !== 'string' || !allowedOutcomes.has(stepOutcomeRaw)) {
+        return {
+          status: 'denied',
+          reasonCode: 'request_invalid',
+          safeMessage: 'stepOutcome must be a known investigation step outcome',
+        };
+      }
+      if (
+        outcomeReasonRaw !== undefined &&
+        (typeof outcomeReasonRaw !== 'string' || outcomeReasonRaw.trim().length === 0)
+      ) {
+        return {
+          status: 'denied',
+          reasonCode: 'request_invalid',
+          safeMessage: 'outcomeReasonCode must be a non-empty string when provided',
+        };
+      }
+      if (
+        targetHostRaw !== undefined &&
+        (typeof targetHostRaw !== 'string' || targetHostRaw.trim().length === 0)
+      ) {
+        return {
+          status: 'denied',
+          reasonCode: 'request_invalid',
+          safeMessage: 'targetHost must be a non-empty string when provided',
+        };
+      }
+      if (evidenceIdRaw !== undefined && !isSafeId(evidenceIdRaw)) {
+        return {
+          status: 'denied',
+          reasonCode: 'request_invalid',
+          safeMessage: 'evidenceId must satisfy strict identifier format',
+        };
+      }
+      if (
+        boundFindingRaw !== undefined &&
+        (typeof boundFindingRaw !== 'object' ||
+          boundFindingRaw === null ||
+          Array.isArray(boundFindingRaw) ||
+          typeof Reflect.get(boundFindingRaw, 'id') !== 'string' ||
+          typeof Reflect.get(boundFindingRaw, 'verificationState') !== 'string')
+      ) {
+        return {
+          status: 'denied',
+          reasonCode: 'request_invalid',
+          safeMessage: 'boundFinding must be a Finding-shaped object when provided',
+        };
+      }
+    }
+
     void (request as RecordInvestigationStepRequest);
 
     const inv = this.investigations.get(investigationId);
@@ -990,10 +1221,83 @@ export class ActiveInvestigationRuntimeService {
       }
     }
 
+    // Closed-loop (M-A): TestValidity gate → VerificationState advance/refute.
+    let testValidityVerdict: 'valid' | 'interfered' | 'inconclusive' | undefined;
+    let verificationMutation: VerificationMutationKind = 'none';
+    let updatedFinding: Finding | undefined;
+    let interferenceReasonCode: string | undefined;
+
+    if (stepOutcomeRaw !== undefined) {
+      const outcomeReasonCode =
+        typeof outcomeReasonRaw === 'string' && outcomeReasonRaw.trim().length > 0
+          ? outcomeReasonRaw.trim()
+          : String(stepOutcomeRaw);
+      const targetHost =
+        typeof targetHostRaw === 'string' && targetHostRaw.trim().length > 0
+          ? targetHostRaw.trim()
+          : undefined;
+      const evidenceId =
+        typeof evidenceIdRaw === 'string' && isSafeId(evidenceIdRaw)
+          ? evidenceIdRaw
+          : `ev_inv_${stepId}`;
+
+      const validity = evaluateTestValidityFromReasonCode(outcomeReasonCode, {
+        evaluatedAt: recordedAt,
+        ...(targetHost ? { targetHost } : {}),
+      });
+      testValidityVerdict = validity.verdict;
+
+      const boundFinding =
+        boundFindingRaw !== undefined ? (boundFindingRaw as Finding) : undefined;
+
+      if (!boundFinding) {
+        verificationMutation = 'skipped_no_finding';
+      } else if (!canMutateVerificationState(validity)) {
+        verificationMutation =
+          validity.verdict === 'interfered'
+            ? 'skipped_interference'
+            : 'skipped_inconclusive';
+        interferenceReasonCode = validity.reasonCode;
+        updatedFinding = Object.freeze({ ...boundFinding });
+      } else if (stepOutcomeRaw === 'succeeded' || stepOutcomeRaw === 'observed') {
+        const nextState = nextVerificationState(boundFinding.verificationState);
+        if (nextState === null) {
+          verificationMutation = 'skipped_no_transition';
+          updatedFinding = Object.freeze({ ...boundFinding });
+        } else {
+          const advanced = VerificationStateService.advanceState(boundFinding, nextState, {
+            evidenceId,
+            reasonCode: 'investigation_step_succeeded',
+          });
+          updatedFinding = advanced.updatedFinding;
+          verificationMutation = 'advanced';
+        }
+      } else if (stepOutcomeRaw === 'refuted' || stepOutcomeRaw === 'failed') {
+        const refuted = VerificationStateService.refuteState(
+          boundFinding,
+          boundFinding.verificationState,
+          {
+            evidenceId,
+            reasonCode: 'REFUTED',
+          }
+        );
+        updatedFinding = refuted.updatedFinding;
+        verificationMutation = 'refuted';
+      } else {
+        verificationMutation = 'skipped_interference';
+        interferenceReasonCode = outcomeReasonCode;
+        updatedFinding = Object.freeze({ ...boundFinding });
+      }
+    }
+
     return {
       status: 'recorded',
       reasonCode: 'step_recorded',
       snapshot: toSnapshot(inv),
+      ...(testValidityVerdict ? { testValidityVerdict } : {}),
+      ...(stepOutcomeRaw !== undefined ? { verificationMutation } : {}),
+      ...(updatedFinding ? { updatedFinding } : {}),
+      ...(interferenceReasonCode ? { interferenceReasonCode } : {}),
     };
   }
 
@@ -1039,6 +1343,263 @@ export class ActiveInvestigationRuntimeService {
       }
     }
     return null;
+  }
+
+  /**
+   * F2.2 — Execute only allowlisted GET reads inside an already authorized
+   * investigation. Disallowed blast radii stay visible as recommendations.
+   * Does not call authorizePlan or open the credential vault.
+   * Capabilities listed in allowAssessmentAuthForCapabilities run from the
+   * verified assessment decision with no attack token.
+   */
+  public async runReadOnlyLoop(request: ReadOnlyLoopRequest): Promise<ReadOnlyLoopResult> {
+    const steps: ReadOnlyLoopStepResult[] = [];
+    const executedCapabilities: AttackCapabilityKind[] = [];
+    const suppressedInterference = new Set<string>();
+    const notedWafHosts = new Set<string>();
+
+    const stop = (reasonCode: string): ReadOnlyLoopResult => ({
+      status: 'stopped',
+      reasonCode,
+      steps,
+      executedCapabilities,
+    });
+
+    for (const step of request.steps) {
+      const snapshot = this.getSnapshot(request.investigationId);
+      if (!snapshot) {
+        return stop('investigation_not_found');
+      }
+      if (snapshot.status !== 'running' || snapshot.cancelRequested || snapshot.killSwitchEngaged) {
+        return stop(snapshot.denialReasonCode ?? 'investigation_not_running');
+      }
+
+      if (!isReadLoopBlast(step.blastRadiusClass)) {
+        steps.push({
+          stepId: step.stepId,
+          capability: step.capability,
+          disposition: 'recommended',
+          reasonCode: 'read_loop_class_denied',
+        });
+        continue;
+      }
+      if (!READ_LOOP_CAPABILITIES.has(step.capability)) {
+        steps.push({
+          stepId: step.stepId,
+          capability: step.capability,
+          disposition: 'recommended',
+          reasonCode: 'read_loop_capability_denied',
+        });
+        continue;
+      }
+
+      const ctx = step.context;
+      if (
+        !ctx ||
+        !isRuntimeEstablishedVerifiedAuthorizationDecision(ctx.verifiedAuthorizationDecision) ||
+        !isPresentScopeGrant(ctx.scopeGrant)
+      ) {
+        steps.push({
+          stepId: step.stepId,
+          capability: step.capability,
+          disposition: 'recommended',
+          reasonCode: 'read_loop_context_missing',
+        });
+        continue;
+      }
+
+      const assessmentAuthAllowed =
+        request.allowAssessmentAuthForCapabilities?.has(step.capability) === true;
+      if (assessmentAuthAllowed) {
+        if (step.capability === 'auth_boundary_differential' && !hasPrimaryIdentity(ctx)) {
+          steps.push({
+            stepId: step.stepId,
+            capability: step.capability,
+            disposition: 'recommended',
+            reasonCode: 'identity_a_missing',
+          });
+          continue;
+        }
+        if (step.capability === 'supabase_rls_read_confirm' && !hasObservedTable(ctx)) {
+          steps.push({
+            stepId: step.stepId,
+            capability: step.capability,
+            disposition: 'recommended',
+            reasonCode: 'observed_table_missing',
+          });
+          continue;
+        }
+      } else if (
+        !isRuntimeAuthorizedForBlastRadius(
+          ctx.token,
+          step.blastRadiusClass,
+          ctx.plan.planId,
+          ctx.plan.assessmentId
+        )
+      ) {
+        steps.push({
+          stepId: step.stepId,
+          capability: step.capability,
+          disposition: 'recommended',
+          reasonCode: 'attack_authorization_required',
+        });
+        continue;
+      }
+
+      const host = readLoopStepHost(step);
+      const interferenceKey = `${step.capability}\n${host}`;
+      if (suppressedInterference.has(interferenceKey)) {
+        steps.push({
+          stepId: step.stepId,
+          capability: step.capability,
+          disposition: 'recommended',
+          reasonCode: 'waf_or_challenge_interfered',
+        });
+        continue;
+      }
+
+      const invocation = readInvocationContext(ctx, !assessmentAuthAllowed);
+      const registered = request.registry.get(step.capability);
+      if (!registered) {
+        const stub = createNotImplementedCapability(step.capability);
+        const stubResult = await stub.execute(invocation);
+        steps.push({
+          stepId: step.stepId,
+          capability: step.capability,
+          disposition: 'not_implemented',
+          reasonCode: stubResult.reasonCode,
+        });
+        continue;
+      }
+
+      const accountPath = isAccountBoundaryPath(ctx.targetUrl);
+      let allowedAttempts = 1;
+      let attempt = 0;
+      let outcome: AttackStepExecutionOutcome = 'failed';
+      let reasonCode = 'capability_execution_failed';
+      while (attempt < allowedAttempts) {
+        const gated = this.gateAuthorizedStep({
+          contractVersion: ACTIVE_INVESTIGATION_CONTRACT_VERSION,
+          kind: 'gate_authorized_step_request',
+          investigationId: request.investigationId,
+          assessmentId: snapshot.lineage.assessmentId,
+          expectedRequestCost: 1,
+          gatedAt: request.nowIso,
+        });
+        if (gated.status !== 'authorized') {
+          return stop(gated.reasonCode);
+        }
+        if (ctx.verifiedAuthorizationDecision !== gated.verifiedAuthorizationDecision) {
+          this.recordStepOutcome({
+            contractVersion: ACTIVE_INVESTIGATION_CONTRACT_VERSION,
+            kind: 'record_investigation_step_request',
+            investigationId: request.investigationId,
+            stepId: step.stepId,
+            requestCost: 0,
+            recordedAt: request.nowIso,
+            stepOutcome: 'failed',
+            outcomeReasonCode: 'verified_authorization_mismatch',
+          });
+          outcome = 'failed';
+          reasonCode = 'verified_authorization_mismatch';
+          break;
+        }
+
+        try {
+          const capabilityResult = await registered.execute(invocation);
+          outcome = capabilityResult.outcome;
+          reasonCode = capabilityResult.reasonCode;
+        } catch {
+          outcome = 'failed';
+          reasonCode = 'capability_execution_failed';
+        }
+        this.recordStepOutcome({
+          contractVersion: ACTIVE_INVESTIGATION_CONTRACT_VERSION,
+          kind: 'record_investigation_step_request',
+          investigationId: request.investigationId,
+          stepId: step.stepId,
+          requestCost: 1,
+          recordedAt: request.nowIso,
+          stepOutcome: recordableOutcome(outcome),
+          outcomeReasonCode: reasonCode,
+        });
+        if (
+          request.chainRecord &&
+          (outcome === 'observed' || outcome === 'succeeded') &&
+          READ_LOOP_CAPABILITIES.has(step.capability)
+        ) {
+          await recordExecutedReadOnChain(request.chainRecord.service, {
+            chainId: request.chainRecord.chainId,
+            assessmentId: snapshot.lineage.assessmentId,
+            scanId: snapshot.lineage.scanId,
+            stepId: step.stepId,
+            sourceStepId: request.chainRecord.sourceStepId,
+            capabilityKind: step.capability,
+            outcome: 'succeeded',
+            evidence: {
+              reasonCode,
+              safeMessage: 'GET read completed inside the authorized investigation budget',
+              recordedAt: request.nowIso,
+            },
+            recordedAt: request.nowIso,
+          });
+        }
+        attempt += 1;
+        if (reasonCode !== 'waf_or_challenge_interfered') break;
+        if (attempt === 1 && host.length > 0 && !notedWafHosts.has(host)) {
+          request.coordinator?.noteObservedWaf(host, 'waf_or_challenge_interfered');
+          notedWafHosts.add(host);
+        }
+        if (attempt === 1 && accountPath) {
+          allowedAttempts = 3;
+        }
+      }
+
+      if (reasonCode === 'waf_or_challenge_interfered') {
+        suppressedInterference.add(interferenceKey);
+      }
+      if (reasonCode === 'verified_authorization_mismatch') {
+        steps.push({
+          stepId: step.stepId,
+          capability: step.capability,
+          disposition: 'recommended',
+          reasonCode,
+        });
+        continue;
+      }
+      if (outcome === 'capability_not_implemented') {
+        steps.push({
+          stepId: step.stepId,
+          capability: step.capability,
+          disposition: 'not_implemented',
+          reasonCode,
+        });
+        continue;
+      }
+      if (outcome === 'preflight_denied') {
+        steps.push({
+          stepId: step.stepId,
+          capability: step.capability,
+          disposition: 'recommended',
+          reasonCode,
+        });
+        continue;
+      }
+      executedCapabilities.push(step.capability);
+      steps.push({
+        stepId: step.stepId,
+        capability: step.capability,
+        disposition: 'executed',
+        reasonCode,
+      });
+    }
+
+    return {
+      status: 'completed',
+      reasonCode: 'read_loop_completed',
+      steps,
+      executedCapabilities,
+    };
   }
 
   private refreshTerminalState(

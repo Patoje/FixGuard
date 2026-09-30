@@ -170,10 +170,10 @@ function buildAutoFinding(
 
     case 'cors_misconfiguration':
     case 'credentialed_cors': {
-      const credentialed =
-        detKind === 'credentialed_cors' || ctx.allowCredentials === true;
       const reflected = ctx.reflectedOrigin ?? ctx.suppliedOrigin ?? ctx.acaoHeader ?? '';
-      if (detKind === 'credentialed_cors' || credentialed) {
+      // credentialed_cors_metadata is reserved for the dedicated detector (later execute).
+      // Phase-1 generic CORS drafts stay security_misconfiguration even when credentials are allowed.
+      if (detKind === 'credentialed_cors') {
         return {
           id: `fnd_cors_${suffix}`,
           type: 'SECURITY_MISCONFIGURATION',
@@ -218,7 +218,7 @@ function buildAutoFinding(
           lineage,
           endpointUrl: ctx.endpointUrl,
           reflectedOrigin: reflected || undefined,
-          allowCredentials: false,
+          allowCredentials: ctx.allowCredentials === true,
         },
       };
     }
@@ -344,32 +344,6 @@ function buildAutoFinding(
           observedAt: evaluatedAt,
           category: 'DNS_HIJACKING_RISK',
           endpointUrl: ctx.endpointUrl,
-          candidateId: `cnd_${draftId}`,
-          evidenceRecordId: `evd_${draftId}`,
-          lineage,
-        },
-      };
-
-    case 'sourcemap_exposure':
-      return {
-        id: `fnd_smap_${suffix}`,
-        type: 'INFORMATION_DISCLOSURE',
-        severity: 'medium',
-        title: `Observed Sourcemap Exposure on ${target}`,
-        description: `Observed exposed sourcemap at '${ctx.exposedMapUrl ?? target}' (auto-promoted).`,
-        target,
-        evidence: baseEvidence,
-        confidence: 0.9,
-        verificationState: 'suspected_vulnerability',
-        metadata: {
-          kind: 'sourcemap_exposure_metadata',
-          category: 'INFORMATION_DISCLOSURE',
-          exposedMapUrl: ctx.exposedMapUrl ?? target,
-          sourceJsUrl: ctx.sourceJsUrl ?? target,
-          detectionSignal: 'sourcemapping_url_comment',
-          sampleSourcesCount: ctx.sampleSourcesCount ?? 0,
-          mapFileSizeBytes: ctx.mapFileSizeBytes ?? 0,
-          observedAt: evaluatedAt,
           candidateId: `cnd_${draftId}`,
           evidenceRecordId: `evd_${draftId}`,
           lineage,

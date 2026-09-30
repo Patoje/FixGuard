@@ -8,6 +8,7 @@
 export type CircuitBreakerState = 'CLOSED' | 'OPEN' | 'HALF_OPEN';
 
 export const CIRCUIT_OPEN_REASON_CODE = 'target_instability_circuit_open' as const;
+export const TARGET_EXECUTION_CANCELLED_REASON_CODE = 'target_execution_cancelled' as const;
 
 export interface TargetCircuitBreakerConfig {
   /**
@@ -67,5 +68,17 @@ export class TargetInstabilityError extends Error {
         `Target host '${host}' is exhibiting instability: circuit breaker is ${circuitState}. Execution halted to prevent service degradation.`
     );
     this.name = 'TargetInstabilityError';
+  }
+}
+
+export class TargetExecutionCancelledError extends Error {
+  public readonly reasonCode = TARGET_EXECUTION_CANCELLED_REASON_CODE;
+
+  constructor(
+    public readonly host: string,
+    message?: string
+  ) {
+    super(message ?? `Target execution for host '${host}' was cancelled.`);
+    this.name = 'TargetExecutionCancelledError';
   }
 }

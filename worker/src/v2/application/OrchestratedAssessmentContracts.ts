@@ -15,7 +15,14 @@ import type { Finding } from '../core/Evidence.js';
 import type { EvidenceDraftEnvelope } from '../evidence-mapping/ComparisonEvidenceMappingContracts.js';
 import type { ByotSessionIdentityBundle } from '../detection/DetectionContracts.js';
 import type { AttackSurfaceGraph } from '../attack-surface/AttackSurfaceContracts.js';
-import type { AttackPlan } from '../attack-planning/AttackPlanContracts.js';
+import type { ObservedFact } from '../observation/ObservedFactContracts.js';
+import type {
+  AttackCapabilityKind,
+  AttackPlan,
+  AttackPlanStatus,
+  AttackStepStatus,
+} from '../attack-planning/AttackPlanContracts.js';
+import type { ActiveInvestigationSnapshot } from '../active-investigation/ActiveInvestigationContracts.js';
 import type { AttackChain } from '../attack-chain/AttackChainContracts.js';
 import type {
   GetAttackRecommendationsResult,
@@ -33,6 +40,9 @@ import type {
   LateralMovementSnapshot,
 } from '../attack-planning/LateralMovementContracts.js';
 import type { AuthorizedScopeGrant } from '../scope/AuthorizedScopeContracts.js';
+import type { ProbeInventory } from '../investigation/ProbeInventoryContracts.js';
+import type { ReadInvestigationLoopRecord } from '../investigation/ReadInvestigationLoopContracts.js';
+import type { AssessmentTranscript } from '../investigation/AssessmentTranscript.js';
 
 export const ORCHESTRATED_ASSESSMENT_CONTRACT_VERSION =
   'fixguard-orchestrated-assessment/v0' as const;
@@ -142,6 +152,26 @@ export interface DifferentialEvidenceContext {
   readonly baselineBodyHash?: string;
   readonly validationStatusCode?: number;
   readonly validationBodyHash?: string;
+  /** OBSERVED content-type from baseline probe (IDOR soft-404 / HTML shell gate). */
+  readonly baselineContentType?: string;
+  /** OBSERVED content-type from validation probe. */
+  readonly validationContentType?: string;
+  /** OBSERVED body shape from baseline probe (`html` blocks IDOR auto-promote). */
+  readonly baselineBodyShapeKind?:
+    | 'json_object'
+    | 'json_array'
+    | 'html'
+    | 'text'
+    | 'empty'
+    | 'unknown';
+  /** OBSERVED body shape from validation probe. */
+  readonly validationBodyShapeKind?:
+    | 'json_object'
+    | 'json_array'
+    | 'html'
+    | 'text'
+    | 'empty'
+    | 'unknown';
   readonly reflectedOrigin?: string;
   readonly allowCredentials?: boolean;
   readonly parameterName?: string;
@@ -300,6 +330,23 @@ export interface OrchestratedAssessmentRecord {
   readonly recommendations: readonly TargetRecommendation[];
   /** Milestone A2 — immutable Attack Surface Graph built at assessment completion. */
   readonly attackSurfaceGraph?: AttackSurfaceGraph;
+  /** F0.1 — OBSERVED facts (no severity). Absent when none were grounded. */
+  readonly observedFacts?: readonly ObservedFact[];
+  /**
+   * Phase 1 — in-scope URLs taken from recon observations already returned.
+   * Absent on records written before this field existed.
+   */
+  readonly probeInventory?: ProbeInventory;
+  /**
+   * Phase 4 — read-investigation loop outcome. Absent on records written
+   * before this field existed, and when the loop did not run.
+   */
+  readonly readInvestigationLoop?: ReadInvestigationLoopRecord;
+  /**
+   * Phase 6 — operator transcript. Absent on records written before this
+   * field existed. Built from stored inventory, findings, and loop steps.
+   */
+  readonly transcript?: AssessmentTranscript;
   /**
    * Phase D1 Step 2 — loud degradation notices when CLI binaries are missing
    * or replaced by shallow stubs (e.g. `degraded_mode_missing_binary: naabu`).
@@ -307,8 +354,49 @@ export interface OrchestratedAssessmentRecord {
   readonly degradedCapabilities?: readonly string[];
   /** Soft liveness while status is running/pending. */
   readonly heartbeat?: OrchestratedAssessmentHeartbeat;
+  /**
+   * C1 read-loop result. Absent when the loop did not run (circuit open,
+   * no allowlisted steps, or investigation start denied).
+   */
+  readonly phase1ReadLoop?: Phase1ReadLoopRecord;
   readonly error?: string;
   readonly reasonCode?: string;
+}
+
+/** Advisory plan row returned with assessment status and summary. */
+export interface OperatorPlanStepView {
+  readonly stepId: string;
+  readonly status: AttackStepStatus;
+}
+
+export interface OperatorPlanView {
+  readonly planId: string;
+  readonly capability: AttackCapabilityKind;
+  readonly status: AttackPlanStatus;
+  readonly executable: false;
+  readonly dependsOn: readonly string[];
+  readonly steps: readonly OperatorPlanStepView[];
+}
+
+export interface Phase1ReadLoopStepRecord {
+  readonly stepId: string;
+  readonly capability: AttackCapabilityKind;
+  readonly disposition: 'executed' | 'recommended' | 'not_implemented';
+  readonly reasonCode: string;
+}
+
+/** Stored read-loop outcome. The status DTO projects status, reason, and steps. */
+export interface Phase1ReadLoopRecord {
+  readonly status: 'completed' | 'stopped';
+  readonly reasonCode: string;
+  readonly steps: readonly Phase1ReadLoopStepRecord[];
+  readonly executedCapabilities: readonly AttackCapabilityKind[];
+}
+
+export interface Phase1ReadLoopView {
+  readonly status: 'completed' | 'stopped';
+  readonly reasonCode: string;
+  readonly steps: readonly Phase1ReadLoopStepRecord[];
 }
 
 export interface OrchestratedAssessmentStatusDto {
@@ -334,6 +422,18 @@ export interface OrchestratedAssessmentStatusDto {
   readonly sessionKeepAliveHint?: string;
   readonly error?: string;
   readonly reasonCode?: string;
+  /** Child and surface plans for this assessment. */
+  readonly plans: readonly OperatorPlanView[];
+  /** Deterministic investigation id used by the phase-1 read loop. */
+  readonly investigationId: string;
+  /** Present when that investigation has a process-local snapshot. */
+  readonly investigationSnapshot?: ActiveInvestigationSnapshot;
+  /** Present when the phase-1 read loop returned a result. */
+  readonly phase1ReadLoop?: Phase1ReadLoopView;
+  /** idor_read_differential plans still missing session B. Empty after B attaches. */
+  readonly identityBMissingPlanIds: readonly string[];
+  /** Phase 6 transcript. Absent on records written before the field existed. */
+  readonly transcript?: AssessmentTranscript;
 }
 
 export interface OrchestratedAssessmentSummaryDto {
@@ -358,8 +458,22 @@ export interface OrchestratedAssessmentSummaryDto {
   readonly degradedCapabilities?: readonly string[];
   readonly lineage: AuthorizedActiveReconRequestLineage;
   readonly timing: OrchestratedAssessmentTiming;
+  readonly observedFacts: readonly ObservedFact[];
   readonly error?: string;
   readonly reasonCode?: string;
+  readonly plans: readonly OperatorPlanView[];
+  readonly investigationId: string;
+  readonly investigationSnapshot?: ActiveInvestigationSnapshot;
+  readonly phase1ReadLoop?: Phase1ReadLoopView;
+  readonly identityBMissingPlanIds: readonly string[];
+  /** Phase 6 transcript. Absent on records written before the field existed. */
+  readonly transcript?: AssessmentTranscript;
+}
+
+export interface AttachSessionIdentityBResult {
+  readonly assessmentId: string;
+  readonly identityCount: 2;
+  readonly updatedPlanIds: readonly string[];
 }
 
 export interface GetAttackSurfaceResult {

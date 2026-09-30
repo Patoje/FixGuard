@@ -11,6 +11,7 @@ import type { AttackPlanRepository } from '../../attack-planning/AttackPlanRepos
 import {
   PersistenceConflictError,
   RecordCorruptedError,
+  RecordNotFoundError,
 } from '../StorageErrors.js';
 import {
   cloneForPersistence,
@@ -78,12 +79,16 @@ export class PostgresAttackPlanRepository implements AttackPlanRepository {
       );
     }
 
+    return this.writePlanRow(plan);
+  }
+
+  private async writePlanRow(plan: AttackPlan): Promise<AttackPlan> {
     const cloned = cloneForPersistence(plan);
     const now = new Date();
     const createdAt = new Date(cloned.createdAt);
 
-    // Insert-only semantics: existence is checked above (PersistenceConflictError).
     // onConflictDoUpdate matches the shared drizzle/mock adapter surface used by chains.
+    // savePlan rejects an existing id before this write. replacePlan uses the update path.
     await this.db
       .insert(v2_attack_plans)
       .values({
@@ -149,6 +154,26 @@ export class PostgresAttackPlanRepository implements AttackPlanRepository {
       saved.push(await this.savePlan(plan));
     }
     return saved;
+  }
+
+  public async replacePlan(plan: AttackPlan): Promise<AttackPlan> {
+    if (!validateAttackPlan(plan)) {
+      throw new Error('Invalid AttackPlan: failed persistence-boundary validation');
+    }
+    if (plan.executable !== false) {
+      throw new Error('Invalid AttackPlan: executable must be false');
+    }
+    const existing = await this.getPlan(plan.planId);
+    if (!existing) {
+      throw new RecordNotFoundError(`Attack plan '${plan.planId}' was not found`, plan.planId);
+    }
+    if (existing.assessmentId !== plan.assessmentId) {
+      throw new PersistenceConflictError(
+        `Attack plan '${plan.planId}' belongs to a different assessment`,
+        plan.planId
+      );
+    }
+    return this.writePlanRow(plan);
   }
 
   public async getPlan(planId: string): Promise<AttackPlan | null> {

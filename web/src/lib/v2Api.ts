@@ -162,6 +162,7 @@ export interface OrchestratedAssessmentStatusResponse {
   readonly sessionKeepAliveAt?: string;
   readonly sessionKeepAliveHint?: string;
   readonly error?: string;
+  readonly transcript?: AssessmentTranscriptDto;
 }
 
 export interface DifferentialEvidenceContextDto {
@@ -206,6 +207,22 @@ export interface DifferentialEvidenceContextDto {
   readonly baselineBodyHash?: string;
   readonly validationStatusCode?: number;
   readonly validationBodyHash?: string;
+  readonly baselineContentType?: string;
+  readonly validationContentType?: string;
+  readonly baselineBodyShapeKind?:
+    | 'json_object'
+    | 'json_array'
+    | 'html'
+    | 'text'
+    | 'empty'
+    | 'unknown';
+  readonly validationBodyShapeKind?:
+    | 'json_object'
+    | 'json_array'
+    | 'html'
+    | 'text'
+    | 'empty'
+    | 'unknown';
   readonly reflectedOrigin?: string;
   readonly allowCredentials?: boolean;
   readonly parameterName?: string;
@@ -379,6 +396,47 @@ export interface ReviewEvidenceDraftResponse {
   readonly remainingDraftCount: number;
 }
 
+export interface AssessmentTranscriptDiscoveryEntryDto {
+  readonly origin: string;
+  readonly path: string;
+  readonly method: string;
+  readonly parameters: readonly string[];
+  readonly sources: readonly string[];
+}
+
+export interface AssessmentTranscriptDiscoveriesDto {
+  readonly entries: readonly AssessmentTranscriptDiscoveryEntryDto[];
+}
+
+export interface AssessmentTranscriptInvocationDto {
+  readonly kind: 'process' | 'http' | 'not_invoked';
+  readonly binary?: string;
+  readonly args?: readonly string[];
+  readonly method?: string;
+  readonly url?: string;
+}
+
+export interface AssessmentTranscriptStepDto {
+  readonly capability: string;
+  readonly url: string;
+  readonly blastRadiusClass: string;
+  readonly outcome: string;
+  readonly invocation: AssessmentTranscriptInvocationDto;
+}
+
+export interface AssessmentTranscriptWithheldPlanDto {
+  readonly capability: string;
+  readonly target: string;
+}
+
+export interface AssessmentTranscriptDto {
+  readonly discoveries: AssessmentTranscriptDiscoveriesDto;
+  readonly findings: readonly FindingDto[];
+  readonly executedSteps: readonly AssessmentTranscriptStepDto[];
+  readonly withheldPlans: readonly AssessmentTranscriptWithheldPlanDto[];
+  readonly stopReason: string;
+}
+
 export interface OrchestratedAssessmentSummaryResponse {
   readonly assessmentId: string;
   readonly scanId: string;
@@ -391,6 +449,7 @@ export interface OrchestratedAssessmentSummaryResponse {
   readonly lineage: LineageTuple;
   readonly timing: TimingDto;
   readonly error?: string;
+  readonly transcript?: AssessmentTranscriptDto;
 }
 
 export interface V2ApiClientConfig {

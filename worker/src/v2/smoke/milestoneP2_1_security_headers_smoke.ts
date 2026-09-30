@@ -443,31 +443,17 @@ async function runSmokeTests(): Promise<void> {
   assert(record, 'Record must exist');
   assert.strictEqual(record.status, 'completed');
 
-  // Verify pending drafts contain missing_security_headers draft
   const drafts = record.pendingEvidenceDrafts ?? [];
-  const shDraft = drafts.find((d) => d.differentialContext?.detectionKind === 'missing_security_headers');
-  assert(shDraft, 'Pipeline must generate missing_security_headers pending evidence draft');
-  assert(shDraft.differentialContext?.missingHeaders?.includes('content-security-policy'), 'Draft must track missing headers');
-
-  // Triage review: Approve evidence draft
-  const reviewResult = await orchestratedService.reviewEvidenceDraft({
-    assessmentId: record.assessmentId,
-    draftId: shDraft.draftId,
-    decision: 'approve_evidence',
-    reviewerId: 'usr_secops_lead_auditor',
-    reviewedAt: new Date().toISOString(),
-    notes: 'Confirmed missing CSP and HSTS in staging environment.',
-  });
-
-  assert.strictEqual(reviewResult.decision, 'approve_evidence');
-  assert(reviewResult.findingCreated, 'Finding must be created');
-  assert.strictEqual(reviewResult.findingCreated.metadata.kind, 'missing_security_headers_metadata');
-
-  // Verify updated assessment record
-  const updatedRecord = await repository.findById(record.assessmentId);
-  assert(updatedRecord, 'Updated record must exist');
-  assert(updatedRecord.findings.some((f) => f.id === reviewResult.findingCreated?.id), 'Finding must be in record findings');
-  console.log('[milestoneP2_1_security_headers_smoke] Assertion 5 PASSED: Full pipeline & triage lifecycle verified.');
+  assert.equal(
+    drafts.some((d) => d.differentialContext?.detectionKind === 'missing_security_headers'),
+    false,
+    'Pipeline must not auto-draft missing security headers'
+  );
+  const plans = await orchestratedService.getAttackPlans(record.assessmentId);
+  const headerPlan = plans.plans.find((plan) => plan.capability === 'security_header_probe');
+  assert(headerPlan, 'Pipeline must seed a non-executing security header plan');
+  assert.equal(headerPlan.executable, false);
+  console.log('[milestoneP2_1_security_headers_smoke] Assertion 5 PASSED: Pipeline seeded a non-executing header plan.');
 
   console.log('----------------------------------------------------------------');
   console.log('[milestoneP2_1_security_headers_smoke] ALL SMOKE TESTS PASSED (100%)');

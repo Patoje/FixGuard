@@ -44,7 +44,7 @@ import type { Finding } from '../core/Evidence.js';
 import { validateSessionHealth } from '../core/SessionLifecycleService.js';
 import { pruneTransientEvidence } from '../evidence/EvidenceRetentionService.js';
 import { sanitizeEvidenceFragment } from '../core/EvidenceSanitizer.js';
-import { isIdenticalErrorDifferential, probeAuthContextHasCredentials, shouldAbstainIdorWithoutAccessDifferential } from './DetectionTargetBridge.js';
+import { isIdenticalErrorDifferential, isIdorSoft404OrHtmlShellNoise, probeAuthContextHasCredentials, shouldAbstainIdorWithoutAccessDifferential } from './DetectionTargetBridge.js';
 
 const SENSITIVE_HEADER_NAMES = new Set([
   'authorization',
@@ -103,6 +103,16 @@ function analyzeBodyShape(bodyText: string): NormalizedBodyShape {
     }
   }
 
+  if (
+    trimmed.toLowerCase().includes('<html') ||
+    trimmed.toLowerCase().includes('<!doctype html')
+  ) {
+    return {
+      shapeKind: 'html',
+      normalizedSchemaHash: sha256(trimmed.slice(0, 128)),
+    };
+  }
+
   return {
     shapeKind: 'text',
     normalizedSchemaHash: sha256(trimmed.slice(0, 128))
@@ -125,7 +135,14 @@ function createSafeSnapshot(
     .sort();
 
   const isAnonymous = identityId === 'anonymous';
-  const bodyShape = analyzeBodyShape(response.bodyText);
+  const contentType = (response.headers['content-type'] ?? '').toLowerCase();
+  let bodyShape = analyzeBodyShape(response.bodyText);
+  if (contentType.includes('text/html') && bodyShape.shapeKind !== 'json_object' && bodyShape.shapeKind !== 'json_array') {
+    bodyShape = {
+      shapeKind: 'html',
+      normalizedSchemaHash: bodyShape.normalizedSchemaHash ?? sha256(response.bodyText.slice(0, 128)),
+    };
+  }
 
   return {
     contractVersion: 'fixguard-response-comparator/v0',
@@ -444,6 +461,36 @@ export async function runIdorDifferentialDetection(
       validationSnapshot,
     };
     return pruneTransientEvidence(abstainedIdentical, nowIso);
+  }
+
+  // Soft-404 / SPA HTML shells (non-identical differentials) are not resource access evidence.
+  if (
+    isIdorSoft404OrHtmlShellNoise({
+      endpointUrl: request.endpointUrl,
+      baselineStatusCode: baselineSnapshot.statusCode,
+      validationStatusCode: validationSnapshot.statusCode,
+      baselineContentType: probeResponseA.headers['content-type'],
+      validationContentType: probeResponseB.headers['content-type'],
+      baselineBodyShapeKind: baselineSnapshot.normalizedBodyShape?.shapeKind,
+      validationBodyShapeKind: validationSnapshot.normalizedBodyShape?.shapeKind,
+    })
+  ) {
+    const abstainedShell: IdorDifferentialDetectionResult = {
+      contractVersion: DETECTION_CONTRACT_VERSION,
+      kind: 'idor_differential_detection_result',
+      detectionId: request.detectionId,
+      scanId: request.scanId,
+      assessmentId: request.assessmentId,
+      authorizationGrantId: request.authorizationGrantId,
+      authorizationDecisionId: request.authorizationDecisionId,
+      actorId: request.actorId,
+      status: 'secure_target_abstained',
+      reasonCode: 'spa_html_shell_or_soft_404_no_resource_differential',
+      lineage,
+      baselineSnapshot,
+      validationSnapshot,
+    };
+    return pruneTransientEvidence(abstainedShell, nowIso);
   }
 
   // Secure Target Check: If Identity B receives 401, 403, or 404 while Identity A receives 200

@@ -23,6 +23,7 @@ import type {
   HttpProbeResponse,
 } from './DetectionContracts.js';
 import { DETECTION_CONTRACT_VERSION } from './DetectionContracts.js';
+import { noteDeferredSurfaceProbeInvoked } from './DeferredSurfaceProbeLedger.js';
 import { runAdapterPreflight } from '../recon/adapters/AdapterPreflightPipeline.js';
 import type { Finding } from '../core/Evidence.js';
 import type { EvidenceDraftEnvelope } from '../evidence-mapping/ComparisonEvidenceMappingContracts.js';
@@ -166,7 +167,7 @@ async function dispatchProbe(
 ): Promise<HttpProbeResponse> {
   if (coordinator) {
     const host = new URL(req.url).host;
-    return coordinator.execute(host, () => transport(req));
+    return coordinator.executeWithStatusPacing(host, () => transport(req));
   }
   return transport(req);
 }
@@ -174,6 +175,7 @@ async function dispatchProbe(
 export async function runInformationDisclosureDetection(
   request: InformationDisclosureDetectionRequest
 ): Promise<InformationDisclosureDetectionResult> {
+  noteDeferredSurfaceProbeInvoked('information_disclosure');
   const lineage = {
     scanId: request.scanId,
     assessmentId: request.assessmentId,

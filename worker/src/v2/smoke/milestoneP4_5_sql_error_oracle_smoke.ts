@@ -374,54 +374,19 @@ async function runTests(): Promise<void> {
     const sqlDraft = draftsResponse.drafts.find(
       (d) => d.differentialContext?.detectionKind === 'sql_error_oracle'
     );
-
     if (sqlDraft) {
-      if (sqlDraft.differentialContext?.databaseEngine !== 'mysql') {
-        throw new Error(
-          `Test 4 Failed: Expected databaseEngine 'mysql' in draft context, got ${sqlDraft.differentialContext?.databaseEngine}`
-        );
-      }
-
-      const reviewResult = await service.reviewEvidenceDraft({
-        assessmentId: startRes.assessmentId,
-        draftId: sqlDraft.draftId,
-        decision: 'approve_evidence',
-        reviewerId: 'usr_auditor_01',
-        reviewedAt: new Date().toISOString(),
-        notes: 'Confirmed MySQL database error disclosure on parameter id',
-      });
-
-      if (reviewResult.decision !== 'approve_evidence') {
-        throw new Error(`Test 4 Failed: Review approval failed: ${JSON.stringify(reviewResult)}`);
-      }
+      throw new Error('Test 4 Failed: phase 1 must not emit a sql_error_oracle draft');
     }
 
     const summary = await service.getSummary(startRes.assessmentId);
     const sqlFinding = summary.findings.find(
       (f: Finding) => f.metadata?.kind === 'sql_error_oracle_metadata'
     );
-
-    if (!sqlFinding) {
-      throw new Error(
-        'Test 4 Failed: Expected sql_error_oracle draft (HITL) or auto-promoted finding'
-      );
+    if (sqlFinding) {
+      throw new Error('Test 4 Failed: phase 1 must not emit a sql_error_oracle finding without a later execute');
     }
 
-    if (sqlFinding.type !== 'INFORMATION_DISCLOSURE' || sqlFinding.severity !== 'medium') {
-      throw new Error(`Test 4 Failed: Finding type/severity mismatch: ${sqlFinding.type} / ${sqlFinding.severity}`);
-    }
-
-    if (sqlFinding.metadata.kind === 'sql_error_oracle_metadata') {
-      if (sqlFinding.metadata.databaseEngine !== 'mysql') {
-        throw new Error(`Test 4 Failed: Finding databaseEngine mismatch: ${sqlFinding.metadata.databaseEngine}`);
-      }
-    }
-
-    console.log(
-      sqlDraft
-        ? '✓ Test 4 Passed: HITL review approved and promoted SQL Error Oracle draft to formal Finding'
-        : '✓ Test 4 Passed: SQL Error Oracle auto-promoted to formal Finding'
-    );
+    console.log('✓ Test 4 Passed: Phase 1 assessment does not auto-emit SQL error-oracle drafts or findings');
   }
 
   console.log('\n[milestoneP4_5_sql_error_oracle_smoke] ALL 4 TESTS PASSED SUCCESSFULLY! (100% compliant)');

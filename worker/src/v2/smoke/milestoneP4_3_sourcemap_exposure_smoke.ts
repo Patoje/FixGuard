@@ -3,16 +3,13 @@
  * Sourcemap Exposure Detection Engine (Milestone P4-3)
  *
  * Verifies:
- * 1. Detects accessible .map file from sourceMappingURL comment and builds SourcemapExposureMetadata.
- * 2. Detects accessible .map file from SourceMap HTTP response header.
+ * 1. Detects accessible .map file from sourceMappingURL comment without a Finding.
+ * 2. Detects accessible .map file from SourceMap HTTP response header without a Finding.
  * 3. Cleanly abstains (secure_target_abstained) when .map request returns 404/403 or non-sourcemap payload.
  * 4. Preflight and egress gates block SSRF targets.
- * 5. Full HITL triage lifecycle promotes draft to formal Finding.
+ * 5. A valid .map stays an observation: no Finding, no severity, and auto-promotion does not add the kind.
  */
 
-import { OrchestratedAssessmentApplicationService } from '../application/OrchestratedAssessmentApplicationService.js';
-import { InMemoryOrchestratedAssessmentRepository } from '../storage/InMemoryOrchestratedAssessmentRepository.js';
-import { ReconToolAvailabilityService } from '../capabilities/ReconToolAvailabilityService.js';
 import { runSourcemapExposureDetection, extractSourcemapUrlAndSignal } from '../detection/SourcemapExposureDetectionService.js';
 import { establishVerifiedAuthorizationDecision } from '../authorization/VerifiedAuthorizationDecisionService.js';
 import { evaluateScopePolicy } from '../scope/AuthorizedScopePolicyService.js';
@@ -23,7 +20,8 @@ import type {
   HttpProbeResponse,
 } from '../detection/DetectionContracts.js';
 import type { AuthorizedScopeGrant } from '../scope/AuthorizedScopeContracts.js';
-import type { Finding } from '../core/Evidence.js';
+import { applyFindingAutoPromotion } from '../finding-auto-promotion/FindingAutoPromotionService.js';
+import type { EnrichedEvidenceDraft } from '../application/OrchestratedAssessmentContracts.js';
 
 console.log('[milestoneP4_3_sourcemap_exposure_smoke] Starting Milestone P4-3 smoke suite...');
 
@@ -217,12 +215,24 @@ async function runTests(): Promise<void> {
       dnsResolver: mockDnsResolver,
     });
 
-    if (result.status !== 'pending_human_review') {
-      throw new Error(`Test 1 Failed: Expected pending_human_review, received ${result.status} (${result.reasonCode})`);
+    if (result.exposedMapUrl !== 'https://spa.example.com/static/js/main.js.map') {
+      throw new Error(`Test 1 Failed: Expected exposedMapUrl, received ${result.exposedMapUrl}`);
     }
 
-    if (!result.evidenceDraft) {
-      throw new Error('Test 1 Failed: Missing evidenceDraft in result');
+    if (result.sourceJsUrl !== 'https://spa.example.com/static/js/main.js') {
+      throw new Error(`Test 1 Failed: Expected sourceJsUrl to be preserved, received ${result.sourceJsUrl}`);
+    }
+
+    if (result.finding !== undefined) {
+      throw new Error('Test 1 Failed: A reachable sourcemap must not return a Finding');
+    }
+
+    if (result.evidenceDraft !== undefined) {
+      throw new Error('Test 1 Failed: A reachable sourcemap must not return an evidence draft');
+    }
+
+    if ('severity' in result) {
+      throw new Error('Test 1 Failed: A reachable sourcemap must not carry severity');
     }
 
     if (result.sampleSourcesCount !== 4) {
@@ -284,8 +294,12 @@ async function runTests(): Promise<void> {
       dnsResolver: mockDnsResolver,
     });
 
-    if (result.status !== 'pending_human_review') {
-      throw new Error(`Test 2 Failed: Expected pending_human_review, received ${result.status}`);
+    if (result.exposedMapUrl !== 'https://spa.example.com/bundles/app.chunk.js.map') {
+      throw new Error(`Test 2 Failed: Expected exposedMapUrl, received ${result.exposedMapUrl}`);
+    }
+
+    if (result.finding !== undefined || result.evidenceDraft !== undefined || 'severity' in result) {
+      throw new Error('Test 2 Failed: Header-discovered sourcemap must not return a Finding, draft, or severity');
     }
 
     if (result.detectionSignal !== 'sourcemap_header') {
@@ -387,16 +401,9 @@ async function runTests(): Promise<void> {
     console.log('✓ Test 4 Passed: SSRF target cleanly blocked at preflight boundary');
   }
 
-  // --- Test 5: Full HITL Triage Lifecycle Promotes Draft to Formal Finding ---
-  console.log('--- Test 5: Full HITL triage lifecycle promotes draft to formal Finding ---');
+  // --- Test 5: Valid .map is not a Finding and is not auto-promoted ---
+  console.log('--- Test 5: Valid .map stays an observation; auto-promotion does not add the kind ---');
   {
-    const repo = new InMemoryOrchestratedAssessmentRepository();
-    const toolService = new ReconToolAvailabilityService({
-      async execute() {
-        return { stdout: '1.0.0\n', stderr: '', exitCode: 0, durationMs: 1, timedOut: false };
-      },
-    });
-
     const mockTransport: IdorHttpProbeTransport = async (req: HttpProbeRequest): Promise<HttpProbeResponse> => {
       if (req.url.endsWith('.map')) {
         return {
@@ -406,97 +413,84 @@ async function runTests(): Promise<void> {
           responseTimeMs: 25,
         };
       }
-      return {
-        statusCode: 200,
-        headers: { 'content-type': 'text/html' },
-        bodyText: '<!DOCTYPE html><html><head><script src="/bundle.js"></script></head><body>SPA App</body></html>',
-        responseTimeMs: 20,
-      };
+      return { statusCode: 404, headers: {}, bodyText: 'Not Found', responseTimeMs: 15 };
     };
 
-    const service = new OrchestratedAssessmentApplicationService({
-      repository: repo,
-      availabilityService: toolService,
-      httpTransport: mockTransport,
-      dnsResolver: mockDnsResolver,
-    });
-
-    const startRes = await service.startAssessment({
-      targetDomain: 'spa.example.com',
-      actorId: 'usr_secops_lead',
-    });
-
-    if (startRes.status !== 'running') {
-      throw new Error(`Test 5 Failed: Assessment did not start with running status: ${startRes.status}`);
-    }
-
-    let attempts = 0;
-    let status = await service.getStatus(startRes.assessmentId);
-    while (status.status === 'running' && attempts < 100) {
-      await new Promise((r) => setTimeout(r, 100));
-      status = await service.getStatus(startRes.assessmentId);
-      attempts++;
-    }
-
-    const draftsResponse = await service.getEvidenceDrafts(startRes.assessmentId);
-    const smapDraft = draftsResponse.drafts.find(
-      (d) => d.differentialContext?.detectionKind === 'sourcemap_exposure'
-    );
-
-    if (smapDraft) {
-      if (smapDraft.differentialContext?.sampleSourcesCount !== 4) {
-        throw new Error(
-          `Test 5 Failed: Expected 4 sample sources in draft context, got ${smapDraft.differentialContext?.sampleSourcesCount}`
-        );
-      }
-
-      // Perform HITL Review -> Approve Evidence
-      const reviewResult = await service.reviewEvidenceDraft({
-        assessmentId: startRes.assessmentId,
-        draftId: smapDraft.draftId,
+    const approved = await runSourcemapExposureDetection({
+      contractVersion: DETECTION_CONTRACT_VERSION,
+      kind: 'sourcemap_exposure_detection_request',
+      detectionId: 'det_smap_test_005',
+      assessmentId: lineage.assessmentId,
+      scanId: lineage.scanId,
+      authorizationGrantId: lineage.authorizationGrantId,
+      authorizationDecisionId: lineage.authorizationDecisionId,
+      actorId: lineage.actorId,
+      sourceJsUrl: 'https://spa.example.com/static/js/main.js',
+      exposedMapUrl: 'https://spa.example.com/static/js/main.js.map',
+      verifiedAuthorizationDecision: verifiedDecision,
+      scopeGrant,
+      humanReviewDecision: {
         decision: 'approve_evidence',
         reviewerId: 'usr_auditor_01',
         reviewedAt: new Date().toISOString(),
-        notes: 'Confirmed accessible production sourcemap leaking source code',
-      });
+      },
+      transport: mockTransport,
+      dnsResolver: mockDnsResolver,
+    });
 
-      if (reviewResult.decision !== 'approve_evidence') {
-        throw new Error(`Test 5 Failed: Review approval failed: ${JSON.stringify(reviewResult)}`);
-      }
+    if (approved.exposedMapUrl !== 'https://spa.example.com/static/js/main.js.map') {
+      throw new Error(`Test 5 Failed: Expected exposedMapUrl, received ${approved.exposedMapUrl}`);
+    }
+    if (approved.finding !== undefined) {
+      throw new Error('Test 5 Failed: approve_evidence must not build a sourcemap Finding');
+    }
+    if ('severity' in approved) {
+      throw new Error('Test 5 Failed: sourcemap observation must not carry severity');
     }
 
-    const summary = await service.getSummary(startRes.assessmentId);
-    const smapFinding = summary.findings.find(
-      (f: Finding) =>
-        f.type === 'INFORMATION_DISCLOSURE' &&
-        f.metadata?.kind === 'sourcemap_exposure_metadata'
-    );
+    const sourcemapDraft: EnrichedEvidenceDraft = {
+      draftKind: 'non_persisted_comparison_evidence_draft',
+      draftId: 'dft_smap_auto',
+      suggestedEvidenceType: 'http_difference',
+      suggestedStrength: 'moderate',
+      sourceComparisonId: 'cmp_smap_auto',
+      sourceSnapshotIds: {
+        baselineSnapshotId: 'snp_smap_auto_base',
+        validationSnapshotId: 'snp_smap_auto_val',
+      },
+      requiresHumanReview: true,
+      notPersisted: true,
+      notARealFinding: true,
+      notConfirmedEvidence: true,
+      notForExternalDelivery: true,
+      notM45EvidenceRecord: true,
+      safeRationale: 'reachable sourcemap observation',
+      differentialContext: {
+        endpointUrl: 'https://spa.example.com/static/js/main.js.map',
+        detectionKind: 'sourcemap_exposure',
+        exposedMapUrl: 'https://spa.example.com/static/js/main.js.map',
+        sourceJsUrl: 'https://spa.example.com/static/js/main.js',
+        sampleSourcesCount: 4,
+      },
+    };
 
-    if (!smapFinding) {
-      throw new Error(
-        'Test 5 Failed: Expected sourcemap_exposure draft (HITL) or auto-promoted INFORMATION_DISCLOSURE finding'
-      );
+    const promoted = applyFindingAutoPromotion({
+      drafts: [sourcemapDraft],
+      assessmentId: lineage.assessmentId,
+      scanId: lineage.scanId,
+      targetDomain: 'spa.example.com',
+      actorId: lineage.actorId,
+      evaluatedAt: new Date().toISOString(),
+    });
+
+    if (promoted.findings.some((f) => f.metadata?.kind === 'sourcemap_exposure_metadata')) {
+      throw new Error('Test 5 Failed: applyFindingAutoPromotion must not add sourcemap_exposure');
+    }
+    if (promoted.findings.length !== 0) {
+      throw new Error(`Test 5 Failed: expected no findings from sourcemap draft, got ${promoted.findings.length}`);
     }
 
-    if (smapFinding.severity !== 'medium') {
-      throw new Error(`Test 5 Failed: Unexpected finding severity: ${smapFinding.severity}`);
-    }
-
-    const smapMeta = smapFinding.metadata;
-    if (smapMeta.kind !== 'sourcemap_exposure_metadata') {
-      throw new Error(`Test 5 Failed: Unexpected finding metadata kind: ${smapMeta.kind}`);
-    }
-    if (smapMeta.sampleSourcesCount !== 4) {
-      throw new Error(
-        `Test 5 Failed: Finding sampleSourcesCount mismatch: ${smapMeta.sampleSourcesCount}`
-      );
-    }
-
-    console.log(
-      smapDraft
-        ? '✓ Test 5 Passed: HITL review approved and promoted sourcemap draft to formal Finding'
-        : '✓ Test 5 Passed: Sourcemap exposure auto-promoted to formal Finding'
-    );
+    console.log('✓ Test 5 Passed: Valid sourcemap is an observation and is not auto-promoted');
   }
 
   console.log('\n[milestoneP4_3_sourcemap_exposure_smoke] ALL 5 TESTS PASSED SUCCESSFULLY! (100% compliant)');

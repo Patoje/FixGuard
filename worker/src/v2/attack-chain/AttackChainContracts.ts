@@ -8,7 +8,9 @@
  *
  * Epistemic aggregation (min):
  *   REFUTED < INFERRED < OBSERVED < VERIFIED
- * Any REFUTED step forces overallEpistemicStatus=REFUTED and status=refuted.
+ * Any REFUTED step forces overallEpistemicStatus=REFUTED.
+ * A refuted step outcome forces chain status=refuted.
+ * A failed step outcome forces chain status=failed and is not stored as refuted.
  * Any INFERRED step (with no lower) forces overall INFERRED even if others are VERIFIED.
  */
 
@@ -33,6 +35,7 @@ export type AttackChainStatus =
   | 'partially_validated'
   | 'fully_validated'
   | 'refuted'
+  | 'failed'
   | 'abandoned';
 
 /**
@@ -210,7 +213,9 @@ export function minEpistemicStatus(
  * - failed/refuted steps are never skipped or discarded
  * - fully_validated ONLY when every step outcome is succeeded AND ≥2 steps
  *   (a single success is partial progress on a multi-step hypothesis)
- * - any refuted/failed outcome → refuted
+ * - any refuted outcome → refuted
+ * - any failed outcome, with no refuted step → failed
+ *   (a transport or execution failure is not a refutation)
  */
 export function recalculateAttackChainStatus(
   steps: readonly AttackChainStep[],
@@ -224,17 +229,23 @@ export function recalculateAttackChainStatus(
   }
 
   let hasSucceeded = false;
-  let hasRefutedOrFailed = false;
+  let hasRefuted = false;
+  let hasFailed = false;
   for (const step of steps) {
-    if (step.outcome === 'refuted' || step.outcome === 'failed') {
-      hasRefutedOrFailed = true;
+    if (step.outcome === 'refuted') {
+      hasRefuted = true;
+    } else if (step.outcome === 'failed') {
+      hasFailed = true;
     } else if (step.outcome === 'succeeded') {
       hasSucceeded = true;
     }
   }
 
-  if (hasRefutedOrFailed) {
+  if (hasRefuted) {
     return 'refuted';
+  }
+  if (hasFailed) {
+    return 'failed';
   }
 
   const allSucceeded = steps.every((s) => s.outcome === 'succeeded');
@@ -289,7 +300,8 @@ export function boundImpactLevel(
     status === 'hypothesis' ||
     status === 'partially_validated' ||
     status === 'abandoned' ||
-    status === 'refuted';
+    status === 'refuted' ||
+    status === 'failed';
   const nonVerified = overallEpistemic !== 'VERIFIED';
 
   if (incomplete || nonVerified) {
@@ -336,7 +348,7 @@ export function recalculateAttackChain(chain: AttackChain, nowIso: string): Atta
     createdAt: chain.createdAt,
   };
 
-  if (status === 'fully_validated' || status === 'refuted' || status === 'abandoned') {
+  if (status === 'fully_validated' || status === 'refuted' || status === 'failed' || status === 'abandoned') {
     return {
       ...base,
       completedAt: chain.completedAt ?? nowIso,

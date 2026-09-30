@@ -167,6 +167,78 @@ function normalizeTargetDomain(targetDomain: string): string {
     .replace(/\.$/, '');
 }
 
+const HTML_STACK_NAMES = Object.freeze(['Next.js', 'React', 'Vue', 'Angular', 'Supabase', 'Express'] as const);
+
+export interface HtmlDocumentFormInput {
+  readonly action: string;
+  readonly method: string;
+  readonly name: string;
+  readonly type: string;
+}
+
+export interface HtmlDocumentFields {
+  readonly inputs: readonly HtmlDocumentFormInput[];
+  readonly comments: readonly string[];
+}
+
+function attributeValue(source: string, name: string): string | null {
+  const match = new RegExp(`\\b${name}\\s*=\\s*(?:"([^"]*)"|'([^']*)')`, 'i').exec(source);
+  const value = (match?.[1] ?? match?.[2] ?? '').trim();
+  if (value.length === 0 || !source.includes(value)) return null;
+  return value;
+}
+
+/**
+ * Form action, method, input name, and input type, plus a comment substring
+ * that is already a path or a stack name in that comment. No network.
+ */
+export function extractHtmlDocumentFields(bodyText: string): HtmlDocumentFields {
+  const body = truncateBody(typeof bodyText === 'string' ? bodyText : '');
+  const inputs: HtmlDocumentFormInput[] = [];
+  const comments: string[] = [];
+  if (body.length === 0) {
+    return { inputs: Object.freeze([]), comments: Object.freeze([]) };
+  }
+
+  for (const form of body.matchAll(/<form\b([^>]*)>([\s\S]*?)<\/form>/gi)) {
+    const open = form[1] ?? '';
+    const inner = form[2] ?? '';
+    const action = attributeValue(open, 'action');
+    const method = attributeValue(open, 'method');
+    if (!action || !method) continue;
+    for (const input of inner.matchAll(/<input\b([^>]*)>/gi)) {
+      const attrs = input[1] ?? '';
+      const name = attributeValue(attrs, 'name');
+      const type = attributeValue(attrs, 'type');
+      if (!name || !type) continue;
+      inputs.push({ action, method, name, type });
+      if (inputs.length >= 20) break;
+    }
+    if (inputs.length >= 20) break;
+  }
+
+  for (const comment of body.matchAll(/<!--([\s\S]*?)-->/g)) {
+    const text = comment[1] ?? '';
+    for (const path of text.matchAll(/(^|[^A-Za-z0-9])(\/[A-Za-z0-9][A-Za-z0-9_./-]{0,120})/g)) {
+      const value = path[2] ?? '';
+      if (value.length === 0 || !text.includes(value) || comments.includes(value)) continue;
+      comments.push(value);
+      if (comments.length >= 20) break;
+    }
+    for (const stack of HTML_STACK_NAMES) {
+      if (!text.includes(stack) || comments.includes(stack)) continue;
+      comments.push(stack);
+      if (comments.length >= 20) break;
+    }
+    if (comments.length >= 20) break;
+  }
+
+  return {
+    inputs: Object.freeze(inputs),
+    comments: Object.freeze(comments),
+  };
+}
+
 function isSkippableSchemeOrFragment(raw: string): boolean {
   const lower = raw.trim().toLowerCase();
   if (lower.length === 0 || lower === '#') return true;

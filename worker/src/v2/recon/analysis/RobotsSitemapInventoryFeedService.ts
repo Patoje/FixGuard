@@ -7,6 +7,11 @@ import type { VerifiedAuthorizationDecision } from '../../authorization/Verified
 import type { AuthorizedScopeGrant } from '../../scope/AuthorizedScopeContracts.js';
 import type { AuthorizedActiveReconRequestLineage } from '../../lineage/AuthorizedExecutionLineageContracts.js';
 import type { DiscoveredUrlObservation } from '../adapters/UrlDiscoveryContracts.js';
+import type { ObservedFact } from '../../observation/ObservedFactContracts.js';
+import {
+  defaultDocumentCopyDirectory,
+  observeDownloadedDocument,
+} from '../../observation/DocumentMetadataReader.js';
 import { runAdapterPreflight } from '../adapters/AdapterPreflightPipeline.js';
 import type { PreSpawnDnsResolver } from '../adapters/AdapterPreflightPipeline.js';
 import { defaultHttpProbeTransport } from '../../detection/IdorDifferentialDetectionService.js';
@@ -43,6 +48,7 @@ export type RobotsSitemapFeedResult =
       readonly robotsFetched: boolean;
       readonly sitemapUrls: readonly string[];
       readonly urlObservations: readonly DiscoveredUrlObservation[];
+      readonly observedFacts: readonly ObservedFact[];
       readonly reasonCode: 'inventory_seeded' | 'robots_empty_or_missing';
     }
   | {
@@ -182,7 +188,27 @@ export async function runRobotsSitemapInventoryFeed(
   const maxPathSeeds = request.maxPathSeeds ?? ROBOTS_SITEMAP_MAX_PATH_SEEDS;
   const nowIso = new Date().toISOString();
   const observations: DiscoveredUrlObservation[] = [];
+  const documentFacts: ObservedFact[] = [];
   const seen = new Set<string>();
+  const retainGet = (url: string, res: {
+    readonly statusCode: number;
+    readonly headers: Readonly<Record<string, string>>;
+    readonly bodyText: string;
+  }): void => {
+    const retained = observeDownloadedDocument({
+      downloaded: true,
+      url,
+      method: 'GET',
+      statusCode: res.statusCode,
+      contentType: res.headers['content-type'],
+      body: res.bodyText,
+      scopeGrant: request.authorizedScopeGrant,
+      lineage: request.lineage,
+      observedAt: nowIso,
+      directory: defaultDocumentCopyDirectory(),
+    });
+    if (retained.fact) documentFacts.push(retained.fact);
+  };
 
   const push = (absolute: string): void => {
     if (observations.length >= maxLocs + maxPathSeeds) return;
@@ -203,6 +229,7 @@ export async function runRobotsSitemapInventoryFeed(
       headers: { accept: 'text/plain, */*', 'user-agent': 'Mozilla/5.0 (FixGuard Defensive Auditor)' },
       timeoutMs,
     });
+    retainGet(robotsUrl, robotsRes);
     const robotsBody = robotsRes.bodyText ?? '';
     const robotsLooksHtml = /^\s*</.test(robotsBody) || /<html[\s>]/i.test(robotsBody);
     if (
@@ -252,6 +279,7 @@ export async function runRobotsSitemapInventoryFeed(
         },
         timeoutMs,
       });
+      retainGet(sm, smRes);
       const smBody = smRes.bodyText ?? '';
       const smLooksHtml = /<html[\s>]/i.test(smBody) || (!/<loc[\s>]/i.test(smBody) && /<!DOCTYPE/i.test(smBody));
       if (
@@ -296,6 +324,7 @@ export async function runRobotsSitemapInventoryFeed(
             },
             timeoutMs,
           });
+          retainGet(nested, nRes);
           if (nRes.statusCode < 200 || nRes.statusCode >= 300 || !nRes.bodyText) continue;
           fetchedSitemaps.push(nested);
           for (const loc of parseSitemapLocs(nRes.bodyText, maxLocs - observations.length)) {
@@ -318,6 +347,7 @@ export async function runRobotsSitemapInventoryFeed(
     robotsFetched,
     sitemapUrls: Object.freeze(fetchedSitemaps),
     urlObservations: Object.freeze(observations),
+    observedFacts: Object.freeze(documentFacts),
     reasonCode: observations.length > 0 ? 'inventory_seeded' : 'robots_empty_or_missing',
   };
 }

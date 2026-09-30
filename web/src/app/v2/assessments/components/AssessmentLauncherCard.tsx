@@ -68,14 +68,22 @@ function isPrivateOrLoopbackHost(hostname: string): boolean {
   return false;
 }
 
+/**
+ * Map Cookie/Token paste → Authorization and/or full injectCookies map.
+ * Bearer/JWT → Authorization; `a=1; b=2` → all cookie pairs preserved.
+ */
 function mapTokenOrCookie(raw: string): {
   headers: Record<string, string>;
   cookies: Record<string, string>;
 } {
   const headers: Record<string, string> = {};
   const cookies: Record<string, string> = {};
-  const value = raw.trim();
+  let value = raw.trim();
   if (!value) return { headers, cookies };
+
+  if (/^cookie\s*:/i.test(value)) {
+    value = value.replace(/^cookie\s*:/i, "").trim();
+  }
 
   const lower = value.toLowerCase();
   if (
@@ -89,17 +97,18 @@ function mapTokenOrCookie(raw: string): {
     return { headers, cookies };
   }
 
-  if (value.includes("=") && !value.includes(" ")) {
-    const [k, ...v] = value.split("=");
-    cookies[k.trim()] = v.join("=").trim();
-    return { headers, cookies };
-  }
-
   if (value.includes("=")) {
-    const first = value.split(";")[0] ?? value;
-    const [k, ...v] = first.split("=");
-    cookies[k.trim()] = v.join("=").trim();
-    return { headers, cookies };
+    for (const part of value.split(";")) {
+      const trimmed = part.trim();
+      if (!trimmed.includes("=")) continue;
+      const eq = trimmed.indexOf("=");
+      const k = trimmed.slice(0, eq).trim();
+      if (!k) continue;
+      cookies[k] = trimmed.slice(eq + 1).trim();
+    }
+    if (Object.keys(cookies).length > 0) {
+      return { headers, cookies };
+    }
   }
 
   headers["authorization"] = `Bearer ${value}`;

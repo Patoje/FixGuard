@@ -6,7 +6,9 @@
  * They are NOT executable payloads and must never auto-execute.
  */
 
+import type { BlastRadiusClass } from '../attack-authorization/AttackAuthorizationContracts.js';
 import type { AuthorizedExecutionLineageTuple } from '../detection/DetectionContracts.js';
+import type { AuthorizedScopeGrant } from '../scope/AuthorizedScopeContracts.js';
 
 export type AttackPlanningContractVersion = 'fixguard-attack-planning/v0';
 export const ATTACK_PLANNING_CONTRACT_VERSION: AttackPlanningContractVersion =
@@ -40,11 +42,19 @@ export type AttackCapabilityKind =
   | 'idor_read_differential'
   | 'cors_chain_exploit'
   | 'auth_bypass_probe'
+  | 'auth_boundary_differential'
   | 'jwt_alg_none_probe'
   | 'sql_error_oracle_probe'
   | 'parameter_reflection_probe'
   | 'session_fixation_probe'
   | 'method_manipulation_probe'
+  | 'cors_misconfiguration_probe'
+  | 'security_header_probe'
+  | 'open_redirect_probe'
+  | 'information_disclosure_probe'
+  | 'subdomain_takeover_probe'
+  | 'graphql_surface_probe'
+  | 'graphql_auth_delta'
   | 'lfi_path_traversal'
   | 'sql_oracle_advancement'
   | 'nuclei_xss_scan'
@@ -64,6 +74,15 @@ export type CapabilityGained =
   | 'read_authenticated'
   | 'active_validation'
   | 'none';
+
+export function isCapabilityGained(value: unknown): value is CapabilityGained {
+  return (
+    value === 'read_escalated' ||
+    value === 'read_authenticated' ||
+    value === 'active_validation' ||
+    value === 'none'
+  );
+}
 
 export type AttackPlanStatus =
   | 'ready_for_authorization'
@@ -144,6 +163,23 @@ export interface AttackPlan {
   readonly planOrigin?: AttackPlanOrigin;
   /** Pending HITL draft ids when planOrigin is pending_draft. */
   readonly sourceDraftIds?: readonly string[];
+  /**
+   * Prior plan ids this advisory plan depends on.
+   * A child plan is emitted only when a prior step produced the cited fact
+   * or capability. Plans remain executable:false.
+   */
+  readonly dependsOn?: readonly string[];
+  /** Capability the prior step must have produced before child emission. */
+  readonly requiredCapabilityGained?: CapabilityGained;
+  /** Observed-fact ids this plan cites. Not severities and not findings. */
+  readonly requiredFactIds?: readonly string[];
+  /**
+   * Authorization blast-radius class for this advisory plan, when declared.
+   * Absent on plans written before the field existed. The read loop mints a
+   * token only for read_public, read_authenticated, and read_escalated.
+   * persistence and destructive stay unbranded. executable stays false.
+   */
+  readonly authorizationBlastRadiusClass?: BlastRadiusClass;
   readonly lineage: AuthorizedExecutionLineageTuple;
   readonly createdAt: string;
   /** Explicit non-executability: plans remain advisory until separate human authorization. */
@@ -184,9 +220,9 @@ export interface AttackPlanDraftSignal {
 }
 
 /**
- * High-signal OBSERVED surface hint (auth paths, etc.) for investigation plans.
- * `resourceClass` distinguishes SPA HTML shells (public marketing/login pages) from
- * API/Supabase boundaries where auth differential is meaningful.
+ * High-signal OBSERVED surface hint (auth paths, account/order boundaries, etc.)
+ * for investigation plans. `resourceClass` distinguishes SPA HTML shells from
+ * API/Supabase/account boundaries where auth differential is meaningful.
  */
 export type AttackPlanSurfaceResourceClass =
   | 'spa_html_shell'
@@ -196,7 +232,7 @@ export type AttackPlanSurfaceResourceClass =
 export interface AttackPlanSurfaceHint {
   readonly endpointUrl: string;
   readonly path: string;
-  readonly signalKind: 'auth_surface' | 'next_server_action';
+  readonly signalKind: 'auth_surface' | 'account_boundary' | 'next_server_action';
   /** When omitted, generator classifies from URL/path heuristics. */
   readonly resourceClass?: AttackPlanSurfaceResourceClass;
   /** OBSERVED Next-Action id when signalKind is next_server_action. */
@@ -219,6 +255,27 @@ export interface AttackPlanGeneratorInput {
   readonly draftSignals?: readonly AttackPlanDraftSignal[];
   /** OBSERVED high-signal endpoints (e.g. /login) for investigation hypotheses. */
   readonly surfaceHints?: readonly AttackPlanSurfaceHint[];
+  /**
+   * F4.0 — seed non-executing surface probes. HTTP stays off until a human
+   * authorizes the step. Omitted plans are not invented.
+   */
+  readonly deferredSurfaceProbes?: {
+    readonly originUrl: string;
+    readonly cnamePairs?: readonly {
+      readonly domain: string;
+      readonly target: string;
+    }[];
+    /**
+     * Absolute URLs already stored on the probe inventory.
+     * Ready read plans are emitted per in-scope application route.
+     * The origin advisory stays prerequisite_missing.
+     */
+    readonly applicationUrls?: readonly string[];
+    /** PHP session-fixation gate already used by the detection bridge. */
+    readonly sessionFixationSuppressed?: boolean;
+    /** Sealed grant. Out-of-scope application URLs get no plan. */
+    readonly scopeGrant?: AuthorizedScopeGrant;
+  };
 }
 
 export interface AttackPlanGeneratorResult {

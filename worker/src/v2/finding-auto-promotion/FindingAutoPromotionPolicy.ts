@@ -8,7 +8,14 @@
  * Discipline: OBSERVED/INFERRED only — never invent vulns or Critical/High without signal.
  */
 
-import { isIdenticalErrorDifferential } from '../detection/DetectionTargetBridge.js';
+import {
+  isIdenticalErrorDifferential,
+  isIdorSoft404OrHtmlShellNoise,
+} from '../detection/DetectionTargetBridge.js';
+import {
+  IDENTICAL_BODY_SIMILARITY,
+  isPublicStaticAssetUrl,
+} from '../detection/PublicStaticAsset.js';
 import type {
   DifferentialEvidenceContext,
   EnrichedEvidenceDraft,
@@ -41,7 +48,6 @@ const AUTO_PROMOTE_ELIGIBLE: ReadonlySet<DetectionKind> = new Set([
   'jwt_algorithm_confusion',
   'sql_error_oracle',
   'subdomain_takeover',
-  'sourcemap_exposure',
   'static_secret_exposure',
   'blind_ssrf',
   'blind_xss',
@@ -181,7 +187,6 @@ function evaluateSignalGate(
             'IDOR draft is identical error-page noise; not auto-promoted',
         };
       }
-      // Detector already produced a draft (authz comparison passed). Promote.
       if (!ctx.endpointUrl || !ctx.resourceParamName) {
         return {
           decision: 'keep_as_draft',
@@ -189,9 +194,43 @@ function evaluateSignalGate(
           rationale: 'IDOR draft missing endpoint/resource context',
         };
       }
+      // Soft-404 / SPA HTML shells (/a/b, /cart, text/html catch-alls) must
+      // never auto-promote — status≠status or hash≠hash alone is not BOLA.
+      if (
+        isIdorSoft404OrHtmlShellNoise({
+          endpointUrl: ctx.endpointUrl,
+          baselineStatusCode: baseStatus,
+          validationStatusCode: valStatus,
+          baselineContentType: ctx.baselineContentType,
+          validationContentType: ctx.validationContentType,
+          baselineBodyShapeKind: ctx.baselineBodyShapeKind,
+          validationBodyShapeKind: ctx.validationBodyShapeKind,
+          sanitizedSnippet: ctx.sanitizedSnippet,
+        })
+      ) {
+        return {
+          decision: 'keep_as_draft',
+          reasonCode: 'idor_soft_404_or_html_shell',
+          rationale:
+            'IDOR draft is soft-404/HTML shell noise; not auto-promoted',
+        };
+      }
       return null;
     }
-    case 'auth_bypass':
+    case 'auth_bypass': {
+      const endpoint = ctx.endpointUrl ?? '';
+      const similarity = ctx.bodySimilarityRatio;
+      if (
+        isPublicStaticAssetUrl(endpoint) &&
+        (similarity === undefined || similarity === IDENTICAL_BODY_SIMILARITY)
+      ) {
+        return {
+          decision: 'drop_as_noise',
+          reasonCode: 'public_static_asset_identical_body',
+          rationale:
+            'Public static asset with an identical body is not an authentication boundary',
+        };
+      }
       if (!hasAccessDifferential(ctx) && ctx.bypassMechanism === undefined) {
         return {
           decision: 'keep_as_draft',
@@ -200,6 +239,7 @@ function evaluateSignalGate(
         };
       }
       return null;
+    }
 
     case 'cors_misconfiguration':
     case 'credentialed_cors':

@@ -9,6 +9,7 @@
  * 5. Investigation timeout fail-closed
  * 6. OrchestratedAssessment wiring + TargetExecutionCoordinator ceilings
  * 7. Investigation start never auto-executes AttackPlans
+ * 8. Closed-loop: TestValidity gates VerificationState advance/refute on recordStepOutcome
  */
 
 import { establishVerifiedAuthorizationDecision } from '../authorization/VerifiedAuthorizationDecisionService.js';
@@ -28,6 +29,7 @@ import { OrchestratedAssessmentApplicationService } from '../application/Orchest
 import { ORCHESTRATED_ASSESSMENT_CONTRACT_VERSION } from '../application/OrchestratedAssessmentContracts.js';
 import { InMemoryOrchestratedAssessmentRepository } from '../storage/InMemoryOrchestratedAssessmentRepository.js';
 import { TargetExecutionCoordinator } from '../runtime/TargetExecutionCoordinator.js';
+import type { Finding } from '../core/Evidence.js';
 
 function fail(message: string): never {
   console.error(`FAIL: ${message}`);
@@ -589,6 +591,121 @@ async function runSmokeTests(): Promise<void> {
       'token may be bound without executing'
     );
     console.log('[+] Test 7: no auto-execute OK');
+  }
+
+  // -------------------------------------------------------------------------
+  // Test 8: Closed-loop TestValidity → VerificationState on recordStepOutcome
+  // -------------------------------------------------------------------------
+  {
+    const runtime = new ActiveInvestigationRuntimeService();
+    const finding: Finding = Object.freeze({
+      id: 'fnd_f1_loop_001',
+      type: 'BROKEN_ACCESS_CONTROL',
+      severity: 'high',
+      title: 'F1 closed-loop finding',
+      description: 'Hermetic finding for validity-gated state mutation',
+      target: 'https://app.example.com/api/resource/1',
+      evidence: 'hermetic',
+      confidence: 1,
+      verificationState: 'observed_anomaly',
+      metadata: {
+        kind: 'broken_access_control_metadata' as const,
+        category: 'BROKEN_ACCESS_CONTROL' as const,
+        candidateId: 'cand_f1_loop',
+        evidenceRecordId: 'evr_f1_loop',
+        lineage: {},
+        endpointUrl: 'https://app.example.com/api/resource/1',
+      },
+    });
+
+    const started = runtime.startInvestigation({
+      contractVersion: ACTIVE_INVESTIGATION_CONTRACT_VERSION,
+      kind: 'start_active_investigation_request',
+      investigationId: 'inv_f1_validity',
+      lineage: {
+        assessmentId,
+        scanId,
+        authorizationGrantId: grantId,
+        authorizationDecisionId: decisionId,
+        actorId,
+      },
+      verifiedAuthorizationDecision: decision,
+      startedAt: nowIso,
+    });
+    assertTrue(started.status === 'started', 'validity-loop investigation must start');
+
+    const advanced = runtime.recordStepOutcome({
+      contractVersion: ACTIVE_INVESTIGATION_CONTRACT_VERSION,
+      kind: 'record_investigation_step_request',
+      investigationId: 'inv_f1_validity',
+      stepId: 'step_f1_valid_ok',
+      requestCost: 1,
+      recordedAt: '2026-09-24T15:01:01.000Z',
+      stepOutcome: 'succeeded',
+      outcomeReasonCode: 'idor_differential_access_observed',
+      boundFinding: finding,
+      evidenceId: 'ev_f1_adv_001',
+      targetHost: 'app.example.com',
+    });
+    assertTrue(advanced.status === 'recorded', 'valid succeed must record');
+    if (advanced.status !== 'recorded') fail('unreachable');
+    assertTrue(advanced.reasonCode === 'step_recorded', 'must not time out before closed-loop');
+    assertTrue(advanced.testValidityVerdict === 'valid', 'clean reason → valid');
+    assertTrue(advanced.verificationMutation === 'advanced', 'valid succeed must advance');
+    assertTrue(
+      advanced.updatedFinding?.verificationState === 'suspected_vulnerability',
+      'must advance one ladder step'
+    );
+    assertTrue(
+      finding.verificationState === 'observed_anomaly',
+      'original finding must remain immutable'
+    );
+
+    const wafBlocked = runtime.recordStepOutcome({
+      contractVersion: ACTIVE_INVESTIGATION_CONTRACT_VERSION,
+      kind: 'record_investigation_step_request',
+      investigationId: 'inv_f1_validity',
+      stepId: 'step_f1_waf',
+      requestCost: 1,
+      recordedAt: '2026-09-24T15:01:02.000Z',
+      stepOutcome: 'succeeded',
+      outcomeReasonCode: 'cloudflare_waf_challenge_blocked',
+      boundFinding: advanced.updatedFinding!,
+      evidenceId: 'ev_f1_waf_001',
+    });
+    assertTrue(wafBlocked.status === 'recorded', 'waf outcome must still record step');
+    if (wafBlocked.status !== 'recorded') fail('unreachable');
+    assertTrue(wafBlocked.testValidityVerdict === 'interfered', 'waf → interfered');
+    assertTrue(
+      wafBlocked.verificationMutation === 'skipped_interference',
+      'interfered must not mutate verification state'
+    );
+    assertTrue(
+      wafBlocked.updatedFinding?.verificationState === 'suspected_vulnerability',
+      'WAF block must not advance or refute'
+    );
+
+    const refuted = runtime.recordStepOutcome({
+      contractVersion: ACTIVE_INVESTIGATION_CONTRACT_VERSION,
+      kind: 'record_investigation_step_request',
+      investigationId: 'inv_f1_validity',
+      stepId: 'step_f1_refute',
+      requestCost: 1,
+      recordedAt: '2026-09-24T15:01:03.000Z',
+      stepOutcome: 'refuted',
+      outcomeReasonCode: 'access_denied_no_differential',
+      boundFinding: advanced.updatedFinding!,
+      evidenceId: 'ev_f1_ref_001',
+    });
+    assertTrue(refuted.status === 'recorded', 'valid refute must record');
+    if (refuted.status !== 'recorded') fail('unreachable');
+    assertTrue(refuted.testValidityVerdict === 'valid', 'clean refute → valid');
+    assertTrue(refuted.verificationMutation === 'refuted', 'valid refute mutates via refuteState');
+    assertTrue(
+      refuted.updatedFinding?.verificationState === 'suspected_vulnerability',
+      'same-state refute holds ladder position'
+    );
+    console.log('[+] Test 8: validity-gated state loop OK');
   }
 
   console.log('=== F1 ActiveInvestigationRuntime smoke: ALL PASSED ===');

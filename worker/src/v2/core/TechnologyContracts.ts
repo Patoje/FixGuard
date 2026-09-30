@@ -41,6 +41,8 @@ export interface TechnologyFingerprintInput {
   readonly url?: string;
   readonly headers?: Readonly<Record<string, string | string[] | undefined>>;
   readonly bodyText?: string;
+  /** Already-downloaded sourcemap text. Version is read only from comments. */
+  readonly sourcemapText?: string;
   readonly rawObservations?: readonly unknown[];
 }
 

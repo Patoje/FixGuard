@@ -314,8 +314,10 @@ async function runSmokeTests(): Promise<void> {
       recordedAt: nowIso,
     },
   });
-  assert.equal(failedChain.status, 'refuted');
+  assert.equal(failedChain.status, 'failed');
+  assert.notEqual(failedChain.status, 'refuted');
   assert.notEqual(failedChain.status, 'fully_validated');
+  assert.equal(failedChain.impactLevel, 'information_exposure');
   assert.equal(failedChain.steps.length, 2);
   assert.equal(failedChain.steps[1]?.outcome, 'failed');
   assert.equal(failedChain.steps[1]?.evidence.reasonCode, 'session_fixation_failed');

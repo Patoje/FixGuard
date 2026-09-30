@@ -430,46 +430,16 @@ async function runTests(): Promise<void> {
     const gqlDraft = draftsResponse.drafts.find(
       (d) => d.differentialContext?.detectionKind === 'graphql_surface'
     );
-
-    if (!gqlDraft) {
-      throw new Error(`Test 5 Failed: Expected pending GraphQL surface draft, found: ${JSON.stringify(draftsResponse.drafts.map((d) => d.differentialContext?.detectionKind))}`);
+    if (gqlDraft) {
+      throw new Error('Test 5 Failed: pipeline must not auto-draft graphql_surface');
+    }
+    const plans = await appService.getAttackPlans(startRes.assessmentId);
+    const gqlPlan = plans.plans.find((plan) => plan.capability === 'graphql_surface_probe');
+    if (!gqlPlan || gqlPlan.executable !== false) {
+      throw new Error('Test 5 Failed: expected a non-executing graphql surface plan');
     }
 
-    if (!gqlDraft.differentialContext?.introspectionEnabled) {
-      throw new Error('Test 5 Failed: Expected draft introspectionEnabled to be true');
-    }
-
-    // Perform HITL review promotion
-    const reviewResult = await appService.reviewEvidenceDraft({
-      assessmentId: startRes.assessmentId,
-      draftId: gqlDraft.draftId,
-      decision: 'approve_evidence',
-      reviewerId: 'usr_secops_lead',
-      reviewedAt: new Date().toISOString(),
-      notes: 'Confirmed exposed GraphQL introspection in staging environment.',
-    });
-
-    if (reviewResult.decision !== 'approve_evidence' || !reviewResult.findingCreated) {
-      throw new Error(`Test 5 Failed: Review promotion failed: ${JSON.stringify(reviewResult)}`);
-    }
-
-    const promotedFinding = reviewResult.findingCreated;
-    if (promotedFinding.type !== 'INFORMATION_DISCLOSURE') {
-      throw new Error(`Test 5 Failed: Expected finding type 'INFORMATION_DISCLOSURE', got '${promotedFinding.type}'`);
-    }
-
-    const findingMeta = promotedFinding.metadata as GraphQLSurfaceMetadata;
-    if (findingMeta.kind !== 'graphql_surface_metadata' || !findingMeta.introspectionEnabled) {
-      throw new Error(`Test 5 Failed: Invalid promoted finding metadata: ${JSON.stringify(findingMeta)}`);
-    }
-
-    const summary = await appService.getSummary(startRes.assessmentId);
-    const summaryFinding = summary.findings.find((f: Finding) => f.metadata?.kind === 'graphql_surface_metadata');
-    if (!summaryFinding) {
-      throw new Error('Test 5 Failed: Promoted GraphQL surface finding not found in assessment summary');
-    }
-
-    console.log('✓ Test 5 Passed: HITL review approved and promoted GraphQL surface draft to formal Finding');
+    console.log('✓ Test 5 Passed: pipeline seeded a non-executing GraphQL surface plan');
   }
 
   console.log('\n[milestoneP4_6_graphql_surface_smoke] ALL 5 TESTS PASSED SUCCESSFULLY! (100% compliant)');

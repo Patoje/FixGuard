@@ -38,6 +38,10 @@ export interface DiscoveredDnsObservation {
   readonly collectedAt?: string;
   readonly freshness?: 'live' | 'historical' | 'unknown';
   readonly sourceReliability?: 'direct_observation' | 'historical_archive' | 'inferred_relationship';
+  /** Literal ASN token from dnsx JSON for the authorized domain. */
+  readonly asn?: string;
+  /** Literal CDN token from dnsx JSON for the authorized domain. */
+  readonly cdn?: string;
 }
 
 export interface DnsResolutionRequest {

@@ -15,6 +15,30 @@ import type {
   TechnologyFingerprintResult,
 } from '../../core/TechnologyContracts.js';
 
+const NEXT_VERSION_RE = /Next\.js\s+v?(\d+\.\d+\.\d+)/i;
+const REACT_VERSION_RE = /React\s+v?(\d+\.\d+\.\d+)/i;
+const REACT_AT_VERSION_RE = /react@(\d+\.\d+\.\d+)/i;
+
+function versionLiteral(source: string, patterns: readonly RegExp[]): string | undefined {
+  for (const pattern of patterns) {
+    const match = pattern.exec(source);
+    const version = match?.[1];
+    if (version && source.includes(version)) return version;
+  }
+  return undefined;
+}
+
+export function sourcemapCommentText(source: string): string {
+  const parts: string[] = [];
+  for (const match of source.matchAll(/\/\*[\s\S]*?\*\//g)) {
+    if (match[0]) parts.push(match[0]);
+  }
+  for (const match of source.matchAll(/(^|\n)[ \t]*\/\/[^\n]*/g)) {
+    if (match[0]) parts.push(match[0]);
+  }
+  return parts.join('\n');
+}
+
 function extractHeaderValue(
   headers: Readonly<Record<string, string | string[] | undefined>> | undefined,
   targetKey: string
@@ -204,14 +228,18 @@ export class TechnologyFingerprintService {
         });
       }
       if (poweredBy.toLowerCase().includes('next.js')) {
+        const nextVersion = versionLiteral(poweredBy, [NEXT_VERSION_RE]);
+        const reactVersion = versionLiteral(poweredBy, [REACT_VERSION_RE, REACT_AT_VERSION_RE]);
         addTech({
           name: 'Next.js',
+          ...(nextVersion ? { version: nextVersion } : {}),
           category: 'framework',
           confidence: 'high',
           detectionSignal: `X-Powered-By header: ${poweredBy}`,
         });
         addTech({
           name: 'React',
+          ...(reactVersion ? { version: reactVersion } : {}),
           category: 'frontend',
           confidence: 'medium',
           detectionSignal: `Inferred from Next.js X-Powered-By header`,
@@ -417,14 +445,30 @@ export class TechnologyFingerprintService {
 
       // Next.js & React Fingerprints
       if (bodyText.includes('__NEXT_DATA__') || bodyText.includes('/_next/static/')) {
+        const commentSource = sourcemapCommentText(input.sourcemapText ?? '');
+        const staticOnly =
+          !bodyText.includes('__NEXT_DATA__') &&
+          bodyText.includes('/_next/static/') &&
+          !NEXT_VERSION_RE.test(bodyText) &&
+          commentSource.length === 0;
+        const nextVersion = staticOnly
+          ? undefined
+          : versionLiteral(bodyText, [NEXT_VERSION_RE]) ??
+            versionLiteral(commentSource, [NEXT_VERSION_RE]);
+        const reactVersion = staticOnly
+          ? undefined
+          : versionLiteral(bodyText, [REACT_VERSION_RE, REACT_AT_VERSION_RE]) ??
+            versionLiteral(commentSource, [REACT_VERSION_RE, REACT_AT_VERSION_RE]);
         addTech({
           name: 'Next.js',
+          ...(nextVersion ? { version: nextVersion } : {}),
           category: 'framework',
           confidence: 'high',
           detectionSignal: bodyText.includes('__NEXT_DATA__') ? `__NEXT_DATA__ hydration script in DOM` : `/_next/static/ script path`,
         });
         addTech({
           name: 'React',
+          ...(reactVersion ? { version: reactVersion } : {}),
           category: 'frontend',
           confidence: 'high',
           detectionSignal: `React hydration signal via Next.js DOM markers`,
@@ -469,8 +513,13 @@ export class TechnologyFingerprintService {
 
       // React Root
       if (bodyText.includes('data-reactroot') || (bodyText.includes('id="root"') && (bodyText.includes('react') || bodyText.includes('main.jsx') || bodyText.includes('bundle.js')))) {
+        const commentSource = sourcemapCommentText(input.sourcemapText ?? '');
+        const reactVersion =
+          versionLiteral(bodyText, [REACT_VERSION_RE, REACT_AT_VERSION_RE]) ??
+          versionLiteral(commentSource, [REACT_VERSION_RE, REACT_AT_VERSION_RE]);
         addTech({
           name: 'React',
+          ...(reactVersion ? { version: reactVersion } : {}),
           category: 'frontend',
           confidence: 'high',
           detectionSignal: `data-reactroot or React root mount point in DOM`,
@@ -559,11 +608,13 @@ export class TechnologyFingerprintService {
             ? (rec.headers as Readonly<Record<string, string | string[] | undefined>>)
             : undefined;
         const obsBody = typeof rec.bodyText === 'string' ? rec.bodyText : undefined;
-        if (obsHeaders || (obsBody !== undefined && obsBody.length > 0)) {
+        const obsSourcemap = typeof rec.sourcemapText === 'string' ? rec.sourcemapText : undefined;
+        if (obsHeaders || (obsBody !== undefined && obsBody.length > 0) || (obsSourcemap !== undefined && obsSourcemap.length > 0)) {
           const nested = this.analyze({
             url: typeof rec.url === 'string' ? rec.url : url,
             ...(obsHeaders ? { headers: obsHeaders } : {}),
             ...(obsBody !== undefined ? { bodyText: obsBody } : {}),
+            ...(obsSourcemap !== undefined && obsSourcemap.length > 0 ? { sourcemapText: obsSourcemap } : {}),
           });
           for (const t of nested.technologies) {
             addTech(t);

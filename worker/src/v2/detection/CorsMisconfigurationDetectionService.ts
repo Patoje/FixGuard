@@ -21,6 +21,7 @@ import type {
   HttpProbeResponse
 } from './DetectionContracts.js';
 import { DETECTION_CONTRACT_VERSION } from './DetectionContracts.js';
+import { noteDeferredSurfaceProbeInvoked } from './DeferredSurfaceProbeLedger.js';
 import { runAdapterPreflight } from '../recon/adapters/AdapterPreflightPipeline.js';
 import { compareResponses } from '../comparison/ResponseComparatorService.js';
 import type {
@@ -168,7 +169,7 @@ async function dispatchProbe(
 ): Promise<HttpProbeResponse> {
   if (coordinator) {
     const host = new URL(req.url).host;
-    return coordinator.execute(host, () => transport(req));
+    return coordinator.executeWithStatusPacing(host, () => transport(req));
   }
   return transport(req);
 }
@@ -176,6 +177,7 @@ async function dispatchProbe(
 export async function runCorsMisconfigurationDetection(
   request: CorsMisconfigurationDetectionRequest
 ): Promise<CorsMisconfigurationDetectionResult> {
+  noteDeferredSurfaceProbeInvoked('cors_misconfiguration');
   const lineage = {
     scanId: request.scanId,
     assessmentId: request.assessmentId,

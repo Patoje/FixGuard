@@ -1,6 +1,11 @@
 import type { ProcessRunner } from '../../core/ProcessRunner.js';
 import { isInternalOrSsrfTarget } from '../policy/PassiveEgressPolicy.js';
 import {
+  defaultDocumentCopyDirectory,
+  observeDownloadedDocument,
+} from '../../observation/DocumentMetadataReader.js';
+import type { ObservedFact } from '../../observation/ObservedFactContracts.js';
+import {
   runAdapterPreflight,
   type PreSpawnDnsResolver,
 } from './AdapterPreflightPipeline.js';
@@ -205,6 +210,7 @@ export class FfufAdapter implements ContentDiscoveryTool {
       originHosts.some((h) => host.endsWith('.' + h));
 
     const observations: DiscoveredContentObservation[] = [];
+    const documentFacts: ObservedFact[] = [];
     const seen = new Set<string>();
 
     for (const item of rawItems) {
@@ -263,6 +269,23 @@ export class FfufAdapter implements ContentDiscoveryTool {
       if (seen.has(dedupKey)) continue;
       seen.add(dedupKey);
 
+      const rawBody = typeof item.body === 'string' ? item.body : null;
+      if (rawBody && rawBody.length > 0) {
+        const retained = observeDownloadedDocument({
+          downloaded: true,
+          url: itemUrl,
+          method: 'GET',
+          statusCode,
+          contentType,
+          body: rawBody,
+          scopeGrant: request.authorizedScopeGrant,
+          lineage: request.lineage,
+          observedAt: new Date().toISOString(),
+          directory: defaultDocumentCopyDirectory(),
+        });
+        if (retained.fact) documentFacts.push(retained.fact);
+      }
+
       observations.push({
         url: itemUrl,
         path: pathName,
@@ -286,6 +309,7 @@ export class FfufAdapter implements ContentDiscoveryTool {
       explicitNonClaims: CONTENT_DISCOVERY_NON_CLAIMS,
       lineage: request.lineage,
       durationMs: output.durationMs,
+      ...(documentFacts.length > 0 ? { observedFacts: Object.freeze(documentFacts) } : {}),
     };
   }
 }

@@ -389,50 +389,34 @@ async function runTests(): Promise<void> {
     }
 
     const draftsResponse = await appService.getEvidenceDrafts(startRes.assessmentId);
-    const corsDraft = draftsResponse.drafts.find((d) => d.differentialContext?.detectionKind === 'credentialed_cors');
-    const idorDraft = draftsResponse.drafts.find((d) => d.differentialContext?.detectionKind === 'idor_access_control');
-    const chainDraft = draftsResponse.drafts.find((d) => d.differentialContext?.detectionKind === 'cors_idor_compound');
-
-    if (corsDraft || idorDraft) {
+    const movedKinds = new Set([
+      'credentialed_cors',
+      'idor_access_control',
+      'cors_idor_compound',
+    ]);
+    const leaked = draftsResponse.drafts.filter((d) =>
+      movedKinds.has(d.differentialContext?.detectionKind ?? '')
+    );
+    if (leaked.length > 0) {
       throw new Error(
-        `Test 5 Failed: CORS/IDOR must auto-promote to Findings (not remain drafts). leftover=${JSON.stringify(draftsResponse.drafts.map((d) => d.differentialContext?.detectionKind))}`
+        `Test 5 Failed: phase 1 must not emit chain probe drafts, got ${leaked.map((d) => d.differentialContext?.detectionKind).join(',')}`
       );
-    }
-    if (chainDraft) {
-      throw new Error('Test 5 Failed: cors_idor_compound must auto-promote — should not remain as pending draft');
     }
 
     const summary = await appService.getSummary(startRes.assessmentId);
-    const hasCors = summary.findings.some(
+    const leakedFindings = summary.findings.filter(
       (f: Finding) =>
         f.metadata?.kind === 'credentialed_cors_metadata' ||
-        f.type === 'CORS_MISCONFIGURATION'
+        f.metadata?.kind === 'broken_access_control_metadata' ||
+        f.metadata?.kind === 'compound_chain_metadata'
     );
-    const hasIdor = summary.findings.some(
-      (f: Finding) =>
-        f.type === 'BROKEN_ACCESS_CONTROL' && f.metadata?.kind === 'broken_access_control_metadata'
-    );
-    const summaryFinding = summary.findings.find((f: Finding) => f.metadata?.kind === 'compound_chain_metadata');
-
-    if (!hasCors || !hasIdor) {
+    if (leakedFindings.length > 0) {
       throw new Error(
-        `Test 5 Failed: Expected auto-promoted CORS + IDOR findings, got=${JSON.stringify(summary.findings.map((f) => f.metadata?.kind))}`
+        `Test 5 Failed: phase 1 must not emit CORS/IDOR/compound findings without a later execute, got ${leakedFindings.map((f) => f.metadata?.kind).join(',')}`
       );
     }
-    if (!summaryFinding) {
-      throw new Error('Test 5 Failed: Expected auto-promoted cors_idor_compound finding in assessment summary');
-    }
 
-    const findingMeta = summaryFinding.metadata as CompoundChainMetadata;
-    if (findingMeta.kind !== 'compound_chain_metadata' || findingMeta.chainKind !== 'cors_idor_compound') {
-      throw new Error(`Test 5 Failed: Invalid metadata on compound finding: ${JSON.stringify(findingMeta)}`);
-    }
-    // Auto-promotion uses honest high (not invented critical) for compound chains.
-    if (summaryFinding.severity !== 'high' && summaryFinding.severity !== 'critical') {
-      throw new Error(`Test 5 Failed: Expected severity high|critical, got '${summaryFinding.severity}'`);
-    }
-
-    console.log('✓ Test 5 Passed: CORS + IDOR auto-promoted and compound chain Finding synthesized');
+    console.log('✓ Test 5 Passed: Phase 1 does not auto-emit credentialed CORS, IDOR, or compound chain findings');
   }
 
   console.log('\n[milestoneP5_1_cors_idor_chain_smoke] ALL 5 TESTS PASSED SUCCESSFULLY! (100% compliant)');

@@ -34,6 +34,8 @@ import {
   buildReportStyles,
   buildHeaderSection,
   buildExecutiveSummarySection,
+  buildObservedFactsSection,
+  buildPhase1ReadLoopSection,
   buildAuditLimitationsSection,
   buildConfirmedFindingsSection,
   buildRecommendationsSection,
@@ -136,6 +138,8 @@ export class ReportGeneratorService {
     const styles = buildReportStyles();
     const headerHtml = buildHeaderSection(assessmentRecord);
     const summaryHtml = buildExecutiveSummarySection(assessmentRecord);
+    const observedFactsHtml = buildObservedFactsSection(assessmentRecord.observedFacts ?? []);
+    const readLoopHtml = buildPhase1ReadLoopSection(assessmentRecord.phase1ReadLoop);
     const limitationsHtml = buildAuditLimitationsSection();
     const findingsHtml = buildConfirmedFindingsSection(
       assessmentRecord.findings || [],
@@ -183,6 +187,8 @@ ${styles}
   <div class="report-container">
     ${headerHtml}
     ${summaryHtml}
+    ${observedFactsHtml}
+    ${readLoopHtml}
     ${limitationsHtml}
     ${findingsHtml}
     ${recommendationsHtml}

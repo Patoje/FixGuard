@@ -102,6 +102,40 @@ export class EphemeralByotSessionStore {
     return meta;
   }
 
+  /**
+   * Attach identity B to a session that already has identity A.
+   * Does not replace A. Header material stays in this process-local store.
+   */
+  public attachIdentityB(
+    assessmentId: string,
+    identityB: EphemeralByotIdentityMaterial
+  ): EphemeralByotSessionMeta | null {
+    if (!isSafeId(assessmentId)) return null;
+    if (!isSafeId(identityB.identityId)) return null;
+    const existing = this.sessions.get(assessmentId);
+    if (!existing || existing.meta.identityCount < 1) return null;
+    if (existing.identityA.identityId.length === 0) return null;
+
+    const meta: EphemeralByotSessionMeta = Object.freeze({
+      assessmentId,
+      identityCount: 2,
+      identityAId: existing.identityA.identityId,
+      identityBId: identityB.identityId,
+      hasJwtA: existing.meta.hasJwtA,
+      hasJwtB: looksLikeJwt(identityB.headers),
+      registeredAt: existing.meta.registeredAt,
+    });
+    this.sessions.set(assessmentId, {
+      meta,
+      identityA: existing.identityA,
+      identityB: Object.freeze({
+        identityId: identityB.identityId,
+        ...(identityB.headers ? { headers: freezeHeaders(identityB.headers) } : {}),
+      }),
+    });
+    return meta;
+  }
+
   public getMeta(assessmentId: string): EphemeralByotSessionMeta | null {
     if (!isSafeId(assessmentId)) return null;
     return this.sessions.get(assessmentId)?.meta ?? null;

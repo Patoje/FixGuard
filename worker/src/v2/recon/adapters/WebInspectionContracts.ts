@@ -1,6 +1,7 @@
 import type { VerifiedAuthorizationDecision } from '../../authorization/VerifiedAuthorizationDecisionContracts.js';
 import type { AuthorizedScopeGrant } from '../../scope/AuthorizedScopeContracts.js';
 import type { AuthorizedActiveReconRequestLineage } from '../../lineage/AuthorizedExecutionLineageContracts.js';
+import type { ObservedFact } from '../../observation/ObservedFactContracts.js';
 
 export type WebInspectionContractVersion = 'fixguard-web-inspection/v0';
 export const WEB_INSPECTION_CONTRACT_VERSION: WebInspectionContractVersion =
@@ -66,6 +67,8 @@ export type WebInspectionResult =
       readonly explicitNonClaims: WebInspectionExplicitNonClaims;
       readonly lineage: AuthorizedActiveReconRequestLineage;
       readonly durationMs: number;
+      /** Facts from a document or image this GET already downloaded. */
+      readonly observedFacts?: readonly ObservedFact[];
     }
   | {
       readonly status: 'preflight_denied';

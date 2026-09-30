@@ -491,7 +491,7 @@ async function runMilestone67SmokeTests() {
     const result = await adapter.discoverUrls({
       targetUrlOrDomain: 'example.com',
       ...auth,
-      timeoutMs: 120_000, // request higher; adapter still caps gau at 45s
+      timeoutMs: 600_000, // request higher; adapter still caps gau at 4m and katana at 5m
     });
 
     assert.strictEqual(result.status, 'success');
@@ -506,12 +506,110 @@ async function runMilestone67SmokeTests() {
       );
       const gauCall = runner.calls.find((c) => c.binary === 'gau');
       assert(gauCall, 'Gau must be called');
-      assert.ok(
-        (gauCall.timeoutMs ?? 0) <= 45_000,
-        `Gau hard timeout must be ≤45s, got ${gauCall.timeoutMs}`
+      assert.strictEqual(
+        gauCall.timeoutMs,
+        240_000,
+        `Gau hard timeout must be 4m, got ${gauCall.timeoutMs}`
+      );
+      const katanaCall = runner.calls.find((c) => c.binary === 'katana');
+      assert(katanaCall, 'Katana must be called');
+      assert.strictEqual(
+        katanaCall.timeoutMs,
+        300_000,
+        `Katana hard timeout must be 5m, got ${katanaCall.timeoutMs}`
       );
     }
     console.log('    -> Gau timeout degraded loudly without failing the whole discovery');
+  }
+
+  // -------------------------------------------------------------------------
+  // Assertion 10: Non-zero exit copies truncated stderr onto the warning
+  // -------------------------------------------------------------------------
+  {
+    const marker = 'katana-stderr-marker-fixed';
+    const runner = new MockProcessRunner();
+    runner.katanaOutput = {
+      stdout: JSON.stringify({ url: 'https://example.com/from-gau-only-not-used' }) + '\n',
+      stderr: marker,
+      exitCode: 2,
+      durationMs: 30,
+      timedOut: false,
+    };
+    runner.gauOutput = {
+      stdout: JSON.stringify({ url: 'https://example.com/archive-live' }) + '\n',
+      stderr: '',
+      exitCode: 0,
+      durationMs: 20,
+      timedOut: false,
+    };
+    const failed = await new CompositeUrlDiscoveryAdapter(runner).discoverUrls({
+      targetUrlOrDomain: 'example.com',
+      ...setupAuthorizedContext(),
+    });
+    assert.strictEqual(failed.status, 'success');
+    if (failed.status === 'success') {
+      const warning = (failed.warnings ?? []).join('\n');
+      assert.ok(warning.includes(marker), 'Non-zero katana stderr must be on the warning');
+      assert.ok(warning.includes('katana exit 2'), 'Exit code stays on the warning');
+      assert.equal(warning.includes('from-gau-only-not-used'), false);
+      assert.ok(failed.observations.some((obs) => obs.path === '/archive-live'));
+    }
+
+    const quiet = new MockProcessRunner();
+    quiet.katanaOutput = {
+      stdout: JSON.stringify({ url: 'https://example.com/quiet-page' }) + '\n',
+      stderr: 'silent-stderr-marker',
+      exitCode: 0,
+      durationMs: 10,
+      timedOut: false,
+    };
+    quiet.gauOutput = {
+      stdout: '',
+      stderr: 'gau-silent-stderr-marker',
+      exitCode: 0,
+      durationMs: 10,
+      timedOut: false,
+    };
+    const clean = await new CompositeUrlDiscoveryAdapter(quiet).discoverUrls({
+      targetUrlOrDomain: 'example.com',
+      ...setupAuthorizedContext(),
+    });
+    assert.strictEqual(clean.status, 'success');
+    if (clean.status === 'success') {
+      const warning = (clean.warnings ?? []).join('\n');
+      assert.equal(warning.includes('silent-stderr-marker'), false);
+      assert.equal(warning.includes('gau-silent-stderr-marker'), false);
+    }
+
+    const skippedArchive = new MockProcessRunner();
+    skippedArchive.katanaOutput = {
+      stdout: JSON.stringify({ url: 'https://example.com/kept-live' }) + '\n',
+      stderr: '',
+      exitCode: 0,
+      durationMs: 10,
+      timedOut: false,
+    };
+    skippedArchive.gauOutput = {
+      stdout: JSON.stringify({ url: 'https://example.com/archive-skipped' }) + '\n',
+      stderr: 'gau-exit-124-stderr',
+      exitCode: 124,
+      durationMs: 15,
+      timedOut: false,
+    };
+    const gauExit = await new CompositeUrlDiscoveryAdapter(skippedArchive).discoverUrls({
+      targetUrlOrDomain: 'example.com',
+      ...setupAuthorizedContext(),
+    });
+    assert.strictEqual(gauExit.status, 'success');
+    if (gauExit.status === 'success') {
+      assert.equal(
+        gauExit.observations.some((obs) => obs.path === '/archive-skipped'),
+        false,
+        'Gau exit 124 must skip archive parsing'
+      );
+      assert.ok(gauExit.observations.some((obs) => obs.path === '/kept-live'));
+      assert.ok((gauExit.warnings ?? []).some((warning) => warning.includes('gau-exit-124-stderr')));
+    }
   }
 
   console.log('\n[✔] ALL MILESTONE 67 URL DISCOVERY ADAPTER SMOKE ASSERTIONS PASSED SUCCESSFULLY.');

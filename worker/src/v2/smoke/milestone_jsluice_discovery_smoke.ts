@@ -7,7 +7,9 @@ import type { ProcessRunner } from '../core/ProcessRunner.js';
 import { establishVerifiedAuthorizationDecision } from '../authorization/VerifiedAuthorizationDecisionService.js';
 import type { AuthorizedScopeGrant } from '../scope/AuthorizedScopeContracts.js';
 import type { AuthorizedActiveReconRequestLineage } from '../lineage/AuthorizedExecutionLineageContracts.js';
-import { JsLuiceAdapter, selectJsLuiceTargets } from '../recon/adapters/JsLuiceAdapter.js';
+import { JsLuiceAdapter, selectJsLuiceTargets, scoreJsAssetForMining } from '../recon/adapters/JsLuiceAdapter.js';
+import { evaluateFindingAutoPromotion } from '../finding-auto-promotion/FindingAutoPromotionPolicy.js';
+import type { EnrichedEvidenceDraft } from '../application/OrchestratedAssessmentContracts.js';
 
 class MockProcessRunner implements ProcessRunner {
   public calls: ExecutionRequest[] = [];
@@ -138,6 +140,76 @@ async function main(): Promise<void> {
       'vendor/framework/polyfills must lose to app when budget is tight'
     );
     console.log('[+] selectJsLuiceTargets ranking (app > vendor) OK');
+  }
+
+  {
+    // Hardened ranking: CRA/Vite app hash + CDN vendor; HTML shells never selected
+    const appScore = scoreJsAssetForMining(
+      'https://shop.example.com/static/js/main.a1b2c3d4.js'
+    );
+    const vendorScore = scoreJsAssetForMining(
+      'https://cdn.jsdelivr.net/npm/jquery@3.7.1/dist/jquery.min.js'
+    );
+    const htmlScore = scoreJsAssetForMining('https://shop.example.com/cart');
+    assert.ok(appScore > vendorScore, `app (${appScore}) must beat CDN vendor (${vendorScore})`);
+    assert.ok(htmlScore === 0 || htmlScore < appScore);
+
+    const selected = selectJsLuiceTargets({
+      inventoryUrls: [
+        { url: 'https://shop.example.com/cart' },
+        { url: 'https://shop.example.com/index.html' },
+        { url: 'https://cdn.jsdelivr.net/npm/react@18/umd/react.production.min.js' },
+        { url: 'https://shop.example.com/static/js/main.a1b2c3d4.js' },
+        { url: 'https://shop.example.com/_next/static/chunks/framework-abc.js' },
+      ],
+      maxTargets: 2,
+    });
+    assert.ok(
+      selected.includes('https://shop.example.com/static/js/main.a1b2c3d4.js'),
+      'hashed app bundle must be selected'
+    );
+    assert.ok(
+      !selected.some((u) => u.includes('jsdelivr') || u.endsWith('.html') || u.endsWith('/cart')),
+      'CDN vendor + HTML shells must not consume jsluice budget'
+    );
+    console.log('[+] hardened ranking + anti-shell HTML filter OK');
+  }
+
+  {
+    // Coherence with W1: HTML shell IDOR drafts stay non-promoted (no sola / no invent)
+    const shellDraft: EnrichedEvidenceDraft = {
+      draftKind: 'non_persisted_comparison_evidence_draft',
+      draftId: 'dft_jsluice_shell',
+      suggestedEvidenceType: 'http_difference',
+      suggestedStrength: 'weak',
+      sourceComparisonId: 'cmp_jsluice_shell',
+      sourceSnapshotIds: {
+        baselineSnapshotId: 'snp_js_b',
+        validationSnapshotId: 'snp_js_v',
+      },
+      requiresHumanReview: true,
+      notPersisted: true,
+      notARealFinding: true,
+      notConfirmedEvidence: true,
+      notForExternalDelivery: true,
+      notM45EvidenceRecord: true,
+      safeRationale: 'SPA shell noise',
+      differentialContext: {
+        endpointUrl: 'https://shop.example.com/a/b',
+        detectionKind: 'idor_access_control',
+        resourceParamName: 'b',
+        baselineStatusCode: 200,
+        validationStatusCode: 404,
+        baselineBodyHash: 'h1',
+        validationBodyHash: 'h2',
+        baselineContentType: 'text/html',
+        validationContentType: 'text/html',
+        baselineBodyShapeKind: 'html',
+        validationBodyShapeKind: 'html',
+      },
+    };
+    assert.equal(evaluateFindingAutoPromotion(shellDraft).decision, 'keep_as_draft');
+    console.log('[+] anti-shell promote coherence (IDOR HTML) OK');
   }
 
   {

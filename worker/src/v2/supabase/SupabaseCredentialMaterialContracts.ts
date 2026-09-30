@@ -41,17 +41,30 @@ export function looksLikeSupabaseAnonKey(value: string): boolean {
   return /^eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(v);
 }
 
-function decodeJwtPayloadJson(jwt: string): { role?: string; iss?: string } | null {
+function decodeJwtPayloadJson(jwt: string): { readonly role?: string; readonly iss?: string } | null {
   try {
     const payload = jwt.split('.')[1];
     if (!payload) return null;
     const pad = '='.repeat((4 - (payload.length % 4)) % 4);
-    return JSON.parse(
+    const parsed: unknown = JSON.parse(
       Buffer.from(payload + pad, 'base64url').toString('utf8')
-    ) as { role?: string; iss?: string };
+    );
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null;
+    const role = Reflect.get(parsed, 'role');
+    const iss = Reflect.get(parsed, 'iss');
+    return {
+      ...(typeof role === 'string' ? { role } : {}),
+      ...(typeof iss === 'string' ? { iss } : {}),
+    };
   } catch {
     return null;
   }
+}
+
+/** JWT `role` claim when the value is a JWT. Publishable keys have none. */
+export function supabaseJwtClaimRole(value: string): string | undefined {
+  const role = decodeJwtPayloadJson(value.trim())?.role?.trim() ?? '';
+  return role.length > 0 ? role : undefined;
 }
 
 /**
@@ -73,6 +86,7 @@ export function extractSupabaseAnonKeyFromText(text: string): string | undefined
     if (!looksLikeSupabaseAnonKey(jwt)) continue;
     const json = decodeJwtPayloadJson(jwt);
     if (!json) continue;
+    if (json.role !== undefined && json.role !== 'anon') continue;
     if (json.role === 'anon' || json.iss === 'supabase') {
       return jwt;
     }

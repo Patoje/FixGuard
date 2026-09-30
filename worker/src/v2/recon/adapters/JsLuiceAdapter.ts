@@ -33,6 +33,7 @@ const MAX_JS_TARGETS_DEFAULT = JSLUICE_MAX_TARGETS_DEFAULT;
 /**
  * Rank JS assets for mining: app chunks > webpack/runtime > vendor/framework.
  * Higher score = higher priority. Used by selectJsLuiceTargets.
+ * Anti-shell: vendor/CDN/framework shells rank lowest so they lose under target budget.
  */
 export function scoreJsAssetForMining(url: string): number {
   let pathname = '';
@@ -43,13 +44,35 @@ export function scoreJsAssetForMining(url: string): number {
   }
   const file = pathname.split('/').pop() ?? pathname;
 
-  // Explicit vendor / framework / polyfill — lowest priority
+  // HTML / SPA shells are never JS mining targets (score 0 → filtered elsewhere).
+  if (/\.html?$/i.test(pathname) || pathname.endsWith('/')) {
+    return 0;
+  }
+  // Opaque SPA/catch-all paths (e.g. /cart, /a/b) are not JS assets.
+  if (!/\.js(\?|$)/i.test(pathname) && !/\/_next\/static\/chunks\//i.test(pathname)) {
+    return 0;
+  }
+
+  // Explicit vendor / framework / polyfill / CDN libs — lowest priority
+  if (
+    /\/cdn\.|cloudflare\.com\/|unpkg\.com\/|jsdelivr\.net\//i.test(url.toLowerCase())
+  ) {
+    return 5;
+  }
   if (
     /(?:^|\/)(?:vendor|framework|polyfills?)(?:[-.]|$)/i.test(file) ||
     /(?:^|\/)(?:vendor|framework|polyfills?)(?:\/|$)/i.test(pathname) ||
-    /node_modules|react-dom|scheduler\.production/i.test(pathname)
+    /node_modules|react-dom|scheduler\.production|react\.production|vue\.global|angular\.min/i.test(
+      pathname
+    ) ||
+    /(?:^|\/)(?:jquery|lodash|moment|gtm|analytics|sentry|segment)(?:[-.]|$)/i.test(file)
   ) {
     return 10;
+  }
+
+  // Next.js framework shell entries — barely above vendor (lose to app under budget)
+  if (/main-app|framework[-.]|polyfill/i.test(file) && /\/_next\/static\//i.test(pathname)) {
+    return 15;
   }
 
   // Next.js app / pages router chunks — highest
@@ -63,12 +86,20 @@ export function scoreJsAssetForMining(url: string): number {
     return 90;
   }
 
-  // Named app-ish chunks (exclude main-app which is often framework shell)
-  if (/\/_next\/static\/chunks\//i.test(pathname) && !/main-app|webpack|polyfill/i.test(file)) {
+  // Named app-ish chunks (hashed Next chunks that are not framework shells)
+  if (/\/_next\/static\/chunks\//i.test(pathname) && !/main-app|webpack|polyfill|framework/i.test(file)) {
     if (/^[0-9a-f]{4,}-/i.test(file) || /chunk/i.test(file)) {
       return 75;
     }
     return 70;
+  }
+
+  // App bundle naming outside Next (CRA / Vite / webpack app entry)
+  if (/(?:^|\/)(?:app|main|index|bundle)[-.][0-9a-f]{6,}\.js$/i.test(file)) {
+    return 80;
+  }
+  if (/\/static\/js\/(?:main|app)\./i.test(pathname)) {
+    return 78;
   }
 
   // Webpack runtime / main entry — medium (needed for chunk graph hints)
@@ -404,11 +435,19 @@ export function selectJsLuiceTargets(args: {
     if (!url || seen.has(url) || excluded.has(url)) continue;
     try {
       const u = new URL(url);
+      // Anti-shell: never select HTML documents; only JS / Next chunks.
+      if (/\.html?$/i.test(u.pathname)) {
+        continue;
+      }
       if (!/\.js(\?|$)/i.test(u.pathname) && !/\/_next\/static\/chunks\//i.test(u.pathname)) {
         continue;
       }
+      const score = scoreJsAssetForMining(url);
+      if (score <= 0) {
+        continue;
+      }
       seen.add(url);
-      scored.push({ url, score: scoreJsAssetForMining(url) });
+      scored.push({ url, score });
     } catch {
       continue;
     }

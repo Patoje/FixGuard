@@ -15,8 +15,24 @@ import {
 } from './UrlDiscoveryContracts.js';
 
 /** Hard caps — hung gau must not block assessment_activity_idle (~15m). */
-export const GAU_HARD_TIMEOUT_MS = 45_000;
-export const KATANA_HARD_TIMEOUT_MS = 60_000;
+export const GAU_HARD_TIMEOUT_MS = 240_000;
+export const KATANA_HARD_TIMEOUT_MS = 300_000;
+
+/** Stage warnings keep a short stderr tail. Stdout is never copied onto the warning. */
+export const DISCOVERY_STDERR_WARNING_CAP = 240;
+
+function stderrSnippet(stderr: string): string {
+  const trimmed = stderr.trim();
+  if (trimmed.length === 0) return '';
+  if (trimmed.length <= DISCOVERY_STDERR_WARNING_CAP) return trimmed;
+  return trimmed.slice(0, DISCOVERY_STDERR_WARNING_CAP);
+}
+
+function nonZeroExitWarning(tool: 'katana' | 'gau', exitCode: number, stderr: string): string {
+  const snippet = stderrSnippet(stderr);
+  const base = `${tool} exit ${exitCode} — degraded`;
+  return snippet.length > 0 ? `${base}: ${snippet}` : base;
+}
 
 function capTimeout(requested: number | undefined, hardCap: number): number {
   if (typeof requested === 'number' && Number.isFinite(requested) && requested > 0) {
@@ -87,7 +103,7 @@ export class CompositeUrlDiscoveryAdapter implements UrlDiscoveryTool {
       );
     } else if (katanaOutput.exitCode !== 0) {
       degradeWarnings.push(
-        `katana exit ${katanaOutput.exitCode} — degraded`
+        nonZeroExitWarning('katana', katanaOutput.exitCode, katanaOutput.stderr)
       );
     }
     if (gauOutput.timedOut) {
@@ -95,7 +111,7 @@ export class CompositeUrlDiscoveryAdapter implements UrlDiscoveryTool {
         `gau timed out after ${gauTimeoutMs}ms — degraded (archive scrape skipped)`
       );
     } else if (gauOutput.exitCode !== 0) {
-      degradeWarnings.push(`gau exit ${gauOutput.exitCode} — degraded`);
+      degradeWarnings.push(nonZeroExitWarning('gau', gauOutput.exitCode, gauOutput.stderr));
     }
 
     // If both engines failed completely or timed out

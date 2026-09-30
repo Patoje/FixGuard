@@ -37,8 +37,15 @@ import {
 } from '../../supabase/SupabaseSurfaceContracts.js';
 import { extractSupabaseAnonKeyFromText } from '../../supabase/SupabaseCredentialMaterialContracts.js';
 import { runDeepReconOrchestrator } from '../deep/DeepReconOrchestratorService.js';
+import type { DeepReconSchemaObservation } from '../deep/DeepReconContracts.js';
+import { classifyCapturedWafIdentity, headerValue } from '../../intelligence/CapturedHostIdentity.js';
 import { resolveByotHarvestAuthHeaders } from '../deep/ByotNetworkHarvestService.js';
 import type { ByotHarvestServerActionHint } from '../deep/ByotNetworkHarvestContracts.js';
+import type { ObservedFact } from '../../observation/ObservedFactContracts.js';
+import {
+  defaultDocumentCopyDirectory,
+  observeDownloadedDocument,
+} from '../../observation/DocumentMetadataReader.js';
 
 import type {
   ActiveReconOrchestrationRequest,
@@ -116,6 +123,33 @@ import { isBrowserUrlAllowed } from '../adapters/PlaywrightSpaAdapter.js';
 function sanitizeToSafeId(raw: string): string {
   const cleaned = raw.replace(/[^A-Za-z0-9]/g, '').slice(0, 16);
   return cleaned.length > 0 ? cleaned : 'target';
+}
+
+function httpStatusFromWebInspection(result: WebInspectionResult): number | null {
+  if (result.status !== 'success') return null;
+  const code = result.observations[0]?.statusCode;
+  return typeof code === 'number' ? code : null;
+}
+
+function httpStatusFromContentDiscovery(result: ContentDiscoveryResult): number | null {
+  if (result.status !== 'success') return null;
+  const code = result.observations[0]?.statusCode;
+  return typeof code === 'number' ? code : null;
+}
+
+async function executeObservingHttpStatus<T extends object>(
+  coordinator: TargetExecutionCoordinator,
+  host: string,
+  task: () => Promise<T>,
+  statusCodeOf: (result: T) => number | null,
+): Promise<T> {
+  return coordinator.executeWithStatusPacing(host, async () => {
+    const result = await task();
+    return {
+      statusCode: statusCodeOf(result),
+      ...result,
+    };
+  });
 }
 
 /** Heuristic Next.js / RSC signals from Stage 3 web observations (pre-fingerprint). */
@@ -351,6 +385,19 @@ export class CompositeActiveReconOrchestratorService {
     const secrets: DiscoveredSecretObservation[] = [];
     const spaObservations: DiscoveredSpaObservation[] = [];
     const serverActionHints: ByotHarvestServerActionHint[] = [];
+    const observedFacts: ObservedFact[] = [];
+    const schemaObservations: DeepReconSchemaObservation[] = [];
+    const absorbObservedFacts = (facts: readonly ObservedFact[] | undefined): void => {
+      if (!facts) return;
+      for (const fact of facts) {
+        if (!observedFacts.some((existing) => existing.factId === fact.factId)) {
+          observedFacts.push(fact);
+        }
+      }
+    };
+    const jsSurfaceMinedUrls: string[] = [];
+    const sourcemapProbedUrls: string[] = [];
+    const sourcemapTexts: string[] = [];
 
     // Phase D1 — inject pre-validated assessment seeds as inventory hints.
     // Provenance is assessment_seed / inferred until an HTTP probe observes them.
@@ -495,6 +542,15 @@ export class CompositeActiveReconOrchestratorService {
         ...(serverActionHints.length > 0
           ? { serverActionHints: Object.freeze([...serverActionHints]) }
           : {}),
+        ...(observedFacts.length > 0
+          ? { observedFacts: Object.freeze([...observedFacts]) }
+          : {}),
+        ...(sourcemapTexts.length > 0
+          ? { sourcemapTexts: Object.freeze([...sourcemapTexts]) }
+          : {}),
+        ...(schemaObservations.length > 0
+          ? { schemaObservations: Object.freeze([...schemaObservations]) }
+          : {}),
       },
       explicitNonClaims: RECON_ORCHESTRATION_NON_CLAIMS,
       lineage: { ...request.lineage },
@@ -522,6 +578,7 @@ export class CompositeActiveReconOrchestratorService {
     } else {
       await notifyStageStart('stage_1_domain_zone');
       const stage1Warnings: string[] = [];
+      const stage1Notices: string[] = [];
 
       try {
         const subResult: SubdomainDiscoveryResult = await coordinator.execute(
@@ -576,6 +633,8 @@ export class CompositeActiveReconOrchestratorService {
             for (const obs of ctResult.observations) {
               mergeSubdomainObservation(subdomains, subdomainIndex, obs);
             }
+          } else if (ctResult.reasonCode === 'ct_transport_disabled') {
+            stage1Notices.push('Passive CT transport disabled: ct_transport_disabled');
           } else {
             stage1Warnings.push(`Passive CT discovery denied: ${ctResult.reasonCode}`);
           }
@@ -610,8 +669,10 @@ export class CompositeActiveReconOrchestratorService {
           const dnsResult: DnsResolutionResult = await coordinator.execute(
             host,
             () =>
-              this.tools.dnsTool.resolveDns({
+                this.tools.dnsTool.resolveDns({
                 targetDomain: host,
+                asn: true,
+                cdn: true,
                 verifiedAuthorizationDecision: request.verifiedAuthorizationDecision,
                 authorizedScopeGrant: request.authorizedScopeGrant,
                 lineage: request.lineage,
@@ -646,12 +707,13 @@ export class CompositeActiveReconOrchestratorService {
 
       collectStageDegradation('stage_1_domain_zone', stage1Warnings);
 
+      const stage1Surfaced = [...stage1Warnings, ...stage1Notices];
       await recordStageResult({
         stage: 'stage_1_domain_zone',
         status: stage1Warnings.length > 0 && subdomains.length === 0 ? 'partial_failure' : 'completed',
         durationMs: Date.now() - stage1Start,
         observationsCount: subdomains.length + dnsRecords.length,
-        warnings: stage1Warnings.length > 0 ? stage1Warnings : undefined,
+        warnings: stage1Surfaced.length > 0 ? stage1Surfaced : undefined,
       });
     }
 
@@ -788,7 +850,8 @@ export class CompositeActiveReconOrchestratorService {
           if (!httpInspectedUrls.has(targetUrl)) {
             httpInspectedUrls.add(targetUrl);
             httpInspectedHosts.add(parsed.hostname);
-            const webResult: WebInspectionResult = await coordinator.execute(
+            const webResult = await executeObservingHttpStatus(
+              coordinator,
               parsed.hostname,
               () =>
                 this.tools.webTool.inspectWeb({
@@ -797,13 +860,15 @@ export class CompositeActiveReconOrchestratorService {
                   authorizedScopeGrant: request.authorizedScopeGrant,
                   lineage: request.lineage,
                   timeoutMs: request.config?.timeoutMs,
-                })
+                }),
+              httpStatusFromWebInspection,
             );
 
             if (webResult.status === 'success') {
               for (const obs of webResult.observations) {
                 webObservations.push(obs);
               }
+              absorbObservedFacts(webResult.observedFacts);
               // Upgrade matching assessment_seed URL provenance to direct_observation after HTTP.
               const observedAt = new Date().toISOString();
               for (let i = 0; i < urls.length; i++) {
@@ -959,7 +1024,8 @@ export class CompositeActiveReconOrchestratorService {
           httpInspectedUrls.add(extractedUrl);
           httpInspectedHosts.add(parsed.hostname);
 
-          const webResult: WebInspectionResult = await coordinator.execute(
+          const webResult = await executeObservingHttpStatus(
+            coordinator,
             parsed.hostname,
             () =>
               this.tools.webTool.inspectWeb({
@@ -968,13 +1034,15 @@ export class CompositeActiveReconOrchestratorService {
                 authorizedScopeGrant: request.authorizedScopeGrant,
                 lineage: request.lineage,
                 timeoutMs: request.config?.timeoutMs,
-              })
+              }),
+            httpStatusFromWebInspection,
           );
 
           if (webResult.status === 'success') {
             for (const obs of webResult.observations) {
               webObservations.push(obs);
             }
+            absorbObservedFacts(webResult.observedFacts);
           } else if (webResult.status === 'preflight_denied' || webResult.status === 'execution_failed') {
             stage3Warnings.push(
               `HTML-extracted URL inspection ${webResult.status} on ${extractedUrl}: ${webResult.reasonCode}`
@@ -1067,7 +1135,8 @@ export class CompositeActiveReconOrchestratorService {
           httpInspectedUrls.add(extractedUrl);
           httpInspectedHosts.add(parsed.hostname);
 
-          const webResult: WebInspectionResult = await coordinator.execute(
+          const webResult = await executeObservingHttpStatus(
+            coordinator,
             parsed.hostname,
             () =>
               this.tools.webTool.inspectWeb({
@@ -1076,13 +1145,15 @@ export class CompositeActiveReconOrchestratorService {
                 authorizedScopeGrant: request.authorizedScopeGrant,
                 lineage: request.lineage,
                 timeoutMs: request.config?.timeoutMs,
-              })
+              }),
+            httpStatusFromWebInspection,
           );
 
           if (webResult.status === 'success') {
             for (const obs of webResult.observations) {
               webObservations.push(obs);
             }
+            absorbObservedFacts(webResult.observedFacts);
           } else if (webResult.status === 'preflight_denied' || webResult.status === 'execution_failed') {
             stage3Warnings.push(
               `HTML hop-2 URL inspection ${webResult.status} on ${extractedUrl}: ${webResult.reasonCode}`
@@ -1123,6 +1194,7 @@ export class CompositeActiveReconOrchestratorService {
           })
         );
         if (feed.status === 'success') {
+          absorbObservedFacts(feed.observedFacts);
           const known = new Set(urls.map((u) => u.url));
           for (const obs of feed.urlObservations) {
             if (known.has(obs.url)) continue;
@@ -1156,6 +1228,9 @@ export class CompositeActiveReconOrchestratorService {
       const sanFeedbackHosts: string[] = [];
       const sanSeen = new Set<string>();
       const nowIso = new Date().toISOString();
+      const allowedSanHosts = new Set(
+        (request.authorizedScopeGrant.boundaries.allowedHosts ?? []).map((entry) => entry.toLowerCase())
+      );
 
       for (const tlsObs of tlsCertificates) {
         for (const rawSan of tlsObs.subjectAlternativeNames) {
@@ -1163,6 +1238,8 @@ export class CompositeActiveReconOrchestratorService {
           if (!host) continue;
           if (sanSeen.has(host) || knownHosts.has(host)) continue;
           if (!isHostnameInAuthorizedScope(host, request.authorizedScopeGrant)) continue;
+          const normalized = host.toLowerCase().replace(/^\*\./, '');
+          if (!allowedSanHosts.has(normalized)) continue;
 
           sanSeen.add(host);
           knownHosts.add(host);
@@ -1190,12 +1267,14 @@ export class CompositeActiveReconOrchestratorService {
               host,
               () =>
                 this.tools.dnsTool.resolveDns({
-                  targetDomain: host,
-                  verifiedAuthorizationDecision: request.verifiedAuthorizationDecision,
-                  authorizedScopeGrant: request.authorizedScopeGrant,
-                  lineage: request.lineage,
-                  timeoutMs: request.config?.timeoutMs,
-                })
+                targetDomain: host,
+                asn: true,
+                cdn: true,
+                verifiedAuthorizationDecision: request.verifiedAuthorizationDecision,
+                authorizedScopeGrant: request.authorizedScopeGrant,
+                lineage: request.lineage,
+                timeoutMs: request.config?.timeoutMs,
+              })
             );
             if (dnsResult.status === 'success') {
               for (const obs of dnsResult.observations) {
@@ -1228,7 +1307,8 @@ export class CompositeActiveReconOrchestratorService {
             httpInspectedUrls.add(sanUrl);
           }
           try {
-            const webResult: WebInspectionResult = await coordinator.execute(
+            const webResult = await executeObservingHttpStatus(
+              coordinator,
               host,
               () =>
                 this.tools.webTool.inspectWeb({
@@ -1237,12 +1317,14 @@ export class CompositeActiveReconOrchestratorService {
                   authorizedScopeGrant: request.authorizedScopeGrant,
                   lineage: request.lineage,
                   timeoutMs: request.config?.timeoutMs,
-                })
+                }),
+              httpStatusFromWebInspection,
             );
             if (webResult.status === 'success') {
               for (const obs of webResult.observations) {
                 webObservations.push(obs);
               }
+              absorbObservedFacts(webResult.observedFacts);
             } else if (webResult.status === 'preflight_denied' || webResult.status === 'execution_failed') {
               stage3Warnings.push(
                 `SAN HTTP follow-up ${webResult.status} on ${host}: ${webResult.reasonCode}`
@@ -1362,7 +1444,7 @@ export class CompositeActiveReconOrchestratorService {
               verifiedAuthorizationDecision: request.verifiedAuthorizationDecision,
               authorizedScopeGrant: request.authorizedScopeGrant,
               lineage: request.lineage,
-              // Adapter enforces per-tool hard caps (gau ≤45s, katana ≤60s).
+              // Adapter enforces per-tool hard caps (gau ≤240s, katana ≤300s).
               timeoutMs: request.config?.timeoutMs,
             })
           );
@@ -1425,7 +1507,8 @@ export class CompositeActiveReconOrchestratorService {
               const wordlistPath = useGatedDefault
                 ? resolveApiDiscoveryWordlistPath({ explicitPath: undefined })
                 : resolveApiDiscoveryWordlistPath({ explicitPath: rawWl });
-              const contentResult: ContentDiscoveryResult = await coordinator.execute(
+              const contentResult = await executeObservingHttpStatus(
+                coordinator,
                 parsed.hostname,
                 () =>
                   this.tools.contentTool.discoverContent({
@@ -1435,13 +1518,15 @@ export class CompositeActiveReconOrchestratorService {
                     authorizedScopeGrant: request.authorizedScopeGrant,
                     lineage: request.lineage,
                     timeoutMs: request.config?.timeoutMs,
-                  })
+                  }),
+                httpStatusFromContentDiscovery,
               );
 
               if (contentResult.status === 'success') {
                 for (const obs of contentResult.observations) {
                   content.push(obs);
                 }
+                absorbObservedFacts(contentResult.observedFacts);
               } else if (contentResult.status === 'execution_failed') {
                 stage4Warnings.push(
                   `ffuf on ${rootUrl}: ${contentResult.reason}`
@@ -1514,6 +1599,7 @@ export class CompositeActiveReconOrchestratorService {
             for (const jsUrl of jsTargets) {
               if (minedJs.has(jsUrl) || remaining <= 0) continue;
               minedJs.add(jsUrl);
+              jsSurfaceMinedUrls.push(jsUrl);
               remaining -= 1;
               try {
                 const jsHost = new URL(jsUrl).hostname;
@@ -1566,6 +1652,7 @@ export class CompositeActiveReconOrchestratorService {
             maxTargets: mapBudget,
           });
           for (const jsUrl of mapTargets) {
+            sourcemapProbedUrls.push(jsUrl);
             try {
               const jsHost = new URL(jsUrl).hostname;
               await notifyActivityPulse('stage_4_crawling_parameters', `sourcemap@${jsHost}`);
@@ -1580,7 +1667,11 @@ export class CompositeActiveReconOrchestratorService {
                   dnsResolver: request.dnsResolver,
                 })
               );
+              if (mapResult.status !== 'preflight_denied') {
+                absorbObservedFacts(mapResult.observedFacts);
+              }
               if (mapResult.status === 'success') {
+                if (mapResult.bodyText.length > 0) sourcemapTexts.push(mapResult.bodyText);
                 for (const obs of mapResult.urlObservations) {
                   urls.push(obs);
                 }
@@ -1615,8 +1706,8 @@ export class CompositeActiveReconOrchestratorService {
             for (const jsUrl of tableMineTargets) {
               try {
                 const jsHost = new URL(jsUrl).hostname;
-                await coordinator.execute(jsHost, async () => {
-                  const preflight = await runAdapterPreflight({
+                const preflight = await coordinator.execute(jsHost, () =>
+                  runAdapterPreflight({
                     target: jsUrl,
                     targetKind: 'url',
                     verifiedAuthorizationDecision: request.verifiedAuthorizationDecision,
@@ -1631,9 +1722,13 @@ export class CompositeActiveReconOrchestratorService {
                     missingPermissionReason:
                       'Scope grant does not permit JS table-hint discovery',
                     dnsResolver: request.dnsResolver,
-                  });
-                  if (!preflight.ok) return;
-                  const probe = await defaultHttpProbeTransport({
+                  })
+                );
+                if (!preflight.ok) {
+                  continue;
+                }
+                const probe = await coordinator.executeWithStatusPacing(jsHost, async () => {
+                  const response = await defaultHttpProbeTransport({
                     url: jsUrl,
                     method: 'GET',
                     headers: {
@@ -1642,7 +1737,28 @@ export class CompositeActiveReconOrchestratorService {
                     },
                     timeoutMs: request.config?.timeoutMs ?? 10_000,
                   });
-                  if (probe.statusCode < 200 || probe.statusCode >= 300) return;
+                  return {
+                    ...response,
+                    statusCode: response.statusCode,
+                  };
+                });
+                const retained = observeDownloadedDocument({
+                  downloaded: true,
+                  url: jsUrl,
+                  method: 'GET',
+                  statusCode: probe.statusCode,
+                  contentType: probe.headers['content-type'],
+                  body: probe.bodyText,
+                  scopeGrant: request.authorizedScopeGrant,
+                  lineage: request.lineage,
+                  observedAt: nowIso,
+                  directory: defaultDocumentCopyDirectory(),
+                });
+                if (retained.fact) absorbObservedFacts([retained.fact]);
+                if (probe.statusCode < 200 || probe.statusCode >= 300) {
+                  continue;
+                }
+                {
                   const bodyChunk =
                     typeof probe.bodyText === 'string'
                       ? probe.bodyText.slice(0, WEB_OBSERVATION_BODY_CHUNK_MAX_BYTES)
@@ -1666,19 +1782,20 @@ export class CompositeActiveReconOrchestratorService {
                     });
                   }
                   const hints = extractSupabaseTableHintsFromText(probe.bodyText, 30);
-                  if (hints.length === 0) return;
-                  for (const restBase of supabaseRestBases) {
-                    const seeds = buildSupabaseRestTableUrlSeeds({
-                      restBaseUrl: restBase,
-                      tableNames: hints,
-                      source: 'js_client_from_hint',
-                      discoveredAt: nowIso,
-                    });
-                    for (const seed of seeds) {
-                      urls.push(seed);
+                  if (hints.length > 0) {
+                    for (const restBase of supabaseRestBases) {
+                      const seeds = buildSupabaseRestTableUrlSeeds({
+                        restBaseUrl: restBase,
+                        tableNames: hints,
+                        source: 'js_client_from_hint',
+                        discoveredAt: nowIso,
+                      });
+                      for (const seed of seeds) {
+                        urls.push(seed);
+                      }
                     }
                   }
-                });
+                }
               } catch (hintErr: unknown) {
                 stage4Warnings.push(
                   `js table-hint error on ${jsUrl}: ${hintErr instanceof Error ? hintErr.message : String(hintErr)}`
@@ -1724,6 +1841,7 @@ export class CompositeActiveReconOrchestratorService {
             transport: probeTransport,
             dnsResolver: request.dnsResolver,
           });
+          absorbObservedFacts(gated.observedFacts);
           if (gated.status === 'waf_aborted') {
             stage4Warnings.push(
               `Gated dict top-K aborted (WAF/bot): ${gated.reasonCode}`
@@ -1983,8 +2101,36 @@ export class CompositeActiveReconOrchestratorService {
           maxPages: 3,
         });
 
+        for (const web of webObservations) {
+          let hostName = request.targetDomain;
+          try {
+            hostName = new URL(web.url).hostname;
+          } catch {
+            hostName = request.targetDomain;
+          }
+          const setCookie = headerValue(web.headers, 'set-cookie');
+          const waf = classifyCapturedWafIdentity({
+            headers: web.headers,
+            ...(setCookie ? { setCookie } : {}),
+          });
+          if (waf) coordinator.noteObservedWaf(hostName, waf);
+        }
+        const allowed = new Set(
+          (request.authorizedScopeGrant.boundaries.allowedHosts ?? []).map((host) => host.toLowerCase())
+        );
+        const observedAuthHosts: string[] = [];
+        const rememberHost = (host: string): void => {
+          const normalized = host.toLowerCase().replace(/^\*\./, '');
+          if (!allowed.has(normalized) || normalized === request.targetDomain.toLowerCase()) return;
+          if (!observedAuthHosts.includes(normalized)) observedAuthHosts.push(normalized);
+        };
+        for (const tls of tlsCertificates) {
+          for (const name of tls.subjectAlternativeNames ?? []) rememberHost(name);
+        }
+
         const deep = await runDeepReconOrchestrator({
           originUrl: `https://${request.targetDomain}/`,
+          observedAuthHosts,
           verifiedAuthorizationDecision: request.verifiedAuthorizationDecision,
           authorizedScopeGrant: request.authorizedScopeGrant,
           lineage: request.lineage,
@@ -2024,6 +2170,9 @@ export class CompositeActiveReconOrchestratorService {
           transport: probeTransport,
           dnsResolver: request.dnsResolver,
           timeoutMs: request.config?.timeoutMs,
+          ...(this.tools.jsLuiceTool ? { jsLuiceTool: this.tools.jsLuiceTool } : {}),
+          jsSurfaceExcludeUrls: jsSurfaceMinedUrls,
+          sourcemapExcludeUrls: sourcemapProbedUrls,
           onMethodStart: async (info) => {
             if (!request.onStageStart) return;
             try {
@@ -2038,6 +2187,20 @@ export class CompositeActiveReconOrchestratorService {
         });
 
         const knownDeepUrls = new Set(urls.map((u) => u.url));
+        for (const seed of deep.parameterSeeds) {
+          const exists = parameters.some(
+            (param) => param.url === seed.url && param.parameterName === seed.parameterName
+          );
+          if (exists) continue;
+          parameters.push({
+            url: seed.url,
+            method: 'GET',
+            parameterName: seed.parameterName,
+            discoveredAt: new Date().toISOString(),
+            freshness: 'live',
+            sourceReliability: 'direct_observation',
+          });
+        }
         for (const obs of deep.urlObservations) {
           if (knownDeepUrls.has(obs.url)) continue;
           knownDeepUrls.add(obs.url);
@@ -2045,6 +2208,17 @@ export class CompositeActiveReconOrchestratorService {
         }
         for (const hint of deep.serverActionHints) {
           serverActionHints.push(hint);
+        }
+        for (const fact of deep.observedFacts) {
+          if (!observedFacts.some((existing) => existing.factId === fact.factId)) {
+            observedFacts.push(fact);
+          }
+        }
+        for (const item of deep.schemaObservations) {
+          schemaObservations.push(item);
+        }
+        for (const text of deep.sourcemapTexts ?? []) {
+          if (text.length > 0) sourcemapTexts.push(text);
         }
         // Also mine OBSERVED Next-Action ids from Stage 3 HTML bodies (anon or auth).
         const seenActionKeys = new Set(
@@ -2205,6 +2379,15 @@ export class CompositeActiveReconOrchestratorService {
       spaObservations,
       ...(serverActionHints.length > 0
         ? { serverActionHints: Object.freeze([...serverActionHints]) }
+        : {}),
+      ...(observedFacts.length > 0
+        ? { observedFacts: Object.freeze([...observedFacts]) }
+        : {}),
+      ...(sourcemapTexts.length > 0
+        ? { sourcemapTexts: Object.freeze([...sourcemapTexts]) }
+        : {}),
+      ...(schemaObservations.length > 0
+        ? { schemaObservations: Object.freeze([...schemaObservations]) }
         : {}),
     };
 

@@ -23,6 +23,7 @@ import type {
 } from './CircuitBreakerContracts.js';
 import {
   DEFAULT_CIRCUIT_BREAKER_CONFIG,
+  TargetExecutionCancelledError,
   TargetInstabilityError
 } from './CircuitBreakerContracts.js';
 
@@ -60,6 +61,9 @@ export class TargetExecutionCoordinator {
   private readonly defaultCircuitConfig: TargetCircuitBreakerConfig;
   private readonly hostQuotas = new Map<string, TargetQuotaConfig>();
   private readonly hostStates = new Map<string, HostExecutionState>();
+  private cancelledAll = false;
+  private readonly cancelledHosts = new Set<string>();
+  private readonly observedWafIdentities = new Map<string, string>();
 
   constructor(defaultQuota?: Partial<TargetQuotaConfig>) {
     this.defaultQuota = {
@@ -83,6 +87,33 @@ export class TargetExecutionCoordinator {
         defaultQuota?.circuitBreakerConfig?.openCooldownMs ??
         DEFAULT_CIRCUIT_BREAKER_CONFIG.openCooldownMs
     };
+  }
+
+  /**
+   * F4.5 — pacing identity from a marker already captured on this host.
+   * An empty identity does not change the quota and does not launch a process.
+   */
+  public noteObservedWaf(host: string, wafIdentity: string): void {
+    const normalizedHost = host.toLowerCase().trim();
+    const identity = wafIdentity.trim();
+    if (normalizedHost.length === 0 || identity.length === 0) return;
+    this.observedWafIdentities.set(normalizedHost, identity);
+    const current = this.hostQuotas.get(normalizedHost) ?? this.defaultQuota;
+    const slowed = Math.min(current.requestsPerSecond, 2);
+    this.hostQuotas.set(normalizedHost, {
+      ...current,
+      requestsPerSecond: slowed,
+    });
+  }
+
+  public getObservedWaf(host: string): string | null {
+    return this.observedWafIdentities.get(host.toLowerCase().trim()) ?? null;
+  }
+
+  public getMaxConcurrency(host?: string): number {
+    if (host === undefined) return this.defaultQuota.maxConcurrency;
+    const quota = this.hostQuotas.get(host.toLowerCase().trim());
+    return (quota ?? this.defaultQuota).maxConcurrency;
   }
 
   public setHostQuota(host: string, config: TargetQuotaConfig): void {
@@ -201,6 +232,10 @@ export class TargetExecutionCoordinator {
     const config = this.getHostCircuitConfig(normalizedHost);
     const now = Date.now();
 
+    if (status === 429) {
+      return;
+    }
+
     const isFailure =
       status === 'timeout' ||
       status === 'error' ||
@@ -281,9 +316,101 @@ export class TargetExecutionCoordinator {
     };
   }
 
+  public isCancelled(host?: string): boolean {
+    if (this.cancelledAll) return true;
+    if (host === undefined) return false;
+    return this.cancelledHosts.has(host.toLowerCase().trim());
+  }
+
+  /**
+   * Stops queued work for one host, or for every host when omitted.
+   * In-flight tasks finish; the pacing loop does not start another attempt.
+   */
+  public cancel(host?: string): void {
+    if (host === undefined) {
+      this.cancelledAll = true;
+      for (const known of this.hostStates.keys()) {
+        this.rejectCancelledQueue(known);
+      }
+      return;
+    }
+    const normalizedHost = host.toLowerCase().trim();
+    this.cancelledHosts.add(normalizedHost);
+    this.rejectCancelledQueue(normalizedHost);
+  }
+
+  private rejectCancelledQueue(host: string): void {
+    const state = this.hostStates.get(host);
+    if (!state) return;
+    if (state.timer) {
+      clearTimeout(state.timer);
+      state.timer = null;
+    }
+    const rejectionError = new TargetExecutionCancelledError(host);
+    const drained = state.queue.splice(0, state.queue.length);
+    for (const item of drained) {
+      state.totalRejected++;
+      item.reject(rejectionError);
+    }
+  }
+
+  private holdPacingSlot(host: string): void {
+    const state = this.getOrCreateHostState(host.toLowerCase().trim());
+    state.lastDispatchTimeMs = Date.now();
+  }
+
+  /**
+   * Runs a status-bearing task through the existing per-host queue.
+   * HTTP 429 waits one pacing slot and retries. HTTP 5xx feeds the existing
+   * breaker. An open circuit or cancel stops the loop.
+   */
+  public async executeWithStatusPacing<T extends { readonly statusCode: number | null }>(
+    host: string,
+    task: () => Promise<T>,
+    options?: { readonly max429Retries?: number }
+  ): Promise<T> {
+    const normalizedHost = host.toLowerCase().trim();
+    const max429Retries = options?.max429Retries ?? 2;
+    let retriesUsed = 0;
+
+    for (;;) {
+      if (this.isCancelled(normalizedHost)) {
+        throw new TargetExecutionCancelledError(normalizedHost);
+      }
+      const value = await this.execute(normalizedHost, task);
+      if (this.isCancelled(normalizedHost)) {
+        throw new TargetExecutionCancelledError(normalizedHost);
+      }
+      if (value.statusCode === null) {
+        return value;
+      }
+      if (value.statusCode === 429 && retriesUsed < max429Retries) {
+        retriesUsed++;
+        this.holdPacingSlot(normalizedHost);
+        continue;
+      }
+      if (value.statusCode >= 500 && value.statusCode < 600) {
+        this.recordTargetResponse(normalizedHost, value.statusCode);
+        if (this.isCircuitOpen(normalizedHost)) {
+          throw new TargetInstabilityError(normalizedHost, 'OPEN');
+        }
+        return value;
+      }
+      if (value.statusCode !== 429) {
+        this.recordTargetResponse(normalizedHost, value.statusCode);
+      }
+      return value;
+    }
+  }
+
   public async execute<T>(host: string, task: () => Promise<T>): Promise<T> {
     const normalizedHost = host.toLowerCase().trim();
     const state = this.getOrCreateHostState(normalizedHost);
+
+    if (this.isCancelled(normalizedHost)) {
+      state.totalRejected++;
+      throw new TargetExecutionCancelledError(normalizedHost);
+    }
 
     // Circuit Breaker Gate: Reject immediately if circuit is OPEN
     if (this.isCircuitOpen(normalizedHost)) {
@@ -315,6 +442,11 @@ export class TargetExecutionCoordinator {
   private drainQueue(host: string): void {
     const state = this.hostStates.get(host);
     if (!state || state.queue.length === 0) {
+      return;
+    }
+
+    if (this.isCancelled(host)) {
+      this.rejectCancelledQueue(host);
       return;
     }
 
@@ -406,5 +538,7 @@ export class TargetExecutionCoordinator {
     }
     this.hostStates.clear();
     this.hostQuotas.clear();
+    this.cancelledAll = false;
+    this.cancelledHosts.clear();
   }
 }

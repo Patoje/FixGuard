@@ -299,12 +299,11 @@ async function runSmokeTests(): Promise<void> {
     'cors_chain_exploit',
     'auth_bypass_probe',
     'jwt_alg_none_probe',
-    'sql_error_oracle_probe',
     'parameter_reflection_probe',
     'nuclei_xss_scan',
   ];
 
-  assert.equal(satisfiedResult.plans.length, 7, `expected 7 plans, got ${satisfiedResult.plans.length}`);
+  assert.equal(satisfiedResult.plans.length, 6, `expected 6 plans, got ${satisfiedResult.plans.length}`);
   for (const capability of expectedCapabilities) {
     const plan = satisfiedResult.plans.find((p) => p.capability === capability);
     assert.ok(plan, `missing plan for ${capability}`);
@@ -321,8 +320,10 @@ async function runSmokeTests(): Promise<void> {
   assert.equal(bypass?.capabilityGained, 'read_authenticated');
   const jwt = satisfiedResult.plans.find((p) => p.capability === 'jwt_alg_none_probe');
   assert.equal(jwt?.capabilityGained, 'read_escalated');
-  const sql = satisfiedResult.plans.find((p) => p.capability === 'sql_error_oracle_probe');
-  assert.equal(sql?.capabilityGained, 'read_authenticated');
+  assert.equal(
+    satisfiedResult.plans.some((p) => p.capability === 'sql_error_oracle_probe'),
+    false
+  );
   const reflect = satisfiedResult.plans.find((p) => p.capability === 'parameter_reflection_probe');
   assert.equal(reflect?.capabilityGained, 'active_validation');
   const nucleiXss = satisfiedResult.plans.find((p) => p.capability === 'nuclei_xss_scan');
@@ -340,7 +341,7 @@ async function runSmokeTests(): Promise<void> {
     generatedAt: nowIso,
   });
 
-  assert.equal(missingResult.plans.length, 7, 'plans with missing prereqs must be retained');
+  assert.equal(missingResult.plans.length, 6, 'plans with missing prereqs must be retained');
   const idorMissing = missingResult.plans.find((p) => p.capability === 'idor_read_differential');
   assert.equal(idorMissing?.status, 'prerequisite_missing');
   const corsMissing = missingResult.plans.find((p) => p.capability === 'cors_chain_exploit');
@@ -350,10 +351,11 @@ async function runSmokeTests(): Promise<void> {
   const jwtMissing = missingResult.plans.find((p) => p.capability === 'jwt_alg_none_probe');
   assert.equal(jwtMissing?.status, 'prerequisite_missing');
 
-  // SQL + reflection + nuclei XSS only need parameters (present) → ready even without identities
+  // Reflection + nuclei XSS only need parameters (present) → ready even without identities.
+  // Observed SQL does not mint sql_error_oracle_probe.
   assert.equal(
-    missingResult.plans.find((p) => p.capability === 'sql_error_oracle_probe')?.status,
-    'ready_for_authorization'
+    missingResult.plans.some((p) => p.capability === 'sql_error_oracle_probe'),
+    false
   );
   assert.equal(
     missingResult.plans.find((p) => p.capability === 'parameter_reflection_probe')?.status,
@@ -401,7 +403,7 @@ async function runSmokeTests(): Promise<void> {
   await attackPlanRepository.savePlans(satisfiedResult.plans);
 
   const listed = await attackPlanRepository.listByAssessmentId(assessmentId);
-  assert.equal(listed.length, 7);
+  assert.equal(listed.length, 6);
 
   const repository = new InMemoryOrchestratedAssessmentRepository();
   const record: OrchestratedAssessmentRecord = {
@@ -427,8 +429,8 @@ async function runSmokeTests(): Promise<void> {
   });
   const apiResult = await service.getAttackPlans(assessmentId);
   assert.equal(apiResult.assessmentId, assessmentId);
-  assert.equal(apiResult.planCount, 7);
-  assert.equal(apiResult.plans.length, 7);
+  assert.equal(apiResult.planCount, 6);
+  assert.equal(apiResult.plans.length, 6);
   assert.ok(apiResult.plans.every((p) => p.executable === false));
   assert.equal(apiResult.lineage.assessmentId, assessmentId);
 
@@ -460,8 +462,8 @@ async function runSmokeTests(): Promise<void> {
   assert.equal(statusCode, 200);
   assert.ok(body && typeof body === 'object');
   const payload = body as { planCount: number; plans: unknown[] };
-  assert.equal(payload.planCount, 7);
-  assert.equal(payload.plans.length, 7);
+  assert.equal(payload.planCount, 6);
+  assert.equal(payload.plans.length, 6);
 
   console.log('✓ Test 4 Passed: Plans stored and retrievable via application/API path');
 
@@ -566,6 +568,129 @@ async function runSmokeTests(): Promise<void> {
   );
   assert.ok(supabasePlan, 'OBSERVED Supabase /auth/v1/user must emit auth investigation plan');
   console.log('✓ Test 5 Passed: Draft/surface investigation plans (honest; SPA shells skipped)');
+
+  // --- Test 5b: Account/order boundary → auth_boundary_differential with A+anon ---
+  const accountWithByot = generateAttackPlans({
+    assessmentId: 'asm_smoke_a3_acct',
+    scanId: 'scn_smoke_a3_acct',
+    findings: [],
+    identities: [
+      { identityId: 'id_a', hasJwt: false },
+      { identityId: 'id_b', hasJwt: false },
+    ],
+    lineage: {
+      ...lineage,
+      assessmentId: 'asm_smoke_a3_acct',
+      scanId: 'scn_smoke_a3_acct',
+    },
+    generatedAt: nowIso,
+    surfaceHints: [
+      {
+        endpointUrl: 'https://shop.example.com/sodimac-ar/myaccount',
+        path: '/sodimac-ar/myaccount',
+        signalKind: 'account_boundary',
+        resourceClass: 'api_or_protected',
+      },
+      {
+        endpointUrl: 'https://shop.example.com/sodimac-ar/OrderHistory',
+        path: '/sodimac-ar/OrderHistory',
+        signalKind: 'account_boundary',
+      },
+      {
+        endpointUrl: 'https://shop.example.com/login',
+        path: '/login',
+        signalKind: 'auth_surface',
+      },
+    ],
+  });
+  const acctPlans = accountWithByot.plans.filter(
+    (p) => p.capability === 'auth_boundary_differential'
+  );
+  assert.equal(acctPlans.length, 2, 'myaccount + OrderHistory must mint auth_boundary_differential');
+  assert.ok(
+    acctPlans.every((p) => p.status === 'ready_for_authorization'),
+    'Identity A (A+anon) must satisfy identity_present'
+  );
+  assert.ok(
+    acctPlans.every((p) =>
+      p.prerequisites.some((pr) => pr.kind === 'identity_present' && pr.satisfied)
+    ),
+    'auth_boundary_differential must require at least Identity A (anon is empty headers)'
+  );
+  assert.ok(
+    acctPlans.every((p) => p.executable === false && p.planOrigin === 'observed_surface'),
+    'account plans remain advisory observed_surface'
+  );
+  assert.equal(
+    accountWithByot.plans.find(
+      (p) => p.capability === 'auth_bypass_probe' && (p.targetUrl ?? '').includes('/login')
+    ),
+    undefined,
+    'SPA /login shell must still be skipped'
+  );
+
+  const accountWithSingle = generateAttackPlans({
+    assessmentId: 'asm_smoke_a3_acct_single',
+    scanId: 'scn_smoke_a3_acct_single',
+    findings: [],
+    identities: [{ identityId: 'id_a', hasJwt: false }],
+    lineage: {
+      ...lineage,
+      assessmentId: 'asm_smoke_a3_acct_single',
+      scanId: 'scn_smoke_a3_acct_single',
+    },
+    generatedAt: nowIso,
+    surfaceHints: [
+      {
+        endpointUrl: 'https://shop.example.com/myaccount',
+        path: '/myaccount',
+        signalKind: 'account_boundary',
+      },
+    ],
+  });
+  const singleAcct = accountWithSingle.plans.find(
+    (p) => p.capability === 'auth_boundary_differential'
+  );
+  assert.ok(singleAcct, 'account surface emits plan with single identity');
+  assert.equal(singleAcct!.status, 'ready_for_authorization');
+  assert.ok(
+    singleAcct!.prerequisites.some(
+      (pr) => pr.kind === 'identity_present' && pr.satisfied === true
+    ),
+    'single Identity A satisfies A+anon auth_boundary'
+  );
+
+  const accountWithoutByot = generateAttackPlans({
+    assessmentId: 'asm_smoke_a3_acct_nobyot',
+    scanId: 'scn_smoke_a3_acct_nobyot',
+    findings: [],
+    identities: [],
+    lineage: {
+      ...lineage,
+      assessmentId: 'asm_smoke_a3_acct_nobyot',
+      scanId: 'scn_smoke_a3_acct_nobyot',
+    },
+    generatedAt: nowIso,
+    surfaceHints: [
+      {
+        endpointUrl: 'https://shop.example.com/myaccount',
+        path: '/myaccount',
+        signalKind: 'account_boundary',
+      },
+    ],
+  });
+  const blockedAcct = accountWithoutByot.plans.find(
+    (p) => p.capability === 'auth_boundary_differential'
+  );
+  assert.ok(blockedAcct, 'account surface still emits plan when BYOT missing');
+  assert.equal(blockedAcct!.status, 'prerequisite_missing');
+  assert.ok(
+    blockedAcct!.prerequisites.some(
+      (pr) => pr.kind === 'identity_present' && pr.satisfied === false
+    ),
+    'zero identities must leave identity_present unsatisfied'
+  );
+  console.log('✓ Test 5b Passed: auth_boundary_differential + A+anon');
 
   // --- Test 6: Duplicate finding ids must not abort persistence (Teclaaa BYOT regression) ---
   const collidingAuthMeta = {

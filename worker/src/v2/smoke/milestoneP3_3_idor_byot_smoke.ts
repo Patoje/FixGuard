@@ -354,28 +354,17 @@ async function runTests(): Promise<void> {
   }
   const draftsResult = await service.getEvidenceDrafts(startRes.assessmentId);
   const idorDraft = draftsResult.drafts.find((d) => d.differentialContext?.detectionKind === 'idor_access_control');
-
   if (idorDraft) {
-    throw new Error('Test 4 Failed: idor_access_control must auto-promote — should not remain as pending draft');
+    throw new Error('Test 4 Failed: phase 1 must not emit an idor_access_control draft');
   }
 
   const summary = await service.getSummary(startRes.assessmentId);
-  const idorFinding = summary.findings.find((f: Finding) => f.type === 'BROKEN_ACCESS_CONTROL');
-
-  if (!idorFinding) {
-    throw new Error('Test 4 Failed: Expected auto-promoted BROKEN_ACCESS_CONTROL finding');
+  const idorFinding = summary.findings.find((f: Finding) => f.metadata?.kind === 'broken_access_control_metadata');
+  if (idorFinding) {
+    throw new Error('Test 4 Failed: phase 1 must not emit an IDOR finding without a later execute');
   }
 
-  if (idorFinding.metadata.kind !== 'broken_access_control_metadata') {
-    throw new Error(`Test 4 Failed: Expected broken_access_control_metadata, got ${idorFinding.metadata.kind}`);
-  }
-
-  console.log('✓ Test 4 Passed: IDOR confirmed differential auto-promoted to Finding');
-  if (idorFinding.severity !== 'high') {
-    throw new Error(`Test 4 Failed: Expected severity high, got ${idorFinding.severity}`);
-  }
-
-  console.log('  [PASS] Full pipeline auto-promoted IDOR differential to BROKEN_ACCESS_CONTROL finding.');
+  console.log('✓ Test 4 Passed: Phase 1 assessment does not auto-emit IDOR drafts or findings');
 
   console.log('[milestoneP3_3_idor_byot_smoke] ALL SMOKE TESTS PASSED (100%)');
 }

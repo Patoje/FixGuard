@@ -48,7 +48,7 @@ import { SECRET_DISCOVERY_NON_CLAIMS } from '../recon/adapters/SecretDiscoveryCo
 import { URL_DISCOVERY_NON_CLAIMS } from '../recon/adapters/UrlDiscoveryContracts.js';
 import { CONTENT_DISCOVERY_NON_CLAIMS } from '../recon/adapters/ContentDiscoveryContracts.js';
 import { PlaywrightSpaAdapter } from '../recon/adapters/PlaywrightSpaAdapter.js';
-import { CrtShAdapter } from '../recon/adapters/CrtShAdapter.js';
+import { CrtShAdapter, createFailClosedCtFetch } from '../recon/adapters/CrtShAdapter.js';
 import { LocalProcessRunner } from '../core/ProcessRunner.js';
 import { CompositeUrlDiscoveryAdapter } from '../recon/adapters/CompositeUrlDiscoveryAdapter.js';
 import { FfufAdapter } from '../recon/adapters/FfufAdapter.js';
@@ -70,38 +70,38 @@ import type {
   ProbeAuthContext,
 } from '../detection/DetectionContracts.js';
 import { DETECTION_CONTRACT_VERSION } from '../detection/DetectionContracts.js';
-import { runCorsMisconfigurationDetection } from '../detection/CorsMisconfigurationDetectionService.js';
-import { runParameterReflectionDetection } from '../detection/ParameterReflectionDetectionService.js';
-import { runMultiIdentityAuthzMatrix } from '../detection/MultiIdentityAuthzMatrixService.js';
 import { buildDetectionTargetsFromRecon } from '../detection/DetectionTargetBridge.js';
+import { acceptObservedFacts } from '../observation/ObservedFactCatalogService.js';
+import { buildProbeInventory } from '../investigation/ProbeInventory.js';
+import type { ProbeInventory } from '../investigation/ProbeInventoryContracts.js';
+import {
+  graphqlEndpointsFromRecon,
+  retainSourcemapDetectionResult,
+  runReadDetectionPass,
+} from '../investigation/ReadDetectionPass.js';
+import {
+  defaultDocumentCopyDirectory,
+  observeDownloadedDocument,
+} from '../observation/DocumentMetadataReader.js';
+import { observeAnonSessionGetDelta } from '../observation/AnonSessionGetDeltaObservation.js';
 import type { DetectionSuppressionRecord } from '../detection/DetectionTargetBridge.js';
-import { runSecurityHeaderDetection } from '../detection/SecurityHeaderDetectionService.js';
-import { runOpenRedirectDetection } from '../detection/OpenRedirectDetectionService.js';
-import { runInformationDisclosureDetection } from '../detection/InformationDisclosureDetectionService.js';
-import { runSubdomainTakeoverDetection } from '../detection/SubdomainTakeoverDetectionService.js';
 import { analyzeTlsConfiguration } from '../detection/TlsConfigurationAnalysisService.js';
-import { runAuthBypassDetection } from '../detection/AuthBypassDetectionService.js';
 import { runSourcemapExposureDetection } from '../detection/SourcemapExposureDetectionService.js';
 import { runWordPressSurfaceDetection } from '../detection/WordPressSurfaceDetectionService.js';
-import { runSqlErrorOracleDetection } from '../detection/SqlErrorOracleDetectionService.js';
-import { runGraphQLSurfaceDetection } from '../detection/GraphQLSurfaceDetectionService.js';
-import { runJwtAlgorithmConfusionDetection } from '../detection/JwtAlgorithmConfusionDetectionService.js';
 import { runPostgrestOpenApiEnum } from '../supabase/PostgrestOpenApiEnumService.js';
 import { POSTGREST_OPENAPI_ENUM_CONTRACT_VERSION } from '../supabase/PostgrestOpenApiEnumContracts.js';
-import { runSupabaseRlsAbuseDetection } from '../supabase/SupabaseRlsAbuseDetectionService.js';
-import { SUPABASE_RLS_ABUSE_DETECTION_CONTRACT_VERSION } from '../supabase/SupabaseRlsAbuseDetectionContracts.js';
-import { looksLikeSupabaseAnonKey, extractSupabaseAnonKeyFromText } from '../supabase/SupabaseCredentialMaterialContracts.js';
+import {
+  looksLikeSupabaseAnonKey,
+  extractSupabaseAnonKeyFromText,
+} from '../supabase/SupabaseCredentialMaterialContracts.js';
 import {
   classifySupabaseUrl,
   isSupabaseHost,
   buildSupabaseRestTableUrlSeeds,
   preferSupabaseRlsTableOrder,
 } from '../supabase/SupabaseSurfaceContracts.js';
-import { runSessionFixationDetection } from '../detection/SessionFixationDetectionService.js';
-import { runCredentialedCorsDetection } from '../detection/CredentialedCorsDetectionService.js';
 import { runCmsPluginVulnerabilityDetection } from '../detection/CmsPluginVulnerabilityDetectionService.js';
 import { runApiVersioningSprawlDetection } from '../detection/ApiVersioningSprawlDetectionService.js';
-import { runHttpMethodManipulationDetection } from '../detection/HttpMethodManipulationDetectionService.js';
 import {
   runDependencyConfusionDetection,
   extractPackageCandidatesFromManifest,
@@ -110,18 +110,6 @@ import {
   runManifestExposureDetection,
   STANDARD_MANIFEST_PATHS,
 } from '../detection/ManifestExposureDetectionService.js';
-import {
-  runParameterIntegrityDetection,
-  isResourceParameterCandidate,
-  INERT_PROBE_PATTERNS,
-} from '../detection/ParameterIntegrityDetectionService.js';
-import { runObjectMappingAnomalyDetection } from '../detection/ObjectMappingAnomalyDetectionService.js';
-import {
-  runStateTransitionAnomalyDetection,
-  isStateTransitionCandidateEndpoint,
-} from '../detection/StateTransitionAnomalyDetectionService.js';
-
-import { runBlindXssDetection } from '../detection/BlindXssDetectionService.js';
 import { correlateCorsIdorChains } from '../intelligence/correlation/CorsIdorChainCorrelator.js';
 import { correlateCrossFindingChains } from '../intelligence/correlation/CrossFindingChainCorrelator.js';
 
@@ -164,7 +152,6 @@ import { scanSourceFilesForSecrets } from '../sast/StaticSecretScanningService.j
 import { scanManifestsForVulnerabilities } from '../sast/DependencyVulnerabilityScanService.js';
 import { scanFilesForStaticRoutes } from '../sast/StaticRouteExtractionService.js';
 import { defaultOobCanaryManager } from '../oob/OobCanaryManager.js';
-import { runBlindSsrfDetection, isSsrfCandidateParameter } from '../detection/BlindSsrfDetectionService.js';
 import type { Finding } from '../core/Evidence.js';
 import type { VerificationState } from '../core/VerificationStateContracts.js';
 import { VerificationStateService } from '../core/VerificationStateService.js';
@@ -375,6 +362,7 @@ import type {
   EvaluateCredentialReuseCommand,
   EvaluateCredentialReuseHttpResult,
   GetAttackRecommendationsResult,
+  AttachSessionIdentityBResult,
 } from './OrchestratedAssessmentContracts.js';
 import { AttackRecommendationService } from '../attack-recommendation/AttackRecommendationService.js';
 import type {
@@ -384,11 +372,44 @@ import type {
 } from '../attack-recommendation/AttackOperatorRecommendationContracts.js';
 import { HypothesisSchedulerService } from '../hypothesis-scheduler/HypothesisSchedulerService.js';
 import type { DefenseObservation } from '../test-validity/TestValidityContracts.js';
-import { observeWafWithWafw00f } from '../test-validity/Wafw00fHostCache.js';
+import { TEST_VALIDITY_CONTRACT_VERSION } from '../test-validity/TestValidityContracts.js';
+import { factsFromCapturedRecon } from '../observation/CapturedHostFacts.js';
+import { probeNextRouteManifests } from '../recon/deep/NextRouteManifestProbe.js';
+import { lookupAuthorizedDomainRdap } from '../recon/adapters/RdapLookup.js';
+import { lookupPublishedHostIndex } from '../recon/adapters/PublishedIndexLookup.js';
+import { lookupAuthorizedSearchIndex } from '../recon/adapters/SearchIndexLookup.js';
 import { AttackCapabilityRegistry } from '../attack-execution/AttackCapabilityRegistry.js';
+import { AttackExecutionService } from '../attack-execution/AttackExecutionService.js';
+import { AttackAuthorizationService } from '../attack-authorization/AttackAuthorizationService.js';
+import type { AttackCapabilityIdentityRef } from '../attack-execution/AttackExecutionContracts.js';
+import {
+  buildAssessmentTranscript,
+  withheldPlansForTranscript,
+  type AssessmentTranscript,
+} from '../investigation/AssessmentTranscript.js';
+import { runReadInvestigationLoop } from '../investigation/ReadInvestigationLoop.js';
+import type { ReadInvestigationLoopRecord } from '../investigation/ReadInvestigationLoopContracts.js';
 import type { AttackPlan } from '../attack-planning/AttackPlanContracts.js';
+import type { PriorStepProduction } from '../attack-planning/AttackPlanDependencyService.js';
+import { proposeNextAdvisoryStep } from '../attack-planning/NextStepEngine.js';
+import {
+  proposeAuthBoundaryResourceRead,
+  proposeParameterFedProbe,
+  proposeServerActionRecommendation,
+  proposeSessionBDifferential,
+  proposeSupabaseReadThenWrite,
+} from '../attack-planning/F3ChainProposal.js';
+import type {
+  OperatorPlanView,
+  Phase1ReadLoopRecord,
+  Phase1ReadLoopView,
+} from './OrchestratedAssessmentContracts.js';
+import { observeGraphqlAuthDelta } from '../observation/GraphqlAuthDeltaObservation.js';
+import { LOCAL_PUBLIC_ADVISORIES, observePublicAdvisory } from '../observation/PublicAdvisoryObservation.js';
+import type { ObservedFact } from '../observation/ObservedFactContracts.js';
 import { ORCHESTRATED_ASSESSMENT_CONTRACT_VERSION } from './OrchestratedAssessmentContracts.js';
 import { validateAssessmentSeeds } from './AssessmentSeedValidation.js';
+import { filterSeedsByLiveness } from './AssessmentSeedLiveness.js';
 import type { AttackPlanCredentialReuseContext } from '../attack-planning/AttackPlanContracts.js';
 import {
   LateralMovementUnauthorizedError,
@@ -536,6 +557,25 @@ function buildAttackPlanIdentities(
   return identities;
 }
 
+function applicationUrlsFromInventory(inventory: ProbeInventory): readonly string[] {
+  const urls: string[] = [];
+  const seen = new Set<string>();
+  for (const entry of inventory.entries) {
+    let absolute: string;
+    try {
+      const parsed = new URL(entry.path, entry.origin);
+      parsed.hash = '';
+      absolute = parsed.toString();
+    } catch {
+      continue;
+    }
+    if (seen.has(absolute)) continue;
+    seen.add(absolute);
+    urls.push(absolute);
+  }
+  return urls;
+}
+
 function buildDraftSignals(
   drafts: readonly EnrichedEvidenceDraft[]
 ): readonly AttackPlanDraftSignal[] {
@@ -575,6 +615,9 @@ function buildDraftSignals(
 
 const AUTH_SURFACE_PATH_HINT_RE =
   /^\/(login|signin|sign-in|auth|authenticate|api\/auth|api\/login|session|oauth)(\/|$)/i;
+
+const ACCOUNT_BOUNDARY_PATH_HINT_RE =
+  /\/(myaccount|my-account|account|orderhistory|order-history|orders|addressbook|address-book|addressbookform)(\/|$)/i;
 
 /** Paths that are typically Next.js public HTML shells — not auth boundaries. */
 const SPA_HTML_SHELL_PATH_HINT_RE =
@@ -659,11 +702,12 @@ function buildSurfaceHintsFromProfile(
         ? ep.url
         : `https://${profile.targetHost}${path.startsWith('/') ? path : `/${path}`}`;
 
+    const looksAccount = ACCOUNT_BOUNDARY_PATH_HINT_RE.test(path);
     const looksAuth =
       AUTH_SURFACE_PATH_HINT_RE.test(path) ||
       /login|signin|auth|session|oauth|rest\/v1|supabase/i.test(path) ||
       /supabase\.co/i.test(endpointUrl);
-    if (!looksAuth) continue;
+    if (!looksAuth && !looksAccount) continue;
 
     const resourceClass = classifyProfileAuthSurface(path, endpointUrl);
     // Do not flood Attack Mode with SPA HTML shell auth_bypass noise.
@@ -674,7 +718,7 @@ function buildSurfaceHintsFromProfile(
     hints.push({
       endpointUrl,
       path,
-      signalKind: 'auth_surface',
+      signalKind: looksAccount ? 'account_boundary' : 'auth_surface',
       resourceClass,
     });
   }
@@ -688,6 +732,7 @@ function chainIdForPlan(planId: string): string {
 function objectiveForCapability(capability: AttackCapabilityKind): ChainObjectiveKind {
   switch (capability) {
     case 'idor_read_differential':
+    case 'auth_boundary_differential':
       return 'privilege_escalation';
     case 'cors_chain_exploit':
       return 'data_access';
@@ -718,6 +763,7 @@ function objectiveForCapability(capability: AttackCapabilityKind): ChainObjectiv
 function declaredImpactForCapability(capability: AttackCapabilityKind): ImpactLevel {
   switch (capability) {
     case 'idor_read_differential':
+    case 'auth_boundary_differential':
       return 'authorization_bypass';
     case 'supabase_rls_read_confirm':
     case 'supabase_rls_write_probe':
@@ -850,11 +896,7 @@ function createDefaultPassiveCtTool(
 ): SubdomainDiscoveryTool {
   const adapter = new CrtShAdapter({
     dnsResolver,
-    fetchApi: async () => {
-      throw new TypeError(
-        'Default composition CT transport is fail-closed; inject CrtShAdapter with live fetch for historical CT'
-      );
-    },
+    fetchApi: createFailClosedCtFetch(),
   });
   return {
     async discoverSubdomains(req) {
@@ -978,6 +1020,18 @@ function createGatedHttpWebTool(
             ? probe.bodyText.slice(0, WEB_OBSERVATION_BODY_CHUNK_MAX_BYTES)
             : probe.bodyText;
         const observedAt = new Date().toISOString();
+        const retained = observeDownloadedDocument({
+          downloaded: true,
+          url: rawTarget,
+          method: 'GET',
+          statusCode: probe.statusCode,
+          contentType: probe.headers['content-type'],
+          body: probe.bodyText,
+          scopeGrant: req.authorizedScopeGrant,
+          lineage: req.lineage,
+          observedAt,
+          directory: defaultDocumentCopyDirectory(),
+        });
 
         return {
           status: 'success' as const,
@@ -1001,6 +1055,7 @@ function createGatedHttpWebTool(
           explicitNonClaims: WEB_INSPECTION_NON_CLAIMS,
           lineage: req.lineage,
           durationMs: Date.now() - start,
+          ...(retained.fact ? { observedFacts: Object.freeze([retained.fact]) } : {}),
         };
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : String(err);
@@ -1162,6 +1217,52 @@ function createHermeticStubReconAdapters(
   };
 }
 
+function capabilityIdentityFromByot(identity: ByotIdentity): AttackCapabilityIdentityRef {
+  const material = byotIdentityToExecuteMaterial(identity);
+  const headers = material.headers;
+  return {
+    identityId: material.identityId,
+    ...(headers && Object.keys(headers).length > 0 ? { headers } : {}),
+  };
+}
+
+function graphqlOperationNameForUrl(
+  observations: AggregatedReconObservations,
+  graphqlUrl: string
+): string | null {
+  const match = (observations.schemaObservations ?? []).find(
+    (item) => item.surfaceKind === 'graphql_query_field' && item.sourceUrl === graphqlUrl
+  );
+  return match?.name ?? null;
+}
+
+function graphqlUrlFromObservations(observations: AggregatedReconObservations): string | null {
+  const candidates: string[] = [];
+  for (const item of observations.urls) candidates.push(item.url);
+  for (const item of observations.webObservations) candidates.push(item.url);
+  for (const item of observations.content) {
+    if (typeof item.url === 'string') candidates.push(item.url);
+  }
+  for (const candidate of candidates) {
+    try {
+      if (new URL(candidate).pathname.includes('/graphql')) return candidate;
+    } catch {
+      continue;
+    }
+  }
+  return null;
+}
+
+function productVersionFromTechFact(
+  value: string
+): { readonly product: string; readonly version: string } | null {
+  const matched = /^(.*?) v?(\d+\.\d+\.\d+)$/.exec(value.trim());
+  const product = matched?.[1]?.trim() ?? '';
+  const version = matched?.[2] ?? '';
+  if (product.length === 0 || version.length === 0) return null;
+  return { product, version };
+}
+
 const ALL_STAGE_NAMES: readonly ReconStageName[] = [
   'stage_1_domain_zone',
   'stage_2_port_service',
@@ -1182,6 +1283,7 @@ export class OrchestratedAssessmentApplicationService {
   private readonly dnsResolver: (host: string) => Promise<string[]>;
   private readonly availabilityService: ReconToolAvailabilityService;
   private readonly usingHermeticStubReconAdapters: boolean;
+  private readonly publishedLookupsEnabled: boolean;
   private readonly attackPlanRepository: AttackPlanRepository;
   private readonly attackPlanGenerator: AttackPlanGeneratorService;
   private readonly attackChainRepository: AttackChainRepository;
@@ -1233,6 +1335,8 @@ export class OrchestratedAssessmentApplicationService {
       deps.activeInvestigationRuntime ?? new ActiveInvestigationRuntimeService();
     this.usingHermeticStubReconAdapters =
       deps.reconAdapters === undefined && process.env.FIXGUARD_V2_HERMETIC_RECON === '1';
+    this.publishedLookupsEnabled =
+      deps.reconAdapters === undefined && process.env.FIXGUARD_V2_HERMETIC_RECON !== '1';
     this.reconAdapters =
       deps.reconAdapters ?? createDefaultReconAdapters(this.dnsResolver, this.httpTransport);
     this.heartbeatIntervalMs =
@@ -1724,6 +1828,58 @@ export class OrchestratedAssessmentApplicationService {
     return this.httpTransport;
   }
 
+  private async buildOperatorChainView(record: OrchestratedAssessmentRecord): Promise<{
+    readonly plans: readonly OperatorPlanView[];
+    readonly investigationId: string;
+    readonly investigationSnapshot?: ActiveInvestigationSnapshot;
+    readonly phase1ReadLoop?: Phase1ReadLoopView;
+    readonly identityBMissingPlanIds: readonly string[];
+  }> {
+    const plans = await this.attackPlanRepository.listByAssessmentId(record.assessmentId);
+    const investigationId = `inv_${record.assessmentId}`;
+    const investigationSnapshot = this.activeInvestigationRuntime.getSnapshot(investigationId);
+    const stored = record.phase1ReadLoop;
+    return {
+      plans: plans.map((plan) => ({
+        planId: plan.planId,
+        capability: plan.capability,
+        status: plan.status,
+        executable: plan.executable,
+        dependsOn: plan.dependsOn ?? [],
+        steps: plan.steps.map((step) => ({
+          stepId: step.stepId,
+          status: step.status,
+        })),
+      })),
+      investigationId,
+      ...(investigationSnapshot ? { investigationSnapshot } : {}),
+      ...(stored
+        ? {
+            phase1ReadLoop: {
+              status: stored.status,
+              reasonCode: stored.reasonCode,
+              steps: stored.steps.map((step) => ({
+                stepId: step.stepId,
+                capability: step.capability,
+                disposition: step.disposition,
+                reasonCode: step.reasonCode,
+              })),
+            },
+          }
+        : {}),
+      identityBMissingPlanIds: plans
+        .filter(
+          (plan) =>
+            plan.capability === 'idor_read_differential' &&
+            plan.prerequisites.some(
+              (prerequisite) =>
+                prerequisite.kind === 'identity_count_at_least_2' && prerequisite.satisfied === false
+            )
+        )
+        .map((plan) => plan.planId),
+    };
+  }
+
   /**
    * Returns the execution stage progress, timing metrics, and error counts.
    */
@@ -1740,6 +1896,8 @@ export class OrchestratedAssessmentApplicationService {
       );
     }
 
+    const chain = await this.buildOperatorChainView(record);
+
     return {
       assessmentId: record.assessmentId,
       scanId: record.scanId,
@@ -1751,6 +1909,13 @@ export class OrchestratedAssessmentApplicationService {
       warningCount: record.warningCount,
       lineage: record.lineage,
       pendingEvidenceDraftCount: record.pendingEvidenceDrafts?.length ?? 0,
+      plans: chain.plans,
+      investigationId: chain.investigationId,
+      ...(chain.investigationSnapshot
+        ? { investigationSnapshot: chain.investigationSnapshot }
+        : {}),
+      ...(chain.phase1ReadLoop ? { phase1ReadLoop: chain.phase1ReadLoop } : {}),
+      identityBMissingPlanIds: chain.identityBMissingPlanIds,
       alive: isAssessmentHeartbeatAlive(
         record.heartbeat?.lastHeartbeatAt,
         record.status,
@@ -1773,6 +1938,7 @@ export class OrchestratedAssessmentApplicationService {
         : {}),
       ...(record.error ? { error: record.error } : {}),
       ...(record.reasonCode ? { reasonCode: record.reasonCode } : {}),
+      ...(record.transcript ? { transcript: record.transcript } : {}),
     };
   }
 
@@ -1794,6 +1960,7 @@ export class OrchestratedAssessmentApplicationService {
     }
 
     const adversarial = await this.buildAdversarialReportContext(assessmentId);
+    const chain = await this.buildOperatorChainView(record);
 
     return {
       assessmentId: record.assessmentId,
@@ -1804,6 +1971,13 @@ export class OrchestratedAssessmentApplicationService {
       findings: record.findings,
       pendingEvidenceDrafts: record.pendingEvidenceDrafts ?? [],
       recommendations: record.recommendations,
+      plans: chain.plans,
+      investigationId: chain.investigationId,
+      ...(chain.investigationSnapshot
+        ? { investigationSnapshot: chain.investigationSnapshot }
+        : {}),
+      ...(chain.phase1ReadLoop ? { phase1ReadLoop: chain.phase1ReadLoop } : {}),
+      identityBMissingPlanIds: chain.identityBMissingPlanIds,
       ...(record.attackSurfaceGraph
         ? { attackSurfaceGraph: record.attackSurfaceGraph }
         : {}),
@@ -1813,11 +1987,13 @@ export class OrchestratedAssessmentApplicationService {
       credentialReferences: adversarial.credentialReferences,
       lineage: record.lineage,
       timing: record.timing,
+      observedFacts: record.observedFacts ?? [],
       ...(record.degradedCapabilities && record.degradedCapabilities.length > 0
         ? { degradedCapabilities: record.degradedCapabilities }
         : {}),
       ...(record.error ? { error: record.error } : {}),
       ...(record.reasonCode ? { reasonCode: record.reasonCode } : {}),
+      ...(record.transcript ? { transcript: record.transcript } : {}),
     };
   }
 
@@ -1925,6 +2101,8 @@ export class OrchestratedAssessmentApplicationService {
           'idor_read_differential',
           'cors_chain_exploit',
           'auth_bypass_probe',
+          'auth_boundary_differential',
+          'graphql_auth_delta',
           'jwt_alg_none_probe',
           'lfi_path_traversal',
           'sql_oracle_advancement',
@@ -1961,22 +2139,26 @@ export class OrchestratedAssessmentApplicationService {
       hasJwtIdentity: preconditions.hasJwtIdentity,
     });
 
-    // F3 — optional 1×/host wafw00f defense observation (fail-soft; never auto-execute).
+    // F4.5 — WAF pacing identity comes from markers already on the profile.
+    // A host without those markers does not launch wafw00f.
     let defenseObservations: readonly DefenseObservation[] | undefined;
-    try {
-      const wafEntry = await observeWafWithWafw00f({
-        host: record.targetDomain,
-        processRunner: new LocalProcessRunner(),
-        ...(process.env.FIXGUARD_WAFW00F_BIN
-          ? { binaryPath: process.env.FIXGUARD_WAFW00F_BIN }
-          : {}),
-        timeoutMs: 20_000,
-      });
-      if (wafEntry.status === 'observed') {
-        defenseObservations = wafEntry.defenses;
-      }
-    } catch {
-      // Fail-soft: missing wafw00f must not block recommendations.
+    const capturedWaf = record.profile?.discoveredHosts.find(
+      (host) => host.fqdn.toLowerCase() === record.targetDomain.toLowerCase()
+    )?.wafIdentity;
+    if (capturedWaf) {
+      defenseObservations = [
+        Object.freeze({
+          contractVersion: TEST_VALIDITY_CONTRACT_VERSION,
+          kind: 'defense_observation' as const,
+          observationId: `def_waf_${capturedWaf.replace(/[^a-z0-9]+/gi, '_').slice(0, 40)}`,
+          controlKind: 'waf' as const,
+          signalSource: 'header' as const,
+          reasonCode: `waf_marker_${capturedWaf.replace(/[^a-z0-9]+/gi, '_').slice(0, 40)}`,
+          observedAt: new Date().toISOString(),
+          targetHost: record.targetDomain,
+          evidenceSnippet: capturedWaf,
+        }),
+      ];
     }
 
     const service = new AttackRecommendationService();
@@ -2287,6 +2469,16 @@ export class OrchestratedAssessmentApplicationService {
       priorStepId = stepId;
     }
 
+    // Persist VerificationState updates from execution when findings were mutated in-process.
+    // AttackExecutionRecord itself is returned to the client (not a durable journal — M2).
+    if (executionRecord.updatedFindings.length > 0) {
+      const byId = new Map(executionRecord.updatedFindings.map((f) => [f.id, f]));
+      await this.repository.update(assessmentId, (prev) => ({
+        ...prev,
+        findings: prev.findings.map((f) => byId.get(f.id) ?? f),
+      }));
+    }
+
     return this.getAttackModeRefresh(assessmentId);
   }
 
@@ -2381,6 +2573,12 @@ export class OrchestratedAssessmentApplicationService {
       throw new UnauthorizedGatewayError(
         'Investigation assessment binding mismatch',
         'assessment_mismatch'
+      );
+    }
+    if (snapshot && operatorId !== snapshot.lineage.actorId) {
+      throw new UnauthorizedGatewayError(
+        'Operator is not the investigation actor',
+        'operator_mismatch'
       );
     }
 
@@ -2510,6 +2708,16 @@ export class OrchestratedAssessmentApplicationService {
     readonly requestCost?: number;
     readonly producedFactIds?: readonly string[];
     readonly recordedAt?: string;
+    readonly stepOutcome?:
+      | 'succeeded'
+      | 'refuted'
+      | 'failed'
+      | 'observed'
+      | 'interfered';
+    readonly outcomeReasonCode?: string;
+    readonly boundFinding?: import('../core/Evidence.js').Finding;
+    readonly targetHost?: string;
+    readonly evidenceId?: string;
   }): ReturnType<ActiveInvestigationRuntimeService['recordStepOutcome']> {
     return this.activeInvestigationRuntime.recordStepOutcome({
       contractVersion: ACTIVE_INVESTIGATION_CONTRACT_VERSION,
@@ -2519,6 +2727,11 @@ export class OrchestratedAssessmentApplicationService {
       ...(args.requestCost !== undefined ? { requestCost: args.requestCost } : {}),
       ...(args.producedFactIds ? { producedFactIds: args.producedFactIds } : {}),
       ...(args.recordedAt ? { recordedAt: args.recordedAt } : {}),
+      ...(args.stepOutcome ? { stepOutcome: args.stepOutcome } : {}),
+      ...(args.outcomeReasonCode ? { outcomeReasonCode: args.outcomeReasonCode } : {}),
+      ...(args.boundFinding ? { boundFinding: args.boundFinding } : {}),
+      ...(args.targetHost ? { targetHost: args.targetHost } : {}),
+      ...(args.evidenceId ? { evidenceId: args.evidenceId } : {}),
     });
   }
 
@@ -2544,6 +2757,82 @@ export class OrchestratedAssessmentApplicationService {
       return null;
     }
     return ephemeralByotSessionStore.getExecuteIdentities(assessmentId);
+  }
+
+  /**
+   * Attach session B for the same actor who started the assessment.
+   * Satisfies identity_count_at_least_2 on existing IDOR plans. Does not execute them.
+   * Header material stays in the process-local session store.
+   */
+  public async attachSessionIdentityB(args: {
+    readonly assessmentId: string;
+    readonly operatorId: string;
+    readonly identityB: ByotIdentity;
+  }): Promise<AttachSessionIdentityBResult> {
+    const { assessmentId, operatorId, identityB } = args;
+    if (!assessmentId || typeof assessmentId !== 'string' || !isStrictSafeId(assessmentId)) {
+      throw new ApiValidationError('Field assessmentId must satisfy strict identifier format');
+    }
+    if (!operatorId || typeof operatorId !== 'string' || !isStrictSafeId(operatorId)) {
+      throw new ApiValidationError('Field operatorId must satisfy strict identifier format');
+    }
+    if (!isStrictSafeId(identityB.identityId)) {
+      throw new ApiValidationError('Field identityB.identityId must satisfy strict identifier format');
+    }
+
+    const record = await this.repository.findById(assessmentId);
+    if (!record) {
+      throw new SessionNotFoundError(
+        `Orchestrated assessment '${assessmentId}' was not found`,
+        assessmentId
+      );
+    }
+    if (operatorId !== record.lineage.actorId) {
+      throw new UnauthorizedGatewayError(
+        'Operator is not the assessment actor',
+        'operator_mismatch'
+      );
+    }
+
+    const attached = ephemeralByotSessionStore.attachIdentityB(
+      assessmentId,
+      byotIdentityToExecuteMaterial(identityB)
+    );
+    if (!attached) {
+      throw new ApiValidationError('Session identity A is not registered for this assessment');
+    }
+
+    const plans = await this.attackPlanRepository.listByAssessmentId(assessmentId);
+    const updatedPlanIds: string[] = [];
+    for (const plan of plans) {
+      if (plan.capability !== 'idor_read_differential') continue;
+      const missingB = plan.prerequisites.some(
+        (prerequisite) =>
+          prerequisite.kind === 'identity_count_at_least_2' && prerequisite.satisfied === false
+      );
+      if (!missingB) continue;
+      const updated: AttackPlan = {
+        ...plan,
+        status: 'ready_for_authorization',
+        executable: false,
+        prerequisites: plan.prerequisites.map((prerequisite) =>
+          prerequisite.kind === 'identity_count_at_least_2'
+            ? { ...prerequisite, satisfied: true }
+            : prerequisite
+        ),
+        steps: plan.steps.map((step) =>
+          step.status === 'blocked' ? { ...step, status: 'ready' } : step
+        ),
+      };
+      await this.attackPlanRepository.replacePlan(updated);
+      updatedPlanIds.push(plan.planId);
+    }
+
+    return {
+      assessmentId,
+      identityCount: 2,
+      updatedPlanIds,
+    };
   }
 
   /**
@@ -3371,40 +3660,7 @@ export class OrchestratedAssessmentApplicationService {
           },
         };
       } else if (detKind === 'sourcemap_exposure') {
-        const exposedMapUrl = context?.exposedMapUrl ?? `https://${record.targetDomain}/bundle.js.map`;
-        const sourceJsUrl = context?.sourceJsUrl ?? `https://${record.targetDomain}/bundle.js`;
-        const sampleSourcesCount = context?.sampleSourcesCount;
-        const mapFileSizeBytes = context?.mapFileSizeBytes;
-        findingCreated = {
-          id: `fnd_smap_${draftId.replace(/^dft_/, '').replace(/^draft_/, '')}`,
-          type: 'INFORMATION_DISCLOSURE',
-          severity: 'medium',
-          title: `Approved Sourcemap Exposure on ${exposedMapUrl}`,
-          description: `Human operator verified that production JavaScript sourcemap is publicly exposed at '${exposedMapUrl}' (source: ${sourceJsUrl}). This exposes frontend source tree and internal API surface.`,
-          target: exposedMapUrl,
-          evidence: JSON.stringify({
-            draftId,
-            reviewerId,
-            reviewedAt,
-            notes,
-            differentialContext: context,
-          }),
-          confidence: 1.0,
-          verificationState: 'suspected_vulnerability',
-          metadata: {
-            kind: 'sourcemap_exposure_metadata',
-            category: 'INFORMATION_DISCLOSURE',
-            exposedMapUrl,
-            sourceJsUrl,
-            detectionSignal: 'sourcemapping_url_comment',
-            mapFileSizeBytes,
-            sampleSourcesCount,
-            observedAt: reviewedAt,
-            candidateId: `cnd_${draftId}`,
-            evidenceRecordId: `evd_${draftId}`,
-            lineage: `${record.assessmentId}:${record.scanId}:${reviewerId}:${reviewedAt}`,
-          },
-        };
+        // A reachable .map is an observation. Review must not mint a Finding.
       } else if (detKind === 'wordpress_surface') {
         const wpProbeKind = context?.wpProbeKind ?? 'xmlrpc_capabilities';
         const endpointUrl = context?.endpointUrl ?? `https://${record.targetDomain}/xmlrpc.php`;
@@ -4456,7 +4712,9 @@ export class OrchestratedAssessmentApplicationService {
         findingCreated = updatedFinding;
       }
 
-      const updatedFindings = [...record.findings, findingCreated!];
+      const updatedFindings = findingCreated
+        ? [...record.findings, findingCreated]
+        : [...record.findings];
       const chainCorrelation = correlateCorsIdorChains({
         assessmentId: record.assessmentId,
         scanId: record.scanId,
@@ -4732,6 +4990,162 @@ export class OrchestratedAssessmentApplicationService {
     }
   }
 
+  /**
+   * After recon succeeds and the first plan batch is saved, propose advisory
+   * children. Does not execute plans. The read-investigation loop is the
+   * automatic executor and runs after this returns.
+   */
+  private async runPhase1FollowUp(input: {
+    readonly record: OrchestratedAssessmentRecord;
+    readonly verifiedDecision: VerifiedAuthorizationDecision;
+    readonly scopeGrant: AuthorizedScopeGrant;
+    readonly lineage: AuthorizedActiveReconRequestLineage;
+    readonly sessionIdentities: ByotSessionIdentityBundle | undefined;
+    readonly coordinator: TargetExecutionCoordinator;
+    readonly savedPlans: readonly AttackPlan[];
+    readonly observedFacts: readonly ObservedFact[];
+    readonly observations: AggregatedReconObservations;
+  }): Promise<{
+    readonly facts: readonly ObservedFact[];
+  }> {
+    let facts = input.observedFacts;
+    const createdAt = new Date().toISOString();
+    const circuitOpen = input.coordinator.isCircuitOpen(input.record.targetDomain);
+    const surfacePlan = input.savedPlans.find((plan) => plan.planOrigin === 'observed_surface');
+
+    if (surfacePlan && input.savedPlans.length > 0 && facts.length > 0) {
+      const prior: PriorStepProduction = {
+        planId: surfacePlan.planId,
+        producedFactIds: facts.map((fact) => fact.factId),
+        capabilityGained: 'none',
+      };
+      const savedIds = new Set(input.savedPlans.map((plan) => plan.planId));
+      const followUpPlans: AttackPlan[] = [];
+      const remember = (plan: AttackPlan): void => {
+        if (savedIds.has(plan.planId)) return;
+        savedIds.add(plan.planId);
+        followUpPlans.push(plan);
+      };
+
+      const advisoryFact = facts.find(
+        (fact) => fact.factKind === 'anon_session_get_delta' || fact.factKind === 'schema_relation'
+      );
+      if (advisoryFact) {
+        const next = proposeNextAdvisoryStep({
+          prior,
+          fact: { factId: advisoryFact.factId, factKind: advisoryFact.factKind },
+          lineage: input.lineage,
+          createdAt,
+        });
+        if (next.status === 'emitted') remember(next.plan);
+      }
+
+      const identities = input.sessionIdentities?.identityA
+        ? [
+            { identityId: input.sessionIdentities.identityA.identityId },
+            ...(input.sessionIdentities.identityB
+              ? [{ identityId: input.sessionIdentities.identityB.identityId }]
+              : []),
+          ]
+        : [];
+
+      for (const fact of facts) {
+        const request = {
+          prior,
+          fact,
+          identities,
+          lineage: input.lineage,
+          createdAt,
+        };
+        if (input.sessionIdentities?.identityA) {
+          const authBoundary = proposeAuthBoundaryResourceRead(request);
+          if (authBoundary.status === 'emitted') remember(authBoundary.plan);
+        }
+        const parameterProbe = proposeParameterFedProbe(request);
+        if (parameterProbe.status === 'emitted') remember(parameterProbe.plan);
+        const supabase = proposeSupabaseReadThenWrite(request);
+        if (supabase.status === 'emitted') {
+          remember(supabase.readPlan);
+          if (
+            supabase.writeRecommendation.executable === false &&
+            supabase.writeRecommendation.status === 'prerequisite_missing'
+          ) {
+            remember(supabase.writeRecommendation);
+          }
+        }
+        const serverAction = proposeServerActionRecommendation(request);
+        if (serverAction.status === 'emitted') remember(serverAction.plan);
+        const sessionB = proposeSessionBDifferential(request);
+        if (sessionB.status === 'emitted') remember(sessionB.plan);
+      }
+
+      if (followUpPlans.length > 0) {
+        await this.attackPlanRepository.savePlans(followUpPlans);
+      }
+    }
+
+    if (!circuitOpen) {
+      const pacedTransport: IdorHttpProbeTransport = async (request) => {
+        let host = input.record.targetDomain;
+        try {
+          host = new URL(request.url).hostname;
+        } catch {
+          host = input.record.targetDomain;
+        }
+        return input.coordinator.executeWithStatusPacing(host, async () => {
+          const response = await this.httpTransport(request);
+          return { ...response, statusCode: response.statusCode };
+        });
+      };
+
+      const graphqlUrl = graphqlUrlFromObservations(input.observations);
+      const operationName = graphqlUrl ? graphqlOperationNameForUrl(input.observations, graphqlUrl) : null;
+      if (graphqlUrl && operationName && input.sessionIdentities?.identityA) {
+        const identityAContext = buildProbeAuthContext(input.sessionIdentities.identityA);
+        const identityB = input.sessionIdentities.identityB
+          ? buildProbeAuthContext(input.sessionIdentities.identityB)
+          : undefined;
+        const delta = await observeGraphqlAuthDelta({
+          endpointUrl: graphqlUrl,
+          operationName,
+          identityA: identityAContext,
+          ...(identityB ? { identityB } : {}),
+          verifiedAuthorizationDecision: input.verifiedDecision,
+          scopeGrant: input.scopeGrant,
+          lineage: input.lineage,
+          transport: pacedTransport,
+          dnsResolver: this.dnsResolver,
+          observedAt: createdAt,
+        });
+        if (delta.fact) {
+          facts = acceptObservedFacts([...facts, delta.fact]);
+        }
+      }
+    }
+
+    const versionFact = facts.find((fact) => fact.factKind === 'observed_tech_version');
+    if (versionFact) {
+      const parsed = productVersionFromTechFact(versionFact.value);
+      if (parsed) {
+        const advisory = observePublicAdvisory({
+          product: parsed.product,
+          version: parsed.version,
+          advisories: LOCAL_PUBLIC_ADVISORIES,
+          lineage: input.lineage,
+          sourceUrl: versionFact.sourceUrl,
+          observedAt: createdAt,
+        });
+        if (advisory) {
+          facts = acceptObservedFacts([...facts, advisory]);
+        }
+      }
+    }
+
+    return {
+      facts,
+    };
+  }
+
   private async executePipelineStages(
     record: OrchestratedAssessmentRecord,
     verifiedDecision: VerifiedAuthorizationDecision,
@@ -4754,10 +5168,6 @@ export class OrchestratedAssessmentApplicationService {
       ? buildProbeAuthContext(sessionIdentities.identityA)
       : buildAnonymousProbeContext('identity_anon_a');
 
-    const identityBContext = sessionIdentities?.identityB
-      ? buildProbeAuthContext(sessionIdentities.identityB)
-      : buildAnonymousProbeContext('identity_anon_b');
-
     const byotHarvestHeaders = (() => {
       if (sessionIdentities?.identityA) {
         const material = byotIdentityToExecuteMaterial(sessionIdentities.identityA);
@@ -4767,6 +5177,23 @@ export class OrchestratedAssessmentApplicationService {
       }
       return undefined;
     })();
+
+    // Phase D1 / W1 — seed liveness filter (authorized GET). Dead/soft-404 seeds
+    // drop from the planificable set; assessment continues with live seeds only.
+    let planificableSeedUrls = seedUrls;
+    if (seedUrls && seedUrls.length > 0) {
+      try {
+        const liveness = await filterSeedsByLiveness({
+          seedUrls,
+          transport: this.httpTransport,
+          timeoutMs: 4000,
+        });
+        planificableSeedUrls = liveness.liveSeedUrls;
+      } catch {
+        // Probe batch failure → fail-closed: do not plan from unvalidated seeds.
+        planificableSeedUrls = Object.freeze([]);
+      }
+    }
 
     // 1. M73 Composite Active Reconnaissance Orchestration
     const orchestrator = new CompositeActiveReconOrchestratorService(this.reconAdapters);
@@ -4778,11 +5205,15 @@ export class OrchestratedAssessmentApplicationService {
         config,
         coordinator,
         dnsResolver: this.dnsResolver,
-        ...(seedUrls && seedUrls.length > 0 ? { seedUrls } : {}),
+        probeTransport: this.httpTransport,
+        ...(planificableSeedUrls && planificableSeedUrls.length > 0
+          ? { seedUrls: planificableSeedUrls }
+          : {}),
         ...(degradedBinaries && degradedBinaries.length > 0
           ? { degradedBinaries }
           : {}),
         ...(byotHarvestHeaders ? { byotHarvestHeaders } : {}),
+        ...(config?.byotHarvestHttpOnly === true ? { byotHarvestHttpOnly: true } : {}),
         onStageStart: async (info) => {
           activityDeadline?.touch();
           heartbeat?.setHint({
@@ -4864,6 +5295,12 @@ export class OrchestratedAssessmentApplicationService {
         },
       });
 
+      let persistedObservedFacts = acceptObservedFacts(
+        reconResult.status === 'preflight_denied'
+          ? []
+          : (reconResult.aggregatedObservations.observedFacts ?? [])
+      );
+
       if (reconResult.status === 'preflight_denied') {
         await this.repository.update(record.assessmentId, (prev) => ({
           ...prev,
@@ -4879,6 +5316,17 @@ export class OrchestratedAssessmentApplicationService {
         }));
         return;
       }
+
+      const probeInventory = buildProbeInventory({
+        observations: reconResult.aggregatedObservations,
+        scopeGrant,
+        lineage,
+        evaluatedAt: new Date().toISOString(),
+      });
+      await this.repository.update(record.assessmentId, (prev) => ({
+        ...prev,
+        probeInventory,
+      }));
 
       if (reconResult.status === 'circuit_broken') {
         const rawObservations = [
@@ -4932,6 +5380,7 @@ export class OrchestratedAssessmentApplicationService {
           findings: [],
           recommendations: recommendationResult.recommendations,
           attackSurfaceGraph,
+          probeInventory,
           timing: {
             startedAt: prev.timing.startedAt,
             completedAt: new Date().toISOString(),
@@ -4942,6 +5391,16 @@ export class OrchestratedAssessmentApplicationService {
           ...(reconResult.degradedCapabilities && reconResult.degradedCapabilities.length > 0
             ? { degradedCapabilities: reconResult.degradedCapabilities }
             : {}),
+          ...(persistedObservedFacts.length > 0
+            ? { observedFacts: persistedObservedFacts }
+            : {}),
+          transcript: buildAssessmentTranscript({
+            discoveries: probeInventory,
+            findings: [],
+            executedSteps: [],
+            withheldPlans: withheldPlansForTranscript(attackPlanResult.plans),
+            stopReason: 'loop_not_run',
+          }),
         }));
         return;
       }
@@ -4965,10 +5424,17 @@ export class OrchestratedAssessmentApplicationService {
           },
         };
       });
+      const observedAt = new Date().toISOString();
       const detectionBridge = buildDetectionTargetsFromRecon({
         targetDomain: record.targetDomain,
         aggregatedObservations: reconResult.aggregatedObservations,
+        lineage,
+        observedAt,
       });
+      persistedObservedFacts = acceptObservedFacts([
+        ...persistedObservedFacts,
+        ...detectionBridge.observedFacts,
+      ]);
       const detectionSuppressions: DetectionSuppressionRecord[] = [...detectionBridge.suppressions];
       const targetUrl = `https://${record.targetDomain}/`;
       const surfaceProbeUrls =
@@ -4977,6 +5443,30 @@ export class OrchestratedAssessmentApplicationService {
           : [targetUrl];
       const findings: Finding[] = [];
       let pendingEvidenceDrafts: EnrichedEvidenceDraft[] = [];
+
+      const readDetection = await runReadDetectionPass({
+        probeInventory,
+        verifiedAuthorizationDecision: verifiedDecision,
+        scopeGrant,
+        lineage,
+        transport: this.httpTransport,
+        dnsResolver: this.dnsResolver,
+        coordinator,
+        circuitHost: record.targetDomain,
+        ...(sessionIdentities?.identityA
+          ? { identityA: buildProbeAuthContext(sessionIdentities.identityA) }
+          : {}),
+        ...(sessionIdentities?.identityB
+          ? { identityB: buildProbeAuthContext(sessionIdentities.identityB) }
+          : {}),
+        observedGraphqlUrls: graphqlEndpointsFromRecon(reconResult.aggregatedObservations),
+      });
+      for (const finding of readDetection.findings) {
+        findings.push(finding);
+      }
+      for (const draft of readDetection.pendingEvidenceDrafts) {
+        pendingEvidenceDrafts.push(draft);
+      }
 
       // Supabase / PostgREST RLS thin slice — once per assessment when candidates + OBSERVED anon key.
       const supabaseAnonKey =
@@ -5066,519 +5556,46 @@ export class OrchestratedAssessmentApplicationService {
               });
             }
 
-            const rlsResult = await runSupabaseRlsAbuseDetection({
-              contractVersion: SUPABASE_RLS_ABUSE_DETECTION_CONTRACT_VERSION,
-              kind: 'supabase_rls_abuse_detection_request',
-              detectionId: `det_sbrls_${record.assessmentId.slice(-8)}_${tableNames[0]!.slice(0, 8)}`,
-              assessmentId: lineage.assessmentId,
-              scanId: lineage.scanId,
-              authorizationGrantId: lineage.authorizationGrantId,
-              authorizationDecisionId: lineage.authorizationDecisionId,
-              actorId: lineage.actorId,
-              verifiedAuthorizationDecision: verifiedDecision,
-              scopeGrant,
-              restBaseUrl: sbCandidate.restBaseUrl,
-              anonApiKey: supabaseAnonKey,
-              tableNames,
-              authenticatedContext: identityAContext,
-              transport: this.httpTransport,
-              dnsResolver: this.dnsResolver,
-            });
-
-            if (rlsResult.status === 'pending_human_review' && rlsResult.evidenceDraft) {
-              const primaryObs = rlsResult.observations[0];
-              if (primaryObs) {
-                const enrichedDraft: EnrichedEvidenceDraft = {
-                  ...rlsResult.evidenceDraft,
-                  differentialContext: {
-                    endpointUrl: primaryObs.tableUrl,
-                    detectionKind: 'supabase_rls_abuse',
-                    baselineStatusCode: primaryObs.anonStatusCode,
-                    baselineBodyHash: primaryObs.anonBodyHash,
-                    validationStatusCode: primaryObs.authenticatedStatusCode,
-                    validationBodyHash: primaryObs.authenticatedBodyHash,
-                    supabaseTableName: primaryObs.tableName,
-                    supabaseClaimKind: primaryObs.claimKind,
-                    supabaseAnonEqualsAuth: primaryObs.anonEqualsAuth,
-                    supabaseTopLevelJsonKeys: primaryObs.topLevelJsonKeys,
-                    ...(primaryObs.rowCountHint !== null
-                      ? { supabaseRowCountHint: primaryObs.rowCountHint }
-                      : {}),
-                  },
-                };
-                pendingEvidenceDrafts.push(enrichedDraft);
-
-                // Additional OBSERVED tables as separate drafts (capped).
-                for (const obs of rlsResult.observations.slice(1, 5)) {
-                  pendingEvidenceDrafts.push({
-                    ...rlsResult.evidenceDraft,
-                    draftId: `${rlsResult.evidenceDraft.draftId}_${obs.tableName}`.slice(0, 64),
-                    safeRationale: `OBSERVED Supabase Data API table '${obs.tableName}' world-readable via anon role`,
-                    differentialContext: {
-                      endpointUrl: obs.tableUrl,
-                      detectionKind: 'supabase_rls_abuse',
-                      baselineStatusCode: obs.anonStatusCode,
-                      baselineBodyHash: obs.anonBodyHash,
-                      validationStatusCode: obs.authenticatedStatusCode,
-                      validationBodyHash: obs.authenticatedBodyHash,
-                      supabaseTableName: obs.tableName,
-                      supabaseClaimKind: obs.claimKind,
-                      supabaseAnonEqualsAuth: obs.anonEqualsAuth,
-                      supabaseTopLevelJsonKeys: obs.topLevelJsonKeys,
-                      ...(obs.rowCountHint !== null
-                        ? { supabaseRowCountHint: obs.rowCountHint }
-                        : {}),
-                    },
-                  });
-                }
-              }
-            } else if (rlsResult.status === 'vulnerability_detected' && rlsResult.finding) {
-              findings.push(rlsResult.finding);
-            }
           } catch {
             // Safe error containment
           }
         }
       }
 
-      for (const probeUrl of surfaceProbeUrls) {
-        if (coordinator.isCircuitOpen(record.targetDomain)) break;
-        try {
-          const pathKey = (() => {
-            try {
-              return new URL(probeUrl).pathname.replace(/[^a-zA-Z0-9]/g, '').slice(0, 12) || 'root';
-            } catch {
-              return 'root';
-            }
-          })();
-          const corsResult = await runCorsMisconfigurationDetection({
-            contractVersion: DETECTION_CONTRACT_VERSION,
-            kind: 'cors_misconfiguration_detection_request',
-            detectionId: `det_cors_${record.assessmentId.slice(-8)}_${pathKey}`,
-            assessmentId: lineage.assessmentId,
-            scanId: lineage.scanId,
-            authorizationGrantId: lineage.authorizationGrantId,
-            authorizationDecisionId: lineage.authorizationDecisionId,
-            actorId: lineage.actorId,
-            endpointUrl: probeUrl,
-            verifiedAuthorizationDecision: verifiedDecision,
-            scopeGrant,
-            coordinator,
-            transport: this.httpTransport,
-            dnsResolver: this.dnsResolver,
-          });
+      // F4.0 read detectors run in runReadDetectionPass above, before plan generation.
 
-          if (corsResult.status === 'vulnerability_detected' && corsResult.finding) {
-            findings.push(corsResult.finding);
-          } else if (corsResult.status === 'pending_human_review' && corsResult.evidenceDraft) {
-            const enrichedDraft: EnrichedEvidenceDraft = {
-              ...corsResult.evidenceDraft,
-              differentialContext: {
-                endpointUrl: probeUrl,
-                detectionKind: 'cors_misconfiguration',
-                baselineStatusCode: corsResult.baselineSnapshot?.statusCode,
-                baselineBodyHash: corsResult.baselineSnapshot?.bodyHash,
-                validationStatusCode: corsResult.validationSnapshot?.statusCode,
-                validationBodyHash: corsResult.validationSnapshot?.bodyHash,
-                reflectedOrigin: corsResult.reflectedOrigin,
-                allowCredentials: corsResult.allowCredentials,
-              },
-            };
-            pendingEvidenceDrafts.push(enrichedDraft);
-          }
-        } catch {
-          // Safe error containment
-        }
-      }
-
-      for (const probeUrl of surfaceProbeUrls) {
-        if (coordinator.isCircuitOpen(record.targetDomain)) break;
-        try {
-          const pathKey = (() => {
-            try {
-              return new URL(probeUrl).pathname.replace(/[^a-zA-Z0-9]/g, '').slice(0, 12) || 'root';
-            } catch {
-              return 'root';
-            }
-          })();
-          const reflectionResult = await runParameterReflectionDetection({
-            contractVersion: DETECTION_CONTRACT_VERSION,
-            kind: 'parameter_reflection_detection_request',
-            detectionId: `det_refl_${record.assessmentId.slice(-8)}_${pathKey}`,
-            assessmentId: lineage.assessmentId,
-            scanId: lineage.scanId,
-            authorizationGrantId: lineage.authorizationGrantId,
-            authorizationDecisionId: lineage.authorizationDecisionId,
-            actorId: lineage.actorId,
-            endpointUrl: probeUrl,
-            parameterName: 'q',
-            verifiedAuthorizationDecision: verifiedDecision,
-            scopeGrant,
-            coordinator,
-            transport: this.httpTransport,
-            dnsResolver: this.dnsResolver,
-          });
-
-          if (reflectionResult.status === 'vulnerability_detected' && reflectionResult.finding) {
-            findings.push(reflectionResult.finding);
-          } else if (reflectionResult.status === 'pending_human_review' && reflectionResult.evidenceDraft) {
-            const enrichedDraft: EnrichedEvidenceDraft = {
-              ...reflectionResult.evidenceDraft,
-              differentialContext: {
-                endpointUrl: probeUrl,
-                detectionKind: 'parameter_reflection',
-                baselineStatusCode: reflectionResult.baselineSnapshot?.statusCode,
-                baselineBodyHash: reflectionResult.baselineSnapshot?.bodyHash,
-                validationStatusCode: reflectionResult.validationSnapshot?.statusCode,
-                validationBodyHash: reflectionResult.validationSnapshot?.bodyHash,
-                parameterName: 'q',
-                reflectedCanary: reflectionResult.reflectedCanary,
-              },
-            };
-            pendingEvidenceDrafts.push(enrichedDraft);
-          }
-        } catch {
-          // Safe error containment
-        }
-      }
-
-      // Multi-Identity Differential IDOR Detection with BYOT (Milestone P3-3)
-      if (!coordinator.isCircuitOpen(record.targetDomain)) {
-        const candidateEndpoints: Array<{
-          endpointUrl: string;
-          resourceParamName: string;
-          baselineResourceId: string;
-        }> = detectionBridge.idorCandidates.map((c) => ({
-          endpointUrl: c.endpointUrl,
-          resourceParamName: c.resourceParamName,
-          baselineResourceId: c.baselineResourceId,
-        }));
-
-        // Legacy fallback only when zero OBSERVED app endpoints exist at all.
-        if (
-          candidateEndpoints.length === 0 &&
-          detectionBridge.appEndpoints.filter((e) => e.path !== '/').length === 0
-        ) {
-          candidateEndpoints.push({
-            endpointUrl: `https://${record.targetDomain}/api/user/1`,
-            resourceParamName: 'id',
-            baselineResourceId: '1',
-          });
-        } else if (candidateEndpoints.length === 0) {
-          detectionSuppressions.push({
-            detectorKind: 'idor_access_control',
-            reasonCode: 'idor_abstained_no_resource_candidates_with_observed_surface',
-            rationale:
-              'OBSERVED app endpoints present but no IDOR resource candidates; fabricated /api/user/1 suppressed',
-          });
-        }
-
-        for (const candidate of candidateEndpoints.slice(0, 3)) {
+      // F1.6 — anon vs session GET is an OBSERVED fact, not a Finding.
+      if (
+        sessionIdentities?.identityA &&
+        !coordinator.isCircuitOpen(record.targetDomain)
+      ) {
+        const sessionIdentity = buildProbeAuthContext(sessionIdentities.identityA);
+        const deltaTargets = detectionBridge.appEndpoints
+          .filter((endpoint) => endpoint.path !== '/' && endpoint.epistemicStatus === 'OBSERVED')
+          .slice(0, 2);
+        for (const endpoint of deltaTargets) {
           if (coordinator.isCircuitOpen(record.targetDomain)) break;
           try {
-            const matrixResult = await runMultiIdentityAuthzMatrix({
-              contractVersion: DETECTION_CONTRACT_VERSION,
-              detectionIdPrefix: `det_diff_${record.assessmentId.slice(-8)}_${candidate.resourceParamName.replace(/[^a-zA-Z0-9]/g, '')}`,
-              assessmentId: lineage.assessmentId,
-              scanId: lineage.scanId,
-              authorizationGrantId: lineage.authorizationGrantId,
-              authorizationDecisionId: lineage.authorizationDecisionId,
-              actorId: lineage.actorId,
-              endpointUrl: candidate.endpointUrl,
-              resourceParamName: candidate.resourceParamName,
-              baselineResourceId: candidate.baselineResourceId,
-              identityA: identityAContext,
-              identityB: identityBContext,
+            const pathKey = endpoint.path.replace(/[^a-zA-Z0-9]/g, '').slice(0, 24) || 'root';
+            const observed = await observeAnonSessionGetDelta({
+              detectionId: `obs_delta_${record.assessmentId.slice(-8)}_${pathKey}`,
+              endpointUrl: endpoint.url,
+              identityA: sessionIdentity,
               verifiedAuthorizationDecision: verifiedDecision,
               scopeGrant,
+              lineage,
               transport: this.httpTransport,
               dnsResolver: this.dnsResolver,
-              maxPairs: 3,
+              observedAt: new Date().toISOString(),
             });
-
-            for (const { pairKind, result: idorResult } of matrixResult.pairResults) {
-              if (idorResult.status === 'vulnerability_detected' && idorResult.finding) {
-                findings.push(idorResult.finding);
-              } else if (idorResult.status === 'pending_human_review' && idorResult.evidenceDraft) {
-                const enrichedDraft: EnrichedEvidenceDraft = {
-                  ...idorResult.evidenceDraft,
-                  differentialContext: {
-                    endpointUrl: candidate.endpointUrl,
-                    detectionKind: 'idor_access_control',
-                    baselineStatusCode: idorResult.baselineSnapshot?.statusCode,
-                    baselineBodyHash: idorResult.baselineSnapshot?.bodyHash,
-                    validationStatusCode: idorResult.validationSnapshot?.statusCode,
-                    validationBodyHash: idorResult.validationSnapshot?.bodyHash,
-                    resourceParamName: candidate.resourceParamName,
-                    baselineResourceId: candidate.baselineResourceId,
-                    authzMatrixPair: pairKind,
-                  },
-                };
-                pendingEvidenceDrafts.push(enrichedDraft);
-              } else if (idorResult.status === 'secure_target_abstained') {
-                detectionSuppressions.push({
-                  detectorKind: 'idor_access_control',
-                  reasonCode: idorResult.reasonCode,
-                  rationale: `IDOR abstained (${pairKind}): ${idorResult.reasonCode}`,
-                  url: candidate.endpointUrl,
-                });
-              }
+            if (observed.fact) {
+              persistedObservedFacts = acceptObservedFacts([
+                ...persistedObservedFacts,
+                observed.fact,
+              ]);
             }
           } catch {
-            // Safe error containment
-          }
-        }
-
-        // Authentication Bypass Detection with BYOT (Milestone P4-1)
-        if (!coordinator.isCircuitOpen(record.targetDomain) && sessionIdentities?.identityA) {
-          for (const candidate of candidateEndpoints.slice(0, 5)) {
-            if (coordinator.isCircuitOpen(record.targetDomain)) break;
-            try {
-              const abPathKey = (() => {
-                try {
-                  return (
-                    new URL(candidate.endpointUrl).pathname.replace(/[^a-zA-Z0-9]/g, '').slice(0, 16) ||
-                    'root'
-                  );
-                } catch {
-                  return 'root';
-                }
-              })();
-              const authBypassResult = await runAuthBypassDetection({
-                contractVersion: DETECTION_CONTRACT_VERSION,
-                kind: 'auth_bypass_detection_request',
-                // Must include endpoint path — resourceParamName alone collides across candidates
-                // (same "id" on /api/a and /api/b) and produced Duplicate planId on save.
-                detectionId: `det_ab_${record.assessmentId.slice(-8)}_${abPathKey}_${candidate.resourceParamName.replace(/[^a-zA-Z0-9]/g, '')}`,
-                assessmentId: lineage.assessmentId,
-                scanId: lineage.scanId,
-                authorizationGrantId: lineage.authorizationGrantId,
-                authorizationDecisionId: lineage.authorizationDecisionId,
-                actorId: lineage.actorId,
-                endpointUrl: candidate.endpointUrl,
-                method: 'GET',
-                identityA: identityAContext,
-                bypassMechanism: 'header_stripping',
-                verifiedAuthorizationDecision: verifiedDecision,
-                scopeGrant,
-                transport: this.httpTransport,
-                dnsResolver: this.dnsResolver,
-              });
-
-              if (authBypassResult.status === 'vulnerability_detected' && authBypassResult.finding) {
-                findings.push(authBypassResult.finding);
-              } else if (authBypassResult.status === 'pending_human_review' && authBypassResult.evidenceDraft) {
-                const enrichedDraft: EnrichedEvidenceDraft = {
-                  ...authBypassResult.evidenceDraft,
-                  differentialContext: {
-                    endpointUrl: candidate.endpointUrl,
-                    detectionKind: 'auth_bypass',
-                    baselineStatusCode: authBypassResult.baselineSnapshot?.statusCode,
-                    baselineBodyHash: authBypassResult.baselineSnapshot?.bodyHash,
-                    validationStatusCode: authBypassResult.validationSnapshot?.statusCode,
-                    validationBodyHash: authBypassResult.validationSnapshot?.bodyHash,
-                    bypassMechanism: 'header_stripping',
-                    bodySimilarityRatio: authBypassResult.similarityRatio ?? 1.0,
-                    httpMethod: 'GET',
-                  },
-                };
-                pendingEvidenceDrafts.push(enrichedDraft);
-              }
-            } catch {
-              // Safe error containment
-            }
-          }
-        }
-      }
-
-      for (const probeUrl of surfaceProbeUrls) {
-        if (coordinator.isCircuitOpen(record.targetDomain)) break;
-        try {
-          const pathKey = (() => {
-            try {
-              return new URL(probeUrl).pathname.replace(/[^a-zA-Z0-9]/g, '').slice(0, 12) || 'root';
-            } catch {
-              return 'root';
-            }
-          })();
-          const headerResult = await runSecurityHeaderDetection({
-            contractVersion: DETECTION_CONTRACT_VERSION,
-            kind: 'security_header_detection_request',
-            detectionId: `det_sh_${record.assessmentId.slice(-8)}_${pathKey}`,
-            assessmentId: lineage.assessmentId,
-            scanId: lineage.scanId,
-            authorizationGrantId: lineage.authorizationGrantId,
-            authorizationDecisionId: lineage.authorizationDecisionId,
-            actorId: lineage.actorId,
-            endpointUrl: probeUrl,
-            verifiedAuthorizationDecision: verifiedDecision,
-            scopeGrant,
-            coordinator,
-            transport: this.httpTransport,
-            dnsResolver: this.dnsResolver,
-          });
-
-          if (headerResult.status === 'potential_weakness' && headerResult.finding) {
-            findings.push(headerResult.finding);
-          } else if (headerResult.status === 'pending_human_review' && headerResult.evidenceDraft) {
-            const enrichedDraft: EnrichedEvidenceDraft = {
-              ...headerResult.evidenceDraft,
-              differentialContext: {
-                endpointUrl: probeUrl,
-                detectionKind: 'missing_security_headers',
-                missingHeaders: headerResult.missingHeaders,
-                presentHeaders: headerResult.presentHeaders,
-              },
-            };
-            pendingEvidenceDrafts.push(enrichedDraft);
-          }
-        } catch {
-          // Safe error containment
-        }
-      }
-
-      for (const probeUrl of surfaceProbeUrls) {
-        if (coordinator.isCircuitOpen(record.targetDomain)) break;
-        try {
-          const pathKey = (() => {
-            try {
-              return new URL(probeUrl).pathname.replace(/[^a-zA-Z0-9]/g, '').slice(0, 12) || 'root';
-            } catch {
-              return 'root';
-            }
-          })();
-          const redirectResult = await runOpenRedirectDetection({
-            contractVersion: DETECTION_CONTRACT_VERSION,
-            kind: 'open_redirect_detection_request',
-            detectionId: `det_redir_${record.assessmentId.slice(-8)}_${pathKey}`,
-            assessmentId: lineage.assessmentId,
-            scanId: lineage.scanId,
-            authorizationGrantId: lineage.authorizationGrantId,
-            authorizationDecisionId: lineage.authorizationDecisionId,
-            actorId: lineage.actorId,
-            endpointUrl: probeUrl,
-            verifiedAuthorizationDecision: verifiedDecision,
-            scopeGrant,
-            coordinator,
-            transport: this.httpTransport,
-            dnsResolver: this.dnsResolver,
-          });
-
-          if (redirectResult.status === 'exploit_confirmed' && redirectResult.finding) {
-            findings.push(redirectResult.finding);
-          } else if (redirectResult.status === 'pending_human_review' && redirectResult.evidenceDraft) {
-            const enrichedDraft: EnrichedEvidenceDraft = {
-              ...redirectResult.evidenceDraft,
-              differentialContext: {
-                endpointUrl: probeUrl,
-                detectionKind: 'open_redirect',
-                parameterName: redirectResult.parameterName,
-                injectedCanary: redirectResult.injectedCanary,
-                finalDestination: redirectResult.finalDestination,
-                redirectChain: redirectResult.redirectChain,
-              },
-            };
-            pendingEvidenceDrafts.push(enrichedDraft);
-          }
-        } catch {
-          // Safe error containment
-        }
-      }
-
-      for (const probeUrl of surfaceProbeUrls) {
-        if (coordinator.isCircuitOpen(record.targetDomain)) break;
-        try {
-          const pathKey = (() => {
-            try {
-              return new URL(probeUrl).pathname.replace(/[^a-zA-Z0-9]/g, '').slice(0, 12) || 'root';
-            } catch {
-              return 'root';
-            }
-          })();
-          const infoDiscResult = await runInformationDisclosureDetection({
-            contractVersion: DETECTION_CONTRACT_VERSION,
-            kind: 'information_disclosure_detection_request',
-            detectionId: `det_infodisc_${record.assessmentId.slice(-8)}_${pathKey}`,
-            assessmentId: lineage.assessmentId,
-            scanId: lineage.scanId,
-            authorizationGrantId: lineage.authorizationGrantId,
-            authorizationDecisionId: lineage.authorizationDecisionId,
-            actorId: lineage.actorId,
-            endpointUrl: probeUrl,
-            verifiedAuthorizationDecision: verifiedDecision,
-            scopeGrant,
-            coordinator,
-            transport: this.httpTransport,
-            dnsResolver: this.dnsResolver,
-          });
-
-          if (infoDiscResult.status === 'potential_weakness' && infoDiscResult.finding) {
-            findings.push(infoDiscResult.finding);
-          } else if (infoDiscResult.status === 'pending_human_review' && infoDiscResult.evidenceDraft) {
-            const primaryDisc = infoDiscResult.disclosures[0];
-            const enrichedDraft: EnrichedEvidenceDraft = {
-              ...infoDiscResult.evidenceDraft,
-              differentialContext: {
-                endpointUrl: probeUrl,
-                detectionKind: 'information_disclosure',
-                disclosureKind: primaryDisc?.disclosureKind,
-                disclosedFragment: primaryDisc?.disclosedFragment,
-                trigger: primaryDisc?.trigger,
-              },
-            };
-            pendingEvidenceDrafts.push(enrichedDraft);
-          }
-        } catch {
-          // Safe error containment
-        }
-      }
-
-      // Subdomain Takeover Detection (Milestone P2-4)
-      const cnameRecords = reconResult.aggregatedObservations.dnsRecords.filter(
-        (r) => r.recordType === 'CNAME'
-      );
-
-      for (const cnameRec of cnameRecords) {
-        if (coordinator.isCircuitOpen(record.targetDomain)) break;
-        for (const cnameTarget of cnameRec.values) {
-          if (coordinator.isCircuitOpen(record.targetDomain)) break;
-          try {
-            const takeoverResult = await runSubdomainTakeoverDetection({
-              contractVersion: DETECTION_CONTRACT_VERSION,
-              kind: 'subdomain_takeover_detection_request',
-              detectionId: `det_takeover_${record.assessmentId.slice(-8)}_${cnameRec.domain.replace(/[^a-zA-Z0-9]/g, '').slice(0, 8)}`,
-              assessmentId: lineage.assessmentId,
-              scanId: lineage.scanId,
-              authorizationGrantId: lineage.authorizationGrantId,
-              authorizationDecisionId: lineage.authorizationDecisionId,
-              actorId: lineage.actorId,
-              subdomain: cnameRec.domain,
-              cnameTarget,
-              verifiedAuthorizationDecision: verifiedDecision,
-              scopeGrant,
-              coordinator,
-              transport: this.httpTransport,
-              dnsResolver: this.dnsResolver,
-            });
-
-            if (takeoverResult.status === 'vulnerability_detected' && takeoverResult.finding) {
-              findings.push(takeoverResult.finding);
-            } else if (takeoverResult.status === 'pending_human_review' && takeoverResult.evidenceDraft) {
-              const enrichedDraft: EnrichedEvidenceDraft = {
-                ...takeoverResult.evidenceDraft,
-                differentialContext: {
-                  endpointUrl: `https://${cnameRec.domain}`,
-                  detectionKind: 'subdomain_takeover',
-                  subdomain: cnameRec.domain,
-                  cnameTarget,
-                  hostingProvider: takeoverResult.hostingProvider,
-                  fingerprintMatch: takeoverResult.fingerprintMatch,
-                },
-              };
-              pendingEvidenceDrafts.push(enrichedDraft);
-            }
-          } catch {
-            // Safe error containment
+            // Observation failure must not invent a finding.
           }
         }
       }
@@ -5657,7 +5674,7 @@ export class OrchestratedAssessmentApplicationService {
         for (const jsUrl of candidateList) {
           if (coordinator.isCircuitOpen(record.targetDomain)) break;
           try {
-            const smapResult = await runSourcemapExposureDetection({
+            const sourcemapResult = await runSourcemapExposureDetection({
               contractVersion: DETECTION_CONTRACT_VERSION,
               kind: 'sourcemap_exposure_detection_request',
               detectionId: `det_smap_${record.assessmentId.slice(-8)}_${jsUrl.replace(/[^a-zA-Z0-9]/g, '').slice(-8)}`,
@@ -5672,23 +5689,14 @@ export class OrchestratedAssessmentApplicationService {
               transport: this.httpTransport,
               dnsResolver: this.dnsResolver,
             });
-
-            if (smapResult.status === 'potential_weakness' && smapResult.finding) {
-              findings.push(smapResult.finding);
-            } else if (smapResult.status === 'pending_human_review' && smapResult.evidenceDraft) {
-              const enrichedDraft: EnrichedEvidenceDraft = {
-                ...smapResult.evidenceDraft,
-                differentialContext: {
-                  endpointUrl: smapResult.exposedMapUrl ?? jsUrl,
-                  detectionKind: 'sourcemap_exposure',
-                  exposedMapUrl: smapResult.exposedMapUrl,
-                  sourceJsUrl: smapResult.sourceJsUrl,
-                  sampleSourcesCount: smapResult.sampleSourcesCount,
-                  mapFileSizeBytes: smapResult.mapFileSizeBytes,
-                },
-              };
-              pendingEvidenceDrafts.push(enrichedDraft);
+            const retainedSourcemap = retainSourcemapDetectionResult(sourcemapResult);
+            for (const finding of retainedSourcemap.findings) {
+              findings.push(finding);
             }
+            for (const draft of retainedSourcemap.pendingEvidenceDrafts) {
+              pendingEvidenceDrafts.push(draft);
+            }
+
           } catch {
             // Safe error containment
           }
@@ -5748,178 +5756,6 @@ export class OrchestratedAssessmentApplicationService {
         }
       }
 
-      // SQL Error Oracle Detection (Milestone P4-5)
-      if (!coordinator.isCircuitOpen(record.targetDomain)) {
-        const sqlCandidates: { endpointUrl: string; parameterName: string; method?: 'GET' | 'POST' }[] = [];
-
-        if (reconResult?.aggregatedObservations?.parameters) {
-          for (const paramObs of reconResult.aggregatedObservations.parameters) {
-            sqlCandidates.push({
-              endpointUrl: paramObs.url,
-              parameterName: paramObs.parameterName,
-              method: 'GET',
-            });
-          }
-        }
-
-        if (reconResult?.aggregatedObservations?.urls) {
-          for (const urlObs of reconResult.aggregatedObservations.urls) {
-            try {
-              const parsed = new URL(urlObs.url);
-              for (const [key] of parsed.searchParams.entries()) {
-                if (!sqlCandidates.some((c) => c.endpointUrl === urlObs.url && c.parameterName === key)) {
-                  sqlCandidates.push({
-                    endpointUrl: urlObs.url,
-                    parameterName: key,
-                    method: 'GET',
-                  });
-                }
-              }
-            } catch {
-              // Ignore invalid URLs
-            }
-          }
-        }
-
-        if (sqlCandidates.length === 0) {
-          sqlCandidates.push({ endpointUrl: targetUrl, parameterName: 'id', method: 'GET' });
-          sqlCandidates.push({ endpointUrl: targetUrl, parameterName: 'q', method: 'GET' });
-        }
-
-        for (const candidate of sqlCandidates.slice(0, 5)) {
-          if (coordinator.isCircuitOpen(record.targetDomain)) break;
-          try {
-            const sqlResult = await runSqlErrorOracleDetection({
-              contractVersion: DETECTION_CONTRACT_VERSION,
-              kind: 'sql_error_oracle_detection_request',
-              detectionId: `det_sqlo_${record.assessmentId.slice(-8)}_${candidate.parameterName.replace(/[^a-zA-Z0-9]/g, '')}`,
-              assessmentId: lineage.assessmentId,
-              scanId: lineage.scanId,
-              authorizationGrantId: lineage.authorizationGrantId,
-              authorizationDecisionId: lineage.authorizationDecisionId,
-              actorId: lineage.actorId,
-              endpointUrl: candidate.endpointUrl,
-              parameterName: candidate.parameterName,
-              method: candidate.method,
-              verifiedAuthorizationDecision: verifiedDecision,
-              scopeGrant,
-              transport: this.httpTransport,
-              dnsResolver: this.dnsResolver,
-            });
-
-            if (
-              (sqlResult.status === 'potential_weakness' || sqlResult.status === 'information_disclosure') &&
-              sqlResult.finding
-            ) {
-              findings.push(sqlResult.finding);
-            } else if (sqlResult.status === 'pending_human_review' && sqlResult.evidenceDraft) {
-              const enrichedDraft: EnrichedEvidenceDraft = {
-                ...sqlResult.evidenceDraft,
-                differentialContext: {
-                  endpointUrl: sqlResult.endpointUrl,
-                  detectionKind: 'sql_error_oracle',
-                  parameterName: sqlResult.parameterName,
-                  databaseEngine: sqlResult.databaseEngine,
-                  sqlErrorFragment: sqlResult.errorFragment,
-                  injectedProbe: sqlResult.injectedProbe,
-                },
-              };
-              pendingEvidenceDrafts.push(enrichedDraft);
-            }
-          } catch {
-            // Safe error containment
-          }
-        }
-
-        // GraphQL Surface Detection Probe
-        if (!coordinator.isCircuitOpen(record.targetDomain)) {
-          try {
-            const gqlResult = await runGraphQLSurfaceDetection({
-              contractVersion: DETECTION_CONTRACT_VERSION,
-              kind: 'graphql_surface_detection_request',
-              detectionId: `det_gql_${record.assessmentId.slice(-8)}`,
-              assessmentId: lineage.assessmentId,
-              scanId: lineage.scanId,
-              authorizationGrantId: lineage.authorizationGrantId,
-              authorizationDecisionId: lineage.authorizationDecisionId,
-              actorId: lineage.actorId,
-              endpointUrl: targetUrl,
-              verifiedAuthorizationDecision: verifiedDecision,
-              scopeGrant,
-              transport: this.httpTransport,
-              dnsResolver: this.dnsResolver,
-            });
-
-            if (
-              (gqlResult.status === 'graphql_surface_detected' ||
-                gqlResult.status === 'information_disclosure' ||
-                gqlResult.status === 'security_misconfiguration') &&
-              gqlResult.finding
-            ) {
-              findings.push(gqlResult.finding);
-            } else if (gqlResult.status === 'pending_human_review' && gqlResult.evidenceDraft) {
-              const enrichedDraft: EnrichedEvidenceDraft = {
-                ...gqlResult.evidenceDraft,
-                differentialContext: {
-                  endpointUrl: gqlResult.endpointUrl,
-                  detectionKind: 'graphql_surface',
-                  introspectionEnabled: gqlResult.introspectionEnabled,
-                  batchingEnabled: gqlResult.batchingEnabled,
-                  fieldSuggestionsEnabled: gqlResult.fieldSuggestionsEnabled,
-                  discoveredRootTypes: gqlResult.discoveredRootTypes,
-                  suggestionLeak: gqlResult.suggestionLeak,
-                },
-              };
-              pendingEvidenceDrafts.push(enrichedDraft);
-            }
-          } catch {
-            // Safe error containment
-          }
-        }
-
-        // JWT Algorithm Confusion Probe
-        if (!coordinator.isCircuitOpen(record.targetDomain) && identityAContext) {
-          try {
-            const jwtResult = await runJwtAlgorithmConfusionDetection({
-              contractVersion: DETECTION_CONTRACT_VERSION,
-              kind: 'jwt_algorithm_confusion_detection_request',
-              detectionId: `det_jwt_${record.assessmentId.slice(-8)}`,
-              assessmentId: lineage.assessmentId,
-              scanId: lineage.scanId,
-              authorizationGrantId: lineage.authorizationGrantId,
-              authorizationDecisionId: lineage.authorizationDecisionId,
-              actorId: lineage.actorId,
-              endpointUrl: targetUrl,
-              httpMethod: 'GET',
-              identityAContext,
-              verifiedAuthorizationDecision: verifiedDecision,
-              scopeGrant,
-              transport: this.httpTransport,
-              dnsResolver: this.dnsResolver,
-            });
-
-            if (jwtResult.status === 'vulnerability_detected' && jwtResult.finding) {
-              findings.push(jwtResult.finding);
-            } else if (jwtResult.status === 'pending_human_review' && jwtResult.evidenceDraft) {
-              const enrichedDraft: EnrichedEvidenceDraft = {
-                ...jwtResult.evidenceDraft,
-                differentialContext: {
-                  endpointUrl: jwtResult.endpointUrl,
-                  detectionKind: 'jwt_algorithm_confusion',
-                  httpMethod: jwtResult.httpMethod,
-                  originalAlgorithm: jwtResult.originalAlgorithm,
-                  manipulatedAlgorithm: jwtResult.manipulatedAlgorithm,
-                  jwtProbeMechanism: jwtResult.probeMechanism,
-                  baselineStatusCode: jwtResult.baselineStatusCode,
-                  validationStatusCode: jwtResult.forgedStatusCode,
-                },
-              };
-              pendingEvidenceDrafts.push(enrichedDraft);
-            }
-          } catch {
-            // Safe error containment
-          }
-        }
 
         // Session Fixation Detection Probe (tech-gated: suppress PHPSESSID on Next.js / non-PHP SPA)
         if (!coordinator.isCircuitOpen(record.targetDomain)) {
@@ -5930,102 +5766,10 @@ export class OrchestratedAssessmentApplicationService {
               rationale: detectionBridge.phpSessionFixationGate.rationale,
               url: surfaceProbeUrls[0] ?? targetUrl,
             });
-          } else {
-            for (const probeUrl of surfaceProbeUrls.slice(0, 3)) {
-              if (coordinator.isCircuitOpen(record.targetDomain)) break;
-              try {
-                const pathKey = (() => {
-                  try {
-                    return new URL(probeUrl).pathname.replace(/[^a-zA-Z0-9]/g, '').slice(0, 12) || 'root';
-                  } catch {
-                    return 'root';
-                  }
-                })();
-                const fixResult = await runSessionFixationDetection({
-                  contractVersion: DETECTION_CONTRACT_VERSION,
-                  kind: 'session_fixation_detection_request',
-                  detectionId: `det_fix_${record.assessmentId.slice(-8)}_${pathKey}`,
-                  assessmentId: lineage.assessmentId,
-                  scanId: lineage.scanId,
-                  authorizationGrantId: lineage.authorizationGrantId,
-                  authorizationDecisionId: lineage.authorizationDecisionId,
-                  actorId: lineage.actorId,
-                  endpointUrl: probeUrl,
-                  httpMethod: 'GET',
-                  verifiedAuthorizationDecision: verifiedDecision,
-                  scopeGrant,
-                  transport: this.httpTransport,
-                  dnsResolver: this.dnsResolver,
-                });
-
-                if (fixResult.status === 'vulnerability_detected' && fixResult.finding) {
-                  findings.push(fixResult.finding);
-                } else if (fixResult.status === 'pending_human_review' && fixResult.evidenceDraft) {
-                  const enrichedDraft: EnrichedEvidenceDraft = {
-                    ...fixResult.evidenceDraft,
-                    differentialContext: {
-                      endpointUrl: fixResult.endpointUrl,
-                      detectionKind: 'session_fixation',
-                      httpMethod: fixResult.httpMethod,
-                      sessionCookieName: fixResult.sessionCookieName,
-                      fixedSessionId: fixResult.fixedSessionId,
-                      serverRegeneratedSession: fixResult.serverRegeneratedSession,
-                      baselineStatusCode: fixResult.responseStatusCode,
-                    },
-                  };
-                  pendingEvidenceDrafts.push(enrichedDraft);
-                }
-              } catch {
-                // Safe error containment
-              }
-            }
           }
         }
 
-        // Credentialed CORS Detection Probe
-        if (!coordinator.isCircuitOpen(record.targetDomain)) {
-          try {
-            const corsResult = await runCredentialedCorsDetection({
-              contractVersion: DETECTION_CONTRACT_VERSION,
-              kind: 'credentialed_cors_detection_request',
-              detectionId: `det_cors_${record.assessmentId.slice(-8)}`,
-              assessmentId: lineage.assessmentId,
-              scanId: lineage.scanId,
-              authorizationGrantId: lineage.authorizationGrantId,
-              authorizationDecisionId: lineage.authorizationDecisionId,
-              actorId: lineage.actorId,
-              endpointUrl: targetUrl,
-              httpMethod: 'GET',
-              suppliedOrigin: 'https://canary.fixguard.internal',
-              identityAContext,
-              verifiedAuthorizationDecision: verifiedDecision,
-              scopeGrant,
-              transport: this.httpTransport,
-              dnsResolver: this.dnsResolver,
-            });
 
-            if (corsResult.status === 'vulnerability_detected' && corsResult.finding) {
-              findings.push(corsResult.finding);
-            } else if (corsResult.status === 'pending_human_review' && corsResult.evidenceDraft) {
-              const enrichedDraft: EnrichedEvidenceDraft = {
-                ...corsResult.evidenceDraft,
-                differentialContext: {
-                  endpointUrl: corsResult.endpointUrl,
-                  detectionKind: 'credentialed_cors',
-                  httpMethod: corsResult.httpMethod,
-                  suppliedOrigin: corsResult.suppliedOrigin,
-                  reflectedOrigin: corsResult.reflectedOrigin,
-                  allowCredentialsHeader: corsResult.allowCredentialsHeader,
-                  acaoHeader: corsResult.acaoHeader,
-                  baselineStatusCode: corsResult.responseStatusCode,
-                },
-              };
-              pendingEvidenceDrafts.push(enrichedDraft);
-            }
-          } catch {
-            // Safe error containment
-          }
-        }
 
         // CMS Plugin Vulnerability Probing (Milestone P4-10: Phase 4 Finale)
         if (!coordinator.isCircuitOpen(record.targetDomain)) {
@@ -6141,64 +5885,6 @@ export class OrchestratedAssessmentApplicationService {
           }
         }
 
-        // HTTP Method Manipulation Detection (Milestone P5-3: Verb Tampering & Override Controls)
-        if (targetUrl) {
-          const endpointsToTest = [
-            targetUrl,
-            `${targetUrl.replace(/\/+$/, '')}/api/admin`,
-            `${targetUrl.replace(/\/+$/, '')}/api/users`,
-            `${targetUrl.replace(/\/+$/, '')}/api/v1/users`,
-          ];
-
-          for (const ep of endpointsToTest) {
-            if (coordinator.isCircuitOpen(record.targetDomain)) break;
-            try {
-              const manipulationResult = await runHttpMethodManipulationDetection({
-                contractVersion: DETECTION_CONTRACT_VERSION,
-                kind: 'http_method_manipulation_detection_request',
-                detectionId: `det_hmeth_${record.assessmentId.slice(-8)}`,
-                assessmentId: lineage.assessmentId,
-                scanId: lineage.scanId,
-                authorizationGrantId: lineage.authorizationGrantId,
-                authorizationDecisionId: lineage.authorizationDecisionId,
-                actorId: lineage.actorId,
-                endpointUrl: ep,
-                targetOperation: 'restricted_endpoint_action',
-                baselineMethod: 'DELETE',
-                identityAContext,
-                verifiedAuthorizationDecision: verifiedDecision,
-                scopeGrant,
-                transport: this.httpTransport,
-                dnsResolver: this.dnsResolver,
-              });
-
-              if (
-                (manipulationResult.status === 'vulnerability_detected' || manipulationResult.status === 'potential_weakness') &&
-                manipulationResult.finding
-              ) {
-                findings.push(manipulationResult.finding);
-              } else if (manipulationResult.status === 'pending_human_review' && manipulationResult.evidenceDraft) {
-                const enrichedDraft: EnrichedEvidenceDraft = {
-                  ...manipulationResult.evidenceDraft,
-                  differentialContext: {
-                    endpointUrl: manipulationResult.endpointUrl,
-                    detectionKind: 'http_method_manipulation',
-                    targetOperation: manipulationResult.targetOperation,
-                    baselineMethod: manipulationResult.baselineMethod,
-                    bypassMethodOrHeader: manipulationResult.bypassMethodOrHeader,
-                    baselineStatusCode: manipulationResult.baselineStatusCode,
-                    manipulatedStatusCode: manipulationResult.manipulatedStatusCode,
-                    bypassType: manipulationResult.bypassType,
-                    validationStatusCode: manipulationResult.manipulatedStatusCode,
-                  },
-                };
-                pendingEvidenceDrafts.push(enrichedDraft);
-              }
-            } catch {
-              // Safe error containment
-            }
-          }
-        }
 
         // Dependency Confusion Detection (Milestone P5-4: Unclaimed Private Package Namespaces)
         if (targetUrl) {
@@ -6319,247 +6005,6 @@ export class OrchestratedAssessmentApplicationService {
           }
         }
 
-        // Application Parameter Integrity Detection (Milestone P5-6)
-        if (targetUrl) {
-          const candidateParams = ['file', 'path', 'page', 'doc', 'template', 'view'];
-          for (const param of candidateParams) {
-            if (coordinator.isCircuitOpen(record.targetDomain)) break;
-            for (const probePattern of INERT_PROBE_PATTERNS.slice(0, 2)) {
-              if (coordinator.isCircuitOpen(record.targetDomain)) break;
-              try {
-                const paramResult = await runParameterIntegrityDetection({
-                  contractVersion: DETECTION_CONTRACT_VERSION,
-                  kind: 'parameter_integrity_detection_request',
-                  detectionId: `det_pinteg_${record.assessmentId.slice(-8)}`,
-                  assessmentId: lineage.assessmentId,
-                  scanId: lineage.scanId,
-                  authorizationGrantId: lineage.authorizationGrantId,
-                  authorizationDecisionId: lineage.authorizationDecisionId,
-                  actorId: lineage.actorId,
-                  endpointUrl: targetUrl,
-                  parameterName: param,
-                  probePattern,
-                  identityAContext,
-                  verifiedAuthorizationDecision: verifiedDecision,
-                  scopeGrant,
-                  transport: this.httpTransport,
-                  dnsResolver: this.dnsResolver,
-                });
-
-                if (paramResult.status === 'vulnerability_detected' && paramResult.finding) {
-                  findings.push(paramResult.finding);
-                } else if (paramResult.status === 'pending_human_review' && paramResult.evidenceDraft) {
-                  const enrichedDraft: EnrichedEvidenceDraft = {
-                    ...paramResult.evidenceDraft,
-                    differentialContext: {
-                      endpointUrl: paramResult.endpointUrl,
-                      detectionKind: 'parameter_integrity',
-                      parameterName: paramResult.parameterName,
-                      injectedProbePattern: paramResult.injectedProbePattern,
-                      boundaryEnforced: paramResult.boundaryEnforced,
-                      sanitizedExcerpt: paramResult.sanitizedExcerpt,
-                      validationStatusCode: 200,
-                    },
-                  };
-                  pendingEvidenceDrafts.push(enrichedDraft);
-                }
-              } catch {
-                // Safe error containment
-              }
-            }
-          }
-        }
-
-        // Object Mapping Anomaly Detection (Milestone P5-7)
-        if (targetUrl) {
-          for (const mMethod of ['POST', 'PUT', 'PATCH'] as const) {
-            if (coordinator.isCircuitOpen(record.targetDomain)) break;
-            try {
-              const objResult = await runObjectMappingAnomalyDetection({
-                contractVersion: DETECTION_CONTRACT_VERSION,
-                kind: 'object_mapping_anomaly_detection_request',
-                detectionId: `det_objmap_${record.assessmentId.slice(-8)}`,
-                assessmentId: lineage.assessmentId,
-                scanId: lineage.scanId,
-                authorizationGrantId: lineage.authorizationGrantId,
-                authorizationDecisionId: lineage.authorizationDecisionId,
-                actorId: lineage.actorId,
-                endpointUrl: targetUrl,
-                httpMethod: mMethod,
-                identityAContext,
-                verifiedAuthorizationDecision: verifiedDecision,
-                scopeGrant,
-                transport: this.httpTransport,
-                dnsResolver: this.dnsResolver,
-              });
-
-              if (objResult.status === 'vulnerability_detected' && objResult.finding) {
-                findings.push(objResult.finding);
-              } else if (objResult.status === 'pending_human_review' && objResult.evidenceDraft) {
-                const enrichedDraft: EnrichedEvidenceDraft = {
-                  ...objResult.evidenceDraft,
-                  differentialContext: {
-                    endpointUrl: objResult.endpointUrl,
-                    detectionKind: 'object_mapping_anomaly',
-                    httpMethod: objResult.httpMethod,
-                    injectedProperties: objResult.injectedProperties,
-                    bindingAccepted: objResult.bindingAccepted,
-                    sanitizedEchoResponse: objResult.sanitizedEchoResponse,
-                    validationStatusCode: 200,
-                  },
-                };
-                pendingEvidenceDrafts.push(enrichedDraft);
-              }
-            } catch {
-              // Safe error containment
-            }
-          }
-        }
-
-        // State Transition Anomaly Detection (Milestone P5-8)
-        if (targetUrl) {
-          if (!coordinator.isCircuitOpen(record.targetDomain)) {
-            try {
-              const stateResult = await runStateTransitionAnomalyDetection({
-                contractVersion: DETECTION_CONTRACT_VERSION,
-                kind: 'state_transition_anomaly_detection_request',
-                detectionId: `det_statetr_${record.assessmentId.slice(-8)}`,
-                assessmentId: lineage.assessmentId,
-                scanId: lineage.scanId,
-                authorizationGrantId: lineage.authorizationGrantId,
-                authorizationDecisionId: lineage.authorizationDecisionId,
-                actorId: lineage.actorId,
-                endpointUrl: targetUrl,
-                httpMethod: 'POST',
-                identityAContext,
-                verifiedAuthorizationDecision: verifiedDecision,
-                scopeGrant,
-                transport: this.httpTransport,
-                dnsResolver: this.dnsResolver,
-              });
-
-              if (stateResult.status === 'vulnerability_detected' && stateResult.finding) {
-                findings.push(stateResult.finding);
-              } else if (stateResult.status === 'pending_human_review' && stateResult.evidenceDraft) {
-                const enrichedDraft: EnrichedEvidenceDraft = {
-                  ...stateResult.evidenceDraft,
-                  differentialContext: {
-                    endpointUrl: stateResult.endpointUrl,
-                    detectionKind: 'state_transition_anomaly',
-                    httpMethod: stateResult.httpMethod,
-                    expectedPrerequisiteSteps: stateResult.expectedPrerequisiteSteps,
-                    bypassedSuccessfully: stateResult.bypassedSuccessfully,
-                    responseExcerpt: stateResult.responseExcerpt,
-                    validationStatusCode: 200,
-                  },
-                };
-                pendingEvidenceDrafts.push(enrichedDraft);
-              }
-            } catch {
-              // Safe error containment
-            }
-          }
-        }
-
-        // Blind SSRF Detection (Milestone P7-2: Blind SSRF Detection Probe)
-        if (targetUrl) {
-          const ssrfCandidateParams = ['url', 'feed', 'webhook', 'src', 'link', 'endpoint', 'target', 'dest', 'callback'];
-          for (const param of ssrfCandidateParams) {
-            if (coordinator.isCircuitOpen(record.targetDomain)) break;
-            try {
-              const ssrfResult = await runBlindSsrfDetection({
-                contractVersion: DETECTION_CONTRACT_VERSION,
-                kind: 'blind_ssrf_detection_request',
-                detectionId: `det_bssrf_${record.assessmentId.slice(-8)}_${param}`,
-                assessmentId: lineage.assessmentId,
-                scanId: lineage.scanId,
-                authorizationGrantId: lineage.authorizationGrantId,
-                authorizationDecisionId: lineage.authorizationDecisionId,
-                actorId: lineage.actorId,
-                endpointUrl: targetUrl,
-                parameterName: param,
-                method: 'GET',
-                identityAContext,
-                verifiedAuthorizationDecision: verifiedDecision,
-                scopeGrant,
-                transport: this.httpTransport,
-                dnsResolver: this.dnsResolver,
-              });
-
-              if (ssrfResult.status === 'vulnerability_detected' && ssrfResult.finding) {
-                findings.push(ssrfResult.finding);
-              } else if (ssrfResult.status === 'pending_human_review' && ssrfResult.evidenceDraft) {
-                const enrichedDraft: EnrichedEvidenceDraft = {
-                  ...ssrfResult.evidenceDraft,
-                  differentialContext: {
-                    endpointUrl: ssrfResult.endpointUrl,
-                    detectionKind: 'blind_ssrf',
-                    parameterName: ssrfResult.parameterName,
-                    injectedCanaryUrl: ssrfResult.injectedCanaryUrl,
-                    canaryToken: ssrfResult.canaryToken,
-                    interactionConfirmed: ssrfResult.interactionConfirmed,
-                    remoteAddress: ssrfResult.remoteAddress,
-                    exposureSeverity: 'critical',
-                    validationStatusCode: 200,
-                  },
-                };
-                pendingEvidenceDrafts.push(enrichedDraft);
-              }
-            } catch {
-              // Safe error containment
-            }
-          }
-        }
-
-        // Blind XSS Detection (Milestone P7-3: Blind XSS Interaction Probe - Phase 7 Finale)
-        if (targetUrl) {
-          const xssCandidateParams = ['comment', 'message', 'feedback', 'description', 'title', 'username', 'email', 'body'];
-          for (const param of xssCandidateParams) {
-            if (coordinator.isCircuitOpen(record.targetDomain)) break;
-            try {
-              const xssResult = await runBlindXssDetection({
-                contractVersion: DETECTION_CONTRACT_VERSION,
-                kind: 'blind_xss_detection_request',
-                detectionId: `det_bxss_${record.assessmentId.slice(-8)}_${param}`,
-                assessmentId: lineage.assessmentId,
-                scanId: lineage.scanId,
-                authorizationGrantId: lineage.authorizationGrantId,
-                authorizationDecisionId: lineage.authorizationDecisionId,
-                actorId: lineage.actorId,
-                endpointUrl: targetUrl,
-                parameterName: param,
-                method: 'POST',
-                identityAContext,
-                verifiedAuthorizationDecision: verifiedDecision,
-                scopeGrant,
-                transport: this.httpTransport,
-                dnsResolver: this.dnsResolver,
-              });
-
-              if (xssResult.status === 'vulnerability_detected' && xssResult.finding) {
-                findings.push(xssResult.finding);
-              } else if (xssResult.status === 'pending_human_review' && xssResult.evidenceDraft) {
-                const enrichedDraft: EnrichedEvidenceDraft = {
-                  ...xssResult.evidenceDraft,
-                  differentialContext: {
-                    endpointUrl: xssResult.endpointUrl,
-                    detectionKind: 'blind_xss',
-                    parameterName: xssResult.parameterName,
-                    injectedPayloadSnippet: xssResult.injectedPayloadSnippet,
-                    canaryToken: xssResult.canaryToken,
-                    interactionConfirmed: xssResult.interactionConfirmed,
-                    remoteAddress: xssResult.remoteAddress,
-                    exposureSeverity: 'critical',
-                    validationStatusCode: 200,
-                  },
-                };
-                pendingEvidenceDrafts.push(enrichedDraft);
-              }
-            } catch {
-              // Safe error containment
-            }
-          }
-        }
 
         // Auto-promote confirmed vuln drafts → Findings before compound correlation
         // so CORS+IDOR / cross-finding chains can see real findings (not empty HITL queue).
@@ -6850,7 +6295,6 @@ export class OrchestratedAssessmentApplicationService {
         } catch {
           // Safe error containment
         }
-      }
 
       // Second auto-promote pass: compound drafts, SAST secrets, OOB interactions, etc.
       // Drops discovery noise (static routes / surface delta); keeps soft cosmetics as drafts.
@@ -6887,6 +6331,75 @@ export class OrchestratedAssessmentApplicationService {
         aggregatedObservations: reconResult.aggregatedObservations,
         lineage,
       });
+
+      for (const host of profile.discoveredHosts) {
+        if (host.wafIdentity) coordinator.noteObservedWaf(host.fqdn, host.wafIdentity);
+      }
+      const observedAtInfra = new Date().toISOString();
+      persistedObservedFacts = acceptObservedFacts([
+        ...persistedObservedFacts,
+        ...factsFromCapturedRecon({
+          webs: reconResult.aggregatedObservations.webObservations,
+          dns: reconResult.aggregatedObservations.dnsRecords,
+          tls: reconResult.aggregatedObservations.tlsCertificates,
+          externalDependencies: profile.externalDependencies,
+          technologies: profile.detectedTechnologies ?? [],
+          ...(reconResult.aggregatedObservations.sourcemapTexts
+            ? { sourcemapTexts: reconResult.aggregatedObservations.sourcemapTexts }
+            : {}),
+          lineage,
+          observedAt: observedAtInfra,
+        }),
+      ]);
+      if (this.publishedLookupsEnabled && !coordinator.isCircuitOpen(record.targetDomain)) {
+        const rdap = await lookupAuthorizedDomainRdap({
+          domain: record.targetDomain,
+          verifiedAuthorizationDecision: verifiedDecision,
+          scopeGrant,
+          lineage,
+          dnsResolver: this.dnsResolver,
+          observedAt: observedAtInfra,
+        });
+        const published = await lookupPublishedHostIndex({
+          host: record.targetDomain,
+          verifiedAuthorizationDecision: verifiedDecision,
+          scopeGrant,
+          lineage,
+          dnsResolver: this.dnsResolver,
+          observedAt: observedAtInfra,
+        });
+        const search = await lookupAuthorizedSearchIndex({
+          siteHost: record.targetDomain,
+          verifiedAuthorizationDecision: verifiedDecision,
+          scopeGrant,
+          lineage,
+          dnsResolver: this.dnsResolver,
+          observedAt: observedAtInfra,
+        });
+        persistedObservedFacts = acceptObservedFacts([
+          ...persistedObservedFacts,
+          ...(rdap.fact ? [rdap.fact] : []),
+          ...(published.fact ? [published.fact] : []),
+          ...search.facts,
+        ]);
+      }
+      const buildHost = profile.discoveredHosts.find((host) => typeof host.nextBuildId === 'string');
+      if (buildHost?.nextBuildId && !coordinator.isCircuitOpen(record.targetDomain)) {
+        const manifests = await probeNextRouteManifests({
+          originUrl: `https://${record.targetDomain}/`,
+          buildId: buildHost.nextBuildId,
+          verifiedAuthorizationDecision: verifiedDecision,
+          scopeGrant,
+          lineage,
+          transport: this.httpTransport,
+          dnsResolver: this.dnsResolver,
+          observedAt: observedAtInfra,
+        });
+        persistedObservedFacts = acceptObservedFacts([
+          ...persistedObservedFacts,
+          ...manifests.facts,
+        ]);
+      }
 
       // Longitudinal Attack Surface Delta Analysis (Milestone P5-9)
       try {
@@ -6958,9 +6471,108 @@ export class OrchestratedAssessmentApplicationService {
           profile,
           reconResult.aggregatedObservations.serverActionHints
         ),
+        deferredSurfaceProbes: {
+          originUrl: `https://${record.targetDomain}/`,
+          cnamePairs: reconResult.aggregatedObservations.dnsRecords
+            .filter((recordDns) => recordDns.recordType === 'CNAME')
+            .flatMap((recordDns) =>
+              recordDns.values.map((target) => ({ domain: recordDns.domain, target }))
+            ),
+          applicationUrls: applicationUrlsFromInventory(probeInventory),
+          sessionFixationSuppressed: detectionBridge.phpSessionFixationGate.suppress,
+          scopeGrant,
+        },
       });
       await this.attackPlanRepository.deleteByAssessmentId(record.assessmentId);
       await this.attackPlanRepository.savePlans(attackPlanResult.plans);
+
+      let recordedProbeInventory = probeInventory;
+      let readInvestigationLoop: ReadInvestigationLoopRecord | undefined;
+      let transcript: AssessmentTranscript = buildAssessmentTranscript({
+        discoveries: probeInventory,
+        findings,
+        executedSteps: [],
+        withheldPlans: withheldPlansForTranscript(
+          await this.attackPlanRepository.listByAssessmentId(record.assessmentId)
+        ),
+        stopReason: 'loop_not_run',
+      });
+      if (reconResult.status === 'success') {
+        const followUp = await this.runPhase1FollowUp({
+          record,
+          verifiedDecision,
+          scopeGrant,
+          lineage,
+          sessionIdentities,
+          coordinator,
+          savedPlans: attackPlanResult.plans,
+          observedFacts: persistedObservedFacts,
+          observations: reconResult.aggregatedObservations,
+        });
+        persistedObservedFacts = followUp.facts;
+        const storedIdentities = this.getEphemeralByotExecuteIdentities(record.assessmentId);
+        const primaryMaterial =
+          storedIdentities?.primaryIdentity ??
+          (sessionIdentities?.identityA
+            ? capabilityIdentityFromByot(sessionIdentities.identityA)
+            : undefined);
+        const secondaryMaterial =
+          storedIdentities?.secondaryIdentity ??
+          (sessionIdentities?.identityB
+            ? capabilityIdentityFromByot(sessionIdentities.identityB)
+            : undefined);
+        const primaryIdentity = primaryMaterial
+          ? {
+              identityId: primaryMaterial.identityId,
+              ...(primaryMaterial.headers ? { headers: primaryMaterial.headers } : {}),
+            }
+          : undefined;
+        const secondaryIdentity = secondaryMaterial
+          ? {
+              identityId: secondaryMaterial.identityId,
+              ...(secondaryMaterial.headers ? { headers: secondaryMaterial.headers } : {}),
+            }
+          : undefined;
+        const investigation = await runReadInvestigationLoop({
+          assessmentId: record.assessmentId,
+          lineage,
+          verifiedAuthorizationDecision: verifiedDecision,
+          scopeGrant,
+          coordinator,
+          dnsResolver: this.dnsResolver,
+          transport: this.httpTransport,
+          circuitHost: record.targetDomain,
+          findings,
+          probeInventory,
+          planRepository: this.attackPlanRepository,
+          planGenerator: this.attackPlanGenerator,
+          authorizationService: new AttackAuthorizationService(this.attackPlanRepository),
+          executionService: new AttackExecutionService({
+            planRepository: this.attackPlanRepository,
+            capabilityRegistry: AttackCapabilityRegistry.createDefault(),
+            postExploitationService: this.postExploitationService,
+          }),
+          recordOutcome: (args) => this.recordAttackExecutionOutcome(args),
+          identities: buildAttackPlanIdentities(sessionIdentities),
+          ...(primaryIdentity ? { primaryIdentity } : {}),
+          ...(secondaryIdentity ? { secondaryIdentity } : {}),
+          listNewlyReachableTargets: async () => {
+            const snapshot = await this.postExploitationService.getSnapshot(record.assessmentId);
+            if (!snapshot) return [];
+            const targets: string[] = [];
+            for (const access of snapshot.acquiredAccess) {
+              for (const target of access.newlyReachableTargets) {
+                targets.push(target);
+              }
+            }
+            return targets;
+          },
+        });
+        recordedProbeInventory = investigation.probeInventory;
+        readInvestigationLoop = investigation.record;
+        transcript = investigation.transcript;
+        findings.splice(0, findings.length, ...investigation.findings);
+      }
 
       // If circuit breaker opened during detection, record circuit_broken with evidence preserved
       if (coordinator.isCircuitOpen(record.targetDomain)) {
@@ -6973,6 +6585,7 @@ export class OrchestratedAssessmentApplicationService {
           pendingEvidenceDrafts,
           recommendations: recommendationResult.recommendations,
           attackSurfaceGraph,
+          probeInventory: recordedProbeInventory,
           timing: {
             startedAt: prev.timing.startedAt,
             completedAt: new Date().toISOString(),
@@ -6980,6 +6593,11 @@ export class OrchestratedAssessmentApplicationService {
           },
           error: `Target circuit breaker tripped on '${record.targetDomain}'. Vulnerability probing safely halted.`,
           warningCount: prev.warningCount + 1,
+          ...(persistedObservedFacts.length > 0
+            ? { observedFacts: persistedObservedFacts }
+            : {}),
+          ...(readInvestigationLoop ? { readInvestigationLoop } : {}),
+          transcript,
         }));
         return;
       }
@@ -7011,12 +6629,18 @@ export class OrchestratedAssessmentApplicationService {
         pendingEvidenceDrafts,
         recommendations: recommendationResult.recommendations,
         attackSurfaceGraph,
+        probeInventory: recordedProbeInventory,
         timing: {
           startedAt: prev.timing.startedAt,
           completedAt: new Date().toISOString(),
           durationMs: Date.now() - startTime,
         },
         ...(mergedDegraded.length > 0 ? { degradedCapabilities: mergedDegraded } : {}),
+        ...(persistedObservedFacts.length > 0
+          ? { observedFacts: persistedObservedFacts }
+          : {}),
+        ...(readInvestigationLoop ? { readInvestigationLoop } : {}),
+        transcript,
       }));
   }
 }

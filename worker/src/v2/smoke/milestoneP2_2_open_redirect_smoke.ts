@@ -485,16 +485,19 @@ async function runTests() {
   assert.equal(
     openRedirectDraft,
     undefined,
-    'open_redirect must auto-promote — should not remain as pending draft'
+    'open_redirect must not be auto-drafted by the pipeline'
   );
-
-  const foundInSummary = record.findings.find(
-    (f) => f.metadata.kind === 'open_redirect_metadata'
+  assert.equal(
+    record.findings.some((f) => f.metadata.kind === 'open_redirect_metadata'),
+    false,
+    'open_redirect must not auto-promote from the pipeline'
   );
-  assert.ok(foundInSummary, 'Confirmed open redirect must auto-promote to Finding');
-  assert.strictEqual(foundInSummary.metadata.kind, 'open_redirect_metadata');
+  const plans = await orchestrator.getAttackPlans(record.assessmentId);
+  const redirectPlan = plans.plans.find((plan) => plan.capability === 'open_redirect_probe');
+  assert.ok(redirectPlan, 'Pipeline must seed a non-executing open redirect plan');
+  assert.equal(redirectPlan.executable, false);
 
-  console.log('[milestoneP2_2_open_redirect_smoke] Assertion 4 PASSED: Pipeline auto-promoted open redirect Finding.');
+  console.log('[milestoneP2_2_open_redirect_smoke] Assertion 4 PASSED: Pipeline seeded a non-executing open redirect plan.');
 
   console.log('----------------------------------------------------------------');
   console.log('[milestoneP2_2_open_redirect_smoke] ALL SMOKE TESTS PASSED (100%)');

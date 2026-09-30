@@ -11,6 +11,7 @@ export const HYPOTHESIS_SCHEDULER_CONTRACT_VERSION: HypothesisSchedulerContractV
 export type SecurityHypothesisKind =
   | 'idor_differential'
   | 'auth_bypass'
+  | 'auth_boundary_differential'
   | 'credentialed_cors'
   | 'jwt_confusion'
   | 'sql_oracle'
@@ -71,6 +72,8 @@ export interface HypothesisSchedulerInput {
   readonly stackHints?: HypothesisSchedulerStackHints;
   readonly identityCount: number;
   readonly hasJwtIdentity: boolean;
+  /** True when an OBSERVED parameter exists. Surface SQL stays blocked when absent. */
+  readonly hasObservedParameter?: boolean;
   readonly maxHypotheses?: number;
 }
 

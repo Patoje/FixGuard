@@ -11,6 +11,7 @@ import type { AuthorizedScopeGrant } from '../../scope/AuthorizedScopeContracts.
 import type { AuthorizedActiveReconRequestLineage } from '../../lineage/AuthorizedExecutionLineageContracts.js';
 import type { TargetSessionState } from '../../core/SessionLifecycleContracts.js';
 import type { TargetExecutionCoordinator } from '../../runtime/TargetExecutionCoordinator.js';
+import type { DeepReconSchemaObservation } from '../deep/DeepReconContracts.js';
 
 import type {
   SubdomainDiscoveryTool,
@@ -169,11 +170,14 @@ export interface ActiveReconOrchestrationConfig {
   readonly deepReconMaxRequests?: number;
   /** Force BYOT harvest planning when Identity A / FG_ACCESS_TOKEN available. */
   readonly enableByotHarvest?: boolean;
+  /** Skip Playwright and harvest with the assessment HTTP transport. */
+  readonly byotHarvestHttpOnly?: boolean;
 }
 
 import type { PreSpawnDnsResolver } from '../adapters/AdapterPreflightPipeline.js';
 import type { PlaywrightBrowserLauncher } from '../adapters/BrowserAutomationContracts.js';
 import type { ByotHarvestServerActionHint } from '../deep/ByotNetworkHarvestContracts.js';
+import type { ObservedFact } from '../../observation/ObservedFactContracts.js';
 import type { IdorHttpProbeTransport } from '../../detection/DetectionContracts.js';
 
 export interface ActiveReconOrchestrationRequest {
@@ -242,6 +246,12 @@ export interface AggregatedReconObservations {
   readonly spaObservations?: readonly DiscoveredSpaObservation[];
   /** OBSERVED Next-Action ids from BYOT/deep harvest (discovery-only). */
   readonly serverActionHints?: readonly ByotHarvestServerActionHint[];
+  /** F0.1 grounded facts harvested during recon. No severity. */
+  readonly observedFacts?: readonly ObservedFact[];
+  /** Sourcemap JSON already downloaded. No second GET. */
+  readonly sourcemapTexts?: readonly string[];
+  /** Schema names already read. A type name is not an operation. */
+  readonly schemaObservations?: readonly DeepReconSchemaObservation[];
 }
 
 

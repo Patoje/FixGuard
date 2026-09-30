@@ -23,6 +23,7 @@ import type {
   HttpProbeResponse,
 } from './DetectionContracts.js';
 import { DETECTION_CONTRACT_VERSION } from './DetectionContracts.js';
+import { noteDeferredSurfaceProbeInvoked } from './DeferredSurfaceProbeLedger.js';
 import { runAdapterPreflight } from '../recon/adapters/AdapterPreflightPipeline.js';
 import type { Finding } from '../core/Evidence.js';
 import type { EvidenceDraftEnvelope } from '../evidence-mapping/ComparisonEvidenceMappingContracts.js';
@@ -60,6 +61,7 @@ function extractSuggestionLeak(bodyText: string): string | undefined {
 export async function runGraphQLSurfaceDetection(
   request: GraphQLSurfaceDetectionRequest
 ): Promise<GraphQLSurfaceDetectionResult> {
+  noteDeferredSurfaceProbeInvoked('graphql_surface');
   const lineage = {
     scanId: request.scanId,
     assessmentId: request.assessmentId,

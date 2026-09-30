@@ -515,17 +515,17 @@ async function runTests() {
   assert.equal(
     infoDiscDraft,
     undefined,
-    'stack_trace information_disclosure must auto-promote — should not remain as pending draft'
+    'information_disclosure must not be auto-drafted by the pipeline'
   );
-
-  const foundInSummary = record.findings.find(
-    (f) => f.metadata.kind === 'information_disclosure_metadata'
+  assert.equal(
+    record.findings.some((f) => f.metadata.kind === 'information_disclosure_metadata'),
+    false,
+    'information_disclosure must not auto-promote from the pipeline'
   );
-  assert.ok(foundInSummary, 'Confirmed stack_trace disclosure must auto-promote to Finding');
-  assert.strictEqual(foundInSummary.metadata.kind, 'information_disclosure_metadata');
-  if (foundInSummary.metadata.kind === 'information_disclosure_metadata') {
-    assert.strictEqual(foundInSummary.metadata.disclosureKind, 'stack_trace');
-  }
+  const plans = await orchestrator.getAttackPlans(record.assessmentId);
+  const infoPlan = plans.plans.find((plan) => plan.capability === 'information_disclosure_probe');
+  assert.ok(infoPlan, 'Pipeline must seed a non-executing information disclosure plan');
+  assert.equal(infoPlan.executable, false);
 
   console.log('[milestoneP2_3_information_disclosure_smoke] Assertion 4 PASSED: Pipeline auto-promoted information disclosure Finding.');
 

@@ -265,6 +265,12 @@ export class AttackExecutionService {
     if (!plan || plan.assessmentId !== req.assessmentId) {
       return deny('plan_not_found', 'Attack plan does not exist for the given assessment');
     }
+    if (plan.status === 'prerequisite_missing') {
+      return deny(
+        'prerequisite_missing',
+        'Attack plan prerequisites are unsatisfied; execution was not started'
+      );
+    }
 
     // Token must be the runtime-branded object (WeakSet) — JSON/plain objects fail closed.
     if (

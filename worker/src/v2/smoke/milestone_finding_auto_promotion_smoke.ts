@@ -84,6 +84,69 @@ function runSmokeTests(): void {
     'auto_promote',
     'Identical successful bodies across identities is BOLA — auto-promote'
   );
+
+  // 2b. Soft-404 / SPA HTML shell on /a/b and /cart → keep_as_draft (never High)
+  const idorSoft404Ab = baseDraft('dft_idor_soft404_ab', 'idor_access_control', {
+    endpointUrl: 'https://shop.example.com/a/b',
+    resourceParamName: 'b',
+    baselineResourceId: 'b',
+    baselineStatusCode: 200,
+    validationStatusCode: 404,
+    baselineBodyHash: 'html_shell_a',
+    validationBodyHash: 'html_shell_b',
+    baselineContentType: 'text/html; charset=utf-8',
+    validationContentType: 'text/html',
+    baselineBodyShapeKind: 'html',
+    validationBodyShapeKind: 'html',
+  });
+  const soft404AbEval = evaluateFindingAutoPromotion(idorSoft404Ab);
+  assert.equal(soft404AbEval.decision, 'keep_as_draft');
+  assert.equal(soft404AbEval.reasonCode, 'idor_soft_404_or_html_shell');
+
+  const idorSoft404Cart = baseDraft('dft_idor_soft404_cart', 'idor_access_control', {
+    endpointUrl: 'https://shop.example.com/cart',
+    resourceParamName: 'cart',
+    baselineStatusCode: 200,
+    validationStatusCode: 200,
+    baselineBodyHash: 'cart_html_a',
+    validationBodyHash: 'cart_html_b',
+    sanitizedSnippet: '<!DOCTYPE html><html><body>Cart shell</body></html>',
+  });
+  const soft404CartEval = evaluateFindingAutoPromotion(idorSoft404Cart);
+  assert.equal(soft404CartEval.decision, 'keep_as_draft');
+  assert.equal(soft404CartEval.reasonCode, 'idor_soft_404_or_html_shell');
+
+  // Opaque path without content-type still fail-closed (Sodimac-class draft)
+  const idorOpaquePathOnly = baseDraft('dft_idor_opaque', 'idor_access_control', {
+    endpointUrl: 'https://shop.example.com/a/i',
+    resourceParamName: 'i',
+    baselineStatusCode: 404,
+    validationStatusCode: 200,
+    baselineBodyHash: 'hash_a',
+    validationBodyHash: 'hash_b',
+  });
+  assert.equal(
+    evaluateFindingAutoPromotion(idorOpaquePathOnly).decision,
+    'keep_as_draft',
+    'Opaque /a/i without JSON shape must not auto-promote'
+  );
+
+  // Real API JSON differential still promotes (control)
+  const idorApiJson = baseDraft('dft_idor_api_json', 'idor_access_control', {
+    endpointUrl: 'https://app.example.com/api/orders/42',
+    resourceParamName: 'id',
+    baselineResourceId: '42',
+    baselineStatusCode: 200,
+    validationStatusCode: 200,
+    baselineBodyHash: 'order_payload_a',
+    validationBodyHash: 'order_payload_b',
+    baselineBodyShapeKind: 'json_object',
+    validationBodyShapeKind: 'json_object',
+    baselineContentType: 'application/json',
+    validationContentType: 'application/json',
+  });
+  assert.equal(evaluateFindingAutoPromotion(idorApiJson).decision, 'auto_promote');
+
   // 3. Missing security headers → keep_as_draft (cosmetic)
   const headers = baseDraft('dft_headers', 'missing_security_headers', {
     missingHeaders: ['content-security-policy'],

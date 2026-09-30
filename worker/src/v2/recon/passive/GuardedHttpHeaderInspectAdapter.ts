@@ -5,6 +5,7 @@ import type { HttpHeaderInspectTransport } from './HttpHeaderInspectTransport';
 import { evaluateEgressPolicy } from '../policy/PassiveEgressPolicy';
 import type { AuthorizedScope } from '../policy/EgressPolicyContracts';
 import { normalizeTargetUrl } from '../policy/TargetUrlNormalizer';
+import { extractCookieFlagRecords } from '../../intelligence/CapturedHostIdentity.js';
 
 export class GuardedHttpHeaderInspectAdapter implements PassiveCapabilityExecutor {
   constructor(
@@ -36,6 +37,18 @@ export class GuardedHttpHeaderInspectAdapter implements PassiveCapabilityExecuto
       throw new Error(`Transport failed: ${err.message}`);
     }
       
+    const rawSetCookie = response.headers['set-cookie'] ?? response.headers['Set-Cookie'];
+    const setCookieText = Array.isArray(rawSetCookie)
+      ? rawSetCookie.join(', ')
+      : typeof rawSetCookie === 'string'
+        ? rawSetCookie
+        : '';
+    const cookieFlags = extractCookieFlagRecords(setCookieText).map((record) => ({
+      name: record.name,
+      secure: record.secure,
+      httpOnly: record.httpOnly,
+      sameSite: record.sameSite,
+    }));
     const sanitizedHeaders = this.sanitizeHeaders(response.headers);
     
     return {
@@ -49,6 +62,7 @@ export class GuardedHttpHeaderInspectAdapter implements PassiveCapabilityExecuto
         statusCode: response.statusCode,
         statusText: response.statusText,
         headers: sanitizedHeaders,
+        cookieFlags,
         policyDecision: decision.decision
       }
     };

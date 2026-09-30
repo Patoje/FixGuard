@@ -71,11 +71,19 @@ const CAPABILITY_LABELS: Readonly<Record<AttackCapabilityKind, string>> = {
   idor_read_differential: 'IDOR / BOLA differential read (BYOT A↔B)',
   cors_chain_exploit: 'Credentialed CORS chain exploit',
   auth_bypass_probe: 'Authentication bypass probe',
+  auth_boundary_differential: 'Account/order auth-boundary differential (A+anon / optional BYOT B)',
   jwt_alg_none_probe: 'JWT alg=none confusion probe',
   sql_error_oracle_probe: 'SQL error-oracle probe (advisory)',
   parameter_reflection_probe: 'Parameter reflection probe (advisory)',
   session_fixation_probe: 'Session fixation probe',
   method_manipulation_probe: 'HTTP method manipulation probe',
+  cors_misconfiguration_probe: 'CORS misconfiguration probe (advisory, not auto-run)',
+  security_header_probe: 'Security header probe (advisory, not auto-run)',
+  open_redirect_probe: 'Open redirect probe (advisory, not auto-run)',
+  information_disclosure_probe: 'Information disclosure probe (advisory, not auto-run)',
+  subdomain_takeover_probe: 'Subdomain takeover probe (advisory, not auto-run)',
+  graphql_surface_probe: 'GraphQL surface probe (advisory, not auto-run)',
+  graphql_auth_delta: 'GraphQL auth delta (status and hash, no severity)',
   lfi_path_traversal: 'LFI / path traversal verification',
   sql_oracle_advancement: 'SQL oracle advancement',
   nuclei_xss_scan: 'Nuclei XSS template scan',
@@ -453,23 +461,6 @@ function buildCandidatesForFinding(args: {
           executable: true,
         },
         'rule_sqli_oracle_advance'
-      );
-    } else {
-      push(
-        {
-          capabilityKind: 'sql_error_oracle_probe',
-          humanLabel: CAPABILITY_LABELS.sql_error_oracle_probe,
-          score: 70,
-          reasonKind: 'OBSERVED',
-          reason: 'SQL error oracle observed — advisory probe (may be capability_not_implemented)',
-          suggestedFlags: {
-            mode: 'error_oracle',
-            ...(param ? { parameter: param } : {}),
-          },
-          commandSummary: `sql_error_oracle_probe ${target}${param ? ` param=${param}` : ''}`,
-          executable: registered.has('sql_error_oracle_probe'),
-        },
-        'rule_sqli_oracle_probe'
       );
     }
   }

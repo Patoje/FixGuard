@@ -385,25 +385,18 @@ async function runTests(): Promise<void> {
       (d) => d.differentialContext?.detectionKind === 'credentialed_cors'
     );
     if (corsDraft) {
-      throw new Error('Test 5 Failed: credentialed_cors must auto-promote — should not remain as pending draft');
+      throw new Error('Test 5 Failed: phase 1 must not emit a credentialed_cors draft');
     }
 
     const summary = await appService.getSummary(startRes.assessmentId);
     const summaryFinding = summary.findings.find(
       (f: Finding) => f.metadata?.kind === 'credentialed_cors_metadata'
     );
-    if (!summaryFinding) {
-      throw new Error(
-        `Test 5 Failed: Expected auto-promoted Credentialed CORS finding, got findings=${JSON.stringify(summary.findings.map((f) => f.metadata?.kind))}`
-      );
+    if (summaryFinding) {
+      throw new Error('Test 5 Failed: phase 1 must not emit a credentialed CORS finding without a later execute');
     }
 
-    const findingMeta = summaryFinding.metadata as CredentialedCorsMetadata;
-    if (findingMeta.kind !== 'credentialed_cors_metadata' || findingMeta.allowCredentialsHeader !== true) {
-      throw new Error(`Test 5 Failed: Invalid auto-promoted finding metadata: ${JSON.stringify(findingMeta)}`);
-    }
-
-    console.log('✓ Test 5 Passed: Confirmed credentialed CORS auto-promoted to formal Finding');
+    console.log('✓ Test 5 Passed: Phase 1 assessment does not auto-emit credentialed CORS drafts or findings');
   }
 
   console.log('\n[milestoneP4_9_credentialed_cors_smoke] ALL 5 TESTS PASSED SUCCESSFULLY! (100% compliant)');

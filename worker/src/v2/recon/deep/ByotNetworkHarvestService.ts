@@ -25,6 +25,12 @@ import { defaultHttpProbeTransport } from '../../detection/IdorDifferentialDetec
 import type { IdorHttpProbeTransport } from '../../detection/DetectionContracts.js';
 import { extractNextServerActionIdHintsFromText } from '../../supabase/SupabaseSurfaceContracts.js';
 import { isHtmlStaticBundlePath } from '../analysis/HtmlRouteExtractionService.js';
+import type { ObservedFact } from '../../observation/ObservedFactContracts.js';
+import { tryBuildObservedFact } from '../../observation/ObservedFactCatalogService.js';
+import {
+  defaultDocumentCopyDirectory,
+  observeDownloadedDocument,
+} from '../../observation/DocumentMetadataReader.js';
 import {
   BYOT_HARVEST_HYDRATION_WAIT_MS,
   BYOT_HARVEST_MAX_ACTION_IDS,
@@ -75,6 +81,7 @@ export type ByotNetworkHarvestResult =
       readonly requestsUsed: number;
       readonly urlObservations: readonly DiscoveredUrlObservation[];
       readonly serverActionHints: readonly ByotHarvestServerActionHint[];
+      readonly observedFacts: readonly ObservedFact[];
       readonly nonClaims: typeof BYOT_NETWORK_HARVEST_NON_CLAIMS;
     }
   | {
@@ -241,12 +248,42 @@ function buildAuthExtraHttpHeaders(
 interface HarvestCollectors {
   readonly urlObservations: DiscoveredUrlObservation[];
   readonly serverActionHints: ByotHarvestServerActionHint[];
+  readonly observedFacts: ObservedFact[];
   readonly seenUrls: Set<string>;
   readonly seenActions: Set<string>;
+  readonly seenFactIds: Set<string>;
   readonly rootHost: string;
   readonly maxUrls: number;
   readonly maxActionIds: number;
   readonly nowIso: string;
+  readonly lineage: ByotNetworkHarvestRequest['lineage'];
+}
+
+function retainHarvestGet(
+  request: ByotNetworkHarvestRequest,
+  collectors: HarvestCollectors,
+  url: string,
+  probe: {
+    readonly statusCode: number;
+    readonly headers: Readonly<Record<string, string>>;
+    readonly bodyText: string;
+  },
+): void {
+  const retained = observeDownloadedDocument({
+    downloaded: true,
+    url,
+    method: 'GET',
+    statusCode: probe.statusCode,
+    contentType: probe.headers['content-type'],
+    body: probe.bodyText,
+    scopeGrant: request.authorizedScopeGrant,
+    lineage: request.lineage,
+    observedAt: collectors.nowIso,
+    directory: defaultDocumentCopyDirectory(),
+  });
+  if (!retained.fact || collectors.seenFactIds.has(retained.fact.factId)) return;
+  collectors.seenFactIds.add(retained.fact.factId);
+  collectors.observedFacts.push(retained.fact);
 }
 
 function pushUrl(collectors: HarvestCollectors, rawUrl: string): void {
@@ -267,9 +304,85 @@ function pushUrl(collectors: HarvestCollectors, rawUrl: string): void {
       freshness: 'live',
       sourceReliability: 'direct_observation',
     });
+    annotateAuthenticatedSurface(collectors, parsed.href);
   } catch {
     // ignore
   }
+}
+
+const HARVEST_OBJECT_PATH =
+  /\/(?:api\/)?(?:users|orders|accounts|items|documents)\/([A-Za-z0-9_-]+)\/?$/i;
+
+function annotateAuthenticatedSurface(collectors: HarvestCollectors, href: string): void {
+  let parsed: URL;
+  try {
+    parsed = new URL(href);
+  } catch {
+    return;
+  }
+  const path = parsed.pathname;
+  const xhrOrRsc =
+    path.includes('/_next/data/') ||
+    path.includes('/api/') ||
+    parsed.search.includes('_rsc=') ||
+    parsed.search.includes('_rsc&') ||
+    parsed.search.endsWith('_rsc');
+  if (!xhrOrRsc && !HARVEST_OBJECT_PATH.test(path)) return;
+
+  for (const name of parsed.searchParams.keys()) {
+    const fact = tryBuildObservedFact({
+      factKind: 'observed_param',
+      value: name,
+      observationText: href,
+      sourceUrl: href,
+      observationKind: 'url',
+      lineage: collectors.lineage,
+      observedAt: collectors.nowIso,
+      sourceLabel: 'byot_network_harvest',
+    });
+    if (!fact || collectors.seenFactIds.has(fact.factId)) continue;
+    collectors.seenFactIds.add(fact.factId);
+    collectors.observedFacts.push(fact);
+  }
+
+  const objectMatch = path.match(HARVEST_OBJECT_PATH);
+  const objectId = objectMatch?.[1];
+  if (!objectId || !href.includes(objectId)) return;
+  const objectFact = tryBuildObservedFact({
+    factKind: 'observed_object_id',
+    value: objectId,
+    observationText: href,
+    sourceUrl: href,
+    observationKind: 'url',
+    lineage: collectors.lineage,
+    observedAt: collectors.nowIso,
+    sourceLabel: 'byot_network_harvest',
+  });
+  if (!objectFact || collectors.seenFactIds.has(objectFact.factId)) return;
+  collectors.seenFactIds.add(objectFact.factId);
+  collectors.observedFacts.push(objectFact);
+}
+
+function pushGroundedActionFact(
+  collectors: HarvestCollectors,
+  endpointUrl: string,
+  actionId: string,
+  observationText: string,
+  observationKind: 'http_body' | 'http_header'
+): void {
+  const fact = tryBuildObservedFact({
+    factKind: 'observed_action_id',
+    value: actionId,
+    observationText,
+    sourceUrl: endpointUrl,
+    observationKind,
+    lineage: collectors.lineage,
+    observedAt: collectors.nowIso,
+    sourceLabel: 'byot_network_harvest',
+  });
+  if (!fact || collectors.seenFactIds.has(fact.factId)) return;
+  collectors.seenFactIds.add(fact.factId);
+  collectors.observedFacts.push(fact);
 }
 
 function pushActions(
@@ -290,6 +403,7 @@ function pushActions(
       actionId,
       source: BYOT_NETWORK_HARVEST_SOURCE,
     });
+    pushGroundedActionFact(collectors, endpointUrl, actionId, text, 'http_body');
   }
 }
 
@@ -309,6 +423,7 @@ function pushActionId(
     actionId: id,
     source: BYOT_NETWORK_HARVEST_SOURCE,
   });
+  pushGroundedActionFact(collectors, endpointUrl, id, id, 'http_header');
 }
 
 async function harvestViaPlaywright(input: {
@@ -533,6 +648,7 @@ async function harvestViaHttp(input: {
         timeoutMs: input.timeoutMs,
       });
       requestsUsed += 1;
+      retainHarvestGet(input.request, input.collectors, pageUrl, probe);
       pushUrl(input.collectors, pageUrl);
       if (probe.statusCode >= 200 && probe.statusCode < 400 && probe.bodyText) {
         pushActions(input.collectors, pageUrl, probe.bodyText);
@@ -597,6 +713,7 @@ async function harvestViaHttp(input: {
         timeoutMs: input.timeoutMs,
       });
       requestsUsed += 1;
+      retainHarvestGet(input.request, input.collectors, scriptUrl, probe);
       if (probe.statusCode >= 200 && probe.statusCode < 300 && probe.bodyText) {
         pushUrl(input.collectors, scriptUrl);
         pushActions(input.collectors, input.request.originUrl, probe.bodyText);
@@ -676,12 +793,15 @@ export async function runByotNetworkHarvest(
   const collectors: HarvestCollectors = {
     urlObservations: [],
     serverActionHints: [],
+    observedFacts: [],
     seenUrls: new Set<string>(),
     seenActions: new Set<string>(),
+    seenFactIds: new Set<string>(),
     rootHost: root.host,
     maxUrls,
     maxActionIds,
     nowIso,
+    lineage: request.lineage,
   };
 
   let harvestMode: ByotHarvestMode = 'http_fallback';
@@ -757,6 +877,7 @@ export async function runByotNetworkHarvest(
     requestsUsed,
     urlObservations: Object.freeze(collectors.urlObservations),
     serverActionHints: Object.freeze(collectors.serverActionHints),
+    observedFacts: Object.freeze(collectors.observedFacts),
     nonClaims: BYOT_NETWORK_HARVEST_NON_CLAIMS,
   };
 }

@@ -300,10 +300,13 @@ async function testUnimplementedDisabled(): Promise<void> {
     lineage: LINEAGE,
     generatedAt: '2026-01-01T00:00:00.000Z',
   });
-  const a = result.recommendations[0];
-  assert.equal(a?.capabilityKind, 'sql_error_oracle_probe');
-  assert.equal(a?.executable, false);
-  assert.ok(a?.disabilityReason?.includes('capability_not_implemented'));
+  assert.equal(result.recommendations.some((r) => r.capabilityKind === 'sql_error_oracle_probe'), false);
+  assert.equal(
+    result.recommendations.some(
+      (r) => r.capabilityKind === 'session_fixation_probe' || r.capabilityKind === 'method_manipulation_probe'
+    ),
+    false
+  );
 }
 
 function createScopeGrant(host: string): AuthorizedScopeGrant {

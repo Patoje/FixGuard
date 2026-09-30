@@ -524,19 +524,17 @@ async function runTests() {
   assert.equal(
     takeoverDraft,
     undefined,
-    'subdomain_takeover must auto-promote — should not remain as pending draft'
+    'subdomain_takeover must not be auto-drafted by the pipeline'
   );
-
-  const foundInSummary = record.findings.find(
-    (f) => f.metadata.kind === 'subdomain_takeover_metadata'
+  assert.equal(
+    record.findings.some((f) => f.metadata.kind === 'subdomain_takeover_metadata'),
+    false,
+    'subdomain_takeover must not auto-promote from the pipeline'
   );
-  assert.ok(foundInSummary, 'Confirmed subdomain takeover must auto-promote to Finding');
-  assert.strictEqual(foundInSummary.metadata.kind, 'subdomain_takeover_metadata');
-  if (foundInSummary.metadata.kind === 'subdomain_takeover_metadata') {
-    assert.strictEqual(foundInSummary.metadata.hostingProvider, 'github_pages');
-    assert.strictEqual(foundInSummary.metadata.subdomain, 'docs.example.com');
-  }
-  assert.strictEqual(foundInSummary.severity, 'high');
+  const plans = await orchestrator.getAttackPlans(record.assessmentId);
+  const takeoverPlan = plans.plans.find((plan) => plan.capability === 'subdomain_takeover_probe');
+  assert.ok(takeoverPlan, 'Observed CNAME must seed a non-executing takeover plan');
+  assert.equal(takeoverPlan.executable, false);
 
   console.log('[milestoneP2_4_subdomain_takeover_smoke] Assertion 4 PASSED: Pipeline auto-promoted subdomain takeover Finding.');
 

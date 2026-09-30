@@ -75,7 +75,7 @@ function isPrivateOrLoopbackHost(hostname: string): boolean {
 
 /**
  * Map a single Cookie/Token field into Authorization header and/or cookies.
- * Bearer/JWT-looking values → Authorization; cookie-shaped → Cookie; else try both paths.
+ * Bearer/JWT-looking values → Authorization; cookie-shaped → full Cookie map; else try both paths.
  */
 function mapTokenOrCookie(raw: string): {
   headers: Record<string, string>;
@@ -83,8 +83,13 @@ function mapTokenOrCookie(raw: string): {
 } {
   const headers: Record<string, string> = {};
   const cookies: Record<string, string> = {};
-  const value = raw.trim();
+  let value = raw.trim();
   if (!value) return { headers, cookies };
+
+  // DevTools / Network paste often includes the header name.
+  if (/^cookie\s*:/i.test(value)) {
+    value = value.replace(/^cookie\s*:/i, "").trim();
+  }
 
   const lower = value.toLowerCase();
   if (
@@ -98,18 +103,19 @@ function mapTokenOrCookie(raw: string): {
     return { headers, cookies };
   }
 
-  if (value.includes("=") && !value.includes(" ")) {
-    const [k, ...v] = value.split("=");
-    cookies[k.trim()] = v.join("=").trim();
-    return { headers, cookies };
-  }
-
   if (value.includes("=")) {
-    // Multi-cookie string: take first pair as session cookie bag entry
-    const first = value.split(";")[0] ?? value;
-    const [k, ...v] = first.split("=");
-    cookies[k.trim()] = v.join("=").trim();
-    return { headers, cookies };
+    // Full Cookie header / multi-cookie paste → injectCookies map (all pairs).
+    for (const part of value.split(";")) {
+      const trimmed = part.trim();
+      if (!trimmed.includes("=")) continue;
+      const eq = trimmed.indexOf("=");
+      const k = trimmed.slice(0, eq).trim();
+      if (!k) continue;
+      cookies[k] = trimmed.slice(eq + 1).trim();
+    }
+    if (Object.keys(cookies).length > 0) {
+      return { headers, cookies };
+    }
   }
 
   // Opaque token — prefer Authorization Bearer

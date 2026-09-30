@@ -5,9 +5,21 @@
 
 import type {
   DeepReconBudget,
+  DeepReconMethodKind,
   DeepReconMethodPlanEntry,
   DeepReconStackSignals,
 } from './DeepReconContracts.js';
+
+const INVENTORY_SURFACE_METHODS: readonly DeepReconMethodKind[] = [
+  'js_surface_mining',
+  'sourcemap_surface',
+  'api_schema_discovery',
+  'byot_network_harvest',
+];
+
+export function isInventorySurfaceMethod(method: DeepReconMethodKind): boolean {
+  return INVENTORY_SURFACE_METHODS.some((kind) => kind === method);
+}
 
 export function planDeepReconMethods(input: {
   readonly stack: DeepReconStackSignals;
@@ -27,6 +39,20 @@ export function planDeepReconMethods(input: {
       expectedRequestCost: 4,
       priority: 10,
       rationale: 'Inject robots Allow/Sitemap locs into inventory (cheap, high signal)',
+      epistemicIntent: 'OBSERVED',
+    },
+    {
+      method: 'security_txt',
+      expectedRequestCost: 1,
+      priority: 12,
+      rationale: 'Exact-path security.txt on the origin. Presence only, no body retention.',
+      epistemicIntent: 'OBSERVED',
+    },
+    {
+      method: 'well_known_oauth',
+      expectedRequestCost: 1,
+      priority: 14,
+      rationale: 'At most two well-known OpenID/OAuth GETs. No redirect follow.',
       epistemicIntent: 'OBSERVED',
     },
   ];
@@ -72,12 +98,15 @@ export function planDeepReconMethods(input: {
     });
   }
 
-  if (input.enableGatedDicts === true) {
+  const hasInventorySurface = candidates.some((candidate) =>
+    isInventorySurfaceMethod(candidate.method)
+  );
+  if (input.enableGatedDicts === true && hasInventorySurface) {
     candidates.push({
       method: 'gated_dict_topk',
       expectedRequestCost: 15,
-      priority: 50,
-      rationale: 'Ffuf/arjun on top-K inventory only (WAF-aware abort)',
+      priority: 80,
+      rationale: 'Ffuf/arjun on top-K only after F1.1–F1.4 inventory (WAF-aware abort)',
       epistemicIntent: 'INFERRED',
     });
   }

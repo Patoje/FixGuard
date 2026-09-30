@@ -1,6 +1,7 @@
 import type { VerifiedAuthorizationDecision } from '../../authorization/VerifiedAuthorizationDecisionContracts.js';
 import type { AuthorizedScopeGrant } from '../../scope/AuthorizedScopeContracts.js';
 import type { AuthorizedActiveReconRequestLineage } from '../../lineage/AuthorizedExecutionLineageContracts.js';
+import type { ObservedFact } from '../../observation/ObservedFactContracts.js';
 
 export type ContentDiscoveryContractVersion = 'fixguard-content-discovery/v0';
 export const CONTENT_DISCOVERY_CONTRACT_VERSION: ContentDiscoveryContractVersion =
@@ -64,6 +65,8 @@ export type ContentDiscoveryResult =
       readonly explicitNonClaims: ContentDiscoveryExplicitNonClaims;
       readonly lineage: AuthorizedActiveReconRequestLineage;
       readonly durationMs: number;
+      /** Facts from document bytes already present on this discovery payload. */
+      readonly observedFacts?: readonly ObservedFact[];
     }
   | {
       readonly status: 'preflight_denied';

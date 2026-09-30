@@ -1,6 +1,7 @@
 import { spawn } from 'child_process';
 
 import type { ExecutionRequest, RawExecutionOutput } from './ExecutionContracts';
+import { noteProcessRunnerReceipt } from './StepInvocationCapture.js';
 
 export interface ProcessRunner {
   execute(request: ExecutionRequest): Promise<RawExecutionOutput>;
@@ -15,6 +16,7 @@ export interface ProcessRunner {
  */
 export class LocalProcessRunner implements ProcessRunner {
   async execute(request: ExecutionRequest): Promise<RawExecutionOutput> {
+    noteProcessRunnerReceipt(request);
     const startTime = Date.now();
 
     const env = {

@@ -6,6 +6,7 @@
  * 2. Rate-limiting and concurrency controls enforced via TargetExecutionCoordinator.
  * 3. Continuous lineage tuple integrity and explicit non-claims across all staged evidence drafts.
  * 4. Atomic preflight, SSRF containment, and session expiration fail-closed with strictly 0 tool invocations.
+ * 5. inspectWeb HTTP 429 is retried by status pacing without opening the circuit.
  */
 
 import assert from 'node:assert';
@@ -532,7 +533,79 @@ async function runMilestone73SmokeSuite(): Promise<void> {
     console.log('    [PASS] Preflight, SSRF, and session expiration safely failed closed with strictly 0 tool invocations');
   }
 
-  console.log('\n>>> ALL 4 MILESTONE 73 ASSERTIONS PASSED SUCCESSFULLY! <<<');
+  // -------------------------------------------------------------------------
+  // Assertion 5: HTTP 429 on inspectWeb waits in the existing pacing slot
+  // -------------------------------------------------------------------------
+  {
+    console.log('\n[+] Assertion 5: inspectWeb 429 is retried without opening the circuit...');
+
+    const builtMaxConcurrency = 2;
+    const coordinator = new TargetExecutionCoordinator({
+      maxConcurrency: builtMaxConcurrency,
+      requestsPerSecond: 1000,
+    });
+    const calls = new Map<string, number[]>();
+    const adapters = createMockAdapters({ count: 0 });
+    const pacedAdapters: ReconToolAdapters = {
+      ...adapters,
+      webTool: {
+        async inspectWeb(req) {
+          const prior = calls.get(req.targetUrl) ?? [];
+          const statusCode = prior.length === 0 ? 429 : 200;
+          calls.set(req.targetUrl, [...prior, statusCode]);
+          return {
+            status: 'success',
+            contractVersion: 'fixguard-web-inspection/v0',
+            targetUrl: req.targetUrl,
+            observations: [
+              {
+                url: req.targetUrl,
+                method: 'GET',
+                statusCode,
+                title: 'Example API Gateway',
+                webServer: 'nginx/1.24',
+                technologies: ['Node.js', 'Express'],
+                discoveredAt: new Date().toISOString(),
+              },
+            ],
+            explicitNonClaims: WEB_INSPECTION_NON_CLAIMS,
+            lineage: req.lineage,
+            durationMs: 30,
+          };
+        },
+      },
+    };
+    const service = new CompositeActiveReconOrchestratorService(pacedAdapters);
+    const result = await service.orchestrate({
+      targetDomain: 'example.com',
+      verifiedAuthorizationDecision: authDecision,
+      authorizedScopeGrant: scopeGrant,
+      lineage: canonicalLineage,
+      coordinator,
+      dnsResolver: async () => ['93.184.216.34'],
+      config: {
+        skipStages: [
+          'stage_4_crawling_parameters',
+          'stage_deep_recon',
+          'stage_5_secret_inspection',
+        ],
+        timeoutMs: 500,
+      },
+    });
+
+    assert.strictEqual(result.status, 'success');
+    assert.ok(calls.size > 0, 'inspectWeb must run at least once');
+    for (const [url, statuses] of calls) {
+      assert.deepStrictEqual(statuses, [429, 200], `${url} must be called twice: 429 then 200`);
+    }
+    assert.strictEqual(coordinator.getCircuitState('example.com'), 'CLOSED');
+    assert.strictEqual(coordinator.getMaxConcurrency('example.com'), builtMaxConcurrency);
+    assert.strictEqual(coordinator.getMaxConcurrency(), builtMaxConcurrency);
+
+    console.log('    [PASS] inspectWeb 429 retried once, circuit stayed CLOSED, maxConcurrency unchanged');
+  }
+
+  console.log('\n>>> ALL 5 MILESTONE 73 ASSERTIONS PASSED SUCCESSFULLY! <<<');
 }
 
 runMilestone73SmokeSuite().catch((err) => {

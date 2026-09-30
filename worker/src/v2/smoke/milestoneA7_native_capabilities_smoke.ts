@@ -393,7 +393,7 @@ async function runSmokeTests(): Promise<void> {
   assert.equal(sqlAdvGenerated.capabilityGained, 'active_validation');
   assert.equal(sqlAdvGenerated.blastRadius, 'single_parameter');
 
-  // observed_anomaly SQL should NOT emit advancement (preserves A3 sql_error_oracle_probe-only)
+  // observed_anomaly SQL must not mint an unregistered probe or an advancement plan.
   const observedSql: Finding = {
     ...sqlFinding,
     id: 'fnd_a7_sql_obs',
@@ -413,8 +413,8 @@ async function runSmokeTests(): Promise<void> {
     },
   });
   assert.ok(
-    observedPlans.plans.some((p) => p.capability === 'sql_error_oracle_probe'),
-    'observed SQL still maps to sql_error_oracle_probe'
+    !observedPlans.plans.some((p) => p.capability === 'sql_error_oracle_probe'),
+    'observed SQL must not mint unregistered sql_error_oracle_probe'
   );
   assert.ok(
     !observedPlans.plans.some((p) => p.capability === 'sql_oracle_advancement'),

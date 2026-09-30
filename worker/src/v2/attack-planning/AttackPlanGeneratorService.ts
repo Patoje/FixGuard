@@ -10,7 +10,7 @@
  * 2. CORS_MISCONFIGURATION credentialed OR credentialed_cors_metadata → cors_chain_exploit
  * 3. BROKEN_AUTHENTICATION + auth_bypass_metadata → auth_bypass_probe
  * 4. BROKEN_AUTHENTICATION + jwt_algorithm_confusion_metadata → jwt_alg_none_probe
- * 5. INFORMATION_DISCLOSURE + sql_error_oracle_metadata → sql_error_oracle_probe
+ * 5. Observed SQL error-oracle findings do not mint sql_error_oracle_probe (unregistered).
  * 6. INPUT_VALIDATION_FLAW reflection (+ input_validation_flaw_metadata) → parameter_reflection_probe
  * 7. parameter_integrity_metadata (LFI/path traversal candidates) → lfi_path_traversal
  * 8. sql_error_oracle_metadata @ suspected_vulnerability → sql_oracle_advancement
@@ -36,6 +36,11 @@ import {
   type AttackPlanSurfaceResourceClass,
   type CapabilityGained,
 } from './AttackPlanContracts.js';
+import { buildDeferredSurfaceProbePlans } from './DeferredSurfaceProbePlans.js';
+import {
+  IDENTICAL_BODY_SIMILARITY,
+  isPublicStaticAssetUrl,
+} from '../detection/PublicStaticAsset.js';
 
 function sha256Short(content: string): string {
   return createHash('sha256').update(content).digest('hex').slice(0, 16);
@@ -188,7 +193,8 @@ function isReflectionOrXssAnomaly(finding: Finding): boolean {
 /**
  * SQL oracle advancement applies when an oracle finding is already at
  * suspected_vulnerability (one ordered step away from validated_vulnerability).
- * observed_anomaly findings keep the A3 sql_error_oracle_probe plan only.
+ * Suspected SQL findings map to the registered sql_oracle_advancement port.
+ * observed_anomaly findings do not mint an unregistered probe plan.
  */
 function isSqlOracleAdvancementCandidate(finding: Finding): boolean {
   return isSqlErrorOracle(finding) && finding.verificationState === 'suspected_vulnerability';
@@ -209,6 +215,24 @@ function targetFromFinding(finding: Finding): string | undefined {
     return meta.endpointUrl;
   }
   return finding.target;
+}
+
+function bodySimilarityFromFinding(finding: Finding): number | undefined {
+  const meta = finding.metadata;
+  if (!Object.prototype.hasOwnProperty.call(meta, 'bodySimilarityRatio')) {
+    return undefined;
+  }
+  const value = Reflect.get(meta, 'bodySimilarityRatio');
+  return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
+}
+
+/**
+ * Identical bodies on a public static asset are not an auth-bypass plan.
+ * A lower similarity on that URL keeps the existing finding rule.
+ */
+function skipStaticIdenticalAuthBypassPlan(url: string | undefined, similarity: number | undefined): boolean {
+  if (!url || !isPublicStaticAssetUrl(url)) return false;
+  return similarity === undefined || similarity === IDENTICAL_BODY_SIMILARITY;
 }
 
 function parameterFromFinding(finding: Finding): string | undefined {
@@ -683,19 +707,8 @@ function draftCapabilityMapping(
     };
   }
 
-  if (kind === 'sql_error_oracle') {
-    return {
-      capability: 'sql_error_oracle_probe',
-      title: 'Investigate SQL error oracle draft',
-      blastRadius: 'single_parameter',
-      capabilityGained: 'read_authenticated',
-      findingTypeLabel: 'INFORMATION_DISCLOSURE',
-      extraPrereqs: [parameterPresentPrereq(parameterName)],
-      stepTitle: 'Authorize SQL oracle investigation',
-      stepDescription:
-        'Human-authorized inert SQL error oracle investigation from a pending draft. Not a confirmed vulnerability.',
-      requiredPermissions: ['active_http_get'],
-    };
+  if (kind === 'sql_error_oracle' || kind === 'http_method_manipulation') {
+    return null;
   }
 
   if (kind === 'jwt_algorithm_confusion') {
@@ -724,21 +737,6 @@ function draftCapabilityMapping(
       stepTitle: 'Authorize LFI investigation',
       stepDescription:
         'Human-authorized allowlisted LFI canary investigation from a pending draft. Not a confirmed vulnerability.',
-      requiredPermissions: ['active_http_get'],
-    };
-  }
-
-  if (kind === 'http_method_manipulation') {
-    return {
-      capability: 'method_manipulation_probe',
-      title: 'Investigate HTTP method manipulation draft',
-      blastRadius: 'single_endpoint',
-      capabilityGained: 'active_validation',
-      findingTypeLabel: 'HTTP_METHOD_MANIPULATION',
-      extraPrereqs: [],
-      stepTitle: 'Authorize method manipulation investigation',
-      stepDescription:
-        'Human-authorized method manipulation investigation from a pending draft. Not a confirmed vulnerability.',
       requiredPermissions: ['active_http_get'],
     };
   }
@@ -776,11 +774,20 @@ function withIdentityPrereqs(
         : identityPresentPrereq(identities)
     );
   }
-  if (
-    capability === 'idor_read_differential' &&
-    !rebuilt.some((p) => p.kind === 'identity_count_at_least_2')
-  ) {
-    rebuilt.push(identityCountPrereq(identities));
+  if (capability === 'idor_read_differential') {
+    if (!rebuilt.some((p) => p.kind === 'identity_count_at_least_2')) {
+      rebuilt.push(identityCountPrereq(identities));
+    }
+  }
+  if (capability === 'auth_boundary_differential') {
+    // A+anon: at least one authenticated identity; anon contrast is empty headers.
+    if (
+      !rebuilt.some(
+        (p) => p.kind === 'identity_present' || p.kind === 'identity_count_at_least_2'
+      )
+    ) {
+      rebuilt.push(identityPresentPrereq(identities));
+    }
   }
   return rebuilt;
 }
@@ -802,6 +809,12 @@ function generateDraftInvestigationPlans(
   for (const signal of signals) {
     const mapping = draftCapabilityMapping(signal);
     if (!mapping) continue;
+    if (
+      mapping.capability === 'auth_bypass_probe' &&
+      skipStaticIdenticalAuthBypassPlan(signal.endpointUrl, undefined)
+    ) {
+      continue;
+    }
 
     const sourceKey = `draft_${signal.draftId}_${mapping.capability}`;
     if (emitted.has(sourceKey)) continue;
@@ -891,8 +904,16 @@ function generateDraftInvestigationPlans(
 const AUTH_SURFACE_PATH_RE =
   /^\/(login|signin|sign-in|auth|authenticate|api\/auth|api\/login|session|oauth)(\/|$)/i;
 
+/** Account / order surfaces for dual-identity auth-boundary differentials (BYOT A↔B). */
+const ACCOUNT_BOUNDARY_PATH_RE =
+  /\/(myaccount|my-account|account|orderhistory|order-history|orders|addressbook|address-book|addressbookform)(\/|$)/i;
+
 const SPA_HTML_SHELL_PATH_RE =
   /^\/(login|signin|sign-in|signup|register|arcade|perfil|profile|dashboard|home)?\/?$/i;
+
+export function isAccountBoundaryPath(pathOrUrl: string): boolean {
+  return ACCOUNT_BOUNDARY_PATH_RE.test(pathOrUrl);
+}
 
 /**
  * Classify whether an auth-looking surface is a meaningful auth boundary.
@@ -1009,8 +1030,20 @@ function generateSurfaceInvestigationPlans(
       continue;
     }
 
-    if (hint.signalKind !== 'auth_surface') continue;
-    if (!AUTH_SURFACE_PATH_RE.test(hint.path) && !AUTH_SURFACE_PATH_RE.test(hint.endpointUrl)) {
+    if (hint.signalKind !== 'auth_surface' && hint.signalKind !== 'account_boundary') {
+      continue;
+    }
+
+    const isAccountBoundary =
+      hint.signalKind === 'account_boundary' ||
+      ACCOUNT_BOUNDARY_PATH_RE.test(hint.path) ||
+      ACCOUNT_BOUNDARY_PATH_RE.test(hint.endpointUrl);
+
+    if (
+      !isAccountBoundary &&
+      !AUTH_SURFACE_PATH_RE.test(hint.path) &&
+      !AUTH_SURFACE_PATH_RE.test(hint.endpointUrl)
+    ) {
       // Allow explicit auth_surface hints even if path regex misses (e.g. supabase hosts).
       if (
         !/login|signin|auth|session|oauth|rest\/v1|supabase/i.test(hint.path) &&
@@ -1026,6 +1059,48 @@ function generateSurfaceInvestigationPlans(
       hint.resourceClass
     );
     if (resourceClass === 'spa_html_shell') {
+      continue;
+    }
+
+    // Account/order boundaries → dual-identity auth_boundary_differential (BYOT A↔B).
+    if (isAccountBoundary) {
+      const sourceKey = `surface_acct_${sha256Short(hint.endpointUrl)}`;
+      if (emitted.has(sourceKey)) continue;
+      emitted.add(sourceKey);
+
+      const prereqs: AttackPrerequisite[] = [
+        observedSurfacePrereq(hint.path),
+        identityPresentPrereq(input.identities),
+      ];
+
+      plans.push(
+        buildInvestigationPlan({
+          assessmentId: input.assessmentId,
+          scanId: input.scanId,
+          capability: 'auth_boundary_differential',
+          sourceKey,
+          title: 'Investigate OBSERVED account/order auth boundary',
+          reasoning: `OBSERVED account/order surface (${hint.path}). Advisory A+anon (optional BYOT B) GET differential — does not invent object/order IDs or claim Critical. Requires ≥1 authenticated identity; anon contrast uses empty headers. Human authorization before any active probe.`,
+          blastRadius: 'user_scoped',
+          capabilityGained: 'read_authenticated',
+          sourceFindingTypes: ['BROKEN_ACCESS_CONTROL'],
+          prerequisites: prereqs,
+          steps: [
+            {
+              stepId: `${sourceKey}_step_1`,
+              ordinal: 1,
+              title: 'Authorize account-boundary differential',
+              description:
+                'Human-authorized read-only GET comparing Identity A vs anonymous (empty headers) on an OBSERVED account/order path. Optional Identity B. No object-ID invention.',
+              requiredPermissions: ['active_http_get'],
+            },
+          ],
+          lineage: input.lineage,
+          createdAt: generatedAt,
+          planOrigin: 'observed_surface',
+          targetUrl: hint.endpointUrl,
+        })
+      );
       continue;
     }
 
@@ -1344,7 +1419,13 @@ export function generateAttackPlans(input: AttackPlanGeneratorInput): AttackPlan
     }
 
     // Rule 3: BROKEN_AUTHENTICATION (bypass) + identity → auth_bypass_probe
-    if (isAuthBypass(finding)) {
+    if (
+      isAuthBypass(finding) &&
+      !skipStaticIdenticalAuthBypassPlan(
+        targetFromFinding(finding),
+        bodySimilarityFromFinding(finding)
+      )
+    ) {
       const prereqs = [
         findingPresentPrereq(finding, 'BROKEN_AUTHENTICATION'),
         identityPresentPrereq(identities),
@@ -1407,42 +1488,6 @@ export function generateAttackPlans(input: AttackPlanGeneratorInput): AttackPlan
           lineage: input.lineage,
           createdAt: generatedAt,
           targetUrl: targetFromFinding(finding),
-        })
-      );
-    }
-
-    // Rule 5: INFORMATION_DISCLOSURE (SQL error) + parameter → sql_error_oracle_probe
-    if (isSqlErrorOracle(finding)) {
-      const parameterName = parameterFromFinding(finding);
-      const prereqs = [
-        findingPresentPrereq(finding, 'INFORMATION_DISCLOSURE'),
-        parameterPresentPrereq(parameterName),
-      ];
-      plans.push(
-        buildPlan({
-          assessmentId: input.assessmentId,
-          scanId: input.scanId,
-          capability: 'sql_error_oracle_probe',
-          title: 'SQL error oracle validation',
-          reasoning:
-            'Observed SQL error disclosure on a parameter. Recommend controlled oracle validation after human authorization.',
-          blastRadius: 'single_parameter',
-          capabilityGained: 'read_authenticated',
-          finding,
-          prerequisites: prereqs,
-          steps: [
-            {
-              stepId: `${finding.id}_sql_step_1`,
-              ordinal: 1,
-              title: 'Authorize SQL error oracle probe',
-              description: 'Human-authorized inert probe confirming SQL error oracle behavior.',
-              requiredPermissions: ['active_http_get'],
-            },
-          ],
-          lineage: input.lineage,
-          createdAt: generatedAt,
-          targetUrl: targetFromFinding(finding),
-          parameterName,
         })
       );
     }
@@ -1649,15 +1694,24 @@ export function generateAttackPlans(input: AttackPlanGeneratorInput): AttackPlan
   // Rule 13: OBSERVED high-signal surface (auth paths) → investigation hypotheses.
   plans.push(...generateSurfaceInvestigationPlans(input, generatedAt));
 
-  const uniquePlans = uniquifyGeneratedPlans(plans);
-  uniquePlans.sort((a, b) => a.planId.localeCompare(b.planId));
+  const uniquePlans = uniquifyGeneratedPlans(plans).filter(
+    (plan) =>
+      plan.capability !== 'sql_error_oracle_probe' &&
+      plan.capability !== 'session_fixation_probe' &&
+      plan.capability !== 'method_manipulation_probe'
+  );
+  const withDeferred = [
+    ...uniquePlans,
+    ...buildDeferredSurfaceProbePlans(input, generatedAt),
+  ];
+  withDeferred.sort((a, b) => a.planId.localeCompare(b.planId));
 
   return {
     contractVersion: ATTACK_PLANNING_CONTRACT_VERSION,
     kind: 'attack_plan_generator_result',
     assessmentId: input.assessmentId,
     scanId: input.scanId,
-    plans: uniquePlans,
+    plans: withDeferred,
     generatedAt,
     lineage: { ...input.lineage },
   };

@@ -168,7 +168,7 @@ async function dispatchProbe(
 ): Promise<HttpProbeResponse> {
   if (coordinator) {
     const host = new URL(req.url).host;
-    return coordinator.execute(host, () => transport(req));
+    return coordinator.executeWithStatusPacing(host, () => transport(req));
   }
   return transport(req);
 }

@@ -12,6 +12,7 @@
 
 import assert from 'node:assert/strict';
 import process from 'node:process';
+import { pathToFileURL } from 'node:url';
 import {
   ATTACK_PLANNING_CONTRACT_VERSION,
   type AttackPlan,
@@ -281,7 +282,7 @@ type StoredChainRow = Record<string, unknown> & {
   step_count: number;
 };
 
-class MockPlanChainDb {
+export class MockPlanChainDb {
   public plans = new Map<string, StoredPlanRow>();
   public chains = new Map<string, StoredChainRow>();
 
@@ -505,7 +506,13 @@ async function main(): Promise<void> {
   console.log('=== Phase D2 Durable Plans+Chains: ALL TESTS PASSED ===');
 }
 
-main().catch((err: unknown) => {
-  const message = err instanceof Error ? err.message : String(err);
-  fail(message);
-});
+const isDirectRun =
+  typeof process.argv[1] === 'string' &&
+  import.meta.url === pathToFileURL(process.argv[1]).href;
+
+if (isDirectRun) {
+  main().catch((err: unknown) => {
+    const message = err instanceof Error ? err.message : String(err);
+    fail(message);
+  });
+}

@@ -10,6 +10,8 @@
  * AttackPlan advisory scope uses AttackPlanScopeClass in attack-planning (A3).
  */
 
+import type { VerifiedAuthorizationDecision } from '../authorization/VerifiedAuthorizationDecisionContracts.js';
+
 export type AttackAuthorizationContractVersion = 'fixguard-attack-authorization/v0';
 export const ATTACK_AUTHORIZATION_CONTRACT_VERSION: AttackAuthorizationContractVersion =
   'fixguard-attack-authorization/v0';
@@ -152,4 +154,77 @@ export function isAuthorizableBlastRadiusClass(
   value: BlastRadiusClass
 ): value is AuthorizableBlastRadiusClass {
   return !isProhibitedBlastRadiusClass(value);
+}
+
+/**
+ * Read/observation classes this module can already brand.
+ * authorizeReadObservationFromVerifiedDecision mints only these.
+ * State-changing, persistence, and destructive classes are rejected.
+ * Each token is bound to one class and does not cascade into another.
+ */
+export type ReadObservationBlastRadiusClass =
+  | 'read_public'
+  | 'read_authenticated'
+  | 'read_escalated';
+
+export const READ_OBSERVATION_BLAST_RADIUS_CLASSES: readonly ReadObservationBlastRadiusClass[] = [
+  'read_public',
+  'read_authenticated',
+  'read_escalated',
+] as const;
+
+export const AUTHORIZE_READ_OBSERVATION_REQUEST_KIND =
+  'authorize_read_observation_from_verified_decision_request' as const;
+
+/**
+ * Closed input for minting one read-class token from an already-branded
+ * VerifiedAuthorizationDecision. `confirmed` and any other key are forbidden.
+ * The decision field must be the WeakSet object from
+ * establishVerifiedAuthorizationDecision — a structural copy is not accepted.
+ */
+export interface AuthorizeReadObservationFromVerifiedDecisionRequest {
+  readonly contractVersion: AttackAuthorizationContractVersion;
+  readonly kind: typeof AUTHORIZE_READ_OBSERVATION_REQUEST_KIND;
+  readonly planId: string;
+  readonly assessmentId: string;
+  readonly blastRadiusClass: BlastRadiusClass;
+  readonly operatorId: string;
+  readonly verifiedAuthorizationDecision: VerifiedAuthorizationDecision;
+  readonly authorizedAt?: string;
+}
+
+export type AuthorizeReadObservationReasonCode =
+  | 'read_attack_authorization_established'
+  | 'read_authorization_request_invalid'
+  | 'blast_radius_class_prohibited'
+  | 'blast_radius_class_not_read_observation'
+  | 'verified_decision_not_branded'
+  | 'verified_decision_assessment_mismatch'
+  | 'operator_invalid'
+  | 'plan_not_found'
+  | 'read_authorization_already_established';
+
+export type AuthorizeReadObservationResult =
+  | {
+      readonly status: 'established';
+      readonly reasonCode: 'read_attack_authorization_established';
+      readonly token: AttackAuthorizationToken;
+    }
+  | {
+      readonly status: 'failed';
+      readonly reasonCode: Exclude<
+        AuthorizeReadObservationReasonCode,
+        'read_attack_authorization_established'
+      >;
+      readonly safeMessage: string;
+    };
+
+export function isReadObservationBlastRadiusClass(
+  value: BlastRadiusClass
+): value is ReadObservationBlastRadiusClass {
+  return (
+    value === 'read_public' ||
+    value === 'read_authenticated' ||
+    value === 'read_escalated'
+  );
 }

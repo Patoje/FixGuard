@@ -63,6 +63,12 @@ export interface DiscoveredHostRecord {
   readonly inferredHostingProvider?: InferredHostingProvider;
   readonly inferredCdn?: boolean;
   readonly asn?: string;
+  /** Literal CDN token from dnsx JSON for this domain. Not a finding. */
+  readonly observedCdn?: string;
+  /** buildId already present in captured HTML. */
+  readonly nextBuildId?: string;
+  /** Marker already present on a captured response. Not a finding. */
+  readonly wafIdentity?: string;
   readonly epistemicStatus: 'OBSERVED' | 'INFERRED';
 }
 
@@ -158,6 +164,8 @@ export interface TargetProfileBuilderInput {
       readonly domain: string;
       readonly recordType: string;
       readonly values: readonly string[];
+      readonly asn?: string;
+      readonly cdn?: string;
       readonly freshness?: 'live' | 'historical' | 'unknown';
       readonly sourceReliability?: 'direct_observation' | 'historical_archive' | 'inferred_relationship';
       readonly discoveredAt?: string;
@@ -190,6 +198,8 @@ export interface TargetProfileBuilderInput {
       readonly technologies?: readonly string[];
       readonly resolvedIp?: string;
     }[];
+    /** Sourcemap bodies already downloaded. Version text is read from comments only. */
+    readonly sourcemapTexts?: readonly string[];
   };
   readonly lineage: AuthorizedExecutionLineageTuple;
   readonly buildTimestamp?: string;

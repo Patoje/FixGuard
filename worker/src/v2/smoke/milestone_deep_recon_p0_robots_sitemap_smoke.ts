@@ -199,8 +199,8 @@ async function main(): Promise<void> {
   assert.equal(robotsResult?.status, 'ran');
   const skippedJs = orch.methodResults.find((m) => m.method === 'js_surface_mining');
   assert.equal(skippedJs?.status, 'skipped');
-  assert.equal(skippedJs?.reasonCode, 'method_not_wired_in_p0');
-  console.log('[+] deep recon orchestrator P0 runs robots feed; later methods skipped honestly');
+  assert.equal(skippedJs?.reasonCode, 'jsluice_tool_not_configured');
+  console.log('[+] deep recon orchestrator P0 runs robots feed; js mining waits for a tool');
 
   console.log('=== Deep recon P0 smoke: ALL PASSED ===');
 }

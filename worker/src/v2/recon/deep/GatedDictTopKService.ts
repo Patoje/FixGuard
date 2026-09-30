@@ -11,6 +11,11 @@ import {
   isBlockingDefense,
 } from '../../test-validity/DefenseObservationService.js';
 import type { DefenseObservation } from '../../test-validity/TestValidityContracts.js';
+import type { ObservedFact } from '../../observation/ObservedFactContracts.js';
+import {
+  defaultDocumentCopyDirectory,
+  observeDownloadedDocument,
+} from '../../observation/DocumentMetadataReader.js';
 import {
   DEEP_RECON_NON_CLAIMS,
   GATED_DICT_MAX_ARJUN_TARGETS_DEFAULT,
@@ -148,6 +153,15 @@ export async function runGatedDictTopK(
 
   let requestsUsed = 0;
   const defensesAcc: DefenseObservation[] = [];
+  const documentFacts: ObservedFact[] = [];
+  const keepFact = (fact: ObservedFact | null): void => {
+    if (!fact || documentFacts.some((existing) => existing.factId === fact.factId)) return;
+    documentFacts.push(fact);
+  };
+  const seal = (result: GatedDictTopKResult): GatedDictTopKResult =>
+    documentFacts.length === 0
+      ? result
+      : { ...result, observedFacts: Object.freeze([...documentFacts]) };
 
   // WAF canary on highest-ranked target before spray.
   if (request.skipWafCanary !== true && request.transport && ffufRoots[0]) {
@@ -161,6 +175,19 @@ export async function runGatedDictTopK(
         timeoutMs: request.timeoutMs ?? 8_000,
       });
       requestsUsed += 1;
+      const retained = observeDownloadedDocument({
+        downloaded: true,
+        url: canaryUrl,
+        method: 'GET',
+        statusCode: res.statusCode,
+        contentType: res.headers['content-type'],
+        body: res.bodyText,
+        scopeGrant: request.authorizedScopeGrant,
+        lineage: request.lineage,
+        observedAt: new Date().toISOString(),
+        directory: defaultDocumentCopyDirectory(),
+      });
+      keepFact(retained.fact);
       const defenses = observeDefensesFromHttpResponse(
         {
           statusCode: res.statusCode,
@@ -174,7 +201,7 @@ export async function runGatedDictTopK(
       );
       for (const d of defenses) defensesAcc.push(d);
       if (defenses.some(isBlockingDefense)) {
-        return {
+        return seal({
           contractVersion: GATED_DICT_TOPK_CONTRACT_VERSION,
           status: 'waf_aborted',
           reasonCode: 'blocking_defense_on_canary',
@@ -186,7 +213,7 @@ export async function runGatedDictTopK(
           defenses: Object.freeze(defensesAcc),
           requestsUsed,
           nonClaims: DEEP_RECON_NON_CLAIMS,
-        };
+        });
       }
     } catch {
       // Canary transport errors do not abort — tools still have their own preflight.
@@ -218,7 +245,7 @@ export async function runGatedDictTopK(
       });
       requestsUsed += 1;
       if (result.status === 'preflight_denied') {
-        return {
+        return seal({
           contractVersion: GATED_DICT_TOPK_CONTRACT_VERSION,
           status: 'preflight_denied',
           reasonCode: result.reasonCode,
@@ -230,7 +257,7 @@ export async function runGatedDictTopK(
           ...(defensesAcc.length > 0 ? { defenses: Object.freeze(defensesAcc) } : {}),
           requestsUsed,
           nonClaims: DEEP_RECON_NON_CLAIMS,
-        };
+        });
       }
       if (result.status === 'success') {
         for (const obs of result.observations) {
@@ -238,6 +265,7 @@ export async function runGatedDictTopK(
           const asUrl = contentToUrlObservation(obs);
           if (asUrl) urlObservations.push(asUrl);
         }
+        for (const fact of result.observedFacts ?? []) keepFact(fact);
       }
     }
   }
@@ -253,7 +281,7 @@ export async function runGatedDictTopK(
       });
       requestsUsed += 1;
       if (result.status === 'preflight_denied') {
-        return {
+        return seal({
           contractVersion: GATED_DICT_TOPK_CONTRACT_VERSION,
           status: 'preflight_denied',
           reasonCode: result.reasonCode,
@@ -265,7 +293,7 @@ export async function runGatedDictTopK(
           ...(defensesAcc.length > 0 ? { defenses: Object.freeze(defensesAcc) } : {}),
           requestsUsed,
           nonClaims: DEEP_RECON_NON_CLAIMS,
-        };
+        });
       }
       if (result.status === 'success') {
         for (const obs of result.observations) {
@@ -275,7 +303,7 @@ export async function runGatedDictTopK(
     }
   }
 
-  return {
+  return seal({
     contractVersion: GATED_DICT_TOPK_CONTRACT_VERSION,
     status: 'success',
     reasonCode:
@@ -290,5 +318,5 @@ export async function runGatedDictTopK(
     ...(defensesAcc.length > 0 ? { defenses: Object.freeze(defensesAcc) } : {}),
     requestsUsed,
     nonClaims: DEEP_RECON_NON_CLAIMS,
-  };
+  });
 }

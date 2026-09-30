@@ -13,7 +13,9 @@ export type DeepReconMethodKind =
   | 'api_schema_discovery'
   | 'byot_network_harvest'
   | 'gated_dict_topk'
-  | 'html_hop_extra';
+  | 'html_hop_extra'
+  | 'security_txt'
+  | 'well_known_oauth';
 
 export type DeepReconEpistemicTag = 'OBSERVED' | 'INFERRED' | 'RECOMMENDED';
 
@@ -66,4 +68,19 @@ export interface DeepReconMethodResultSummary {
   readonly reasonCode: string;
   readonly requestsUsed: number;
   readonly urlsSeeded: number;
+}
+
+/** Parameter names seeded by js_surface_mining. Values and secrets are never included. */
+export interface DeepReconParameterSeed {
+  readonly url: string;
+  readonly parameterName: string;
+  readonly source: 'js_surface_mining';
+}
+
+/** Schema names read from OpenAPI or GraphQL introspection. Not findings. */
+export interface DeepReconSchemaObservation {
+  readonly sourceUrl: string;
+  readonly surfaceKind: 'postgrest_table' | 'postgrest_rpc' | 'graphql_type' | 'graphql_query_field';
+  readonly name: string;
+  readonly epistemicStatus: 'OBSERVED';
 }

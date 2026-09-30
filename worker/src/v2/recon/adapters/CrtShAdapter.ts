@@ -18,6 +18,26 @@ export interface CrtShOptions {
   readonly dnsResolver?: PreSpawnDnsResolver;
 }
 
+/**
+ * Production composition throws this instead of calling crt.sh.
+ * A real injected fetch that throws is a different error and stays
+ * `crt_sh_fetch_failed`.
+ */
+export class CtTransportDisabledError extends Error {
+  constructor() {
+    super(
+      'Default composition CT transport is fail-closed; inject CrtShAdapter with live fetch for historical CT'
+    );
+    this.name = 'CtTransportDisabledError';
+  }
+}
+
+export function createFailClosedCtFetch(): typeof fetch {
+  return async () => {
+    throw new CtTransportDisabledError();
+  };
+}
+
 export class CrtShAdapter implements SubdomainDiscoveryTool {
   private readonly fetchImpl: typeof fetch;
   private readonly dnsResolver: PreSpawnDnsResolver | undefined;
@@ -74,6 +94,18 @@ export class CrtShAdapter implements SubdomainDiscoveryTool {
       });
     } catch (err: unknown) {
       clearTimeout(timer);
+      if (err instanceof CtTransportDisabledError) {
+        return {
+          status: 'execution_failed',
+          contractVersion: SUBDOMAIN_DISCOVERY_CONTRACT_VERSION,
+          targetDomain,
+          reasonCode: 'ct_transport_disabled',
+          reason: err.message,
+          explicitNonClaims: SUBDOMAIN_DISCOVERY_NON_CLAIMS,
+          lineage: request.lineage,
+          durationMs: Date.now() - startTime,
+        };
+      }
       const msg = err instanceof Error ? err.message : String(err);
       return {
         status: 'execution_failed',

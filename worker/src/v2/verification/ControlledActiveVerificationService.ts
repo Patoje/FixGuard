@@ -15,6 +15,8 @@ import { isInternalOrSsrfTarget } from '../recon/policy/PassiveEgressPolicy.js';
 import { validateDnsRebinding } from '../recon/adapters/AdapterPreflightPipeline.js';
 import {
   CIRCUIT_OPEN_REASON_CODE,
+  TARGET_EXECUTION_CANCELLED_REASON_CODE,
+  TargetExecutionCancelledError,
   TargetInstabilityError,
 } from '../runtime/CircuitBreakerContracts.js';
 import type {
@@ -455,14 +457,23 @@ export class ControlledActiveVerificationService {
       };
 
       if (command.coordinator) {
-        probeResponse = await command.coordinator.execute(host, executeNetworkCall);
+        probeResponse = await command.coordinator.executeWithStatusPacing(host, executeNetworkCall);
       } else {
         probeResponse = await executeNetworkCall();
       }
-
-      // Record target response status for circuit breaker feedback
-      command.coordinator?.recordTargetResponse(host, probeResponse.statusCode);
     } catch (err) {
+      if (err instanceof TargetExecutionCancelledError) {
+        return {
+          status: 'verification_failed',
+          contractVersion: ACTIVE_VERIFICATION_CONTRACT_VERSION,
+          targetUrl: command.targetUrl,
+          reasonCode: TARGET_EXECUTION_CANCELLED_REASON_CODE,
+          reason: `Target execution for '${host}' was cancelled before the probe completed.`,
+          explicitNonClaims: ACTIVE_VERIFICATION_NON_CLAIMS,
+          lineage: { ...command.lineage },
+          durationMs: Date.now() - startTime,
+        };
+      }
       if (err instanceof TargetInstabilityError || command.coordinator?.isCircuitOpen(host)) {
         return {
           status: 'circuit_broken',

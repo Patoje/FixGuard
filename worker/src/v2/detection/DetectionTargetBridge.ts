@@ -10,6 +10,12 @@
  */
 
 import type { AggregatedReconObservations } from '../recon/orchestration/ActiveReconOrchestrationContracts.js';
+import type { AuthorizedExecutionLineageTuple } from './DetectionContracts.js';
+import type { ObservedFact } from '../observation/ObservedFactContracts.js';
+import {
+  collectGroundedSurfaceFacts,
+  parameterNameAppearsInUrl,
+} from '../observation/ObservedFactCatalogService.js';
 import { TechnologyFingerprintService } from '../recon/analysis/TechnologyFingerprintService.js';
 import type { DetectedTechnology, TechEcosystemProfile } from '../core/TechnologyContracts.js';
 import {
@@ -94,6 +100,9 @@ export interface DetectionTargetBridgeInput {
   readonly maxPrimaryProbeUrls?: number;
   readonly maxIdorCandidates?: number;
   readonly maxSupabaseCandidates?: number;
+  /** When present with observedAt, grounded observed facts are derived. */
+  readonly lineage?: AuthorizedExecutionLineageTuple;
+  readonly observedAt?: string;
 }
 
 export interface DetectionTargetBridgeResult {
@@ -107,6 +116,8 @@ export interface DetectionTargetBridgeResult {
   readonly supabaseRestCandidates: readonly DetectionSupabaseRestCandidate[];
   readonly suppressions: readonly DetectionSuppressionRecord[];
   readonly phpSessionFixationGate: PhpSessionFixationTechGate;
+  /** OBSERVED facts only. Empty when lineage/observedAt are omitted. */
+  readonly observedFacts: readonly ObservedFact[];
 }
 
 export interface PhpSessionFixationTechGate {
@@ -171,11 +182,24 @@ function fingerprintFromObservations(
     }
   }
 
+  const sourcemapParts: string[] = [];
+  for (const text of aggregated.sourcemapTexts ?? []) {
+    if (text.length > 0) sourcemapParts.push(text);
+  }
+  for (const obs of rawObservations) {
+    if (typeof obs !== 'object' || obs === null) continue;
+    const rec = obs as Record<string, unknown>;
+    if (typeof rec.sourcemapText === 'string' && rec.sourcemapText.length > 0) {
+      sourcemapParts.push(rec.sourcemapText);
+    }
+  }
+  const sourcemapText = sourcemapParts.join('\n');
   return fingerprintService.analyze({
     url: bestUrl,
     headers: bestHeaders,
     bodyText: bestBody,
     rawObservations,
+    ...(sourcemapText.length > 0 ? { sourcemapText } : {}),
   });
 }
 
@@ -225,6 +249,103 @@ export function evaluatePhpSessionFixationTechGate(
     reasonCode: 'php_session_probe_applicable',
     rationale: 'PHPSESSID session-fixation probe allowed by tech gate',
   };
+}
+
+/**
+ * True when a probe response looks like an HTML/SPA shell rather than a
+ * structured resource (JSON API). Used to fail-closed IDOR auto-promote.
+ */
+export function isHtmlShellBodySignal(input: {
+  readonly contentType?: string;
+  readonly bodyShapeKind?: string;
+  readonly sanitizedSnippet?: string;
+}): boolean {
+  const ct = (input.contentType ?? '').toLowerCase();
+  if (ct.includes('text/html')) {
+    return true;
+  }
+  if (input.bodyShapeKind === 'html') {
+    return true;
+  }
+  const snippet = input.sanitizedSnippet ?? '';
+  if (snippet.length > 0 && /<!doctype\s+html|<html[\s>]/i.test(snippet)) {
+    return true;
+  }
+  return false;
+}
+
+/**
+ * Opaque SPA/catch-all paths that commonly mint soft-404 HTML differentials
+ * (e.g. Sodimac `/a/b`, `/a/i`, storefront `/cart`) — not resource APIs.
+ */
+export function looksLikeOpaqueSpaOrCartShellPath(endpointUrl: string): boolean {
+  let pathname = endpointUrl;
+  try {
+    pathname = new URL(endpointUrl).pathname || '/';
+  } catch {
+    const q = endpointUrl.indexOf('?');
+    pathname = q >= 0 ? endpointUrl.slice(0, q) : endpointUrl;
+  }
+  if (
+    /^\/api(\/|$)/i.test(pathname) ||
+    /\/rest\/v1(\/|$)/i.test(pathname) ||
+    /\/auth\/v1(\/|$)/i.test(pathname) ||
+    /\/(graphql|gql)(\/|$)/i.test(pathname) ||
+    /\.json(\?|$)/i.test(pathname)
+  ) {
+    return false;
+  }
+  if (/^\/cart\/?$/i.test(pathname)) {
+    return true;
+  }
+  // Short opaque segments under /a/… (analytics / SPA catch-alls).
+  if (/^\/a\/[a-z0-9_-]{1,8}\/?$/i.test(pathname)) {
+    return true;
+  }
+  return false;
+}
+
+/**
+ * Fail-closed predicate: IDOR differential is soft-404 / HTML shell noise
+ * and must not auto-promote to a High finding.
+ */
+export function isIdorSoft404OrHtmlShellNoise(input: {
+  readonly endpointUrl: string;
+  readonly baselineStatusCode?: number;
+  readonly validationStatusCode?: number;
+  readonly baselineContentType?: string;
+  readonly validationContentType?: string;
+  readonly baselineBodyShapeKind?: string;
+  readonly validationBodyShapeKind?: string;
+  readonly sanitizedSnippet?: string;
+}): boolean {
+  const baselineHtml = isHtmlShellBodySignal({
+    contentType: input.baselineContentType,
+    bodyShapeKind: input.baselineBodyShapeKind,
+    sanitizedSnippet: input.sanitizedSnippet,
+  });
+  const validationHtml = isHtmlShellBodySignal({
+    contentType: input.validationContentType,
+    bodyShapeKind: input.validationBodyShapeKind,
+  });
+  if (baselineHtml || validationHtml) {
+    return true;
+  }
+
+  const opaquePath = looksLikeOpaqueSpaOrCartShellPath(input.endpointUrl);
+  if (!opaquePath) {
+    return false;
+  }
+
+  // Opaque SPA/cart path without JSON evidence → soft-404 class noise
+  // (covers `/a/b`/`/cart` even when content-type was not persisted on the draft).
+  const baselineJson =
+    input.baselineBodyShapeKind === 'json_object' ||
+    input.baselineBodyShapeKind === 'json_array';
+  const validationJson =
+    input.validationBodyShapeKind === 'json_object' ||
+    input.validationBodyShapeKind === 'json_array';
+  return !(baselineJson || validationJson);
 }
 
 /**
@@ -641,6 +762,30 @@ export function buildDetectionTargetsFromRecon(
     });
   }
 
+  const objectIds: { sourceUrl: string; objectId: string }[] = [];
+  for (const urlObs of input.aggregatedObservations.urls) {
+    const match = urlObs.url.match(REST_ID_PATH);
+    const objectId = match?.[2];
+    if (objectId) {
+      objectIds.push({ sourceUrl: urlObs.url, objectId });
+    }
+  }
+  const groundedParameters = input.aggregatedObservations.parameters
+    .filter((param) => parameterNameAppearsInUrl(param.url, param.parameterName))
+    .map((param) => ({
+      sourceUrl: param.url,
+      parameterName: param.parameterName,
+    }));
+  const observedFacts =
+    input.lineage && input.observedAt
+      ? collectGroundedSurfaceFacts({
+          lineage: input.lineage,
+          observedAt: input.observedAt,
+          objectIds,
+          parameters: groundedParameters,
+        })
+      : [];
+
   return {
     ecosystemProfile,
     detectedTechnologies: technologies,
@@ -651,5 +796,6 @@ export function buildDetectionTargetsFromRecon(
     supabaseRestCandidates,
     suppressions,
     phpSessionFixationGate,
+    observedFacts,
   };
 }

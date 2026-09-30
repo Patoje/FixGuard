@@ -20,6 +20,11 @@ import { defaultHttpProbeTransport } from '../../detection/IdorDifferentialDetec
 import type { IdorHttpProbeTransport } from '../../detection/DetectionContracts.js';
 import { isInternalOrSsrfTarget } from '../policy/PassiveEgressPolicy.js';
 import { classifySupabaseUrl } from '../../supabase/SupabaseSurfaceContracts.js';
+import type { ObservedFact } from '../../observation/ObservedFactContracts.js';
+import {
+  defaultDocumentCopyDirectory,
+  observeDownloadedDocument,
+} from '../../observation/DocumentMetadataReader.js';
 
 export const SOURCEMAP_SURFACE_CONTRACT_VERSION =
   'fixguard-sourcemap-surface-extraction/v0' as const;
@@ -79,9 +84,12 @@ export type SourcemapSurfaceExtractionResult =
       readonly urlObservations: readonly DiscoveredUrlObservation[];
       readonly sourcesSample: readonly string[];
       readonly sourcesCount: number;
+      /** Sourcemap JSON already downloaded by this GET. */
+      readonly bodyText: string;
       readonly explicitNonClaims: SourcemapSurfaceExplicitNonClaims;
       readonly lineage: AuthorizedActiveReconRequestLineage;
       readonly durationMs: number;
+      readonly observedFacts?: readonly ObservedFact[];
     }
   | {
       readonly status: 'abstained';
@@ -92,6 +100,7 @@ export type SourcemapSurfaceExtractionResult =
       readonly explicitNonClaims: SourcemapSurfaceExplicitNonClaims;
       readonly lineage: AuthorizedActiveReconRequestLineage;
       readonly durationMs: number;
+      readonly observedFacts?: readonly ObservedFact[];
     }
   | {
       readonly status: 'preflight_denied';
@@ -342,6 +351,11 @@ export async function runSourcemapSurfaceExtraction(
 
   const transport = request.transport ?? defaultHttpProbeTransport;
   let bodyText = '';
+  const documentFacts: ObservedFact[] = [];
+  const withDocumentFacts = <T extends SourcemapSurfaceExtractionResult>(result: T): T => {
+    if (documentFacts.length === 0) return result;
+    return { ...result, observedFacts: Object.freeze(documentFacts) };
+  };
   try {
     const probe = await transport({
       url: mapUrl,
@@ -352,8 +366,21 @@ export async function runSourcemapSurfaceExtraction(
       },
       timeoutMs: request.timeoutMs ?? 8_000,
     });
+    const retained = observeDownloadedDocument({
+      downloaded: true,
+      url: mapUrl,
+      method: 'GET',
+      statusCode: probe.statusCode,
+      contentType: probe.headers['content-type'],
+      body: probe.bodyText,
+      scopeGrant: request.authorizedScopeGrant,
+      lineage: request.lineage,
+      observedAt: new Date().toISOString(),
+      directory: defaultDocumentCopyDirectory(),
+    });
+    if (retained.fact) documentFacts.push(retained.fact);
     if (probe.statusCode < 200 || probe.statusCode >= 300 || probe.bodyText.trim().length === 0) {
-      return {
+      return withDocumentFacts({
         status: 'abstained',
         contractVersion: SOURCEMAP_SURFACE_CONTRACT_VERSION,
         sourceJsUrl,
@@ -362,7 +389,7 @@ export async function runSourcemapSurfaceExtraction(
         explicitNonClaims: SOURCEMAP_SURFACE_NON_CLAIMS,
         lineage,
         durationMs: Date.now() - started,
-      };
+      });
     }
     bodyText = probe.bodyText;
   } catch {
@@ -382,7 +409,7 @@ export async function runSourcemapSurfaceExtraction(
   try {
     parsed = JSON.parse(bodyText);
   } catch {
-    return {
+    return withDocumentFacts({
       status: 'abstained',
       contractVersion: SOURCEMAP_SURFACE_CONTRACT_VERSION,
       sourceJsUrl,
@@ -391,11 +418,11 @@ export async function runSourcemapSurfaceExtraction(
       explicitNonClaims: SOURCEMAP_SURFACE_NON_CLAIMS,
       lineage,
       durationMs: Date.now() - started,
-    };
+    });
   }
 
   if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-    return {
+    return withDocumentFacts({
       status: 'abstained',
       contractVersion: SOURCEMAP_SURFACE_CONTRACT_VERSION,
       sourceJsUrl,
@@ -404,7 +431,7 @@ export async function runSourcemapSurfaceExtraction(
       explicitNonClaims: SOURCEMAP_SURFACE_NON_CLAIMS,
       lineage,
       durationMs: Date.now() - started,
-    };
+    });
   }
 
   const record = parsed as Record<string, unknown>;
@@ -412,7 +439,7 @@ export async function runSourcemapSurfaceExtraction(
   const hasSources = Array.isArray(record.sources);
   const hasMappings = typeof record.mappings === 'string';
   if (!hasVersion && !hasSources && !hasMappings) {
-    return {
+    return withDocumentFacts({
       status: 'abstained',
       contractVersion: SOURCEMAP_SURFACE_CONTRACT_VERSION,
       sourceJsUrl,
@@ -421,7 +448,7 @@ export async function runSourcemapSurfaceExtraction(
       explicitNonClaims: SOURCEMAP_SURFACE_NON_CLAIMS,
       lineage,
       durationMs: Date.now() - started,
-    };
+    });
   }
 
   const mined = extractUrlSeedsFromSourcemapJson({
@@ -431,7 +458,7 @@ export async function runSourcemapSurfaceExtraction(
     discoveredAt: new Date().toISOString(),
   });
 
-  return {
+  return withDocumentFacts({
     status: 'success',
     contractVersion: SOURCEMAP_SURFACE_CONTRACT_VERSION,
     sourceJsUrl,
@@ -439,8 +466,9 @@ export async function runSourcemapSurfaceExtraction(
     urlObservations: mined.urlObservations,
     sourcesSample: mined.sourcesSample,
     sourcesCount: mined.sourcesCount,
+    bodyText,
     explicitNonClaims: SOURCEMAP_SURFACE_NON_CLAIMS,
     lineage,
     durationMs: Date.now() - started,
-  };
+  });
 }

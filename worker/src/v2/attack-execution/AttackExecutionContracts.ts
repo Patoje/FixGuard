@@ -48,6 +48,7 @@ export type AttackExecutionGateFailureCode =
   | 'gate_scope'
   | 'gate_circuit_open'
   | 'plan_not_found'
+  | 'prerequisite_missing'
   | 'token_missing'
   | 'token_not_branded'
   | 'capability_not_registered'
@@ -86,7 +87,11 @@ export interface AttackCapabilityIdentityRef {
 export interface AttackCapabilityInvocationContext {
   readonly plan: AttackPlan;
   readonly step: AttackExecutionStep;
-  readonly token: AttackAuthorizationToken;
+  /**
+   * Runtime-branded attack authorization. The operator execute route still
+   * requires one. Assessment-auth read-loop steps omit it and must not invent one.
+   */
+  readonly token?: AttackAuthorizationToken;
   readonly targetHost: string;
   readonly targetUrl: string;
   readonly scopeGrant: AuthorizedScopeGrant;

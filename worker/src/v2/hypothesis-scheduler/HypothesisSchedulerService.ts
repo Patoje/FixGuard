@@ -42,7 +42,36 @@ export function resolveHypothesisPreconditions(args: {
       detail: 'IDOR differential requires BYOT identity A+B',
       subHypothesisTitle: 'Obtain dual BYOT identities',
       subHypothesisRationale:
-        'Provide two authorized session identities at assessment launch before IDOR differential execution',
+        'Provide two authorized session identities at assessment launch before dual-identity differential execution',
+    };
+  }
+
+  if (hypothesisKind === 'auth_boundary_differential') {
+    // A+anon is enough for auth-boundary GET differential; dual BYOT preferred for A↔B notes.
+    if (identityCount >= 1) {
+      return { satisfied: true, blockReason: 'none' };
+    }
+    return {
+      satisfied: false,
+      blockReason: 'missing_byot_identities',
+      detail: 'Account/order auth-boundary differential requires at least Identity A (anon probe is empty headers)',
+      subHypothesisTitle: 'Obtain authenticated BYOT identity',
+      subHypothesisRationale:
+        'Provide at least one authorized session identity; anonymous contrast is probed with empty headers',
+    };
+  }
+
+  if (hypothesisKind === 'auth_bypass') {
+    if (identityCount >= 1) {
+      return { satisfied: true, blockReason: 'none' };
+    }
+    return {
+      satisfied: false,
+      blockReason: 'missing_byot_identities',
+      detail: 'Authentication bypass hypothesis requires at least Identity A',
+      subHypothesisTitle: 'Obtain authenticated BYOT identity',
+      subHypothesisRationale:
+        'Provide one authorized session identity before an auth-bypass execute',
     };
   }
 
@@ -141,7 +170,7 @@ export class HypothesisSchedulerService {
         } else if (meta === 'sql_error_oracle_metadata') {
           kind = 'sql_oracle';
           title = 'SQL error-oracle hypothesis';
-          capability = 'sql_error_oracle_probe';
+          capability = '';
           score = 70;
         } else if (
           f.type === 'PARAMETER_REFLECTION' ||
@@ -258,6 +287,86 @@ export class HypothesisSchedulerService {
             rationale: pre.subHypothesisRationale ?? '',
           }),
         })
+      );
+    }
+
+    const hasEndpoint = (input.asgNodeKinds ?? []).includes('endpoint');
+    const pushSurface = (
+      hypothesisKind: SecurityHypothesisKind,
+      title: string,
+      rationale: string,
+      score: number,
+      suggestedCapability: string | undefined,
+      rule: string
+    ): void => {
+      if (raw.some((h) => h.hypothesisKind === hypothesisKind)) return;
+      rulesApplied.push(rule);
+      const pre = resolveHypothesisPreconditions({
+        hypothesisKind,
+        identityCount: input.identityCount,
+        hasJwtIdentity: input.hasJwtIdentity,
+        hasObservedParameter: input.hasObservedParameter === true,
+      });
+      raw.push(
+        Object.freeze({
+          contractVersion: HYPOTHESIS_SCHEDULER_CONTRACT_VERSION,
+          kind: 'security_hypothesis',
+          hypothesisId: shaId([input.assessmentId, hypothesisKind, 'surface']),
+          hypothesisKind,
+          title,
+          epistemicStatus: 'INFERRED',
+          score: pre.satisfied ? score : Math.min(score, 40),
+          rationale,
+          sourceFindingIds: Object.freeze([]),
+          ...(suggestedCapability ? { suggestedCapability } : {}),
+          blocked: !pre.satisfied,
+          blockReason: pre.blockReason,
+          ...(pre.detail ? { blockDetail: pre.detail } : {}),
+          ...(pre.subHypothesisTitle
+            ? {
+                subHypothesis: Object.freeze({
+                  hypothesisKind: 'obtain_byot_identities' as const,
+                  title: pre.subHypothesisTitle,
+                  rationale: pre.subHypothesisRationale ?? pre.detail ?? '',
+                }),
+              }
+            : {}),
+        })
+      );
+    };
+
+    if (hasEndpoint) {
+      pushSurface(
+        'auth_boundary_differential',
+        'Account/order auth-boundary differential (A+anon)',
+        'OBSERVED endpoint surface with one identity is enough for an A versus anonymous GET hypothesis',
+        80,
+        'auth_boundary_differential',
+        'rule_asg_auth_boundary'
+      );
+      pushSurface(
+        'auth_bypass',
+        'Authentication bypass hypothesis',
+        'Auth-bypass stays a hypothesis until a later authorized execute',
+        72,
+        'auth_bypass_probe',
+        'rule_asg_auth_bypass'
+      );
+      pushSurface(
+        'jwt_confusion',
+        'JWT alg confusion hypothesis',
+        'JWT confusion stays a hypothesis until a later authorized execute',
+        68,
+        'jwt_alg_none_probe',
+        'rule_asg_jwt'
+      );
+      pushSurface(
+        'sql_oracle',
+        'SQL error-oracle hypothesis',
+        'SQL error-oracle stays a hypothesis. No automatic finding and no unregistered probe plan',
+        60,
+        undefined,
+        'rule_asg_sql'
       );
     }
 

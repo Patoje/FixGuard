@@ -17,6 +17,10 @@ import {
   type OrchestratedAssessmentRecord,
   type OrchestratedAssessmentStatus,
 } from '../application/OrchestratedAssessmentContracts.js';
+import { isObservedFactRecord } from '../observation/ObservedFactCatalogService.js';
+import { parseAssessmentTranscript } from '../investigation/AssessmentTranscript.js';
+import { parseProbeInventory } from '../investigation/ProbeInventory.js';
+import { parseReadInvestigationLoopRecord } from '../investigation/ReadInvestigationLoopContracts.js';
 
 const FORBIDDEN_PERSISTENCE_KEYS = new Set([
   'binary',
@@ -85,6 +89,13 @@ const ASG_REQUIRED_KEYS = [
   'edges',
 ] as const;
 
+function isTranscriptProcessInvocation(path: string, record: Record<string, unknown>): boolean {
+  return (
+    record.kind === 'process' &&
+    /\.transcript\.executedSteps\[\d+\]\.invocation$/.test(path)
+  );
+}
+
 export function assertNoForbiddenPersistenceKeys(value: unknown, path = 'root'): void {
   if (value === null || typeof value !== 'object') {
     return;
@@ -96,8 +107,10 @@ export function assertNoForbiddenPersistenceKeys(value: unknown, path = 'root'):
     return;
   }
   const record = value as Record<string, unknown>;
+  const processInvocation = isTranscriptProcessInvocation(path, record);
   for (const key of Object.keys(record)) {
-    if (FORBIDDEN_PERSISTENCE_KEYS.has(key)) {
+    const invocationArgKey = processInvocation && (key === 'binary' || key === 'args');
+    if (FORBIDDEN_PERSISTENCE_KEYS.has(key) && !invocationArgKey) {
       throw new Error(
         `Persistence validation failed: forbidden key '${key}' at ${path}`
       );
@@ -108,6 +121,14 @@ export function assertNoForbiddenPersistenceKeys(value: unknown, path = 'root'):
 
 function isNonEmptyString(value: unknown): value is string {
   return typeof value === 'string' && value.length > 0;
+}
+
+function lineageString(lineage: unknown, key: string): string | null {
+  if (lineage === null || typeof lineage !== 'object' || Array.isArray(lineage)) {
+    return null;
+  }
+  const field = Reflect.get(lineage, key);
+  return typeof field === 'string' ? field : null;
 }
 
 function isExactKeyObject(
@@ -267,6 +288,50 @@ export function validateAttackSurfaceGraph(value: unknown): value is AttackSurfa
   return true;
 }
 
+function isPhase1ReadLoopRecord(value: unknown): boolean {
+  if (
+    !isExactKeyObject(value, ['status', 'reasonCode', 'steps', 'executedCapabilities'])
+  ) {
+    return false;
+  }
+  if (value.status !== 'completed' && value.status !== 'stopped') {
+    return false;
+  }
+  if (!isNonEmptyString(value.reasonCode)) {
+    return false;
+  }
+  if (!Array.isArray(value.steps) || !Array.isArray(value.executedCapabilities)) {
+    return false;
+  }
+  for (const step of value.steps) {
+    if (
+      !isExactKeyObject(step, ['stepId', 'capability', 'disposition', 'reasonCode'])
+    ) {
+      return false;
+    }
+    if (
+      !isNonEmptyString(step.stepId) ||
+      !isNonEmptyString(step.capability) ||
+      !isNonEmptyString(step.reasonCode)
+    ) {
+      return false;
+    }
+    if (
+      step.disposition !== 'executed' &&
+      step.disposition !== 'recommended' &&
+      step.disposition !== 'not_implemented'
+    ) {
+      return false;
+    }
+  }
+  for (const capability of value.executedCapabilities) {
+    if (!isNonEmptyString(capability)) {
+      return false;
+    }
+  }
+  return true;
+}
+
 export function validateOrchestratedAssessmentRecord(
   value: unknown
 ): value is OrchestratedAssessmentRecord {
@@ -275,8 +340,13 @@ export function validateOrchestratedAssessmentRecord(
       'profile',
       'pendingEvidenceDrafts',
       'attackSurfaceGraph',
+      'observedFacts',
+      'probeInventory',
+      'readInvestigationLoop',
+      'transcript',
       'degradedCapabilities',
       'heartbeat',
+      'phase1ReadLoop',
       'error',
       'reasonCode',
     ])
@@ -343,6 +413,75 @@ export function validateOrchestratedAssessmentRecord(
     !isNonEmptyString((value.timing as Record<string, unknown>).startedAt)
   ) {
     return false;
+  }
+  if (value.phase1ReadLoop !== undefined && !isPhase1ReadLoopRecord(value.phase1ReadLoop)) {
+    return false;
+  }
+  if (value.transcript !== undefined) {
+    const transcript = parseAssessmentTranscript(value.transcript);
+    if (!transcript) return false;
+    const grantId = lineageString(value.lineage, 'authorizationGrantId');
+    const decisionId = lineageString(value.lineage, 'authorizationDecisionId');
+    const actorId = lineageString(value.lineage, 'actorId');
+    if (
+      transcript.discoveries.assessmentId !== value.assessmentId ||
+      transcript.discoveries.scanId !== value.scanId ||
+      transcript.discoveries.authorizationGrantId !== grantId ||
+      transcript.discoveries.authorizationDecisionId !== decisionId ||
+      transcript.discoveries.actorId !== actorId
+    ) {
+      return false;
+    }
+  }
+  if (value.readInvestigationLoop !== undefined) {
+    const loop = parseReadInvestigationLoopRecord(value.readInvestigationLoop);
+    if (!loop) return false;
+    const grantId = lineageString(value.lineage, 'authorizationGrantId');
+    const decisionId = lineageString(value.lineage, 'authorizationDecisionId');
+    const actorId = lineageString(value.lineage, 'actorId');
+    if (
+      loop.assessmentId !== value.assessmentId ||
+      loop.scanId !== value.scanId ||
+      loop.authorizationGrantId !== grantId ||
+      loop.authorizationDecisionId !== decisionId ||
+      loop.actorId !== actorId
+    ) {
+      return false;
+    }
+  }
+  if (value.probeInventory !== undefined) {
+    const inventory = parseProbeInventory(value.probeInventory);
+    if (!inventory) {
+      return false;
+    }
+    const grantId = lineageString(value.lineage, 'authorizationGrantId');
+    const decisionId = lineageString(value.lineage, 'authorizationDecisionId');
+    const actorId = lineageString(value.lineage, 'actorId');
+    if (
+      inventory.assessmentId !== value.assessmentId ||
+      inventory.scanId !== value.scanId ||
+      inventory.authorizationGrantId !== grantId ||
+      inventory.authorizationDecisionId !== decisionId ||
+      inventory.actorId !== actorId
+    ) {
+      return false;
+    }
+  }
+  if (value.observedFacts !== undefined) {
+    if (!Array.isArray(value.observedFacts)) {
+      return false;
+    }
+    for (const fact of value.observedFacts) {
+      if (!isObservedFactRecord(fact)) {
+        return false;
+      }
+      if (
+        fact.assessmentId !== value.assessmentId ||
+        fact.scanId !== value.scanId
+      ) {
+        return false;
+      }
+    }
   }
   if (value.attackSurfaceGraph !== undefined) {
     if (!validateAttackSurfaceGraph(value.attackSurfaceGraph)) {

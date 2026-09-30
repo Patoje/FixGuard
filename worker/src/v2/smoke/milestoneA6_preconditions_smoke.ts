@@ -25,7 +25,7 @@ import type {
   SessionNode,
 } from '../attack-surface/AttackSurfaceContracts.js';
 import { ATTACK_SURFACE_CONTRACT_VERSION } from '../attack-surface/AttackSurfaceContracts.js';
-import { createIdorReadDifferentialCapability } from '../attack-execution/AttackCapabilityRegistry.js';
+import { createIdorReadDifferentialCapability, AttackCapabilityRegistry } from '../attack-execution/AttackCapabilityRegistry.js';
 import { createCorsChainExploitCapability } from '../attack-execution/capabilities/CorsChainExploitCapability.js';
 import { createAuthBypassProbeCapability } from '../attack-execution/capabilities/AuthBypassProbeCapability.js';
 import { createJwtAlgNoneProbeCapability } from '../attack-execution/capabilities/JwtAlgNoneProbeCapability.js';
@@ -59,7 +59,6 @@ import { VERIFIED_AUTHORIZATION_DECISION_CONTRACT_VERSION } from '../authorizati
 import type { VerifiedAuthorizationDecision } from '../authorization/VerifiedAuthorizationDecisionContracts.js';
 import { InMemoryAttackPlanRepository } from '../attack-planning/InMemoryAttackPlanRepository.js';
 import { AttackAuthorizationService } from '../attack-authorization/AttackAuthorizationService.js';
-import { AttackCapabilityRegistry } from '../attack-execution/AttackCapabilityRegistry.js';
 import { AttackExecutionService } from '../attack-execution/AttackExecutionService.js';
 import { ATTACK_EXECUTION_CONTRACT_VERSION } from '../attack-execution/AttackExecutionContracts.js';
 import { TargetExecutionCoordinator } from '../runtime/TargetExecutionCoordinator.js';
@@ -838,7 +837,29 @@ async function runSmokeSuite(): Promise<void> {
     console.log('[+] Test 5: E2E execute wires branded auth; forge rejected OK');
   }
 
-  console.log('\n=== All A6 Preconditions Smoke Tests PASSED (5/5) ===');
+  {
+    console.log('--- Test 6: auth_boundary_differential real capability (A+anon) ---');
+    const registry = AttackCapabilityRegistry.createDefault();
+    const port = registry.get('auth_boundary_differential');
+    assert.ok(port, 'auth_boundary_differential must be registered');
+    assert.notEqual(
+      (await port!.execute(buildInvocationContext())).outcome,
+      'capability_not_implemented',
+      'auth_boundary must not remain a not-implemented stub'
+    );
+    // Missing identity → fail closed (not stub)
+    const missingId = await port!.execute(buildInvocationContext());
+    assert.strictEqual(missingId.outcome, 'failed');
+    assert.ok(
+      missingId.reasonCode === 'auth_boundary_identity_missing' ||
+        missingId.reasonCode === 'auth_boundary_authorization_missing' ||
+        missingId.reasonCode === 'auth_boundary_target_missing',
+      `expected fail-closed reason, got ${missingId.reasonCode}`
+    );
+    console.log('[+] Test 6: auth_boundary_differential real capability fail-closed OK');
+  }
+
+  console.log('\n=== All A6 Preconditions Smoke Tests PASSED (6/6) ===');
 }
 
 runSmokeSuite().catch((err) => {

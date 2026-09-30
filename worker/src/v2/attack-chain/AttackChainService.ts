@@ -8,7 +8,8 @@
  * 1. overallEpistemicStatus = min(steps) — any INFERRED → chain INFERRED;
  *    any REFUTED → chain REFUTED (REFUTED never treated as VERIFIED)
  * 2. fully_validated only when every step succeeded and ≥2 steps exist;
- *    failed/refuted steps are retained and block fully_validated
+ *    failed steps are stored as failed, refuted steps as refuted;
+ *    neither is discarded, and both block fully_validated
  * 3. assessmentId + scanId isolation — cross-assessment step injection fails closed
  */
 

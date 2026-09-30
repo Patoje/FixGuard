@@ -7,7 +7,12 @@
  * CRITICAL INVARIANTS:
  * 1. No WeakSet exists for `persistence` or `destructive` (permanently prohibited).
  * 2. No superadmin / cascade across classes.
- * 3. Only authorizePlan() seals tokens into the matching WeakSet.
+ * 3. Tokens are sealed only by establishAttackAuthorization().
+ *    authorizePlan() and authorizeReadObservationFromVerifiedDecision()
+ *    both go through that sealer. The read operation additionally requires
+ *    the assessment's runtime-branded VerifiedAuthorizationDecision and a
+ *    read-observation class. It does not brand state-changing, persistence,
+ *    or destructive classes, and it does not set AttackPlan.executable.
  * 4. isRuntimeAuthorizedForBlastRadius() requires exact class match +
  *    plan/assessment bindings + WeakSet membership.
  * 5. Plan must exist in AttackPlanRepository for the assessment before sealing.
@@ -17,6 +22,7 @@
 
 import type {
   AttackAuthorizationToken,
+  AuthorizeReadObservationResult,
   AuthorizableBlastRadiusClass,
   BlastRadiusClass,
   EstablishAttackAuthorizationRequest,
@@ -24,11 +30,14 @@ import type {
 } from './AttackAuthorizationContracts.js';
 import {
   ATTACK_AUTHORIZATION_CONTRACT_VERSION,
+  AUTHORIZE_READ_OBSERVATION_REQUEST_KIND,
   isAuthorizableBlastRadiusClass,
   isProhibitedBlastRadiusClass,
+  isReadObservationBlastRadiusClass,
   requiredAuthorizationLevelFor,
 } from './AttackAuthorizationContracts.js';
 import type { AttackPlanRepository } from '../attack-planning/AttackPlanRepository.js';
+import { isRuntimeEstablishedVerifiedAuthorizationDecision } from '../authorization/VerifiedAuthorizationDecisionService.js';
 
 // ---------------------------------------------------------------------------
 // Module-private WeakSet brands — one per AUTHORIZABLE class only.
@@ -106,6 +115,14 @@ function hasBrandForClass(
 
 function tokenRegistryKey(planId: string, assessmentId: string): string {
   return `${assessmentId}::${planId}`;
+}
+
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function readBrandedDecisionField(decision: object, key: string): unknown {
+  return Reflect.get(decision, key);
 }
 
 // ---------------------------------------------------------------------------
@@ -394,6 +411,206 @@ export class AttackAuthorizationService {
       );
     }
     return result;
+  }
+
+  /**
+   * Mint one read-observation attack token from the assessment's already
+   * branded VerifiedAuthorizationDecision. Does not create a decision brand.
+   * `confirmed` and any other self-authorization field fail closed.
+   * One token per planId+assessmentId. The plan's executable flag is untouched.
+   */
+  public async authorizeReadObservationFromVerifiedDecision(
+    request: unknown
+  ): Promise<AuthorizeReadObservationResult> {
+    if (!isPlainRecord(request)) {
+      return {
+        status: 'failed',
+        reasonCode: 'read_authorization_request_invalid',
+        safeMessage: 'Request must be a plain object',
+      };
+    }
+    if ('confirmed' in request || 'authorized' in request || 'authorizedScope' in request) {
+      return {
+        status: 'failed',
+        reasonCode: 'read_authorization_request_invalid',
+        safeMessage: 'Self-authorization fields are forbidden',
+      };
+    }
+
+    const allowedKeys = [
+      'contractVersion',
+      'kind',
+      'planId',
+      'assessmentId',
+      'blastRadiusClass',
+      'operatorId',
+      'verifiedAuthorizationDecision',
+      'authorizedAt',
+    ];
+    for (const key of Object.keys(request)) {
+      if (!allowedKeys.includes(key)) {
+        return {
+          status: 'failed',
+          reasonCode: 'read_authorization_request_invalid',
+          safeMessage: 'Request contains unknown or forbidden field',
+        };
+      }
+    }
+
+    if (request.contractVersion !== ATTACK_AUTHORIZATION_CONTRACT_VERSION) {
+      return {
+        status: 'failed',
+        reasonCode: 'read_authorization_request_invalid',
+        safeMessage: 'Invalid contractVersion',
+      };
+    }
+    if (request.kind !== AUTHORIZE_READ_OBSERVATION_REQUEST_KIND) {
+      return {
+        status: 'failed',
+        reasonCode: 'read_authorization_request_invalid',
+        safeMessage: 'Invalid kind',
+      };
+    }
+    if (!isSafeId(request.planId)) {
+      return {
+        status: 'failed',
+        reasonCode: 'read_authorization_request_invalid',
+        safeMessage: 'planId is invalid or unsafe',
+      };
+    }
+    if (!isSafeId(request.assessmentId)) {
+      return {
+        status: 'failed',
+        reasonCode: 'read_authorization_request_invalid',
+        safeMessage: 'assessmentId is invalid or unsafe',
+      };
+    }
+    if (!isSafeId(request.operatorId)) {
+      return {
+        status: 'failed',
+        reasonCode: 'operator_invalid',
+        safeMessage: 'operatorId is invalid or unsafe',
+      };
+    }
+    if (!isBlastRadiusClass(request.blastRadiusClass)) {
+      return {
+        status: 'failed',
+        reasonCode: 'read_authorization_request_invalid',
+        safeMessage: 'blastRadiusClass is not a recognized closed-world class',
+      };
+    }
+    if (isProhibitedBlastRadiusClass(request.blastRadiusClass)) {
+      return {
+        status: 'failed',
+        reasonCode: 'blast_radius_class_prohibited',
+        safeMessage: `Blast radius class "${request.blastRadiusClass}" is permanently prohibited and cannot be authorized`,
+      };
+    }
+    if (!isReadObservationBlastRadiusClass(request.blastRadiusClass)) {
+      return {
+        status: 'failed',
+        reasonCode: 'blast_radius_class_not_read_observation',
+        safeMessage: 'Blast radius class is not a read observation class',
+      };
+    }
+
+    const decision = request.verifiedAuthorizationDecision;
+    if (!isRuntimeEstablishedVerifiedAuthorizationDecision(decision) || !isPlainRecord(decision)) {
+      return {
+        status: 'failed',
+        reasonCode: 'verified_decision_not_branded',
+        safeMessage: 'Verified authorization decision is missing or not runtime-branded',
+      };
+    }
+    const decisionAssessmentId = readBrandedDecisionField(decision, 'assessmentId');
+    if (typeof decisionAssessmentId !== 'string' || !isSafeId(decisionAssessmentId)) {
+      return {
+        status: 'failed',
+        reasonCode: 'verified_decision_not_branded',
+        safeMessage: 'Verified authorization decision is missing or not runtime-branded',
+      };
+    }
+    if (decisionAssessmentId !== request.assessmentId) {
+      return {
+        status: 'failed',
+        reasonCode: 'verified_decision_assessment_mismatch',
+        safeMessage: 'Verified authorization decision is not bound to this assessment',
+      };
+    }
+    const actor = readBrandedDecisionField(decision, 'authorizedActor');
+    if (!isPlainRecord(actor) || !isSafeId(actor.actorId) || actor.actorId !== request.operatorId) {
+      return {
+        status: 'failed',
+        reasonCode: 'operator_invalid',
+        safeMessage: 'operatorId does not match the verified decision actor',
+      };
+    }
+
+    const planId = request.planId;
+    const assessmentId = request.assessmentId;
+    const blastRadiusClass = request.blastRadiusClass;
+    const operatorId = request.operatorId;
+
+    const plan = await this.planRepository.getPlan(planId);
+    if (!plan || plan.assessmentId !== assessmentId) {
+      return {
+        status: 'failed',
+        reasonCode: 'plan_not_found',
+        safeMessage: 'Attack plan does not exist for the given assessment',
+      };
+    }
+    if (this.getRuntimeToken(planId, assessmentId)) {
+      return {
+        status: 'failed',
+        reasonCode: 'read_authorization_already_established',
+        safeMessage: 'A read authorization token is already sealed for this plan',
+      };
+    }
+
+    let authorizedAt: string | undefined;
+    if (request.authorizedAt !== undefined) {
+      if (!isSafeIsoTimestamp(request.authorizedAt)) {
+        return {
+          status: 'failed',
+          reasonCode: 'read_authorization_request_invalid',
+          safeMessage: 'authorizedAt is not a valid ISO timestamp',
+        };
+      }
+      authorizedAt = request.authorizedAt;
+    }
+
+    const sealed = await this.establishAttackAuthorization({
+      contractVersion: ATTACK_AUTHORIZATION_CONTRACT_VERSION,
+      kind: 'establish_attack_authorization_request',
+      planId,
+      assessmentId,
+      blastRadiusClass,
+      operatorId,
+      ...(authorizedAt !== undefined ? { authorizedAt } : {}),
+    });
+    if (sealed.status === 'established') {
+      return {
+        status: 'established',
+        reasonCode: 'read_attack_authorization_established',
+        token: sealed.token,
+      };
+    }
+    if (
+      sealed.reasonCode === 'plan_not_found' ||
+      sealed.reasonCode === 'operator_invalid' ||
+      sealed.reasonCode === 'blast_radius_class_prohibited'
+    ) {
+      return {
+        status: 'failed',
+        reasonCode: sealed.reasonCode,
+        safeMessage: sealed.safeMessage,
+      };
+    }
+    return {
+      status: 'failed',
+      reasonCode: 'read_authorization_request_invalid',
+      safeMessage: sealed.safeMessage,
+    };
   }
 
   /**

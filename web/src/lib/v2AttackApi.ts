@@ -264,6 +264,7 @@ export type AttackChainStatus =
   | 'partially_validated'
   | 'fully_validated'
   | 'refuted'
+  | 'failed'
   | 'abandoned';
 
 export type AttackChainStepOutcome = 'succeeded' | 'refuted' | 'failed';

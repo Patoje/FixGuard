@@ -244,13 +244,42 @@ export interface RecordInvestigationStepRequest {
   readonly requestCost?: number;
   readonly producedFactIds?: readonly string[];
   readonly recordedAt?: string;
+  /**
+   * Optional capability outcome for closed-loop TestValidity → VerificationState.
+   * When omitted, record is budget/working-memory only (legacy F1 path).
+   */
+  readonly stepOutcome?:
+    | 'succeeded'
+    | 'refuted'
+    | 'failed'
+    | 'observed'
+    | 'interfered';
+  /** Capability/defense reason code used by TestValidity bridge. */
+  readonly outcomeReasonCode?: string;
+  /** Optional bound finding to advance/refute when validity allows. */
+  readonly boundFinding?: import('../core/Evidence.js').Finding;
+  readonly targetHost?: string;
+  readonly evidenceId?: string;
 }
+
+export type VerificationMutationKind =
+  | 'advanced'
+  | 'refuted'
+  | 'skipped_interference'
+  | 'skipped_inconclusive'
+  | 'skipped_no_finding'
+  | 'skipped_no_transition'
+  | 'none';
 
 export type RecordInvestigationStepResult =
   | {
       readonly status: 'recorded';
       readonly reasonCode: 'step_recorded' | 'budget_exceeded' | 'timed_out' | 'cancelled';
       readonly snapshot: ActiveInvestigationSnapshot;
+      readonly testValidityVerdict?: 'valid' | 'interfered' | 'inconclusive';
+      readonly verificationMutation?: VerificationMutationKind;
+      readonly updatedFinding?: import('../core/Evidence.js').Finding;
+      readonly interferenceReasonCode?: string;
     }
   | {
       readonly status: 'denied';
