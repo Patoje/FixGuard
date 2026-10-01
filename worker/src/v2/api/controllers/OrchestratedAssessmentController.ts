@@ -961,6 +961,7 @@ export class OrchestratedAssessmentController {
             readonly postExploitationState: unknown;
             readonly lateralMovementSnapshot: unknown;
             readonly impactAssessments: unknown;
+            readonly nextRecommendations?: unknown;
           }
         | undefined;
       try {
@@ -974,6 +975,7 @@ export class OrchestratedAssessmentController {
           postExploitationState: payload.postExploitationState,
           lateralMovementSnapshot: payload.lateralMovementSnapshot,
           impactAssessments: payload.impactAssessments,
+          ...(payload.nextRecommendations ? { nextRecommendations: payload.nextRecommendations } : {}),
         };
       } catch (err: unknown) {
         // Hermetic execute paths may lack an orchestrated assessment record;
@@ -988,6 +990,7 @@ export class OrchestratedAssessmentController {
             postExploitationState: payload.postExploitationState,
             lateralMovementSnapshot: payload.lateralMovementSnapshot,
             impactAssessments: payload.impactAssessments,
+            ...(payload.nextRecommendations ? { nextRecommendations: payload.nextRecommendations } : {}),
           };
         } catch (refreshErr: unknown) {
           if (!(refreshErr instanceof SessionNotFoundError)) {

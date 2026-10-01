@@ -141,18 +141,32 @@ export interface PageInstance {
   close(): Promise<void>;
 }
 
+export interface BrowserProxyConfig {
+  readonly server: string;
+  readonly username?: string;
+  readonly password?: string;
+  readonly bypass?: string;
+}
+
 export interface BrowserContextInstance {
   newPage(): Promise<PageInstance>;
+  addInitScript?(script: string | { content?: string; path?: string }): Promise<void>;
   close(): Promise<void>;
 }
 
 export interface BrowserInstance {
   newContext(options?: Record<string, unknown>): Promise<BrowserContextInstance>;
   close(): Promise<void>;
+  disconnect?(): Promise<void>;
 }
 
 export interface PlaywrightBrowserLauncher {
-  launch(options?: { headless?: boolean; args?: readonly string[] }): Promise<BrowserInstance>;
+  launch(options?: {
+    headless?: boolean;
+    args?: readonly string[];
+    proxy?: BrowserProxyConfig;
+  }): Promise<BrowserInstance>;
+  connectOverCDP?(endpointUrl: string): Promise<BrowserInstance>;
 }
 
 export interface BrowserAutomationRequest {
@@ -167,6 +181,14 @@ export interface BrowserAutomationRequest {
   readonly waitForHydrationMs?: number;
   /** Soft cap on accepted in-scope routes for this page (default SPA_DISCOVERY_MAX_ROUTES_PER_PAGE). */
   readonly maxRoutes?: number;
+  /** Optional proxy configuration (must not target loopback/RFC1918/cloud-metadata). */
+  readonly proxyConfig?: BrowserProxyConfig;
+  /** Explicit opt-out for stealth evasions (default: false, stealth is enabled). */
+  readonly disableStealth?: boolean;
+  /** Optional profile identifier (e.g. 'macos-chrome-131', 'windows-chrome-131'). */
+  readonly browserProfileId?: string;
+  /** Optional Chrome DevTools Protocol endpoint (e.g. 'http://127.0.0.1:9222') for HITL sessions. */
+  readonly cdpEndpoint?: string;
 }
 
 export type BrowserAutomationResult =

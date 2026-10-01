@@ -49,6 +49,7 @@ import type {
   BrowserAutomationTool,
   BrowserInstance,
   BrowserContextInstance,
+  BrowserProxyConfig,
   PageInstance,
   PlaywrightBrowserLauncher,
   RouteInstance,
@@ -58,6 +59,13 @@ import type {
   DiscoveredDomInputObservation,
   SpaRouteType,
 } from './BrowserAutomationContracts.js';
+import {
+  selectBrowserProfile,
+  buildStealthContextOptions,
+  applyPlaywrightStealth,
+  validateBrowserProxyConfig,
+  STEALTH_CHROMIUM_LAUNCH_ARGS,
+} from './PlaywrightStealth.js';
 import {
   BROWSER_AUTOMATION_CONTRACT_VERSION,
   BROWSER_AUTOMATION_NON_CLAIMS,
@@ -219,13 +227,58 @@ class PlaywrightBrowserContextWrapper implements BrowserContextInstance {
     return new PlaywrightPageWrapper(rawPage);
   }
 
+  async addInitScript(script: string | { content?: string; path?: string }): Promise<void> {
+    await this.rawContext.addInitScript(script);
+  }
+
   async close(): Promise<void> {
     await this.rawContext.close();
   }
 }
 
+export function validateCdpEndpoint(
+  endpointUrl: string
+): { valid: true } | { valid: false; reason: string } {
+  if (!endpointUrl || typeof endpointUrl !== 'string') {
+    return { valid: false, reason: 'CDP endpoint must be a non-empty string' };
+  }
+  const trimmed = endpointUrl.trim();
+  if (trimmed.length === 0) {
+    return { valid: false, reason: 'CDP endpoint cannot be empty' };
+  }
+  let parsed: URL;
+  try {
+    parsed = new URL(trimmed);
+  } catch {
+    return { valid: false, reason: `Malformed CDP endpoint URL: ${trimmed}` };
+  }
+  const protocol = parsed.protocol.toLowerCase();
+  if (protocol !== 'http:' && protocol !== 'https:' && protocol !== 'ws:' && protocol !== 'wss:') {
+    return {
+      valid: false,
+      reason: `Unsupported CDP protocol "${protocol}". Must be http:, https:, ws:, or wss:`,
+    };
+  }
+  const hostname = parsed.hostname.toLowerCase().replace(/\.$/, '');
+  const isLoopback =
+    hostname === 'localhost' ||
+    hostname === '127.0.0.1' ||
+    hostname === '[::1]' ||
+    hostname === '::1';
+  if (!isLoopback) {
+    return {
+      valid: false,
+      reason: `CDP endpoint must target local loopback (localhost or 127.0.0.1) for secure operator HITL, got: ${hostname}`,
+    };
+  }
+  return { valid: true };
+}
+
 class PlaywrightBrowserWrapper implements BrowserInstance {
-  constructor(private readonly rawBrowser: import('playwright').Browser) {}
+  constructor(
+    private readonly rawBrowser: import('playwright').Browser,
+    private readonly isCdp: boolean = false
+  ) {}
 
   async newContext(options?: Record<string, unknown>): Promise<BrowserContextInstance> {
     const rawContext = await this.rawBrowser.newContext(options);
@@ -233,19 +286,52 @@ class PlaywrightBrowserWrapper implements BrowserInstance {
   }
 
   async close(): Promise<void> {
+    if (this.isCdp) {
+      await this.disconnect();
+    } else {
+      await this.rawBrowser.close();
+    }
+  }
+
+  async disconnect(): Promise<void> {
+    if (typeof (this.rawBrowser as { isConnected?: () => boolean }).isConnected === 'function') {
+      if ((this.rawBrowser as { isConnected: () => boolean }).isConnected()) {
+        await this.rawBrowser.close();
+      }
+      return;
+    }
     await this.rawBrowser.close();
   }
 }
 
 export class DefaultPlaywrightBrowserLauncher implements PlaywrightBrowserLauncher {
-  async launch(options?: { headless?: boolean; args?: readonly string[] }): Promise<BrowserInstance> {
+  async launch(options?: {
+    headless?: boolean;
+    args?: readonly string[];
+    proxy?: BrowserProxyConfig;
+  }): Promise<BrowserInstance> {
     const rawBrowser = await chromium.launch({
       headless: options?.headless ?? true,
       args: options?.args
         ? [...options.args]
-        : ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'],
+        : [...STEALTH_CHROMIUM_LAUNCH_ARGS],
+      ...(options?.proxy
+        ? {
+            proxy: {
+              server: options.proxy.server,
+              ...(options.proxy.username ? { username: options.proxy.username } : {}),
+              ...(options.proxy.password ? { password: options.proxy.password } : {}),
+              ...(options.proxy.bypass ? { bypass: options.proxy.bypass } : {}),
+            },
+          }
+        : {}),
     });
-    return new PlaywrightBrowserWrapper(rawBrowser);
+    return new PlaywrightBrowserWrapper(rawBrowser, false);
+  }
+
+  async connectOverCDP(endpointUrl: string): Promise<BrowserInstance> {
+    const rawBrowser = await chromium.connectOverCDP(endpointUrl);
+    return new PlaywrightBrowserWrapper(rawBrowser, true);
   }
 }
 
@@ -511,10 +597,65 @@ export class PlaywrightSpaAdapter implements BrowserAutomationTool {
     const minedNetworkRoutes: DiscoveredSpaRouteObservation[] = [];
     const seenNetworkKeys = new Set<string>();
 
+    // Fail-closed proxy validation before browser launch (SSRF Gate)
+    if (request.proxyConfig) {
+      const proxyCheck = validateBrowserProxyConfig(request.proxyConfig);
+      if (!proxyCheck.valid) {
+        return {
+          status: 'preflight_denied',
+          contractVersion: BROWSER_AUTOMATION_CONTRACT_VERSION,
+          targetUrlOrDomain: rawTarget,
+          reasonCode: 'forbidden_proxy_egress',
+          reason: proxyCheck.reason,
+          explicitNonClaims: BROWSER_AUTOMATION_NON_CLAIMS,
+          lineage: { ...request.lineage },
+          durationMs: Date.now() - startTime,
+        };
+      }
+    }
+
+    // Fail-closed CDP endpoint validation before browser connection (HITL transport gate)
+    if (request.cdpEndpoint) {
+      const cdpCheck = validateCdpEndpoint(request.cdpEndpoint);
+      if (!cdpCheck.valid) {
+        return {
+          status: 'preflight_denied',
+          contractVersion: BROWSER_AUTOMATION_CONTRACT_VERSION,
+          targetUrlOrDomain: rawTarget,
+          reasonCode: 'invalid_cdp_endpoint',
+          reason: cdpCheck.reason,
+          explicitNonClaims: BROWSER_AUTOMATION_NON_CLAIMS,
+          lineage: { ...request.lineage },
+          durationMs: Date.now() - startTime,
+        };
+      }
+    }
+
     try {
-      // Launch browser — loud degrade when Chromium/Playwright missing
+      // Connect over CDP or launch browser — loud degrade when unavailable
       try {
-        browser = await launcher.launch({ headless: true });
+        if (request.cdpEndpoint) {
+          if (typeof launcher.connectOverCDP !== 'function') {
+            return {
+              status: 'execution_failed',
+              contractVersion: BROWSER_AUTOMATION_CONTRACT_VERSION,
+              targetUrlOrDomain: rawTarget,
+              targetHost,
+              reasonCode: 'cdp_unsupported',
+              reason: 'Provided browser launcher does not support connectOverCDP',
+              explicitNonClaims: BROWSER_AUTOMATION_NON_CLAIMS,
+              lineage: { ...request.lineage },
+              durationMs: Date.now() - startTime,
+            };
+          }
+          browser = await launcher.connectOverCDP(request.cdpEndpoint);
+        } else {
+          browser = await launcher.launch({
+            headless: true,
+            args: request.disableStealth ? undefined : [...STEALTH_CHROMIUM_LAUNCH_ARGS],
+            ...(request.proxyConfig ? { proxy: request.proxyConfig } : {}),
+          });
+        }
       } catch (launchErr: unknown) {
         if (isBrowserUnavailableError(launchErr)) {
           const errorMsg = launchErr instanceof Error ? launchErr.message : String(launchErr);
@@ -533,7 +674,33 @@ export class PlaywrightSpaAdapter implements BrowserAutomationTool {
         throw launchErr;
       }
 
-      context = await browser.newContext();
+      if (request.cdpEndpoint) {
+        // For real Chrome via CDP, context is created directly on the authenticated browser
+        context = await browser.newContext(
+          request.proxyConfig ? { proxy: request.proxyConfig } : {}
+        );
+      } else {
+        const profile = selectBrowserProfile(request.browserProfileId);
+        const contextOptions = request.disableStealth
+          ? (request.proxyConfig
+              ? {
+                  proxy: {
+                    server: request.proxyConfig.server,
+                    ...(request.proxyConfig.username ? { username: request.proxyConfig.username } : {}),
+                    ...(request.proxyConfig.password ? { password: request.proxyConfig.password } : {}),
+                    ...(request.proxyConfig.bypass ? { bypass: request.proxyConfig.bypass } : {}),
+                  },
+                }
+              : {})
+          : buildStealthContextOptions(profile, request.proxyConfig);
+
+        context = await browser.newContext(contextOptions);
+
+        if (!request.disableStealth) {
+          await applyPlaywrightStealth(context, profile);
+        }
+      }
+
       page = await context.newPage();
 
       // -----------------------------------------------------------------------
@@ -941,7 +1108,11 @@ export class PlaywrightSpaAdapter implements BrowserAutomationTool {
         await context.close().catch(() => {});
       }
       if (browser) {
-        await browser.close().catch(() => {});
+        if (request.cdpEndpoint && typeof browser.disconnect === 'function') {
+          await browser.disconnect().catch(() => {});
+        } else {
+          await browser.close().catch(() => {});
+        }
       }
     }
   }

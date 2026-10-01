@@ -407,7 +407,7 @@ import type {
 } from './OrchestratedAssessmentContracts.js';
 import { observeGraphqlAuthDelta } from '../observation/GraphqlAuthDeltaObservation.js';
 import { LOCAL_PUBLIC_ADVISORIES, observePublicAdvisory } from '../observation/PublicAdvisoryObservation.js';
-import type { ObservedFact } from '../observation/ObservedFactContracts.js';
+import type { ObservedFact, ObservedFactKind } from '../observation/ObservedFactContracts.js';
 import { ORCHESTRATED_ASSESSMENT_CONTRACT_VERSION } from './OrchestratedAssessmentContracts.js';
 import { validateAssessmentSeeds } from './AssessmentSeedValidation.js';
 import { filterSeedsByLiveness } from './AssessmentSeedLiveness.js';
@@ -807,17 +807,35 @@ function mapExecutionOutcomeToChain(
   return null;
 }
 
-function producedFactsFromStep(step: {
-  readonly verificationStateBefore?: string;
-  readonly verificationStateAfter?: string;
-  readonly outcome: string;
-  readonly reasonCode: string;
-}): readonly string[] {
+function producedFactsFromStep(
+  step: {
+    readonly verificationStateBefore?: string;
+    readonly verificationStateAfter?: string;
+    readonly outcome: string;
+    readonly reasonCode: string;
+  },
+  plan?: AttackPlan
+): readonly string[] {
   const facts: string[] = [`outcome=${step.outcome}`, `reason=${step.reasonCode}`];
   if (step.verificationStateBefore && step.verificationStateAfter) {
     facts.push(
       `verification:${step.verificationStateBefore}->${step.verificationStateAfter}`
     );
+  }
+  if (step.outcome === 'succeeded' && plan) {
+    facts.push(`capability_gained=${plan.capabilityGained}`);
+    if (plan.capability === 'supabase_rls_read_confirm') {
+      facts.push('schema_relation:supabase_rls_confirmed');
+    }
+    if (plan.capability === 'auth_boundary_differential') {
+      facts.push('auth_boundary:differential_observed');
+    }
+    if (plan.targetUrl) {
+      facts.push(`target_url=${plan.targetUrl}`);
+    }
+    if (plan.parameterName) {
+      facts.push(`target_param=${plan.parameterName}`);
+    }
   }
   return facts;
 }
@@ -2361,6 +2379,13 @@ export class OrchestratedAssessmentApplicationService {
 
     const adversarial = await this.buildAdversarialReportContext(assessmentId);
     const lateral = this.lateralMovementService.getSnapshot(assessmentId);
+    let nextRecommendations: readonly OperatorAttackRecommendation[] | undefined;
+    try {
+      const recResult = await this.getAttackRecommendations({ assessmentId });
+      nextRecommendations = recResult.recommendations;
+    } catch {
+      // Non-fatal if assessment is still initializing or missing preconditions
+    }
     return {
       assessmentId: record.assessmentId,
       scanId: record.scanId,
@@ -2369,6 +2394,7 @@ export class OrchestratedAssessmentApplicationService {
       lateralMovementSnapshot: lateral,
       impactAssessments: adversarial.impactAssessments,
       lineage: record.lineage,
+      ...(nextRecommendations ? { nextRecommendations } : {}),
     };
   }
 
@@ -2442,7 +2468,7 @@ export class OrchestratedAssessmentApplicationService {
         continue;
       }
 
-      const producedFacts = producedFactsFromStep(stepRec);
+      const producedFacts = producedFactsFromStep(stepRec, plan);
       const proofCapsuleRef = stepRec.evidenceId
         ? toStrictSafeId(stepRec.evidenceId)
         : undefined;
@@ -2469,6 +2495,47 @@ export class OrchestratedAssessmentApplicationService {
         recordedAt: stepRec.completedAt,
       });
       priorStepId = stepId;
+    }
+
+    // Close the epistemic loop: If a step succeeded, emit dependent child plans via NextStepEngine
+    const succeededStep = executionRecord.stepRecords.find((s) => s.outcome === 'succeeded');
+    if (succeededStep) {
+      try {
+        const factKind: ObservedFactKind =
+          plan.capabilityGained === 'read_authenticated'
+            ? 'anon_session_get_delta'
+            : plan.capability === 'supabase_rls_read_confirm'
+              ? 'schema_relation'
+              : 'anon_session_get_delta';
+        const factId = toStrictSafeId(`fact_${factKind}_${executionRecord.executionId.slice(0, 10)}`);
+        const childResult = proposeNextAdvisoryStep({
+          prior: {
+            planId: plan.planId,
+            producedFactIds: [factId],
+            capabilityGained: plan.capabilityGained,
+          },
+          fact: {
+            factId,
+            factKind,
+          },
+          lineage: {
+            assessmentId: record.lineage.assessmentId,
+            scanId: record.lineage.scanId,
+            authorizationGrantId: record.lineage.authorizationGrantId,
+            authorizationDecisionId: record.lineage.authorizationDecisionId,
+            actorId: record.lineage.actorId,
+          },
+          createdAt: new Date().toISOString(),
+        });
+        if (childResult.status === 'emitted') {
+          const existingPlans = await this.attackPlanRepository.listByAssessmentId(assessmentId);
+          if (!existingPlans.some((p) => p.planId === childResult.plan.planId)) {
+            await this.attackPlanRepository.savePlans([childResult.plan]);
+          }
+        }
+      } catch {
+        // Non-blocking for child plan emission
+      }
     }
 
     // Persist VerificationState updates from execution when findings were mutated in-process.

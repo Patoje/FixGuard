@@ -543,6 +543,7 @@ export interface AttackModeRefreshDto {
   readonly lateralMovementSnapshot: LateralMovementSnapshot | null;
   readonly impactAssessments: readonly ImpactAssessment[];
   readonly lineage: AuthorizedActiveReconRequestLineage;
+  readonly nextRecommendations?: readonly OperatorAttackRecommendation[];
 }
 
 /** Milestone A13 — promote discovered/known host to AuthorizedLateralTarget (no secrets). */

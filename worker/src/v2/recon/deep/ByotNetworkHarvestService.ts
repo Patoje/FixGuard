@@ -45,6 +45,11 @@ import {
   type ByotHarvestServerActionHint,
   type ByotNetworkHarvestContractVersion,
 } from './ByotNetworkHarvestContracts.js';
+import {
+  selectBrowserProfile,
+  buildStealthContextOptions,
+  applyPlaywrightStealth,
+} from '../adapters/PlaywrightStealth.js';
 
 const MIN_TOKEN_LEN = 20;
 const MINEABLE_NETWORK_RESOURCE_TYPES = Object.freeze(new Set(['xhr', 'fetch']));
@@ -454,10 +459,19 @@ async function harvestViaPlaywright(input: {
       throw launchErr;
     }
 
+    const profile = selectBrowserProfile();
+    const stealthOptions = buildStealthContextOptions(profile);
+    const combinedHeaders: Record<string, string> = {
+      ...(stealthOptions.extraHTTPHeaders as Record<string, string> | undefined),
+      ...buildAuthExtraHttpHeaders(input.authHeaders),
+    };
+
     context = await browser.newContext({
-      extraHTTPHeaders: buildAuthExtraHttpHeaders(input.authHeaders),
-      userAgent: 'Mozilla/5.0 (FixGuard Defensive Auditor)',
+      ...stealthOptions,
+      extraHTTPHeaders: combinedHeaders,
     });
+
+    await applyPlaywrightStealth(context, profile);
 
     for (const pageUrl of input.pageCandidates.slice(0, input.maxPages)) {
       const preflight = await runAdapterPreflight({
