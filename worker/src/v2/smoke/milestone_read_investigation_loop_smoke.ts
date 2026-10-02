@@ -512,6 +512,8 @@ async function main(): Promise<void> {
     coordinator.recordTargetResponse(HOST, 500);
     coordinator.recordTargetResponse(HOST, 500);
     coordinator.recordTargetResponse(HOST, 500);
+    coordinator.recordTargetResponse(HOST, 500);
+    coordinator.recordTargetResponse(HOST, 500);
     assert.equal(coordinator.isCircuitOpen(HOST), true);
     const opened = await runWithTransport(box, decision, counted.transport, {
       coordinator,

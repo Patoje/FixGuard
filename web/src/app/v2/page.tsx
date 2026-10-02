@@ -332,7 +332,11 @@ export default function V2DashboardPage() {
   return (
     <div className="min-h-screen bg-black text-zinc-100 font-sans pb-16">
       <main
-        className={`max-w-6xl mx-auto px-6 ${
+        className={`${
+          activeStage === "stage4_attack"
+            ? "max-w-[1700px] w-full mx-auto px-4 sm:px-6 lg:px-8"
+            : "max-w-6xl mx-auto px-6"
+        } ${
           activeStage === "stage1_launch"
             ? "min-h-[calc(100vh-3.5rem)] flex flex-col justify-center py-10"
             : "mt-8"

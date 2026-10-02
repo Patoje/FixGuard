@@ -1068,7 +1068,7 @@ async function main() {
   // Actually, wait, if it fails semantics it's 'repository_save_result_invalid'. Let's do exact bypass:
   await testSaveCorruption('saveRun returns different classification', r => Object.assign(r.classification, { finding: true }), 'repository_save_result_invalid');
   await testSaveCorruption('saveRun returns different createdAt', r => { r.createdAt = '2026-08-01T00:00:00.000Z'; r.updatedAt = '2026-08-01T00:00:00.000Z'; }, 'repository_save_result_mismatch');
-  await testSaveCorruption('saveRun returns different updatedAt', r => Object.assign(r, { updatedAt: '2026-10-01T00:00:00.000Z' }), 'repository_save_result_mismatch');
+  await testSaveCorruption('saveRun returns different updatedAt', r => Object.assign(r, { updatedAt: new Date(new Date(r.createdAt).getTime() + 10000).toISOString() }), 'repository_save_result_mismatch');
   await testSaveCorruption('saveRun returns a different item', r => Object.assign(r.items[0].target, { normalizedOrigin: 'https://altered.com' }), 'repository_save_result_mismatch');
   await testSaveCorruption('saveRun returns a different item error', r => {
     r.items[0].error = { code: 'runner_failed', message: 'test' };
@@ -1134,7 +1134,7 @@ async function main() {
   await testReloadCorruption('different count', r => Object.assign(r.counts, { failed: 9 }), 'repository_reload_invalid');
   await testReloadCorruption('different classification', r => Object.assign(r.classification, { finding: true }), 'repository_reload_invalid');
   await testReloadCorruption('different createdAt', r => { r.createdAt = '2026-08-01T00:00:00.000Z'; r.updatedAt = '2026-08-01T00:00:00.000Z'; }, 'repository_reload_mismatch');
-  await testReloadCorruption('different updatedAt', r => Object.assign(r, { updatedAt: '2026-10-01T00:00:00.000Z' }), 'repository_reload_mismatch');
+  await testReloadCorruption('different updatedAt', r => Object.assign(r, { updatedAt: new Date(new Date(r.createdAt).getTime() + 10000).toISOString() }), 'repository_reload_mismatch');
   await testReloadCorruption('different item', r => Object.assign(r.items[0].target, { normalizedOrigin: 'https://altered.com' }), 'repository_reload_mismatch');
   await testReloadCorruption('different item error', r => {
     r.items[0].error = { code: 'runner_failed', message: 'test' };

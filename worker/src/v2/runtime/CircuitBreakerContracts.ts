@@ -37,8 +37,8 @@ export interface TargetCircuitBreakerConfig {
 }
 
 export const DEFAULT_CIRCUIT_BREAKER_CONFIG: TargetCircuitBreakerConfig = Object.freeze({
-  consecutive5xxThreshold: 3,
-  consecutiveErrorThreshold: 3,
+  consecutive5xxThreshold: 5,
+  consecutiveErrorThreshold: 5,
   halfOpenSuccessThreshold: 2,
   openCooldownMs: 30_000,
 });

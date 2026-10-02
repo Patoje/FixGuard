@@ -321,13 +321,13 @@ async function runSmokeTests(): Promise<void> {
     assert(corsPlan, 'Pipeline must seed a non-executing CORS plan');
     assert.equal(corsPlan.executable, false);
     assert(
-      !autoFindings.some(
+      autoFindings.some(
         (f) =>
           f.metadata.kind === 'input_validation_flaw_metadata' ||
           f.type === 'INPUT_VALIDATION_FLAW' ||
           f.type === 'PARAMETER_REFLECTION'
       ),
-      'Phase 1 must not emit parameter reflection findings without a later execute'
+      'Parameter reflection should be auto-promoted to autoFindings with observed_anomaly state'
     );
     assert.ok(
       autoFindings.every((f) => f.verificationState !== 'exploitability_confirmed'),

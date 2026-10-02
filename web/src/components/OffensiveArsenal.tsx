@@ -297,6 +297,100 @@ export default function OffensiveArsenal({ targetUrl, scanId, profile, initialTa
     onAttackComplete?.();
   };
 
+  const [customCommand, setCustomCommand] = useState<string>('');
+  const [commandHistory, setCommandHistory] = useState<string[]>([]);
+  const [historyIndex, setHistoryIndex] = useState<number>(-1);
+
+  const copyToClipboard = async (text: string, label: string = 'Comando') => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setLogs(prev => [...prev, `[System] ✅ ${label} copiado al portapapeles.`]);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      setLogs(prev => [...prev, `[System] ❌ Error al copiar al portapapeles.`]);
+    }
+  };
+
+  const handlePromptSubmit = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    const cmd = customCommand.trim();
+    if (!cmd || isAttacking) return;
+
+    setCommandHistory(prev => [...prev, cmd]);
+    setHistoryIndex(-1);
+    setCustomCommand('');
+
+    setIsAttacking(true);
+    setLogs(prev => [
+      ...prev,
+      ``,
+      `fixguard@v2:~$ ${cmd}`,
+      `[Offensive] Ejecutando comando enviado por operador...`
+    ]);
+
+    try {
+      const res = await fetch('/api/attack', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          targetUrl,
+          rawCommand: cmd,
+          parentScanId: scanId
+        })
+      });
+
+      if (!res.ok) throw new Error(`API error: ${res.statusText}`);
+
+      const data = await res.json();
+      const output = data.workerOutput?.output || data.workerOutput?.error || 'Sin respuesta del servidor.';
+      const outputLines = output.split('\n').filter((l: string) => l.trim().length > 0);
+
+      setLogs(prev => [
+        ...prev,
+        `[Worker] Salida recibida:`,
+        ...outputLines.map((line: string) => `  ${line}`)
+      ]);
+
+      if (data.nextRecommendations?.length > 0) {
+        const nextRec = data.nextRecommendations[0];
+        setLogs(prev => [
+          ...prev,
+          `[System] 💡 Siguiente recomendación detectada: ${nextRec.humanLabel}`,
+          `[System] Carga en prompt: ${nextRec.commandSummary}`
+        ]);
+        setCustomCommand(nextRec.commandSummary);
+      }
+
+      onAttackComplete?.();
+    } catch (error: any) {
+      setLogs(prev => [...prev, `[System] ❌ Error: ${error.message}`]);
+    } finally {
+      setIsAttacking(false);
+    }
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      if (commandHistory.length > 0) {
+        const nextIndex = historyIndex + 1 < commandHistory.length ? historyIndex + 1 : historyIndex;
+        setHistoryIndex(nextIndex);
+        setCustomCommand(commandHistory[commandHistory.length - 1 - nextIndex] || '');
+      }
+    } else if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      if (historyIndex > 0) {
+        const nextIndex = historyIndex - 1;
+        setHistoryIndex(nextIndex);
+        setCustomCommand(commandHistory[commandHistory.length - 1 - nextIndex] || '');
+      } else if (historyIndex === 0) {
+        setHistoryIndex(-1);
+        setCustomCommand('');
+      }
+    }
+  };
+
   return (
     <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="space-y-4">
 
@@ -307,21 +401,23 @@ export default function OffensiveArsenal({ targetUrl, scanId, profile, initialTa
             <Crosshair className="w-5 h-5 text-rose-500" />
           </div>
           <div>
-            <h2 className="text-xl font-bold text-rose-100">Offensive Arsenal</h2>
-            <p className="text-rose-400/60 text-xs">{vectors.length} vectores · <span className="text-zinc-600">{smartVecs.length} inteligentes · {frameworkVecs.length} framework</span> · Target: {targetUrl.replace('https://', '').replace('http://', '').split('/')[0]}</p>
+            <h2 className="text-xl font-bold text-rose-100">Attack Mode & Arsenal (Split View)</h2>
+            <p className="text-rose-400/60 text-xs">
+              {vectors.length} vectores · <span className="text-zinc-500">{smartVecs.length} inteligentes · {frameworkVecs.length} framework</span> · Target: {targetUrl.replace('https://', '').replace('http://', '').split('/')[0]}
+            </p>
           </div>
         </div>
         <div className="flex items-center gap-3">
           {isAttacking && (
             <div className="flex items-center gap-2 px-3 py-1.5 bg-rose-500/10 border border-rose-500/30 rounded-full">
               <div className="w-2 h-2 bg-rose-500 rounded-full animate-pulse" />
-              <span className="text-rose-400 text-xs font-mono font-bold">ATACANDO...</span>
+              <span className="text-rose-400 text-xs font-mono font-bold">EJECUTANDO...</span>
             </div>
           )}
           <button
             onClick={launchAllModules}
             disabled={isAttacking || vectors.length === 0}
-            className="flex items-center gap-2 px-4 py-2 bg-rose-600 hover:bg-rose-500 disabled:bg-rose-900/50 disabled:text-rose-500/50 text-white rounded-lg font-bold transition-all shadow-[0_0_15px_rgba(244,63,94,0.3)] hover:shadow-[0_0_25px_rgba(244,63,94,0.5)] border border-rose-400/50"
+            className="flex items-center gap-2 px-4 py-2 bg-rose-600 hover:bg-rose-500 disabled:bg-rose-900/50 disabled:text-rose-500/50 text-white rounded-lg font-bold transition-all shadow-[0_0_15px_rgba(244,63,94,0.3)] hover:shadow-[0_0_25px_rgba(244,63,94,0.5)] border border-rose-400/50 text-xs uppercase tracking-wider"
           >
             <Zap className="w-4 h-4" />
             ⚡ Auto Attack Total
@@ -329,46 +425,44 @@ export default function OffensiveArsenal({ targetUrl, scanId, profile, initialTa
         </div>
       </div>
 
-      {/* Main Layout: vectors top, terminal bottom full-width */}
-      <div className="flex flex-col gap-4">
+      {/* Category Pills Filter */}
+      <div className="flex flex-wrap gap-2">
+        {categories.map(cat => {
+          const meta = CATEGORY_META[cat];
+          const Icon = meta.icon;
+          const isActive = activeCategory === cat;
+          const count = cat === 'ALL' ? vectors.length : vectors.filter(v => getCategory(v.attackType) === cat).length;
+          return (
+            <button
+              key={cat}
+              onClick={() => setActiveCategory(cat)}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold border transition-all ${
+                isActive
+                  ? `${meta.bg} ${meta.color} ${meta.border} shadow-sm`
+                  : 'bg-zinc-900 text-zinc-500 border-zinc-800 hover:border-zinc-600 hover:text-zinc-300'
+              }`}
+            >
+              <Icon className="w-3 h-3" />
+              {meta.label}
+              <span className={`ml-0.5 px-1.5 py-0.5 rounded-full text-[9px] font-bold ${isActive ? 'bg-black/30' : 'bg-zinc-800'}`}>
+                {count}
+              </span>
+            </button>
+          );
+        })}
+      </div>
 
-        {/* Top: Category filter + Vector cards */}
-        <div className="flex flex-col gap-3">
+      {/* 2-Column Split Layout: Left = Recommendations & Vectors | Right = Tactical Interactive Terminal */}
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 items-start">
 
-          {/* Category Pills */}
-          <div className="flex flex-wrap gap-2">
-            {categories.map(cat => {
-              const meta = CATEGORY_META[cat];
-              const Icon = meta.icon;
-              const isActive = activeCategory === cat;
-              const count = cat === 'ALL' ? vectors.length : vectors.filter(v => getCategory(v.attackType) === cat).length;
-              return (
-                <button
-                  key={cat}
-                  onClick={() => setActiveCategory(cat)}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold border transition-all ${
-                    isActive
-                      ? `${meta.bg} ${meta.color} ${meta.border} shadow-sm`
-                      : 'bg-zinc-900 text-zinc-500 border-zinc-800 hover:border-zinc-600 hover:text-zinc-300'
-                  }`}
-                >
-                  <Icon className="w-3 h-3" />
-                  {meta.label}
-                  <span className={`ml-0.5 px-1.5 py-0.5 rounded-full text-[9px] font-bold ${isActive ? 'bg-black/30' : 'bg-zinc-800'}`}>
-                    {count}
-                  </span>
-                </button>
-              );
-            })}
-          </div>
-
-          {/* Vectors Grid */}
+        {/* Left Column: Recommendations & Vectors List (5 cols on lg) */}
+        <div className="lg:col-span-5 flex flex-col gap-3 max-h-[620px] overflow-y-auto pr-1">
           <AnimatePresence mode="wait">
             {filtered.length === 0 ? (
               <motion.div
                 key="empty"
                 initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-                className="flex flex-col items-center justify-center h-32 text-center"
+                className="flex flex-col items-center justify-center h-48 border border-zinc-800/80 rounded-xl bg-zinc-950/50 text-center"
               >
                 <ShieldAlert className="w-8 h-8 text-zinc-700 mb-2" />
                 <p className="text-zinc-500 text-sm">Sin vectores en esta categoría</p>
@@ -377,7 +471,7 @@ export default function OffensiveArsenal({ targetUrl, scanId, profile, initialTa
               <motion.div
                 key={activeCategory}
                 initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}
-                className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3"
+                className="flex flex-col gap-3"
               >
                 {filtered.map((vector, i) => {
                   const cat = getCategory(vector.attackType);
@@ -385,49 +479,76 @@ export default function OffensiveArsenal({ targetUrl, scanId, profile, initialTa
                   const Icon = meta.icon;
                   const path = String(vector.endpoint || vector.targetUrl || '');
                   const method = vector.method || 'GET';
+                  const fullUrl = path.startsWith('http') ? path : `${targetUrl.replace(/\/+$/, '')}${path || ''}`;
+                  const suggestedCommand = vector.cliCommand || `${vector.attackType.toLowerCase().replace(/[^a-z0-9]+/g, '_')} ${method} ${fullUrl}`;
+
                   return (
                     <motion.div
-                      key={i}
-                      initial={{ opacity: 0, scale: 0.97 }}
+                      key={vector.id || i}
+                      initial={{ opacity: 0, scale: 0.98 }}
                       animate={{ opacity: 1, scale: 1 }}
-                      transition={{ delay: i * 0.03 }}
-                      className={`group relative flex flex-col p-3 rounded-xl border bg-zinc-950/80 transition-all hover:shadow-lg ${meta.border}`}
+                      transition={{ delay: i * 0.02 }}
+                      className={`group relative flex flex-col p-3.5 rounded-xl border bg-zinc-950/90 transition-all hover:shadow-lg ${meta.border}`}
                     >
-                      {/* Card header */}
-                      <div className="flex items-center gap-2 mb-2">
-                        <div className={`p-1.5 rounded-lg ${meta.bg} border ${meta.border}`}>
-                          <Icon className={`w-3 h-3 ${meta.color}`} />
+                      {/* Card Header & Risk Badge */}
+                      <div className="flex items-center justify-between gap-2 mb-2">
+                        <div className="flex items-center gap-2 min-w-0">
+                          <div className={`p-1.5 rounded-lg ${meta.bg} border ${meta.border} shrink-0`}>
+                            <Icon className={`w-3.5 h-3.5 ${meta.color}`} />
+                          </div>
+                          <span className={`text-xs font-bold uppercase tracking-wide ${meta.color} truncate`}>
+                            {vector.attackType}
+                          </span>
                         </div>
-                        <span className={`text-[10px] font-bold uppercase tracking-wide ${meta.color} truncate`}>{vector.attackType}</span>
-                      </div>
-
-                      {/* Target info */}
-                      <div className="flex items-center gap-1 mb-2 bg-black/40 rounded px-1.5 py-1 font-mono">
-                        <span className="text-zinc-600 text-[8px] font-bold uppercase shrink-0">{method}</span>
-                        <span 
-                          className="text-zinc-400 text-[9px] truncate cursor-help" 
-                          title={path || targetUrl}
-                        >
-                          {path || targetUrl}
+                        <span className={`px-2 py-0.5 rounded text-[9px] font-mono font-bold uppercase ${vector.severity === 'high' || vector.severity === 'critical' ? 'bg-rose-500/20 text-rose-300 border border-rose-500/30' : 'bg-amber-500/20 text-amber-300 border border-amber-500/30'}`}>
+                          {vector.severity || 'medium'}
                         </span>
                       </div>
 
-                      {/* Framework badge */}
-                      {vector.framework && (
-                        <div className="text-[8px] font-bold uppercase tracking-wider text-zinc-600 mb-1 truncate">{vector.framework}</div>
-                      )}
+                      {/* Description & Target Endpoint */}
+                      <p className="text-zinc-400 text-[11px] mb-2 leading-tight">
+                        {vector.description}
+                      </p>
+                      <div className="flex items-center gap-1.5 mb-2 bg-black/60 rounded px-2 py-1 font-mono text-[10px] border border-white/5">
+                        <span className="text-rose-400 font-bold shrink-0">{method}</span>
+                        <span className="text-zinc-300 truncate">{path || targetUrl}</span>
+                      </div>
 
-                      {/* Launch button */}
-                      <button
-                        onClick={() => {
-                          const fullUrl = path.startsWith('http') ? path : `${targetUrl.replace(/\/+$/, '')}${path || ''}`;
-                          launchModule(vector.id || `vector-${i}`, vector.attackType, fullUrl || targetUrl, vector.cliCommand);
-                        }}
-                        disabled={isAttacking}
-                        className={`w-full py-1.5 mt-auto rounded-lg text-[10px] font-bold border transition-all disabled:opacity-40 disabled:cursor-not-allowed bg-zinc-900 text-zinc-400 border-zinc-800 hover:bg-rose-600/20 hover:text-rose-300 hover:border-rose-500/50`}
-                      >
-                        {isAttacking ? '⏳' : '▶ Lanzar'}
-                      </button>
+                      {/* Command Block with Copy + Load into Terminal */}
+                      <div className="bg-zinc-900/90 rounded-lg p-2 border border-zinc-800 mb-3 font-mono text-[10px] text-emerald-400/90 whitespace-pre-wrap break-all flex justify-between items-start gap-2">
+                        <span>{suggestedCommand}</span>
+                        <button
+                          onClick={() => copyToClipboard(suggestedCommand, 'Comando sugerido')}
+                          title="Copiar comando al portapapeles"
+                          className="text-zinc-500 hover:text-zinc-200 transition-colors p-1 shrink-0"
+                        >
+                          <Copy className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+
+                      {/* Action Buttons: Load in terminal OR Launch */}
+                      <div className="grid grid-cols-2 gap-2 mt-auto">
+                        <button
+                          onClick={() => {
+                            setCustomCommand(suggestedCommand);
+                            setLogs(prev => [...prev, `[System] 📥 Comando cargado en terminal prompt.`]);
+                          }}
+                          disabled={isAttacking}
+                          className="w-full py-1.5 rounded-lg text-[10px] font-bold border transition-all bg-zinc-900 text-zinc-300 border-zinc-700 hover:bg-zinc-800 hover:text-white disabled:opacity-40"
+                        >
+                          📥 Cargar Prompt
+                        </button>
+                        <button
+                          onClick={() => {
+                            setCustomCommand(suggestedCommand);
+                            launchModule(vector.id || `vector-${i}`, vector.attackType, fullUrl || targetUrl, vector.cliCommand);
+                          }}
+                          disabled={isAttacking}
+                          className="w-full py-1.5 rounded-lg text-[10px] font-bold border transition-all bg-rose-600/20 text-rose-300 border-rose-500/40 hover:bg-rose-600 hover:text-white disabled:opacity-40"
+                        >
+                          {isAttacking ? '⏳' : '▶ Lanzar'}
+                        </button>
+                      </div>
                     </motion.div>
                   );
                 })}
@@ -436,81 +557,69 @@ export default function OffensiveArsenal({ targetUrl, scanId, profile, initialTa
           </AnimatePresence>
         </div>
 
-        {/* Bottom: Tactical Console — full width */}
-        <div className="flex flex-col h-96 lg:h-[500px] rounded-xl border border-rose-500/25 bg-[#030303] overflow-hidden shadow-xl shadow-rose-900/10 shrink-0">
+        {/* Right Column: Tactical Terminal Interactive (7 cols on lg) */}
+        <div className="lg:col-span-7 flex flex-col h-[620px] rounded-xl border border-rose-500/25 bg-[#030303] overflow-hidden shadow-2xl shadow-rose-900/10">
 
-          {/* Console header */}
+          {/* Console Top Header */}
           <div className="flex items-center justify-between px-4 py-2.5 border-b border-rose-500/20 bg-rose-950/20 shrink-0">
             <div className="flex items-center gap-2">
               <div className="flex gap-1.5">
-                <div className="w-2.5 h-2.5 rounded-full bg-zinc-700" />
-                <div className="w-2.5 h-2.5 rounded-full bg-zinc-700" />
-                <div className="w-2.5 h-2.5 rounded-full bg-rose-500/60" />
+                <div className="w-2.5 h-2.5 rounded-full bg-rose-500/40" />
+                <div className="w-2.5 h-2.5 rounded-full bg-amber-500/40" />
+                <div className="w-2.5 h-2.5 rounded-full bg-emerald-500/40" />
               </div>
               <Terminal className="w-3.5 h-3.5 text-rose-500 ml-1" />
-              <span className="text-xs font-mono text-rose-400 font-bold tracking-widest uppercase">Tactical Console</span>
-              <span className="text-[10px] text-zinc-600 ml-2 font-mono">{logs.length} líneas</span>
+              <span className="text-xs font-mono text-rose-400 font-bold tracking-widest uppercase">Tactical Terminal Interactive</span>
+              <span className="text-[10px] text-zinc-500 ml-2 font-mono">{logs.length} líneas</span>
             </div>
-            <button
-              onClick={copyLogs}
-              className="flex items-center gap-1 text-[10px] text-zinc-600 hover:text-zinc-300 transition-colors px-2 py-1 rounded border border-zinc-800 hover:border-zinc-600"
-            >
-              {copied ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
-              {copied ? 'Copiado' : 'Copiar todo'}
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={copyLogs}
+                className="flex items-center gap-1 text-[10px] text-zinc-400 hover:text-zinc-200 transition-colors px-2.5 py-1 rounded border border-zinc-800 hover:border-zinc-600"
+              >
+                {copied ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
+                {copied ? 'Copiado' : 'Copiar todo'}
+              </button>
+            </div>
           </div>
 
-          {/* Console body — tall and wide */}
-          <div className="overflow-y-auto p-4 font-mono text-[11px] space-y-0.5 leading-relaxed" style={{ height: '420px' }}>
+          {/* Console Log Output Stream */}
+          <div className="flex-1 overflow-y-auto p-4 font-mono text-[11px] space-y-0.5 leading-relaxed bg-black/80">
             {logs.map((log, i) => (
               <div key={i} className={`whitespace-pre-wrap break-all ${getLogColor(log)}`}>
                 {log}
               </div>
             ))}
             {isAttacking && (
-              <div className="flex items-center gap-2 text-rose-500 mt-2">
-                <div className="w-1.5 h-1.5 bg-rose-500 rounded-full animate-ping" />
-                <span className="animate-pulse">Ejecutando ataque...</span>
+              <div className="flex items-center gap-2 text-rose-400 mt-2 font-mono text-xs">
+                <div className="w-2 h-2 bg-rose-500 rounded-full animate-ping" />
+                <span className="animate-pulse">Ejecutando comando y procesando hechos...</span>
               </div>
             )}
-            
-            {/* Command Preview UI */}
-            {previewData && !isAttacking && (
-              <motion.div 
-                initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}
-                className="mt-4 p-4 rounded-lg bg-black/60 border border-amber-500/30 shadow-lg"
-              >
-                <div className="text-amber-400 font-bold mb-2 flex items-center gap-2 text-xs uppercase tracking-wider">
-                  <Zap className="w-3.5 h-3.5" /> Comando mutado final generado por PipelineSelector
-                </div>
-                <div className="text-emerald-400 font-mono text-xs whitespace-pre-wrap break-all mb-4 bg-zinc-950 p-3 rounded border border-white/5 shadow-inner">
-                  {previewData.command.split(/(?= -[A-Za-z-]| --[A-Za-z])/).join('\n ')}
-                </div>
-                <div className="flex gap-3">
-                  <button 
-                    onClick={() => { 
-                      launchModule(previewData.vectorId, previewData.moduleName, previewData.targetUrl); 
-                      setPreviewData(null); 
-                    }} 
-                    className="px-4 py-2 bg-rose-600 hover:bg-rose-500 text-white rounded font-bold text-[10px] uppercase tracking-wider transition-colors"
-                  >
-                    [ Ejecutar ]
-                  </button>
-                  <button 
-                    onClick={() => {
-                      setPreviewData(null);
-                      setLogs(prev => [...prev, `[System] Ataque quirúrgico cancelado por el usuario.`]);
-                    }} 
-                    className="px-4 py-2 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded font-bold text-[10px] uppercase tracking-wider transition-colors"
-                  >
-                    [ Cancelar ]
-                  </button>
-                </div>
-              </motion.div>
-            )}
-
             <div ref={logEndRef} />
           </div>
+
+          {/* Console Bottom Interactive Prompt Input */}
+          <form onSubmit={handlePromptSubmit} className="flex items-center gap-2 bg-zinc-950 px-4 py-2.5 border-t border-rose-500/20 font-mono text-xs shrink-0">
+            <span className="text-emerald-400 font-bold shrink-0">fixguard@v2:~$</span>
+            <input
+              type="text"
+              value={customCommand}
+              onChange={(e) => setCustomCommand(e.target.value)}
+              onKeyDown={handleKeyDown}
+              placeholder="Escribe un comando o presiona Enter para ejecutar..."
+              disabled={isAttacking}
+              className="flex-1 bg-transparent text-emerald-300 outline-none font-mono placeholder:text-zinc-600 text-xs disabled:opacity-40"
+            />
+            <button
+              type="submit"
+              disabled={isAttacking || !customCommand.trim()}
+              className="px-3 py-1.5 bg-rose-600 hover:bg-rose-500 text-white rounded font-bold text-[10px] uppercase tracking-wider transition-colors disabled:opacity-30 border border-rose-400/30 shrink-0"
+            >
+              Ejecutar
+            </button>
+          </form>
+
         </div>
 
       </div>

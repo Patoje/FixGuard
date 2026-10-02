@@ -743,6 +743,7 @@ function objectiveForCapability(capability: AttackCapabilityKind): ChainObjectiv
     case 'supabase_authz_write_matrix':
       return 'data_access';
     case 'next_server_action_diff':
+    case 'serverless_race_condition_probe':
       return 'privilege_escalation';
     case 'auth_bypass_probe':
     case 'jwt_alg_none_probe':
@@ -771,6 +772,7 @@ function declaredImpactForCapability(capability: AttackCapabilityKind): ImpactLe
     case 'supabase_rls_write_probe':
     case 'supabase_authz_write_matrix':
     case 'next_server_action_diff':
+    case 'serverless_race_condition_probe':
       return 'authorization_bypass';
     case 'auth_bypass_probe':
     case 'jwt_alg_none_probe':
@@ -2134,6 +2136,7 @@ export class OrchestratedAssessmentApplicationService {
           'supabase_rls_write_probe',
           'supabase_authz_write_matrix',
           'next_server_action_diff',
+          'serverless_race_condition_probe',
         ] as const
       ).filter((k) => registry.get(k) !== null)
     );
@@ -5229,7 +5232,7 @@ export class OrchestratedAssessmentApplicationService {
     activityDeadline?: AssessmentActivityDeadline
   ): Promise<void> {
     const coordinator = new TargetExecutionCoordinator({
-      requestsPerSecond: 5,
+      requestsPerSecond: 4,
       maxConcurrency: 2,
     });
 
@@ -5480,6 +5483,7 @@ export class OrchestratedAssessmentApplicationService {
         stageHint: 'detection_verticals',
         toolHint: 'http_probes',
       });
+      activityDeadline?.touch();
       await this.repository.update(record.assessmentId, (prev) => {
         if (prev.status !== 'running' && prev.status !== 'pending') {
           return prev;
@@ -5536,6 +5540,7 @@ export class OrchestratedAssessmentApplicationService {
       for (const draft of readDetection.pendingEvidenceDrafts) {
         pendingEvidenceDrafts.push(draft);
       }
+      activityDeadline?.touch();
 
       // Supabase / PostgREST RLS thin slice — once per assessment when candidates + OBSERVED anon key.
       const supabaseAnonKey =
@@ -5841,7 +5846,15 @@ export class OrchestratedAssessmentApplicationService {
 
 
         // CMS Plugin Vulnerability Probing (Milestone P4-10: Phase 4 Finale)
-        if (!coordinator.isCircuitOpen(record.targetDomain)) {
+        const isModernSpaWithoutWordpress =
+          detectionBridge.ecosystemProfile.spaFramework === 'nextjs' ||
+          detectionBridge.ecosystemProfile.spaFramework === 'nuxtjs' ||
+          (detectionBridge.ecosystemProfile.hasSpa &&
+            !detectionBridge.detectedTechnologies.some((t) =>
+              t.name.toLowerCase().includes('wordpress')
+            ));
+
+        if (!coordinator.isCircuitOpen(record.targetDomain) && !isModernSpaWithoutWordpress) {
           const commonPlugins = [
             'woocommerce',
             'elementor',
@@ -5894,6 +5907,13 @@ export class OrchestratedAssessmentApplicationService {
               // Safe error containment
             }
           }
+        } else if (isModernSpaWithoutWordpress) {
+          detectionSuppressions.push({
+            detectorKind: 'cms_plugin',
+            reasonCode: 'cms_plugin_probe_suppressed_modern_spa',
+            rationale: 'Target is a modern SPA without WordPress signals: CMS plugin probing abstained',
+            url: targetUrl,
+          });
         }
 
         // API Versioning Sprawl Probing (Milestone P5-2: API Versioning Sprawl Engine)

@@ -63,7 +63,8 @@ export type AttackCapabilityKind =
   | 'supabase_rls_read_confirm'
   | 'supabase_rls_write_probe'
   | 'supabase_authz_write_matrix'
-  | 'next_server_action_diff';
+  | 'next_server_action_diff'
+  | 'serverless_race_condition_probe';
 
 /**
  * Capability expected if a human later authorizes a defensive validation step.

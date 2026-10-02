@@ -202,14 +202,17 @@ function planSort(left: AttackPlan, right: AttackPlan): number {
  * are eligible on the first automatic step. Other read plans keep createdAt order.
  */
 function automaticReadRank(plan: AttackPlan, identityAPresent: boolean): number {
-  if (!identityAPresent) return 1;
+  if (!identityAPresent) return 2;
   if (
-    plan.capability === 'auth_bypass_probe' ||
+    plan.capability === 'supabase_rls_read_confirm' ||
     plan.capability === 'auth_boundary_differential'
   ) {
     return 0;
   }
-  return 1;
+  if (plan.capability === 'auth_bypass_probe') {
+    return 1;
+  }
+  return 2;
 }
 
 /** Application routes are selected before public static assets. */

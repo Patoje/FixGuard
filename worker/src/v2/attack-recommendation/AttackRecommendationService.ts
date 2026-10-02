@@ -93,6 +93,7 @@ const CAPABILITY_LABELS: Readonly<Record<AttackCapabilityKind, string>> = {
   supabase_rls_write_probe: 'Supabase RLS write canary (HITL mutation)',
   supabase_authz_write_matrix: 'Supabase authz write matrix BOLA/BFLA (HITL)',
   next_server_action_diff: 'Next.js Server Action differential (unauth↔BYOT)',
+  serverless_race_condition_probe: 'Serverless race condition (TOCTOU) concurrency check',
 };
 
 function sha16(content: string): string {

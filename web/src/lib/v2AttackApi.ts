@@ -59,7 +59,8 @@ export type AttackCapabilityKind =
   | 'supabase_rls_read_confirm'
   | 'supabase_rls_write_probe'
   | 'supabase_authz_write_matrix'
-  | 'next_server_action_diff';
+  | 'next_server_action_diff'
+  | 'serverless_race_condition_probe';
 
 export type CapabilityGained =
   | 'read_escalated'
@@ -505,6 +506,7 @@ export interface AttackModeRefreshDto {
   readonly postExploitationState: PostExploitationState | null;
   readonly lateralMovementSnapshot: LateralMovementSnapshot | null;
   readonly impactAssessments: readonly ImpactAssessment[];
+  readonly nextRecommendations?: readonly OperatorAttackRecommendation[];
 }
 
 export interface ExecuteAttackPlanParams {
@@ -735,6 +737,7 @@ export function suggestBlastRadiusForCapability(
       return 'read_escalated';
     case 'supabase_rls_write_probe':
     case 'supabase_authz_write_matrix':
+    case 'serverless_race_condition_probe':
       return 'state_change_benign';
     case 'next_server_action_diff':
       return 'read_escalated';

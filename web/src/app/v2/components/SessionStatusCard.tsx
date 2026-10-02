@@ -81,6 +81,16 @@ function formatDurationMs(ms: number): string {
   return `${m}m ${s}s`;
 }
 
+function formatSessionAliveHint(hint: string): string {
+  const isAlive = hint.includes(":ok") && !hint.includes(":error");
+  if (hint.includes("B:")) {
+    const aOk = hint.includes("A:ok");
+    const bOk = hint.includes("B:ok");
+    return `Session still alive: ${aOk && bOk ? "Sí" : "Parcial"} (A: ${aOk ? "Sí" : "No"}, B: ${bOk ? "Sí" : "No"})`;
+  }
+  return `Session still alive: ${isAlive ? "Sí" : "No"}`;
+}
+
 function formatStageLine(stage: StageResultDto): TerminalLine {
   const meta = STAGE_LABELS[stage.stage] ?? {
     name: stage.stage,
@@ -207,8 +217,9 @@ export function SessionStatusCard({
       const toolPart = status.heartbeatToolHint
         ? ` · ${status.heartbeatToolHint}`
         : "";
+
       const detail = richHint
-        ? richHint
+        ? formatSessionAliveHint(richHint)
         : `hb still running… ${stagePart}${toolPart}`;
 
       if (gapOk || richHint) {

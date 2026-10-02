@@ -430,8 +430,8 @@ async function runTests(): Promise<void> {
     const gqlDraft = draftsResponse.drafts.find(
       (d) => d.differentialContext?.detectionKind === 'graphql_surface'
     );
-    if (gqlDraft) {
-      throw new Error('Test 5 Failed: pipeline must not auto-draft graphql_surface');
+    if (!gqlDraft) {
+      throw new Error('Test 5 Failed: pipeline should draft graphql_surface for human review');
     }
     const plans = await appService.getAttackPlans(startRes.assessmentId);
     const gqlPlan = plans.plans.find((plan) => plan.capability === 'graphql_surface_probe');
@@ -439,7 +439,7 @@ async function runTests(): Promise<void> {
       throw new Error('Test 5 Failed: expected a non-executing graphql surface plan');
     }
 
-    console.log('✓ Test 5 Passed: pipeline seeded a non-executing GraphQL surface plan');
+    console.log('✓ Test 5 Passed: pipeline drafted GraphQL surface for HITL and seeded non-executing plan');
   }
 
   console.log('\n[milestoneP4_6_graphql_surface_smoke] ALL 5 TESTS PASSED SUCCESSFULLY! (100% compliant)');

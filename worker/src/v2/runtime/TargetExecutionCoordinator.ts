@@ -67,8 +67,8 @@ export class TargetExecutionCoordinator {
 
   constructor(defaultQuota?: Partial<TargetQuotaConfig>) {
     this.defaultQuota = {
-      requestsPerSecond: defaultQuota?.requestsPerSecond ?? 10,
-      maxConcurrency: defaultQuota?.maxConcurrency ?? 3,
+      requestsPerSecond: defaultQuota?.requestsPerSecond ?? 4,
+      maxConcurrency: defaultQuota?.maxConcurrency ?? 2,
       maxQueueDepth: defaultQuota?.maxQueueDepth ?? 500,
       circuitBreakerConfig: defaultQuota?.circuitBreakerConfig
     };

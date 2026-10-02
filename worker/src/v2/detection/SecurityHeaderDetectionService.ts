@@ -35,6 +35,9 @@ export const DEFAULT_REQUIRED_SECURITY_HEADERS: readonly string[] = [
   'x-frame-options',
   'referrer-policy',
   'permissions-policy',
+  'cross-origin-opener-policy',
+  'cross-origin-resource-policy',
+  'cross-origin-embedder-policy',
 ];
 
 function sanitizeToSafeId(raw: string): string {

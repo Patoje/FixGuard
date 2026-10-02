@@ -141,7 +141,7 @@ export function TargetLaunchCard({
   onAssessmentStarted,
   isRunning,
 }: TargetLaunchCardProps) {
-  const [domainInput, setDomainInput] = useState<string>("teclaaa.vercel.app");
+  const [domainInput, setDomainInput] = useState<string>("");
   const [actorId, setActorId] = useState<string>("usr_secops_lead");
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [loading, setLoading] = useState<boolean>(false);
@@ -390,7 +390,7 @@ export function TargetLaunchCard({
                       </label>
                       <input
                         id="byotToken"
-                        type="password"
+                        type="text"
                         autoComplete="off"
                         value={byotTokenOrCookie}
                         onChange={(e) => setByotTokenOrCookie(e.target.value)}
@@ -422,7 +422,7 @@ export function TargetLaunchCard({
                         className="rounded-md border border-zinc-800 bg-zinc-950 px-2.5 py-1.5 text-xs text-white placeholder-zinc-600"
                       />
                       <input
-                        type="password"
+                        type="text"
                         autoComplete="off"
                         value={byotTokenOrCookieB}
                         onChange={(e) => setByotTokenOrCookieB(e.target.value)}

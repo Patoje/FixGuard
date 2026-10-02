@@ -5,5 +5,5 @@ import { redirect } from "next/navigation";
  * FixGuard V2 is the only supported UI surface — send operators there.
  */
 export default function Home() {
-  redirect("/v2/assessments");
+  redirect("/v2");
 }
