@@ -27,18 +27,89 @@ function sanitizeToSafeId(raw: string): string {
   return cleaned.length > 0 ? cleaned : '001';
 }
 
-function isWorldReadable(pair: {
-  readonly anon: {
-    readonly statusCode: number;
-    readonly isJsonBody: boolean;
-    readonly isHtmlBody: boolean;
-    readonly rowCountHint: number | null;
-  };
+function isAttributableToTarget(tableUrl: string, restBaseUrl: string): boolean {
+  try {
+    const tableHost = new URL(tableUrl).host.toLowerCase();
+    const baseHost = new URL(restBaseUrl).host.toLowerCase();
+    return tableHost === baseHost;
+  } catch {
+    return false;
+  }
+}
+
+function hasObservedExposedData(anon: {
+  readonly statusCode: number;
+  readonly isJsonBody: boolean;
+  readonly isHtmlBody: boolean;
+  readonly rowCountHint: number | null;
+  readonly topLevelJsonKeys: readonly string[];
+  readonly bodySnippet?: string;
 }): boolean {
-  if (pair.anon.statusCode !== 200) return false;
-  if (pair.anon.isHtmlBody) return false;
-  if (!pair.anon.isJsonBody) return false;
-  return true;
+  if (anon.statusCode !== 200) return false;
+  if (anon.isHtmlBody) return false;
+  if (!anon.isJsonBody) return false;
+
+  // Explicit row count hint: must be > 0. Row count 0 means empty array ([]), NOT data exposure!
+  if (anon.rowCountHint !== null) {
+    return anon.rowCountHint > 0;
+  }
+
+  // Snippet check: empty array [] or empty object {} has no exposed records
+  if (anon.bodySnippet) {
+    const trimmed = anon.bodySnippet.trim();
+    if (
+      trimmed === '[]' ||
+      trimmed === '{}' ||
+      /^\s*\[\s*\]\s*$/.test(trimmed) ||
+      /^\s*\{\s*\}\s*$/.test(trimmed)
+    ) {
+      return false;
+    }
+  }
+
+  // If object without row count hint, must have non-error data properties
+  if (anon.topLevelJsonKeys && anon.topLevelJsonKeys.length > 0) {
+    const errorKeys = new Set(['code', 'message', 'details', 'hint', 'error']);
+    const nonErrorKeys = anon.topLevelJsonKeys.filter((k) => !errorKeys.has(k.toLowerCase()));
+    return nonErrorKeys.length > 0;
+  }
+
+  return false;
+}
+
+function isEmptyOrInconclusiveResponse(anon: {
+  readonly statusCode: number;
+  readonly isJsonBody: boolean;
+  readonly isHtmlBody: boolean;
+  readonly rowCountHint: number | null;
+  readonly topLevelJsonKeys: readonly string[];
+  readonly bodySnippet?: string;
+}): boolean {
+  if (anon.statusCode !== 200) return false;
+  if (anon.isHtmlBody) return false;
+  if (!anon.isJsonBody) return false;
+
+  if (anon.rowCountHint === 0) return true;
+
+  if (anon.bodySnippet) {
+    const trimmed = anon.bodySnippet.trim();
+    if (
+      trimmed === '[]' ||
+      trimmed === '{}' ||
+      /^\s*\[\s*\]\s*$/.test(trimmed) ||
+      /^\s*\{\s*\}\s*$/.test(trimmed)
+    ) {
+      return true;
+    }
+  }
+
+  if (!anon.topLevelJsonKeys || anon.topLevelJsonKeys.length === 0) return true;
+
+  const errorKeys = new Set(['code', 'message', 'details', 'hint', 'error']);
+  const nonErrorKeys = anon.topLevelJsonKeys.filter((k) => !errorKeys.has(k.toLowerCase()));
+  if (nonErrorKeys.length === 0) return true;
+
+  return false;
 }
 
 export async function runSupabaseRlsAbuseDetection(
@@ -140,50 +211,172 @@ export async function runSupabaseRlsAbuseDetection(
   }
 
   const observations: SupabaseRlsAbuseObservation[] = [];
+  let sawEmptyOrInconclusive = false;
+  let sawReadBoundaryEnforced = false;
+  let sawHtmlBody = false;
+  let sawUnattributed = false;
+  let sawIncompleteEvidence = false;
+
   for (const pair of pairs) {
-    if (!isWorldReadable(pair)) {
+    // 1. Evidence completeness check
+    if (
+      !pair.tableName ||
+      pair.tableName.trim().length === 0 ||
+      !pair.tableUrl ||
+      pair.tableUrl.trim().length === 0 ||
+      !pair.anon ||
+      typeof pair.anon.statusCode !== 'number' ||
+      !pair.anon.bodyHash ||
+      pair.anon.bodyHash.trim().length === 0
+    ) {
+      sawIncompleteEvidence = true;
       continue;
     }
-    // Abstain HTML / non-JSON already gated. Prefer cases with rows or schema keys.
-    const hasSignal =
-      (pair.anon.rowCountHint !== null && pair.anon.rowCountHint >= 0) ||
-      pair.anon.topLevelJsonKeys.length > 0 ||
-      pair.anon.isJsonBody;
-    if (!hasSignal) continue;
+
+    // 2. Attributability check: target URL must match restBaseUrl
+    if (!isAttributableToTarget(pair.tableUrl, request.restBaseUrl)) {
+      sawUnattributed = true;
+      continue;
+    }
+
+    if (pair.anon.isHtmlBody || !pair.anon.isJsonBody) {
+      sawHtmlBody = true;
+      continue;
+    }
 
     const auth = pair.authenticated;
-    const anonEqualsAuth =
-      auth !== undefined &&
-      auth.statusCode === pair.anon.statusCode &&
-      auth.bodyHash === pair.anon.bodyHash &&
-      auth.isJsonBody === true;
-
-    // Secure control: anon denied, auth allowed — not world-readable
-    if (
-      auth &&
-      (pair.anon.statusCode === 401 || pair.anon.statusCode === 403) &&
-      auth.statusCode === 200
-    ) {
+    // 3. Secure control: anon denied (401/403)
+    if (pair.anon.statusCode === 401 || pair.anon.statusCode === 403) {
+      sawReadBoundaryEnforced = true;
       continue;
     }
 
-    observations.push({
-      tableName: pair.tableName,
-      tableUrl: pair.tableUrl,
-      claimKind: 'SUPABASE_RLS_WORLD_READABLE',
-      anonStatusCode: pair.anon.statusCode,
-      ...(auth ? { authenticatedStatusCode: auth.statusCode } : {}),
-      anonBodyHash: pair.anon.bodyHash,
-      ...(auth ? { authenticatedBodyHash: auth.bodyHash } : {}),
-      anonIsJson: pair.anon.isJsonBody,
-      topLevelJsonKeys: pair.anon.topLevelJsonKeys,
-      rowCountHint: pair.anon.rowCountHint,
-      anonEqualsAuth,
-    });
+    // 4. Confirmed data exposure: anon 200 + actual observed rows > 0 or qualifying data properties
+    if (hasObservedExposedData(pair.anon)) {
+      const anonEqualsAuth =
+        auth !== undefined &&
+        auth.statusCode === pair.anon.statusCode &&
+        auth.bodyHash === pair.anon.bodyHash &&
+        auth.isJsonBody === true;
+
+      observations.push({
+        tableName: pair.tableName,
+        tableUrl: pair.tableUrl,
+        claimKind: 'SUPABASE_RLS_WORLD_READABLE',
+        anonStatusCode: pair.anon.statusCode,
+        ...(auth ? { authenticatedStatusCode: auth.statusCode } : {}),
+        anonBodyHash: pair.anon.bodyHash,
+        ...(auth ? { authenticatedBodyHash: auth.bodyHash } : {}),
+        anonIsJson: pair.anon.isJsonBody,
+        topLevelJsonKeys: pair.anon.topLevelJsonKeys,
+        rowCountHint: pair.anon.rowCountHint,
+        anonEqualsAuth,
+        ...(pair.anon.bodySnippet ? { bodySnippet: pair.anon.bodySnippet } : {}),
+      });
+      continue;
+    }
+
+    // 5. Empty or inconclusive response (e.g. 200 with [], 0 rows, empty object)
+    if (isEmptyOrInconclusiveResponse(pair.anon)) {
+      sawEmptyOrInconclusive = true;
+      continue;
+    }
+
+    // Otherwise unrecognized / contradictory response
+    sawIncompleteEvidence = true;
   }
 
   if (observations.length === 0) {
-    const anyHtml = pairs.some((p) => p.anon.isHtmlBody);
+    if (sawEmptyOrInconclusive) {
+      return {
+        contractVersion: SUPABASE_RLS_ABUSE_DETECTION_CONTRACT_VERSION,
+        kind: 'supabase_rls_abuse_detection_result',
+        detectionId: request.detectionId,
+        scanId: request.scanId,
+        assessmentId: request.assessmentId,
+        authorizationGrantId: request.authorizationGrantId,
+        authorizationDecisionId: request.authorizationDecisionId,
+        actorId: request.actorId,
+        status: 'inconclusive_observation',
+        reasonCode: 'inconclusive_empty_table',
+        lineage,
+        restBaseUrl: request.restBaseUrl,
+        observations: [],
+      };
+    }
+
+    if (sawReadBoundaryEnforced) {
+      return {
+        contractVersion: SUPABASE_RLS_ABUSE_DETECTION_CONTRACT_VERSION,
+        kind: 'supabase_rls_abuse_detection_result',
+        detectionId: request.detectionId,
+        scanId: request.scanId,
+        assessmentId: request.assessmentId,
+        authorizationGrantId: request.authorizationGrantId,
+        authorizationDecisionId: request.authorizationDecisionId,
+        actorId: request.actorId,
+        status: 'secure_target_abstained',
+        reasonCode: 'read_boundary_enforced',
+        lineage,
+        restBaseUrl: request.restBaseUrl,
+        observations: [],
+      };
+    }
+
+    if (sawHtmlBody) {
+      return {
+        contractVersion: SUPABASE_RLS_ABUSE_DETECTION_CONTRACT_VERSION,
+        kind: 'supabase_rls_abuse_detection_result',
+        detectionId: request.detectionId,
+        scanId: request.scanId,
+        assessmentId: request.assessmentId,
+        authorizationGrantId: request.authorizationGrantId,
+        authorizationDecisionId: request.authorizationDecisionId,
+        actorId: request.actorId,
+        status: 'secure_target_abstained',
+        reasonCode: 'not_data_api_html_body',
+        lineage,
+        restBaseUrl: request.restBaseUrl,
+        observations: [],
+      };
+    }
+
+    if (sawUnattributed) {
+      return {
+        contractVersion: SUPABASE_RLS_ABUSE_DETECTION_CONTRACT_VERSION,
+        kind: 'supabase_rls_abuse_detection_result',
+        detectionId: request.detectionId,
+        scanId: request.scanId,
+        assessmentId: request.assessmentId,
+        authorizationGrantId: request.authorizationGrantId,
+        authorizationDecisionId: request.authorizationDecisionId,
+        actorId: request.actorId,
+        status: 'secure_target_abstained',
+        reasonCode: 'target_attribution_unverified',
+        lineage,
+        restBaseUrl: request.restBaseUrl,
+        observations: [],
+      };
+    }
+
+    if (sawIncompleteEvidence) {
+      return {
+        contractVersion: SUPABASE_RLS_ABUSE_DETECTION_CONTRACT_VERSION,
+        kind: 'supabase_rls_abuse_detection_result',
+        detectionId: request.detectionId,
+        scanId: request.scanId,
+        assessmentId: request.assessmentId,
+        authorizationGrantId: request.authorizationGrantId,
+        authorizationDecisionId: request.authorizationDecisionId,
+        actorId: request.actorId,
+        status: 'secure_target_abstained',
+        reasonCode: 'incomplete_or_contradictory_evidence',
+        lineage,
+        restBaseUrl: request.restBaseUrl,
+        observations: [],
+      };
+    }
+
     return {
       contractVersion: SUPABASE_RLS_ABUSE_DETECTION_CONTRACT_VERSION,
       kind: 'supabase_rls_abuse_detection_result',
@@ -194,7 +387,7 @@ export async function runSupabaseRlsAbuseDetection(
       authorizationDecisionId: request.authorizationDecisionId,
       actorId: request.actorId,
       status: 'secure_target_abstained',
-      reasonCode: anyHtml ? 'not_data_api_html_body' : 'no_world_readable_tables',
+      reasonCode: 'no_world_readable_tables',
       lineage,
       restBaseUrl: request.restBaseUrl,
       observations: [],
@@ -259,6 +452,15 @@ export function buildSupabaseRlsWorldReadableFinding(input: {
   readonly draftId: string;
 }): Finding {
   const { observation: obs } = input;
+  if (obs.claimKind !== 'SUPABASE_RLS_WORLD_READABLE') {
+    throw new Error(`Cannot build world-readable finding for claimKind '${obs.claimKind}'`);
+  }
+  if (obs.anonStatusCode !== 200) {
+    throw new Error(`Cannot build world-readable finding for non-200 status ${obs.anonStatusCode}`);
+  }
+  if (obs.rowCountHint !== null && obs.rowCountHint <= 0) {
+    throw new Error('Cannot construct world-readable finding for observation without observed rows');
+  }
   const safeSeed = sanitizeToSafeId(`${input.draftId}_${obs.tableName}`);
   return {
     id: `fnd_sbrls_${safeSeed}`,

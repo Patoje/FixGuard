@@ -150,5 +150,20 @@ export function rebindClientScopeGrantAgainstSealed(
     }
   }
 
+  const sealedMethods = sealedGrant.boundaries.allowedMethods;
+  if (sealedMethods && Array.isArray(sealedMethods)) {
+    const sealedMethodSet = new Set(sealedMethods);
+    const clientMethods = clientGrant.boundaries.allowedMethods ?? [];
+    for (const m of clientMethods) {
+      if (!sealedMethodSet.has(m)) {
+        return {
+          ok: false,
+          reasonCode: 'scope_violation',
+          safeMessage: `Client scopeGrant escalates allowedMethods beyond sealed assessment grant (method ${m})`,
+        };
+      }
+    }
+  }
+
   return { ok: true, scopeGrant: sealedGrant };
 }

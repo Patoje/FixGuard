@@ -124,6 +124,7 @@ function snapshotFromResponse(
     isHtmlBody: classified.isHtmlBody,
     topLevelJsonKeys: classified.topLevelJsonKeys,
     rowCountHint: classified.rowCountHint,
+    bodySnippet: bodyText.slice(0, 4096),
   };
 }
 

@@ -397,6 +397,24 @@ function evaluateSignalGate(
           rationale: 'HTML body is not a PostgREST Data API signal',
         };
       }
+      // Zero rows or empty array must never auto-promote (SEC-01: empty is inconclusive).
+      if (ctx.supabaseRowCountHint !== undefined && ctx.supabaseRowCountHint <= 0) {
+        return {
+          decision: 'drop_as_noise',
+          reasonCode: 'supabase_rls_zero_rows_inconclusive',
+          rationale: 'Zero rows observed; empty dataset is inconclusive regarding data exposure',
+        };
+      }
+      if (
+        typeof ctx.sanitizedSnippet === 'string' &&
+        /^\s*\[\s*\]\s*$/.test(ctx.sanitizedSnippet)
+      ) {
+        return {
+          decision: 'drop_as_noise',
+          reasonCode: 'supabase_rls_empty_array_inconclusive',
+          rationale: 'Empty array response is inconclusive regarding data exposure',
+        };
+      }
       return null;
     }
 

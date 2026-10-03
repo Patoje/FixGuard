@@ -420,7 +420,7 @@ export class AttackExecutionService {
         );
       }
 
-      // Gate 6: scope boundary
+      // Gate 6: scope boundary & state-change authorization
       if (!isScopeAllowed(targetHost, req.scopeGrant)) {
         return this.gateFail(
           executionId,
@@ -433,6 +433,24 @@ export class AttackExecutionService {
           targetHost,
           'gate_scope',
           'Safety gate 6 failed: target host is outside authorized scope'
+        );
+      }
+
+      const isStateChangingStep =
+        step.blastRadiusClass === 'state_change_benign' ||
+        step.blastRadiusClass === 'state_change_impact';
+      if (isStateChangingStep && req.scopeGrant.constraints.allowStateChangingRequests !== true) {
+        return this.gateFail(
+          executionId,
+          plan,
+          req,
+          startedAt,
+          stepRecords,
+          findings,
+          step,
+          targetHost,
+          'gate_scope',
+          'Safety gate 6 failed: state-changing step requires allowStateChangingRequests: true in scope grant'
         );
       }
 

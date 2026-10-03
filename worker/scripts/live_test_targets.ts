@@ -14,8 +14,15 @@ import { establishVerifiedAuthorizationDecision } from '../src/v2/authorization/
 import type { AuthorizedScopeGrant } from '../src/v2/scope/AuthorizedScopeContracts.js';
 import type { AuthorizedActiveReconRequestLineage } from '../src/v2/lineage/AuthorizedExecutionLineageContracts.js';
 
-const USER_TOKEN =
-  'eyJhbGciOiJFUzI1NiIsImtpZCI6IjhlYmI4MWU2LTE0OTEtNDhkZi04ZTQzLTFkMDI5YzM1ZmE2MyIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJodHRwczovL3Zhd3J6b25jc3pxYXV6eHdxaWRlLnN1cGFiYXNlLmNvL2F1dGgvdjEiLCJzdWIiOiJhY2M0NzNlMC0yYjE3LTQwNGEtYTEwNS1jOGQ5MDljYTUyMGQiLCJhdWQiOiJhdXRoZW50aWNhdGVkIiwiZXhwIjoxNzkwODE4MDYzLCJpYXQiOjE3OTA4MTQ0NjMsImVtYWlsIjoicGF0cmloZXlkZUBnbWFpbC5jb20iLCJwaG9uZSI6IiIsImFwcF9tZXRhZGF0YSI6eyJwcm92aWRlciI6ImVtYWlsIiwicHJvdmlkZXJzIjpbImVtYWlsIl19LCJ1c2VyX21ldGFkYXRhIjp7ImVtYWlsIjoicGF0cmloZXlkZUBnbWFpbC5jb20iLCJlbWFpbF92ZXJpZmllZCI6dHJ1ZSwibmFtZV9jaG9zZW4iOnRydWUsInBob25lX3ZlcmlmaWVkIjpmYWxzZSwic3ViIjoiYWNjNDczZTAtMmIxNy00MDRhLWExMDUtYzhkOTA5Y2E1MjBkIn0sInJvbGUiOiJhdXRoZW50aWNhdGVkIiwiYWFsIjoiYWFsMSIsImFtciI6W3sibWV0aG9kIjoib3RwIiwidGltZXN0YW1wIjoxNzkwODE0NDYzfV0sInNlc3Npb25faWQiOiJjYTQ1MDYxNy1iODEzLTQyMWEtYjZlMy03ZjE2OTBhNzFmYzAiLCJpc19hbm9ueW1vdXMiOmZhbHNlfQ.XBYQrW1EhkkbOKBt3Z7PLoEPoUzIDhxOs_GFj_5EmZeeaz8f9grae4k6ZPXCaOaEZpWk6y7C2ceCHbSEhXy5Zg';
+const USER_TOKEN = process.env.FG_LIVE_USER_JWT;
+
+if (!USER_TOKEN) {
+  console.error(
+    'FAIL: live_test_targets requires environment variable FG_LIVE_USER_JWT.\n' +
+      'Provide explicit operator credentials via environment variable to run this live opt-in test.'
+  );
+  process.exit(1);
+}
 
 function createAuthorizedContext(targetUrl: string, domain: string) {
   const now = new Date().toISOString();

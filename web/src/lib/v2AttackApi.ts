@@ -286,6 +286,7 @@ export interface AttackChainStep {
   readonly capabilityGained: CapabilityGained;
   readonly outcome: AttackChainStepOutcome;
   readonly sourceStepId?: string;
+  readonly hypothesisRef?: string;
 }
 
 export interface AttackChain {
@@ -785,6 +786,8 @@ export function buildWorkbenchScopeGrant(params: {
   readonly targetDomain: string;
   readonly extraHosts?: readonly string[];
   readonly allowCredentialUse?: boolean;
+  readonly allowStateChangingRequests?: boolean;
+  readonly allowedMethods?: readonly ('GET' | 'HEAD' | 'POST' | 'PUT' | 'PATCH' | 'DELETE' | 'OPTIONS')[];
 }): AuthorizedScopeGrantDto {
   const now = new Date();
   const expires = new Date(now.getTime() + 3600_000);
@@ -825,11 +828,14 @@ export function buildWorkbenchScopeGrant(params: {
       allowedDomains: [domain],
       allowedHosts: hosts,
       allowedOrigins: [`https://${domain}`, `http://${domain}`],
-      allowedMethods: ['GET', 'HEAD', 'OPTIONS'],
+      allowedMethods:
+        params.allowStateChangingRequests === true
+          ? (params.allowedMethods ?? ['GET', 'HEAD', 'OPTIONS', 'POST', 'PUT', 'PATCH', 'DELETE'])
+          : (params.allowedMethods ?? ['GET', 'HEAD', 'OPTIONS']),
     },
     constraints: {
       allowLoginRequiredAreas: true,
-      allowStateChangingRequests: false,
+      allowStateChangingRequests: params.allowStateChangingRequests ?? false,
       allowCredentialUse: params.allowCredentialUse ?? true,
       allowOobCallbacks: false,
       allowThirdPartyTargets: false,

@@ -32,6 +32,10 @@ import {
   presentSeverity,
   severityFromDetectionKind,
 } from "@/lib/v2/severityPresentation";
+import {
+  getOperatorSessionIdentity,
+  setOperatorSessionIdentity,
+} from "@/lib/v2/operatorSession";
 
 interface ExecutiveResultsPanelProps {
   summary: OrchestratedAssessmentSummaryResponse | null;
@@ -40,7 +44,7 @@ interface ExecutiveResultsPanelProps {
 export function ExecutiveResultsPanel({ summary }: ExecutiveResultsPanelProps) {
   const [activeTab, setActiveTab] = useState<"profile" | "findings" | "recommendations">("profile");
   const [isReportModalOpen, setIsReportModalOpen] = useState(false);
-  const [operatorId, setOperatorId] = useState("operator_lead");
+  const [operatorId, setOperatorId] = useState<string>(() => getOperatorSessionIdentity());
   const [attestationText, setAttestationText] = useState("");
   const [isGenerating, setIsGenerating] = useState(false);
   const [reportError, setReportError] = useState<string | null>(null);
@@ -57,7 +61,7 @@ export function ExecutiveResultsPanel({ summary }: ExecutiveResultsPanelProps) {
       setIsGenerating(true);
       setReportError(null);
       const htmlContent = await generateHtmlReport(summary.assessmentId, {
-        operatorId: operatorId.trim() || "operator_lead",
+        operatorId: operatorId.trim() || getOperatorSessionIdentity(),
         attestationText: attestationText.trim()
       });
 
@@ -502,8 +506,11 @@ export function ExecutiveResultsPanel({ summary }: ExecutiveResultsPanelProps) {
                 <input
                   type="text"
                   value={operatorId}
-                  onChange={(e) => setOperatorId(e.target.value)}
-                  placeholder="operator_lead"
+                  onChange={(e) => {
+                    setOperatorId(e.target.value);
+                    setOperatorSessionIdentity(e.target.value);
+                  }}
+                  placeholder="op_local_analyst"
                   required
                   className="w-full rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-2 text-xs font-mono text-zinc-100 placeholder-zinc-500 focus:border-emerald-500 focus:outline-none"
                 />

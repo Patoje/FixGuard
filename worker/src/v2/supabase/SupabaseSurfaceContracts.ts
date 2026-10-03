@@ -37,16 +37,17 @@ export function isSupabaseHost(hostname: string): boolean {
   return host === 'supabase.co' || host.endsWith('.supabase.co');
 }
 
-/** Preferred Teclaaa / common Data API seed order for RLS probe budget. */
-export const SUPABASE_PREFERRED_RLS_SEED_TABLES: readonly string[] = Object.freeze([
-  'profiles',
-  'shop_items',
-  'wallets',
-  'runs',
-]);
+/**
+ * Generic / empty seed table defaults.
+ * Target-specific table lists (e.g. historical profiles/shop_items/wallets/runs) are deprecated
+ * to avoid synthetic/historical bias in discovery. Tables are prioritized strictly by
+ * target-derived evidence (discovery order).
+ */
+export const SUPABASE_PREFERRED_RLS_SEED_TABLES: readonly string[] = Object.freeze([]);
 
 /**
- * Stable prefer-order for RLS table probing: preferred seeds first, then others.
+ * Preserves discovered table order with case-insensitive deduplication,
+ * avoiding target-specific bias.
  */
 export function preferSupabaseRlsTableOrder(
   tableNames: readonly string[]
@@ -59,10 +60,6 @@ export function preferSupabaseRlsTableOrder(
     seen.add(key);
     out.push(name);
   };
-  for (const pref of SUPABASE_PREFERRED_RLS_SEED_TABLES) {
-    const hit = tableNames.find((t) => t.toLowerCase() === pref);
-    if (hit) push(hit);
-  }
   for (const t of tableNames) push(t);
   return Object.freeze(out);
 }

@@ -48,9 +48,11 @@ import { AttackAuthorizationModal } from "./components/AttackAuthorizationModal"
 import { AttackChainViewer } from "./components/AttackChainViewer";
 import { PostExploitationPanel } from "./components/PostExploitationPanel";
 import { ImpactAssessmentView } from "./components/ImpactAssessmentView";
+import { DatabaseTablesViewer, extractDiscoveredTables } from "./components/DatabaseTablesViewer";
 import type { OperatorAttackRecommendation } from "@/lib/v2AttackApi";
+import { getOperatorSessionIdentity } from "@/lib/v2/operatorSession";
 
-type ResultsPanel = "chains" | "impact" | "post_exploit" | null;
+type ResultsPanel = "tables" | "chains" | "impact" | "post_exploit" | null;
 
 export type AttackModeContentProps = {
   readonly forcedAssessmentId?: string;
@@ -76,12 +78,53 @@ function asLateralMechanism(value: string): LateralMovementMechanism {
   return "credential_reuse";
 }
 
-function formatPlanCommand(plan: AttackPlan, rec?: OperatorAttackRecommendation): string {
-  if (rec?.commandSummary) return rec.commandSummary;
-  const parts = ["fixguard", "attack", `--plan=${plan.planId}`, `--cap=${plan.capability}`];
-  if (plan.targetUrl) parts.push(`--target="${plan.targetUrl}"`);
-  if (plan.parameterName) parts.push(`--param="${plan.parameterName}"`);
-  return parts.join(" ");
+function formatPlanCommand(plan: AttackPlan): string {
+  const target = (plan.targetUrl || "").trim();
+  const cleanTarget = target.split("?")[0].trim();
+
+  if (!target && !cleanTarget) {
+    return `# [OBJETIVO_NO_DISPONIBLE] El plan ${plan.planId} (${plan.capability}) no tiene un targetUrl asignado. Seleccione un objetivo para construir el comando.`;
+  }
+
+  switch (plan.capability as string) {
+    case "supabase_rls_read_confirm": {
+      const url = cleanTarget ? `${cleanTarget}?select=*&limit=1` : target;
+      return `curl -s -X GET "${url}" -H "apikey: anon"`;
+    }
+    case "supabase_rls_write_probe": {
+      return `curl -s -X POST "${cleanTarget || target}" -H "apikey: anon" -H "Content-Type: application/json" -d '{"fixguard_probe":true}'`;
+    }
+    case "supabase_authz_write_matrix": {
+      return `curl -s -X POST "${cleanTarget || target}" -H "Authorization: Bearer <jwt_a>" -d '{"owner":"user_b"}'`;
+    }
+    case "idor_read_differential":
+    case "auth_boundary_differential": {
+      return `curl -s -X GET "${cleanTarget || target}" -H "Authorization: Bearer <identities=A,B>"`;
+    }
+    case "jwt_alg_none_probe": {
+      return `curl -s -X GET "${cleanTarget || target}" -H "Authorization: Bearer eyJhbGciOiJub25lIiwidHlwIjoiSldUIn0..."`;
+    }
+    case "cors_chain_exploit": {
+      return `curl -s -I -X GET "${cleanTarget || target}" -H "Origin: https://attacker.com"`;
+    }
+    case "sql_injection_verification":
+    case "sql_oracle_advancement": {
+      return `sqlmap -u "${target}" ${plan.parameterName ? `-p ${plan.parameterName} ` : ""}--batch --technique=BE`;
+    }
+    case "dalfox_xss":
+    case "nuclei_xss_scan": {
+      return `dalfox url "${target}" ${plan.parameterName ? `-p ${plan.parameterName} ` : ""}--silence`;
+    }
+    case "lfi_path_traversal": {
+      return `curl -s "${cleanTarget}?${plan.parameterName || "file"}=../../../../etc/passwd"`;
+    }
+    case "next_server_action_diff": {
+      return `curl -s -X POST "${cleanTarget || target}" -H "Next-Action: <action_id>"`;
+    }
+    default: {
+      return `curl -s -X GET "${cleanTarget || target}"`;
+    }
+  }
 }
 
 function getLogColorClass(log: string): string {
@@ -106,7 +149,7 @@ function AttackModeContent({
     forcedAssessmentId || searchParams.get("assessmentId") || "";
 
   const [assessmentId, setAssessmentId] = useState(assessmentIdFromQuery);
-  const [operatorId] = useState("usr_secops_lead");
+  const [operatorId, setOperatorId] = useState<string>(() => getOperatorSessionIdentity());
   const [targetDomain, setTargetDomain] = useState("");
   const [lineage, setLineage] = useState<LineageTuple | null>(null);
   const [pendingDraftsCount, setPendingDraftsCount] = useState<number>(0);
@@ -291,7 +334,7 @@ function AttackModeContent({
         }
       }
       if (!domain) {
-        domain = "target.local";
+        domain = "target_unavailable";
       }
       const grantId = lineage?.authorizationGrantId || `grant_${assessmentId || "active"}`;
       const scanId = lineage?.scanId || `scan_${assessmentId || "active"}`;
@@ -309,6 +352,12 @@ function AttackModeContent({
   const handleExecute = async (plan: AttackPlan, customCmdText?: string) => {
     if (!isStrictSafeId(operatorId)) {
       addTerminalLog(`[✖ ERROR] Operator ID '${operatorId}' inválido`);
+      return;
+    }
+
+    if (!targetDomain.trim() && !plan.targetUrl) {
+      addTerminalLog(`[✖ ERROR] No hay un objetivo ni targetUrl configurado para este plan.`);
+      addTerminalLog(`[!] Imposible ejecutar la prueba: objetivo no disponible o no seleccionado.`);
       return;
     }
 
@@ -351,8 +400,49 @@ function AttackModeContent({
             if (step.safeMessage) {
               addTerminalLog(`      msg: ${step.safeMessage}`);
             }
+            if (step.outcome === "succeeded") {
+              const tableMatch = step.safeMessage?.match(/'([^']+)'/);
+              const tbl = tableMatch ? tableMatch[1] : (plan.title || "tabla");
+
+              if (step.consoleLines && step.consoleLines.length > 0) {
+                let hasStdout = false;
+                for (const line of step.consoleLines) {
+                  if (line.stream === "command") {
+                    addTerminalLog(`    $ ${line.text}`);
+                  } else if (line.stream === "stdout") {
+                    hasStdout = true;
+                    addTerminalLog(`    --- [DATOS OBSERVADOS DEL TARGET: ${tbl}] ---`);
+                    try {
+                      const parsed = JSON.parse(line.text);
+                      const formatted = JSON.stringify(parsed, null, 2);
+                      for (const fl of formatted.split("\n")) {
+                        addTerminalLog(`    ${fl}`);
+                      }
+                    } catch {
+                      for (const rawLine of line.text.split("\n")) {
+                        addTerminalLog(`    ${rawLine}`);
+                      }
+                    }
+                    addTerminalLog(`    ---------------------------------------------`);
+                  } else if (line.stream === "verdict") {
+                    addTerminalLog(`    ${line.text}`);
+                  }
+                }
+                if (!hasStdout) {
+                  addTerminalLog(`    [i] Telemetría HTTP en crudo no capturada en este paso.`);
+                }
+              } else {
+                addTerminalLog(`    [i] Telemetría HTTP en crudo no disponible en este registro.`);
+                addTerminalLog(`    [✔] Paso ejecutado con éxito: ${step.safeMessage || step.reasonCode}`);
+              }
+            } else if (step.outcome === "refuted") {
+              addTerminalLog(`    [🛡 CONTROL ACTIVO] ${step.safeMessage || 'Control verificado (vector refutado)'}`);
+            } else if (step.outcome === "failed") {
+              addTerminalLog(`    [✖ FALLO] ${step.safeMessage || step.reasonCode}`);
+            }
           }
         }
+        setResultsPanel("tables");
       } else {
         addTerminalLog(
           `[✖ EXECUTION FAILED] Status: ${res.record.status}`
@@ -627,55 +717,41 @@ function AttackModeContent({
       const pByCap = displayPlans.find((p) => p.capability === capMatch[1]);
       if (pByCap) {
         targetPlan = pByCap;
-      } else {
-        const adHocCap = capMatch[1] as AttackCapabilityKind;
-        const targetUrl = targetDomain ? `https://${targetDomain}` : undefined;
-        targetPlan = {
-          contractVersion: "fixguard-attack-planning/v0",
-          kind: "attack_plan",
-          planId: `apl_adhoc_${adHocCap}_${Date.now().toString(36)}`,
-          assessmentId,
-          scanId: lineage?.scanId || `scan_${assessmentId}`,
-          capability: adHocCap,
-          title: `Ad-Hoc Manual Probe: ${adHocCap}`,
-          reasoning: `Prueba manual solicitada por el operador en terminal para la capacidad '${adHocCap}'.`,
-          status: "ready_for_authorization",
-          blastRadius: "single_resource",
-          capabilityGained: "active_validation",
-          sourceFindingIds: [],
-          sourceFindingTypes: [],
-          prerequisites: [
-            {
-              kind: "host_in_scope",
-              description: "Host en alcance autorizado",
-              satisfied: true,
-            },
-          ],
-          steps: [
-            {
-              stepId: `step_adhoc_${adHocCap}_1`,
-              ordinal: 1,
-              title: `Ejecutar probe ${adHocCap}`,
-              description: `Invocar probe manual para '${adHocCap}' sobre el objetivo.`,
-              status: "ready",
-              requiredPermissions: ["active_http_get", "active_http_post"],
-            },
-          ],
-          targetUrl,
-          lineage: lineage || {
-            assessmentId,
-            scanId: `scan_${assessmentId}`,
-            authorizationGrantId: `grant_${assessmentId}`,
-            authorizationDecisionId: `dec_${assessmentId}`,
-            actorId: operatorId,
-          },
-          createdAt: new Date().toISOString(),
-          executable: false,
-        };
+      }
+    }
 
-        addTerminalLog(
-          `[⚡ PLAN SINTETIZADO] Se creó un plan ad-hoc dinámico para la capacidad '${adHocCap}' sobre ${targetUrl || targetDomain}.`
-        );
+    // Match curl or HTTP command by URL and method
+    if (!targetPlan) {
+      const isPost = /\b(POST|write)\b/i.test(rawCmd);
+      for (const p of displayPlans) {
+        if (!p.targetUrl) continue;
+        try {
+          const pPath = new URL(p.targetUrl).pathname;
+          if (pPath && pPath !== "/" && rawCmd.includes(pPath)) {
+            if (isPost && p.capability.includes("write")) {
+              targetPlan = p;
+              break;
+            } else if (!isPost && !p.capability.includes("write")) {
+              targetPlan = p;
+              break;
+            }
+          }
+        } catch {
+          if (rawCmd.includes(p.targetUrl)) {
+            targetPlan = p;
+            break;
+          }
+        }
+      }
+    }
+
+    // Fallback: match by capability name in string
+    if (!targetPlan) {
+      for (const p of displayPlans) {
+        if (rawCmd.includes(p.capability)) {
+          targetPlan = p;
+          break;
+        }
       }
     }
 
@@ -766,7 +842,7 @@ function AttackModeContent({
         rank: rec.rank,
         whyPreferred: rec.whyPreferred,
         reason: rec.reason,
-        commandSummary: rec.commandSummary || (plan ? formatPlanCommand(plan, rec) : `fixguard probe --cap=${rec.capabilityKind}`),
+        commandSummary: plan ? formatPlanCommand(plan) : rec.commandSummary || `curl -s -X GET "${targetDomain}"`,
         plan,
         recommendation: rec,
       });
@@ -965,15 +1041,20 @@ function AttackModeContent({
                         </div>
 
                         {item.plan && (
-                          <span
-                            className={`text-[10px] font-mono px-2 py-0.5 rounded border ${
-                              isPlanAuthorized
-                                ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-400"
-                                : "border-zinc-800 bg-zinc-900 text-zinc-500"
-                            }`}
-                          >
-                            {isPlanAuthorized ? "autorizado" : item.plan.status}
-                          </span>
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-[10px] font-mono px-1.5 py-0.5 rounded border border-zinc-800 bg-zinc-900/60 text-zinc-500">
+                              {item.plan.planId}
+                            </span>
+                            <span
+                              className={`text-[10px] font-mono px-2 py-0.5 rounded border ${
+                                isPlanAuthorized
+                                  ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-400"
+                                  : "border-zinc-800 bg-zinc-900 text-zinc-500"
+                              }`}
+                            >
+                              {isPlanAuthorized ? "autorizado" : item.plan.status}
+                            </span>
+                          </div>
                         )}
                       </div>
 
@@ -1184,6 +1265,33 @@ function AttackModeContent({
             </p>
           </div>
 
+          {/* Discovered Database Tables & Data Explorer */}
+          <ResultsAccordion
+            id="tables"
+            title={`Tablas de Base de Datos & Datos Descubiertos (${extractDiscoveredTables(plans, chains, completedPlanIds).length})`}
+            subtitle="Inspección directa de tablas, permisos SELECT/INSERT y muestra de datos devueltos"
+            open={resultsPanel === "tables"}
+            onToggle={() => toggleResults("tables")}
+          >
+            <DatabaseTablesViewer
+              plans={plans}
+              chains={chains}
+              completedPlanIds={completedPlanIds}
+              onSelectPlanToRun={(targetPlan) => {
+                setAuthModalPlan(targetPlan);
+                setTerminalInput(formatPlanCommand(targetPlan));
+              }}
+              onSendCurlToTerminal={(curlCommand) => {
+                setTerminalInput(curlCommand);
+                addTerminalLog(`[👉 CARGADO EN PROMPT] $ ${curlCommand}`);
+                addTerminalLog(`[!] Presioná Enter en el teclado o hacé clic en 'Ejecutar' para iniciar la prueba.`);
+                if (typeof window !== "undefined") {
+                  window.scrollTo({ top: 0, behavior: "smooth" });
+                }
+              }}
+            />
+          </ResultsAccordion>
+
           <ResultsAccordion
             id="chains"
             title={`Cadenas de Explotación (${chains.length})`}
@@ -1201,7 +1309,7 @@ function AttackModeContent({
             open={resultsPanel === "impact"}
             onToggle={() => toggleResults("impact")}
           >
-            <ImpactAssessmentView assessments={impacts} />
+            <ImpactAssessmentView assessments={impacts} chains={chains} />
           </ResultsAccordion>
 
           <ResultsAccordion

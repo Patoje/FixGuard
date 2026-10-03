@@ -77,7 +77,7 @@ function extractHostFromUrl(urlStr: string): string {
   try {
     return new URL(urlStr).hostname;
   } catch {
-    return 'target.local';
+    return 'unknown-host';
   }
 }
 

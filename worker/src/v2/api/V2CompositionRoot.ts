@@ -32,6 +32,7 @@ import { CredentialVaultService } from '../post-exploitation/CredentialVaultServ
 import { PostExploitationService } from '../post-exploitation/PostExploitationService.js';
 import { LateralMovementService } from '../attack-planning/LateralMovementService.js';
 import { ImpactAssessmentService } from '../reporting-boundary/ImpactAssessmentService.js';
+import type { ReconToolAdapters } from '../recon/orchestration/ActiveReconOrchestrationContracts.js';
 
 export interface V2CompositionDependencies {
   readonly assessmentRepository?: AssessmentRepository;
@@ -44,6 +45,7 @@ export interface V2CompositionDependencies {
   readonly orchestratedRepository?: OrchestratedAssessmentRepository;
   readonly orchestratedService?: OrchestratedAssessmentApplicationService;
   readonly availabilityService?: ReconToolAvailabilityService;
+  readonly reconAdapters?: ReconToolAdapters;
   readonly attackPlanRepository?: AttackPlanRepository;
   readonly attackPlanGenerator?: AttackPlanGeneratorService;
   readonly attackAuthorizationService?: AttackAuthorizationService;
@@ -137,6 +139,7 @@ export class V2CompositionRoot {
       new OrchestratedAssessmentApplicationService({
         repository: this.orchestratedRepository,
         availabilityService: this.availabilityService,
+        reconAdapters: deps.reconAdapters,
         attackPlanRepository: this.attackPlanRepository,
         attackPlanGenerator: this.attackPlanGenerator,
         attackChainRepository: this.attackChainRepository,

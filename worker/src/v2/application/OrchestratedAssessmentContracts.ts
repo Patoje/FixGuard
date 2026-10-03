@@ -39,7 +39,7 @@ import type {
   LateralMovementRecord,
   LateralMovementSnapshot,
 } from '../attack-planning/LateralMovementContracts.js';
-import type { AuthorizedScopeGrant } from '../scope/AuthorizedScopeContracts.js';
+import type { AuthorizedScopeGrant, HttpMethod } from '../scope/AuthorizedScopeContracts.js';
 import type { ProbeInventory } from '../investigation/ProbeInventoryContracts.js';
 import type { ReadInvestigationLoopRecord } from '../investigation/ReadInvestigationLoopContracts.js';
 import type { AssessmentTranscript } from '../investigation/AssessmentTranscript.js';
@@ -79,6 +79,22 @@ export interface StartOrchestratedAssessmentCommand {
    * Human authorization of those hosts — never auto-inferred into scope.
    */
   readonly relatedAllowedHosts?: readonly string[];
+  /**
+   * Explicit opt-in for state-changing HTTP operations (POST, PUT, PATCH, DELETE).
+   * Defaults to false (strictly read-only GET/HEAD/OPTIONS) when omitted.
+   */
+  readonly allowStateChangingRequests?: boolean;
+  /**
+   * Explicitly permitted HTTP methods. Defaults to ['GET', 'HEAD', 'OPTIONS'] when omitted.
+   */
+  readonly allowedMethods?: readonly HttpMethod[];
+}
+
+export interface AuthorizeStateChangingScopeCommand {
+  readonly assessmentId: string;
+  readonly operatorId: string;
+  readonly allowedMethods: readonly HttpMethod[];
+  readonly rationale: string;
 }
 
 export interface StartOrchestratedAssessmentResult {

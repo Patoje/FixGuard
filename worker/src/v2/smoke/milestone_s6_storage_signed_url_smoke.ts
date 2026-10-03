@@ -78,10 +78,10 @@ function createScopeGrant(): AuthorizedScopeGrant {
 async function main(): Promise<void> {
   console.log('=== Storage / signed-URL probe (Fase 6 lite) smoke ===');
 
-  const ordered = preferSupabaseRlsTableOrder(['runs', 'other', 'profiles', 'wallets']);
-  assert.deepEqual([...ordered.slice(0, 3)], ['profiles', 'wallets', 'runs']);
-  assert.ok(SUPABASE_PREFERRED_RLS_SEED_TABLES.includes('wallets'));
-  console.log('[+] preferred RLS seed order includes wallets/runs');
+  const ordered = preferSupabaseRlsTableOrder(['runs', 'other', 'profiles', 'wallets', 'RUNS']);
+  assert.deepEqual([...ordered], ['runs', 'other', 'profiles', 'wallets']);
+  assert.strictEqual(SUPABASE_PREFERRED_RLS_SEED_TABLES.length, 0);
+  console.log('[+] discovered table order preserved without synthetic bias');
 
   const hints = extractSupabaseStoragePathHintsFromText(
     `const u="https://xyzcompany.supabase.co/storage/v1/object/public/avatars/u1.png";` +

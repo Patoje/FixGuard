@@ -10,9 +10,10 @@ import {
   CheckCircle,
 } from "lucide-react";
 import { generateHtmlReport, V2ApiError } from "@/lib/v2Api";
-
-/** Soft-default operator id — API requires it; not shown as chrome. */
-const DEFAULT_OPERATOR_ID = "op_sec_admin";
+import {
+  getOperatorSessionIdentity,
+  setOperatorSessionIdentity,
+} from "@/lib/v2/operatorSession";
 
 const DEFAULT_ATTESTATION =
   "Verifiqué los hallazgos candidatos contra evidencia del target y restricciones del audit defensivo.";
@@ -26,6 +27,9 @@ export function ReportGenerationCard({
   assessmentId,
   reviewedCount,
 }: ReportGenerationCardProps) {
+  const [operatorId, setOperatorId] = useState<string>(() =>
+    getOperatorSessionIdentity()
+  );
   const [attestationText, setAttestationText] =
     useState<string>(DEFAULT_ATTESTATION);
   const [loading, setLoading] = useState<boolean>(false);
@@ -33,12 +37,16 @@ export function ReportGenerationCard({
   const [htmlReport, setHtmlReport] = useState<string | null>(null);
 
   const canGenerate =
-    Boolean(assessmentId) && attestationText.trim().length >= 10;
+    Boolean(assessmentId) &&
+    operatorId.trim().length >= 3 &&
+    attestationText.trim().length >= 10;
 
   const handleGenerateReport = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!canGenerate) {
-      setError("Se requiere una atestación de al menos 10 caracteres.");
+      setError(
+        "Se requiere un identificador de operador válido y una atestación de al menos 10 caracteres."
+      );
       return;
     }
 
@@ -47,7 +55,7 @@ export function ReportGenerationCard({
 
     try {
       const html = await generateHtmlReport(assessmentId, {
-        operatorId: DEFAULT_OPERATOR_ID,
+        operatorId: operatorId.trim(),
         attestationText: attestationText.trim(),
       });
       setHtmlReport(html);
@@ -98,6 +106,30 @@ export function ReportGenerationCard({
             <span className="text-emerald-400 font-mono">{reviewedCount}</span>
           </p>
         )}
+
+        <div>
+          <label
+            htmlFor="operatorId"
+            className="block text-xs font-medium text-zinc-300"
+          >
+            Identificador del Operador (HITL)
+          </label>
+          <input
+            id="operatorId"
+            type="text"
+            value={operatorId}
+            onChange={(e) => {
+              setOperatorId(e.target.value);
+              setOperatorSessionIdentity(e.target.value);
+            }}
+            placeholder="op_local_analyst"
+            className="mt-1.5 block w-full rounded-lg border border-zinc-800 bg-zinc-900/60 px-3.5 py-2 text-xs font-mono text-zinc-100 placeholder-zinc-600 focus:border-emerald-500/50 focus:outline-none focus:ring-2 focus:ring-emerald-500/20"
+            disabled={loading}
+          />
+          <p className="mt-1 text-[11px] text-zinc-600">
+            Identidad de sesión activa que atestigua la revisión defensiva.
+          </p>
+        </div>
 
         <div>
           <label

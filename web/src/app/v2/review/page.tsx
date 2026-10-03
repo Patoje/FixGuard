@@ -28,13 +28,17 @@ import {
   type EvidenceDraftDto,
   type OrchestratedAssessmentSummaryResponse
 } from "@/lib/v2Api";
+import {
+  getOperatorSessionIdentity,
+  setOperatorSessionIdentity
+} from "@/lib/v2/operatorSession";
 
 function HumanReviewContent() {
   const searchParams = useSearchParams();
   const assessmentIdFromQuery = searchParams.get("assessmentId") || "";
 
   const [assessmentId, setAssessmentId] = useState<string>(assessmentIdFromQuery);
-  const [operatorId, setOperatorId] = useState<string>("usr_secops_lead");
+  const [operatorId, setOperatorId] = useState<string>(() => getOperatorSessionIdentity());
   const [drafts, setDrafts] = useState<readonly EvidenceDraftDto[]>([]);
   const [summary, setSummary] = useState<OrchestratedAssessmentSummaryResponse | null>(null);
   const [selectedDraftId, setSelectedDraftId] = useState<string | null>(null);
@@ -204,15 +208,18 @@ function HumanReviewContent() {
 
             <div>
               <label className="text-[11px] font-mono text-zinc-400 uppercase tracking-wider block mb-1.5">
-                Operator Authenticated Identity (HITL)
+                Identidad de Sesión del Operador (HITL)
               </label>
               <div className="flex items-center gap-2 rounded-xl border border-zinc-800 bg-zinc-900/60 px-3.5 py-2">
                 <UserCheck className="h-4 w-4 text-emerald-400 shrink-0" />
                 <input
                   type="text"
                   value={operatorId}
-                  onChange={(e) => setOperatorId(e.target.value)}
-                  placeholder="usr_secops_lead"
+                  onChange={(e) => {
+                    setOperatorId(e.target.value);
+                    setOperatorSessionIdentity(e.target.value);
+                  }}
+                  placeholder="op_local_analyst"
                   className="w-full bg-transparent text-xs font-mono text-white placeholder:text-zinc-600 focus:outline-none"
                 />
               </div>

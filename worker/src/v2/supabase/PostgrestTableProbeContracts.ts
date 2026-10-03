@@ -31,6 +31,7 @@ export interface PostgrestTableProbeSnapshot {
   readonly isHtmlBody: boolean;
   readonly topLevelJsonKeys: readonly string[];
   readonly rowCountHint: number | null;
+  readonly bodySnippet?: string;
 }
 
 export interface PostgrestTableProbePairResult {

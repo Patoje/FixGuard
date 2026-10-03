@@ -28,9 +28,7 @@ import {
   type SeverityLevel,
 } from "@/lib/v2/severityPresentation";
 import { classifyTechArchitecture } from "@/lib/v2/techArchitecture";
-
-/** Default reviewer for promote API — not shown in UI. */
-const DEFAULT_REVIEWER_ID = "op_lead_analyst_01";
+import { getOperatorSessionIdentity } from "@/lib/v2/operatorSession";
 
 const SEVERITY_RANK: Record<SeverityLevel, number> = {
   critical: 0,
@@ -158,10 +156,12 @@ export function EvidenceTriageBoard({
     setError(null);
     setSuccessMessage(null);
 
+    const reviewerId = getOperatorSessionIdentity();
+
     try {
       const res = await reviewEvidenceDraft(assessmentId, draft.draftId, {
         decision,
-        reviewerId: DEFAULT_REVIEWER_ID,
+        reviewerId,
         reviewedAt: new Date().toISOString(),
       });
       onDraftReviewed(draft.draftId, decision);
@@ -184,13 +184,20 @@ export function EvidenceTriageBoard({
     }
   };
 
+  const currentReviewer = getOperatorSessionIdentity();
+
   return (
     <div className="rounded-xl border border-zinc-800 bg-zinc-950/80 p-6 shadow-2xl backdrop-blur-xl">
       <div className="flex flex-wrap items-center justify-between gap-4 border-b border-zinc-800/80 pb-4">
         <div>
-          <h2 className="text-lg font-semibold tracking-tight text-zinc-100">
-            Evidence Triage
-          </h2>
+          <div className="flex items-center gap-2">
+            <h2 className="text-lg font-semibold tracking-tight text-zinc-100">
+              Evidence Triage
+            </h2>
+            <span className="rounded border border-zinc-800 bg-zinc-900/60 px-2 py-0.5 font-mono text-[10px] text-zinc-400">
+              Revisor: {currentReviewer}
+            </span>
+          </div>
           <p className="mt-1 max-w-xl text-xs text-zinc-400 leading-relaxed">
             Revisá drafts del detection.{" "}
             <span className="text-zinc-300">Incluir en hallazgos</span> si hay

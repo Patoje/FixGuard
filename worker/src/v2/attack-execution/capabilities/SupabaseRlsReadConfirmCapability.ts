@@ -155,18 +155,47 @@ export function createSupabaseRlsReadConfirmCapability(
         case 'pending_human_review':
         case 'vulnerability_detected': {
           const obs = result.observations.find((o) => o.tableName === tableName);
-          if (obs && obs.claimKind === 'SUPABASE_RLS_WORLD_READABLE') {
-            return succeeded(
-              result.reasonCode,
-              `Confirmed world-readable Data API read on '${tableName}' (anon HTTP ${obs.anonStatusCode} JSON)`,
-              `ev_sbrls_${ctx.step.stepId}`
-            );
+          if (
+            obs &&
+            obs.claimKind === 'SUPABASE_RLS_WORLD_READABLE' &&
+            obs.rowCountHint !== null &&
+            obs.rowCountHint > 0
+          ) {
+            const rawBody = obs.bodySnippet?.trim() || '[]';
+            return {
+              outcome: 'succeeded',
+              reasonCode: result.reasonCode,
+              safeMessage: `Confirmed world-readable Data API read on '${tableName}' (anon HTTP ${obs.anonStatusCode} JSON, ${obs.rowCountHint} rows observed)`,
+              evidenceId: `ev_sbrls_${ctx.step.stepId}`,
+              consoleLines: [
+                {
+                  stream: 'command' as const,
+                  text: `curl -s -X GET "${obs.tableUrl}" -H "apikey: anon"`,
+                  at: new Date().toISOString(),
+                },
+                {
+                  stream: 'stdout' as const,
+                  text: rawBody,
+                  at: new Date().toISOString(),
+                },
+                {
+                  stream: 'verdict' as const,
+                  text: `[✔ VULNERABLE] Tabla '${tableName}' expuesta públicamente (${obs.rowCountHint} registros observados).`,
+                  at: new Date().toISOString(),
+                },
+              ],
+            };
           }
           return refuted(
             'supabase_rls_read_not_confirmed',
-            'Detection ran but world-readable claim was not re-observed'
+            'Detection ran but world-readable data exposure was not re-observed'
           );
         }
+        case 'inconclusive_observation':
+          return refuted(
+            result.reasonCode,
+            `Supabase RLS read confirm inconclusive (${result.reasonCode}) — empty response does not prove exposure or protection`
+          );
         case 'secure_target_abstained':
           return refuted(
             result.reasonCode,

@@ -23,11 +23,14 @@ export type SupabaseRlsAbuseDetectionStatus =
   | 'vulnerability_detected'
   | 'pending_human_review'
   | 'secure_target_abstained'
+  | 'inconclusive_observation'
   | 'preflight_denied'
   | 'prerequisite_missing'
   | 'unexpected_failure';
 
-export type SupabaseRlsAbuseClaimKind = 'SUPABASE_RLS_WORLD_READABLE';
+export type SupabaseRlsAbuseClaimKind =
+  | 'SUPABASE_RLS_WORLD_READABLE'
+  | 'SUPABASE_RLS_INCONCLUSIVE';
 
 export interface SupabaseRlsAbuseDetectionRequest {
   readonly contractVersion: SupabaseRlsAbuseDetectionContractVersion;
@@ -63,6 +66,7 @@ export interface SupabaseRlsAbuseObservation {
   readonly topLevelJsonKeys: readonly string[];
   readonly rowCountHint: number | null;
   readonly anonEqualsAuth: boolean;
+  readonly bodySnippet?: string;
 }
 
 export interface SupabaseRlsAbuseDetectionResult {

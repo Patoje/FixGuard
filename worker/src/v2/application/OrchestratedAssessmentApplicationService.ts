@@ -18,7 +18,7 @@ import {
   establishVerifiedAuthorizationDecision,
   isRuntimeEstablishedVerifiedAuthorizationDecision,
 } from '../authorization/VerifiedAuthorizationDecisionService.js';
-import type { AuthorizedScopeGrant } from '../scope/AuthorizedScopeContracts.js';
+import type { AuthorizedScopeGrant, HttpMethod } from '../scope/AuthorizedScopeContracts.js';
 import { rebindClientScopeGrantAgainstSealed } from '../scope/ScopeGrantRebinding.js';
 import { isScopeAllowed } from '../attack-execution/AttackExecutionContracts.js';
 import type { AuthorizedActiveReconRequestLineage } from '../lineage/AuthorizedExecutionLineageContracts.js';
@@ -351,6 +351,7 @@ import type {
   ReviewEvidenceDraftCommand,
   ReviewEvidenceDraftResult,
   StartOrchestratedAssessmentCommand,
+  AuthorizeStateChangingScopeCommand,
   StartOrchestratedAssessmentResult,
   GetAttackPlansResult,
   GetAttackChainsResult,
@@ -941,17 +942,31 @@ function createDefaultPassiveCtTool(
  * Hermetic smoke suites may set FIXGUARD_V2_HERMETIC_RECON=1 to use shallow
  * stubs (fast, deterministic). Production / live assessments leave it unset.
  */
+function isTestOrSmokeEnvironment(): boolean {
+  return (
+    process.env.NODE_ENV === 'test' ||
+    process.env.NODE_ENV === 'testing' ||
+    process.env.VITEST !== undefined ||
+    process.env.JEST_WORKER_ID !== undefined ||
+    process.argv.some(
+      (arg) =>
+        typeof arg === 'string' &&
+        (arg.includes('smoke') || arg.includes('test') || arg.includes('spec'))
+    )
+  );
+}
+
 function createDefaultReconAdapters(
   dnsResolver: (host: string) => Promise<string[]>,
   httpTransport: IdorHttpProbeTransport
 ): ReconToolAdapters {
-  if (process.env.FIXGUARD_V2_HERMETIC_RECON === '1') {
+  if (isTestOrSmokeEnvironment() && process.env.FIXGUARD_V2_HERMETIC_RECON === '1') {
     return createHermeticStubReconAdapters(dnsResolver, httpTransport);
   }
   return createProductionReconAdapters(dnsResolver, httpTransport);
 }
 
-function createProductionReconAdapters(
+export function createProductionReconAdapters(
   dnsResolver: (host: string) => Promise<string[]>,
   httpTransport: IdorHttpProbeTransport
 ): ReconToolAdapters {
@@ -1097,7 +1112,7 @@ function createGatedHttpWebTool(
 }
 
 /** Shallow stubs for hermetic smoke suites (FIXGUARD_V2_HERMETIC_RECON=1). */
-function createHermeticStubReconAdapters(
+export function createHermeticStubReconAdapters(
   dnsResolver: (host: string) => Promise<string[]>,
   httpTransport: IdorHttpProbeTransport
 ): ReconToolAdapters {
@@ -1355,10 +1370,12 @@ export class OrchestratedAssessmentApplicationService {
       deps.impactAssessmentService ?? new ImpactAssessmentService();
     this.activeInvestigationRuntime =
       deps.activeInvestigationRuntime ?? new ActiveInvestigationRuntimeService();
+    const isTestOrSmoke = isTestOrSmokeEnvironment();
     this.usingHermeticStubReconAdapters =
-      deps.reconAdapters === undefined && process.env.FIXGUARD_V2_HERMETIC_RECON === '1';
-    this.publishedLookupsEnabled =
-      deps.reconAdapters === undefined && process.env.FIXGUARD_V2_HERMETIC_RECON !== '1';
+      deps.reconAdapters === undefined &&
+      isTestOrSmoke &&
+      process.env.FIXGUARD_V2_HERMETIC_RECON === '1';
+    this.publishedLookupsEnabled = !this.usingHermeticStubReconAdapters;
     this.reconAdapters =
       deps.reconAdapters ?? createDefaultReconAdapters(this.dnsResolver, this.httpTransport);
     this.heartbeatIntervalMs =
@@ -1621,11 +1638,16 @@ export class OrchestratedAssessmentApplicationService {
           `http://${cleanedDomain}`,
           ...relatedOrigins,
         ],
-        allowedMethods: ['GET', 'HEAD', 'OPTIONS'],
+        allowedMethods:
+          command.allowStateChangingRequests === true &&
+          command.allowedMethods &&
+          command.allowedMethods.length > 0
+            ? [...command.allowedMethods]
+            : ['GET', 'HEAD', 'OPTIONS'],
       },
       constraints: {
         allowLoginRequiredAreas: true,
-        allowStateChangingRequests: false,
+        allowStateChangingRequests: command.allowStateChangingRequests === true,
         allowCredentialUse: true,
         allowOobCallbacks: false,
         allowThirdPartyTargets: false,
@@ -1841,6 +1863,92 @@ export class OrchestratedAssessmentApplicationService {
     }
 
     return clientGrant;
+  }
+
+  /**
+   * Explicit operator authorization path for state-changing operations on an existing assessment.
+   * Granularly expands allowedMethods (e.g. POST, DELETE) and enables allowStateChangingRequests
+   * on the authoritative sealed VerifiedAuthorizationDecision.
+   */
+  public async authorizeStateChangingScope(
+    command: AuthorizeStateChangingScopeCommand
+  ): Promise<AuthorizedScopeGrant> {
+    if (
+      !command.assessmentId ||
+      typeof command.assessmentId !== 'string' ||
+      !isStrictSafeId(command.assessmentId)
+    ) {
+      throw new ApiValidationError('Field assessmentId must satisfy strict identifier format');
+    }
+    if (
+      !command.operatorId ||
+      typeof command.operatorId !== 'string' ||
+      !isStrictSafeId(command.operatorId)
+    ) {
+      throw new ApiValidationError('Field operatorId must satisfy strict identifier format');
+    }
+    if (!Array.isArray(command.allowedMethods) || command.allowedMethods.length === 0) {
+      throw new ApiValidationError('Field allowedMethods must be a non-empty array of HttpMethods');
+    }
+    const validHttpMethods = new Set(['GET', 'HEAD', 'OPTIONS', 'POST', 'PUT', 'PATCH', 'DELETE']);
+    for (const m of command.allowedMethods) {
+      if (!validHttpMethods.has(m)) {
+        throw new ApiValidationError(`Invalid HTTP method in allowedMethods: ${m}`);
+      }
+    }
+
+    const sealed = this.sealedVerifiedDecisions.get(command.assessmentId);
+    if (!sealed) {
+      throw new UnauthorizedGatewayError(
+        'Assessment is missing a sealed verified authorization decision',
+        'authorization_decision_missing'
+      );
+    }
+
+    const currentGrant = sealed.scopeGrant;
+    const existingMethods = currentGrant.boundaries.allowedMethods ?? ['GET', 'HEAD', 'OPTIONS'];
+    const mergedMethods = Array.from(new Set([...existingMethods, ...command.allowedMethods])) as HttpMethod[];
+
+    const updatedGrant: AuthorizedScopeGrant = {
+      ...currentGrant,
+      boundaries: {
+        ...currentGrant.boundaries,
+        allowedMethods: mergedMethods,
+      },
+      constraints: {
+        ...currentGrant.constraints,
+        allowStateChangingRequests: true,
+      },
+      authorizationBasis: {
+        ...currentGrant.authorizationBasis,
+        authorizationText: `${currentGrant.authorizationBasis.authorizationText}; operator ${command.operatorId} explicitly authorized state-changing scope (${command.allowedMethods.join(', ')}): ${command.rationale}`,
+      },
+    };
+
+    const updatedDecision = establishVerifiedAuthorizationDecision(
+      {
+        contractVersion: 'fixguard-verified-authorization-decision/v0',
+        kind: 'establish_verified_authorization_decision_request',
+        assessmentId: command.assessmentId,
+        scanId: currentGrant.scanId,
+        authorizationDecisionId: `dec_sc_${Date.now().toString(36)}`,
+        authorizedActor: { actorId: command.operatorId, actorType: 'human' },
+        decision: 'authorized',
+        decidedAt: new Date().toISOString(),
+        scopeGrant: updatedGrant,
+      },
+      new Date().toISOString()
+    );
+
+    if (updatedDecision.status !== 'established') {
+      throw new UnauthorizedGatewayError(
+        `Failed to establish updated verified authorization decision: ${updatedDecision.reasonCode}`,
+        'scope_violation'
+      );
+    }
+
+    this.sealedVerifiedDecisions.set(command.assessmentId, updatedDecision.decision);
+    return updatedGrant;
   }
 
   /**

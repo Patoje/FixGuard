@@ -25,12 +25,17 @@ import type { AttackExecutionRecord } from '../src/v2/attack-execution/AttackExe
 import type { AttackPlan } from '../src/v2/attack-planning/AttackPlanContracts.js';
 import type { Finding } from '../src/v2/core/Evidence.js';
 
-const USER_TOKEN =
-  'eyJhbGciOiJFUzI1NiIsImtpZCI6IjhlYmI4MWU2LTE0OTEtNDhkZi04ZTQzLTFkMDI5YzM1ZmE2MyIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJodHRwczovL3Zhd3J6b25jc3pxYXV6eHdxaWRlLnN1cGFiYXNlLmNvL2F1dGgvdjEiLCJzdWIiOiJhY2M0NzNlMC0yYjE3LTQwNGEtYTEwNS1jOGQ5MDljYTUyMGQiLCJhdWQiOiJhdXRoZW50aWNhdGVkIiwiZXhwIjoxNzkwODc3ODIzLCJpYXQiOjE3OTA4NzQyMjMsImVtYWlsIjoicGF0cmloZXlkZUBnbWFpbC5jb20iLCJwaG9uZSI6IiIsImFwcF9tZXRhZGF0YSI6eyJwcm92aWRlciI6ImVtYWlsIiwicHJvdmlkZXJzIjpbImVtYWlsIl19LCJ1c2VyX21ldGFkYXRhIjp7ImVtYWlsIjoicGF0cmloZXlkZUBnbWFpbC5jb20iLCJlbWFpbF92ZXJpZmllZCI6dHJ1ZSwibmFtZV9jaG9zZW4iOnRydWUsInBob25lX3ZlcmlmaWVkIjpmYWxzZSwic3ViIjoiYWNjNDczZTAtMmIxNy00MDRhLWExMDUtYzhkOTA5Y2E1MjBkIn0sInJvbGUiOiJhdXRoZW50aWNhdGVkIiwiYWFsIjoiYWFsMSIsImFtciI6W3sibWV0aG9kIjoib3RwIiwidGltZXN0YW1wIjoxNzkwODc0MjIzfV0sInNlc3Npb25faWQiOiIyN2VmMTliYS0wMzlkLTQ1MTctYWU2OC00ZTE3ZDJiYzg5ZTIiLCJpc19hbm9ueW1vdXMiOmZhbHNlfQ.pHeOiuNs0KmEnnbNDQWz0Chd4l0UWpdP70GyuYS4dVVt6ZDAKAqm_CiLf3eZpIMmMD6n8ma4QApxqFb5vsD4Hw';
+const USER_TOKEN = process.env.FG_LIVE_USER_JWT;
+const SUPABASE_HOST = process.env.FG_LIVE_SUPABASE_HOST ?? 'vawrzoncszqauzxwqide.supabase.co';
+const ANON_KEY = process.env.FG_LIVE_ANON_KEY;
 
-const SUPABASE_HOST = 'vawrzoncszqauzxwqide.supabase.co';
-const ANON_KEY =
-  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZhd3J6b25jc3pxYXV6eHdxaWRlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3MzcyNDM2MjAsImV4cCI6MjA1MjgxOTYyMH0.7JkZ3N5v41fBwE3qV0qgP2LwR5zN1yU0qGvT4W9sX9k';
+if (!USER_TOKEN || !ANON_KEY) {
+  console.error(
+    'FAIL: live_epistemic_loop_test requires environment variables FG_LIVE_USER_JWT and FG_LIVE_ANON_KEY.\n' +
+      'Provide explicit operator credentials via environment variables to run this live opt-in test.'
+  );
+  process.exit(1);
+}
 
 function createAuthorizedScope(domain: string): {
   scopeGrant: AuthorizedScopeGrant;

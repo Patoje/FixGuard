@@ -18,6 +18,10 @@ import {
   type ByotIdentityDto,
   type ByotSessionIdentityBundleDto,
 } from "@/lib/v2Api";
+import {
+  getOperatorSessionIdentity,
+  setOperatorSessionIdentity,
+} from "@/lib/v2/operatorSession";
 
 interface TargetLaunchCardProps {
   onAssessmentStarted: (
@@ -26,34 +30,6 @@ interface TargetLaunchCardProps {
   ) => void;
   isRunning: boolean;
 }
-
-/** Soft-defaults for known SPA targets — never shown in primary UI. */
-const TECLAAA_SUPABASE = "vawrzoncszqauzxwqide.supabase.co";
-
-/**
- * Soft-defaults only — never skip Stage 2/4; full recon is the default.
- * relatedHosts: scope fallback for known backends.
- * seedUrls: soft rest table seeds only as fallback when live JS mining is blocked —
- *           prefer OBSERVED JS `.from()` / OpenAPI when available.
- * seedPaths: SPA crawl roots.
- */
-const KNOWN_TARGET_DEFAULTS: Record<
-  string,
-  {
-    relatedHosts: string;
-    seedUrls?: string[];
-    seedPaths?: string[];
-  }
-> = {
-  "teclaaa.vercel.app": {
-    relatedHosts: TECLAAA_SUPABASE,
-    seedUrls: [
-      `https://${TECLAAA_SUPABASE}/rest/v1/profiles`,
-      `https://${TECLAAA_SUPABASE}/rest/v1/shop_items`,
-    ],
-    seedPaths: ["/carrera/93kpw", "/login", "/perfil"],
-  },
-};
 
 function cleanDomain(input: string): string {
   return input
@@ -142,7 +118,9 @@ export function TargetLaunchCard({
   isRunning,
 }: TargetLaunchCardProps) {
   const [domainInput, setDomainInput] = useState<string>("");
-  const [actorId, setActorId] = useState<string>("usr_secops_lead");
+  const [actorId, setActorId] = useState<string>(() => getOperatorSessionIdentity());
+  const [customRelatedHosts, setCustomRelatedHosts] = useState<string>("");
+  const [customSeedPaths, setCustomSeedPaths] = useState<string>("");
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [loading, setLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
@@ -161,7 +139,7 @@ export function TargetLaunchCard({
   const handleLaunch = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!isValidFormat) {
-      setError("Ingresá un dominio público válido (ej. teclaaa.vercel.app)");
+      setError("Ingresá un dominio público válido (ej. target.com)");
       return;
     }
     if (isSsrfRisk) {
@@ -175,7 +153,9 @@ export function TargetLaunchCard({
     setError(null);
 
     try {
-      const known = KNOWN_TARGET_DEFAULTS[cleaned];
+      if (actorId.trim()) {
+        setOperatorSessionIdentity(actorId.trim());
+      }
 
       let sessionIdentities: ByotSessionIdentityBundleDto | undefined;
       if (byotTokenOrCookie.trim() || byotUsuario.trim()) {
@@ -214,12 +194,12 @@ export function TargetLaunchCard({
         };
       }
 
-      // Soft-defaults: related hosts + optional rest seeds (fallback) + SPA crawl paths.
-      const relatedAllowedHosts = known
-        ? parseHostList(known.relatedHosts)
-        : [];
-      const seedUrls = known?.seedUrls ?? [];
-      const seedPaths = known?.seedPaths ?? [];
+      // Explicit operator scope & seed parameters (never hardcoded synthetic defaults)
+      const relatedAllowedHosts = parseHostList(customRelatedHosts);
+      const seedPaths = customSeedPaths
+        .split(/[\n,]/)
+        .map((p) => p.trim())
+        .filter((p) => p.startsWith("/"));
 
       const result = await startOrchestratedAssessment({
         targetDomain: cleaned,
@@ -228,7 +208,6 @@ export function TargetLaunchCard({
         ...(relatedAllowedHosts.length > 0
           ? { relatedAllowedHosts }
           : {}),
-        ...(seedUrls.length > 0 ? { seedUrls } : {}),
         ...(seedPaths.length > 0 ? { seedPaths } : {}),
       });
       onAssessmentStarted(result, cleaned);
@@ -340,17 +319,63 @@ export function TargetLaunchCard({
                   htmlFor="actorId"
                   className="block text-xs font-medium text-zinc-400"
                 >
-                  Operator ID
+                  Operator Session ID
                 </label>
                 <input
                   id="actorId"
                   type="text"
                   value={actorId}
                   onChange={(e) => setActorId(e.target.value)}
-                  placeholder="usr_operator"
+                  placeholder="op_local_analyst"
                   className="mt-1.5 block w-full rounded-lg border border-zinc-800 bg-zinc-950 px-3 py-2 text-xs font-mono text-zinc-100 placeholder-zinc-600 focus:border-emerald-500/50 focus:outline-none focus:ring-2 focus:ring-emerald-500/20"
                   disabled={loading || isRunning}
                 />
+                <p className="mt-1 text-[10px] text-zinc-500">
+                  Identificador de sesión para registro de auditoría local.
+                </p>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label
+                    htmlFor="relatedHosts"
+                    className="block text-xs font-medium text-zinc-400"
+                  >
+                    Hosts Relacionados Autorizados (opcional)
+                  </label>
+                  <input
+                    id="relatedHosts"
+                    type="text"
+                    value={customRelatedHosts}
+                    onChange={(e) => setCustomRelatedHosts(e.target.value)}
+                    placeholder="api.target.com, backend.target.com"
+                    className="mt-1.5 block w-full rounded-lg border border-zinc-800 bg-zinc-950 px-3 py-2 text-xs font-mono text-zinc-100 placeholder-zinc-600 focus:border-emerald-500/50 focus:outline-none"
+                    disabled={loading || isRunning}
+                  />
+                  <p className="mt-1 text-[10px] text-zinc-500">
+                    Backends autorizados fuera del dominio principal.
+                  </p>
+                </div>
+                <div>
+                  <label
+                    htmlFor="seedPaths"
+                    className="block text-xs font-medium text-zinc-400"
+                  >
+                    Rutas Iniciales a Explorar (opcional)
+                  </label>
+                  <input
+                    id="seedPaths"
+                    type="text"
+                    value={customSeedPaths}
+                    onChange={(e) => setCustomSeedPaths(e.target.value)}
+                    placeholder="/login, /dashboard, /api"
+                    className="mt-1.5 block w-full rounded-lg border border-zinc-800 bg-zinc-950 px-3 py-2 text-xs font-mono text-zinc-100 placeholder-zinc-600 focus:border-emerald-500/50 focus:outline-none"
+                    disabled={loading || isRunning}
+                  />
+                  <p className="mt-1 text-[10px] text-zinc-500">
+                    Rutas de entrada conocidas para acelerar el crawling SPA.
+                  </p>
+                </div>
               </div>
 
               <div className="rounded-lg border border-zinc-800/80 bg-zinc-950/50 overflow-hidden">
