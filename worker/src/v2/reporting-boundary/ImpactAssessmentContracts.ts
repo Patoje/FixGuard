@@ -73,6 +73,8 @@ export function formatEpistemicBadge(status: EpistemicStatus): string {
       return '[REFUTED - TARGET RESISTED]';
     case 'OBSERVED':
       return '[OBSERVED]';
+    case 'INCONCLUSIVE':
+      return '[INCONCLUSIVE - INSUFFICIENT EVIDENCE]';
     default: {
       const _exhaustive: never = status;
       return _exhaustive;

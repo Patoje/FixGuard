@@ -24,7 +24,7 @@ import type {
   CredentialReference,
   PostExploitationState,
 } from '../post-exploitation/PostExploitationContracts.js';
-import type { ImpactAssessment } from './ImpactAssessmentContracts.js';
+import type { ImpactAssessment, EpistemicStatus } from './ImpactAssessmentContracts.js';
 import { formatEpistemicBadge } from './ImpactAssessmentContracts.js';
 
 export function escapeHtml(str: string): string {
@@ -294,6 +294,11 @@ export function buildReportStyles(): string {
       color: #60a5fa;
       border: 1px solid rgba(59, 130, 246, 0.35);
     }
+    .epistemic-inconclusive {
+      background: rgba(148, 163, 184, 0.15);
+      color: #94a3b8;
+      border: 1px solid rgba(148, 163, 184, 0.35);
+    }
     .adversarial-item {
       background: rgba(255, 255, 255, 0.02);
       border: 1px solid var(--card-border);
@@ -314,12 +319,14 @@ function epistemicBadgeClass(status: string): string {
       return 'epistemic-refuted';
     case 'OBSERVED':
       return 'epistemic-observed';
+    case 'INCONCLUSIVE':
+      return 'epistemic-inconclusive';
     default:
       return 'epistemic-inferred';
   }
 }
 
-function renderEpistemicBadgeHtml(status: 'OBSERVED' | 'INFERRED' | 'VERIFIED' | 'REFUTED'): string {
+function renderEpistemicBadgeHtml(status: EpistemicStatus): string {
   const badge = formatEpistemicBadge(status);
   return `<span class="epistemic-badge ${epistemicBadgeClass(status)}">${escapeHtml(badge)}</span>`;
 }
@@ -862,7 +869,7 @@ export function buildTargetDefensesSection(params: {
     stepId: string;
     capabilityKind: string;
     safeMessage: string;
-    epistemicStatus: 'OBSERVED' | 'INFERRED' | 'VERIFIED' | 'REFUTED';
+    epistemicStatus: EpistemicStatus;
     outcome: string;
   }> = [];
 

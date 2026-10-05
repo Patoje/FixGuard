@@ -803,6 +803,9 @@ function mapExecutionOutcomeToChain(
   if (outcome === 'refuted') {
     return { outcome: 'refuted', epistemicStatus: 'REFUTED' };
   }
+  if (outcome === 'inconclusive') {
+    return { outcome: 'inconclusive', epistemicStatus: 'INCONCLUSIVE' };
+  }
   if (outcome === 'failed' || outcome === 'capability_not_implemented') {
     return { outcome: 'failed', epistemicStatus: 'INFERRED' };
   }
@@ -6272,24 +6275,33 @@ export class OrchestratedAssessmentApplicationService {
         // SAST Static Secret Scanning (Milestone P6-1: Static Secret & Credential Scanning Engine)
         try {
           const filesToScan: { filePath: string; content: string }[] = [];
+          const candidateUrls = new Set<string>();
           for (const webObs of reconResult.aggregatedObservations.webObservations) {
             if (webObs.url && (webObs.url.endsWith('.js') || webObs.url.endsWith('.json') || webObs.url.endsWith('.env'))) {
-              try {
-                const parsedUrl = new URL(webObs.url);
-                const resp = await this.httpTransport({
-                  url: webObs.url,
-                  method: 'GET',
-                  headers: { 'User-Agent': 'FixGuard-DAST/2.0 (Defensive)' },
+              candidateUrls.add(webObs.url);
+            }
+          }
+          for (const u of reconResult.aggregatedObservations.urls) {
+            if (u.url && (u.url.endsWith('.js') || u.url.endsWith('.json') || u.url.endsWith('.env') || u.url.includes('.js?'))) {
+              candidateUrls.add(u.url);
+            }
+          }
+          for (const candUrl of Array.from(candidateUrls).slice(0, 10)) {
+            try {
+              const parsedUrl = new URL(candUrl);
+              const resp = await this.httpTransport({
+                url: candUrl,
+                method: 'GET',
+                headers: { 'User-Agent': 'FixGuard-DAST/2.0 (Defensive)' },
+              });
+              if (resp.statusCode === 200 && resp.bodyText && resp.bodyText.length > 0) {
+                filesToScan.push({
+                  filePath: parsedUrl.pathname.replace(/^\//, '') || 'bundle.js',
+                  content: resp.bodyText,
                 });
-                if (resp.statusCode === 200 && resp.bodyText && resp.bodyText.length > 0) {
-                  filesToScan.push({
-                    filePath: parsedUrl.pathname.replace(/^\//, '') || 'bundle.js',
-                    content: resp.bodyText,
-                  });
-                }
-              } catch {
-                // Ignore fetch error
               }
+            } catch {
+              // Ignore fetch error
             }
           }
 

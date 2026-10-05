@@ -397,7 +397,7 @@ function evaluateSignalGate(
           rationale: 'HTML body is not a PostgREST Data API signal',
         };
       }
-      // Zero rows or empty array must never auto-promote (SEC-01: empty is inconclusive).
+      // Zero rows observed (rowCountHint <= 0) must never auto-promote (SEC-01: empty is inconclusive).
       if (ctx.supabaseRowCountHint !== undefined && ctx.supabaseRowCountHint <= 0) {
         return {
           decision: 'drop_as_noise',
@@ -405,15 +405,67 @@ function evaluateSignalGate(
           rationale: 'Zero rows observed; empty dataset is inconclusive regarding data exposure',
         };
       }
-      if (
-        typeof ctx.sanitizedSnippet === 'string' &&
-        /^\s*\[\s*\]\s*$/.test(ctx.sanitizedSnippet)
-      ) {
-        return {
-          decision: 'drop_as_noise',
-          reasonCode: 'supabase_rls_empty_array_inconclusive',
-          rationale: 'Empty array response is inconclusive regarding data exposure',
-        };
+      // When rowCountHint is unavailable, verify sanitizedSnippet is present and non-empty.
+      if (ctx.supabaseRowCountHint === undefined) {
+        if (!ctx.sanitizedSnippet || typeof ctx.sanitizedSnippet !== 'string' || ctx.sanitizedSnippet.trim().length === 0) {
+          return {
+            decision: 'drop_as_noise',
+            reasonCode: 'supabase_rls_empty_snippet_inconclusive',
+            rationale: 'Missing or empty response body is inconclusive regarding data exposure',
+          };
+        }
+      }
+      if (typeof ctx.sanitizedSnippet === 'string' && ctx.sanitizedSnippet.trim().length > 0) {
+        const trimmedSnippet = ctx.sanitizedSnippet.trim();
+        if (
+          trimmedSnippet === '[]' ||
+          trimmedSnippet === '{}' ||
+          /^\s*\[\s*\]\s*$/.test(trimmedSnippet) ||
+          /^\s*\{\s*\}\s*$/.test(trimmedSnippet)
+        ) {
+          return {
+            decision: 'drop_as_noise',
+            reasonCode: 'supabase_rls_empty_response_inconclusive',
+            rationale: 'Empty array or object response is inconclusive regarding data exposure',
+          };
+        }
+        try {
+          const parsed = JSON.parse(trimmedSnippet);
+          if (Array.isArray(parsed) && parsed.length === 0) {
+            return {
+              decision: 'drop_as_noise',
+              reasonCode: 'supabase_rls_empty_array_inconclusive',
+              rationale: 'Empty array response is inconclusive regarding data exposure',
+            };
+          }
+          if (typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)) {
+            const keys = Object.keys(parsed);
+            if (keys.length === 0) {
+              return {
+                decision: 'drop_as_noise',
+                reasonCode: 'supabase_rls_empty_object_inconclusive',
+                rationale: 'Empty object response is inconclusive regarding data exposure',
+              };
+            }
+            const errorKeys = new Set(['code', 'message', 'details', 'hint', 'error']);
+            const nonErrorKeys = keys.filter((k) => !errorKeys.has(k.toLowerCase()));
+            if (nonErrorKeys.length === 0) {
+              return {
+                decision: 'drop_as_noise',
+                reasonCode: 'supabase_rls_error_object_inconclusive',
+                rationale: 'PostgREST error object response is inconclusive regarding data exposure',
+              };
+            }
+          }
+        } catch {
+          if (ctx.supabaseRowCountHint === undefined) {
+            return {
+              decision: 'drop_as_noise',
+              reasonCode: 'supabase_rls_invalid_json_inconclusive',
+              rationale: 'Non-JSON response is inconclusive regarding data exposure',
+            };
+          }
+        }
       }
       return null;
     }
@@ -427,6 +479,28 @@ function evaluateSignalGate(
         };
       }
       return null;
+
+    case 'static_secret_exposure': {
+      if (!ctx.filePath || typeof ctx.filePath !== 'string' || ctx.filePath.trim().length === 0) {
+        return {
+          decision: 'keep_as_draft',
+          reasonCode: 'static_secret_filepath_missing',
+          rationale: 'Static secret exposure draft missing source filePath context',
+        };
+      }
+      if (
+        !ctx.sanitizedSnippet ||
+        typeof ctx.sanitizedSnippet !== 'string' ||
+        ctx.sanitizedSnippet.trim().length === 0
+      ) {
+        return {
+          decision: 'keep_as_draft',
+          reasonCode: 'static_secret_evidence_incomplete',
+          rationale: 'Static secret exposure draft missing sanitized evidence snippet',
+        };
+      }
+      return null;
+    }
 
     default:
       return null;

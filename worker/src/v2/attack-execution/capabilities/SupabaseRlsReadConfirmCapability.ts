@@ -32,6 +32,10 @@ function refuted(reasonCode: string, safeMessage: string): AttackCapabilityExecu
   return { outcome: 'refuted', reasonCode, safeMessage };
 }
 
+function inconclusive(reasonCode: string, safeMessage: string): AttackCapabilityExecutionResult {
+  return { outcome: 'inconclusive', reasonCode, safeMessage };
+}
+
 function failed(reasonCode: string, safeMessage: string): AttackCapabilityExecutionResult {
   return { outcome: 'failed', reasonCode, safeMessage };
 }
@@ -186,20 +190,20 @@ export function createSupabaseRlsReadConfirmCapability(
               ],
             };
           }
-          return refuted(
+          return inconclusive(
             'supabase_rls_read_not_confirmed',
             'Detection ran but world-readable data exposure was not re-observed'
           );
         }
         case 'inconclusive_observation':
-          return refuted(
+          return inconclusive(
             result.reasonCode,
-            `Supabase RLS read confirm inconclusive (${result.reasonCode}) — empty response does not prove exposure or protection`
+            `Supabase RLS read confirm inconclusive (${result.reasonCode}) — observation is insufficient to establish exposure or protection`
           );
         case 'secure_target_abstained':
           return refuted(
             result.reasonCode,
-            'Supabase RLS read confirm abstained — read boundary appears enforced'
+            'Supabase RLS read confirm abstained — read boundary enforced (HTTP 401/403 observed)'
           );
         case 'preflight_denied':
         case 'prerequisite_missing':

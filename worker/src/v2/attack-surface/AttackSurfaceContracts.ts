@@ -20,7 +20,7 @@ export const ATTACK_SURFACE_CONTRACT_VERSION: AttackSurfaceContractVersion =
  * VERIFIED  — corroborated via verified finding / validation lifecycle
  * REFUTED   — previously claimed relationship rejected by evidence
  */
-export type EpistemicStatus = 'OBSERVED' | 'INFERRED' | 'VERIFIED' | 'REFUTED';
+export type EpistemicStatus = 'OBSERVED' | 'INFERRED' | 'VERIFIED' | 'REFUTED' | 'INCONCLUSIVE';
 
 export type AsgNodeKind =
   | 'domain'

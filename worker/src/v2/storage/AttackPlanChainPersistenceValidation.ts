@@ -30,6 +30,7 @@ const EPISTEMIC_STATUSES = new Set<EpistemicStatus>([
   'INFERRED',
   'VERIFIED',
   'REFUTED',
+  'INCONCLUSIVE',
 ]);
 
 const PLAN_STATUSES = new Set<AttackPlanStatus>([

@@ -446,6 +446,47 @@ async function runSmokeTests(): Promise<void> {
 
   console.log('✓ Test 4 Passed: Cross-assessment injection fail-closed + API list');
 
+  // --- Test 5: INCONCLUSIVE step preserves INCONCLUSIVE epistemic status and blocks fully_validated ---
+  const repo5 = new InMemoryAttackChainRepository();
+  const service5 = new AttackChainService(repo5);
+
+  let inconclusiveChain = await service5.initHypothesis({
+    chainId: 'chain_a6_inconclusive_001',
+    assessmentId,
+    scanId,
+    hypothesis: 'Inconclusive step must not become refuted or verified',
+    objectiveKind: 'information_disclosure',
+    impactLevel: 'information_exposure',
+    lineage,
+    createdAt: nowIso,
+  });
+
+  inconclusiveChain = await service5.appendExecutedStep({
+    chainId: inconclusiveChain.chainId,
+    assessmentId,
+    scanId,
+    stepId: 'step_inconclusive_1',
+    capabilityKind: 'supabase_rls_read_confirm',
+    epistemicStatus: 'INCONCLUSIVE',
+    capabilityGained: 'none',
+    outcome: 'inconclusive',
+    evidence: {
+      evidenceId: 'ev_inc_1',
+      reasonCode: 'inconclusive_empty_table',
+      safeMessage: 'Empty table response: inconclusive regarding exposure or protection',
+      recordedAt: nowIso,
+    },
+    recordedAt: nowIso,
+  });
+
+  assert.equal(inconclusiveChain.status, 'hypothesis');
+  assert.equal(inconclusiveChain.overallEpistemicStatus, 'INCONCLUSIVE');
+  assert.notEqual(inconclusiveChain.status, 'refuted');
+  assert.notEqual(inconclusiveChain.status, 'failed');
+  assert.notEqual(inconclusiveChain.status, 'fully_validated');
+
+  console.log('✓ Test 5 Passed: INCONCLUSIVE step preserves INCONCLUSIVE epistemic status');
+
   console.log('=== Milestone A6 Attack Chain Tracker: ALL TESTS PASSED ===');
 }
 

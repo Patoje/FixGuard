@@ -25,9 +25,10 @@ function strongestEpistemic(
 ): EpistemicStatus {
   const rank: Record<EpistemicStatus, number> = {
     REFUTED: 0,
-    INFERRED: 1,
-    OBSERVED: 2,
-    VERIFIED: 3,
+    INCONCLUSIVE: 1,
+    INFERRED: 2,
+    OBSERVED: 3,
+    VERIFIED: 4,
   };
   let best: EpistemicStatus = nodeStatus;
   for (const edge of related) {

@@ -18,6 +18,8 @@ export function epistemicBorderClass(status: EpistemicStatus): string {
       return "border-solid border-rose-500/70 bg-rose-950/30";
     case "OBSERVED":
       return "border-solid border-sky-500/50";
+    case "INCONCLUSIVE":
+      return "border-dotted border-slate-500/50 bg-slate-900/30";
     default: {
       const _exhaustive: never = status;
       return _exhaustive;
@@ -35,6 +37,8 @@ export function epistemicTextClass(status: EpistemicStatus): string {
       return "text-rose-300 border-rose-500/50 bg-rose-500/15";
     case "OBSERVED":
       return "text-sky-300 border-sky-500/40 bg-sky-500/10";
+    case "INCONCLUSIVE":
+      return "text-slate-300 border-slate-500/40 bg-slate-500/10";
     default: {
       const _exhaustive: never = status;
       return _exhaustive;

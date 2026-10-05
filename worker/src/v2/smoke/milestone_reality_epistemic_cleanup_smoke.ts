@@ -408,15 +408,15 @@ async function testSec01Case5_HtmlOrNonJsonBody(): Promise<void> {
   });
 
   assertTrue(
-    result.status === 'secure_target_abstained',
-    `SEC-01 Case 5: expected secure_target_abstained on HTML body, got '${result.status}'`
+    result.status === 'inconclusive_observation',
+    `SEC-01 Case 5: expected inconclusive_observation on HTML body, got '${result.status}'`
   );
   assertTrue(
     result.reasonCode === 'not_data_api_html_body',
     `SEC-01 Case 5: expected reasonCode 'not_data_api_html_body', got '${result.reasonCode}'`
   );
 
-  console.log('[+] SEC-01 Case 5 passed: HTML response abstained as not_data_api_html_body');
+  console.log('[+] SEC-01 Case 5 passed: HTML response classified as inconclusive_observation');
 }
 
 async function testSec01Case6_ContradictoryOrIncompleteEvidence(): Promise<void> {
@@ -456,15 +456,15 @@ async function testSec01Case6_ContradictoryOrIncompleteEvidence(): Promise<void>
   });
 
   assertTrue(
-    result.status === 'secure_target_abstained',
-    `SEC-01 Case 6: expected secure_target_abstained on incomplete evidence, got '${result.status}'`
+    result.status === 'inconclusive_observation',
+    `SEC-01 Case 6: expected inconclusive_observation on incomplete evidence, got '${result.status}'`
   );
   assertTrue(
     result.reasonCode === 'incomplete_or_contradictory_evidence',
     `SEC-01 Case 6: expected 'incomplete_or_contradictory_evidence', got '${result.reasonCode}'`
   );
 
-  console.log('[+] SEC-01 Case 6 passed: Contradictory/incomplete evidence rejected without draft/finding');
+  console.log('[+] SEC-01 Case 6 passed: Contradictory/incomplete evidence classified as inconclusive_observation');
 }
 
 async function testSec01Case7_UnattributedTarget(): Promise<void> {
@@ -505,15 +505,15 @@ async function testSec01Case7_UnattributedTarget(): Promise<void> {
   });
 
   assertTrue(
-    result.status === 'secure_target_abstained',
-    `SEC-01 Case 7: expected secure_target_abstained on unattributed target, got '${result.status}'`
+    result.status === 'inconclusive_observation',
+    `SEC-01 Case 7: expected inconclusive_observation on unattributed target, got '${result.status}'`
   );
   assertTrue(
     result.reasonCode === 'target_attribution_unverified',
     `SEC-01 Case 7: expected 'target_attribution_unverified', got '${result.reasonCode}'`
   );
 
-  console.log('[+] SEC-01 Case 7 passed: Unattributed target rejected without draft/finding');
+  console.log('[+] SEC-01 Case 7 passed: Unattributed target classified as inconclusive_observation');
 }
 
 async function testSec01_CapabilityConfirmation(): Promise<void> {
@@ -608,14 +608,14 @@ async function testSec01_CapabilityConfirmation(): Promise<void> {
   });
 
   assertTrue(
-    emptyResult.outcome === 'refuted',
-    `Capability on empty array [] MUST return outcome 'refuted', got '${emptyResult.outcome}'`
+    emptyResult.outcome === 'inconclusive',
+    `Capability on empty array [] MUST return outcome 'inconclusive', got '${emptyResult.outcome}'`
   );
   assertTrue(
     emptyResult.outcome !== 'succeeded',
     'Capability on empty array [] MUST NEVER succeed or declare vulnerable'
   );
-  console.log('[+] SEC-01 Capability Confirmation on [] passed: outcome is refuted, NOT succeeded');
+  console.log('[+] SEC-01 Capability Confirmation on [] passed: outcome is inconclusive, NOT succeeded');
 }
 
 async function testSec01_AutoPromotionGateZeroRows(): Promise<void> {

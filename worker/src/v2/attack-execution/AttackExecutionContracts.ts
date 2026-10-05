@@ -35,6 +35,7 @@ export type AttackStepExecutionOutcome =
   | 'succeeded'
   | 'observed'
   | 'refuted'
+  | 'inconclusive'
   | 'failed'
   | 'preflight_denied'
   | 'capability_not_implemented';

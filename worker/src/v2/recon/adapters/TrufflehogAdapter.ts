@@ -86,7 +86,28 @@ export class TrufflehogAdapter implements SecretScannerTool {
     }
 
     const looksLikeUrl = rawTarget.startsWith('http://') || rawTarget.startsWith('https://');
-    const isGit = looksLikeUrl || request.scanType === 'git';
+    const isGit =
+      request.scanType === 'git' ||
+      (looksLikeUrl &&
+        (rawTarget.endsWith('.git') ||
+          rawTarget.includes('.git/') ||
+          rawTarget.startsWith('git://') ||
+          rawTarget.startsWith('git@')));
+
+    if (looksLikeUrl && !isGit) {
+      // Normal web asset/endpoint is not a Git repository.
+      // Do not attempt 'trufflehog git <url>' which would clone and hang/fail.
+      return {
+        status: 'execution_failed',
+        contractVersion: SECRET_DISCOVERY_CONTRACT_VERSION,
+        targetUrlOrPath: rawTarget,
+        reasonCode: 'target_not_git_repository',
+        reason: 'Target URL is a web asset or endpoint, not a confirmed Git repository; git clone skipped to prevent timeouts',
+        explicitNonClaims: SECRET_DISCOVERY_NON_CLAIMS,
+        lineage: request.lineage,
+        durationMs: 0,
+      };
+    }
 
     // Execution Phase: Spawn trufflehog via ProcessRunner with isolated argument array
     const args = isGit

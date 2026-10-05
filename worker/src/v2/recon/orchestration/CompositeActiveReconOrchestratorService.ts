@@ -763,6 +763,10 @@ export class CompositeActiveReconOrchestratorService {
             for (const obs of portResult.observations) {
               ports.push(obs);
             }
+          } else if (portResult.status === 'execution_failed' || portResult.status === 'preflight_denied') {
+            stage2Warnings.push(
+              `Port discovery ${portResult.status} on ${host}: ${portResult.reasonCode ?? portResult.reason ?? 'failed'}`
+            );
           }
         } catch (err) {
           if (err instanceof TargetInstabilityError || coordinator.isCircuitOpen(host)) {

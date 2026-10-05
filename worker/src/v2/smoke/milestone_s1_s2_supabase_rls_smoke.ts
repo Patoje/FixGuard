@@ -397,13 +397,13 @@ async function runTests(): Promise<void> {
       dnsResolver: mockDnsResolver,
     });
 
-    if (rls.status !== 'secure_target_abstained') {
-      throw new Error(`Test 5 Failed: expected abstain, got ${rls.status}`);
+    if (rls.status !== 'inconclusive_observation') {
+      throw new Error(`Test 5 Failed: expected inconclusive_observation, got ${rls.status}`);
     }
-    if (rls.reasonCode !== 'not_data_api_html_body' && rls.reasonCode !== 'no_world_readable_tables') {
+    if (rls.reasonCode !== 'not_data_api_html_body' && rls.reasonCode !== 'html_body_inconclusive') {
       throw new Error(`Test 5 Failed: unexpected reason ${rls.reasonCode}`);
     }
-    console.log('  [PASS] HTML shell abstained');
+    console.log('  [PASS] HTML shell resolved to inconclusive_observation');
   }
 
   // -------------------------------------------------------------------------

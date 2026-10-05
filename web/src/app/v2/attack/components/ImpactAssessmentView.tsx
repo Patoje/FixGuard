@@ -24,6 +24,7 @@ const EPISTEMIC_ES: Record<EpistemicStatus, string> = {
   INFERRED: "Inferido — hipótesis técnica pendiente de validación completa.",
   VERIFIED: "Verificado y confirmado con evidencia forense inobjetable.",
   REFUTED: "Refutado — la prueba no encontró debilidad o fue bloqueada.",
+  INCONCLUSIVE: "Inconcluso — evidencia insuficiente para determinar vulnerabilidad o protección.",
 };
 
 function resultPhrase(status: EpistemicStatus): string {
@@ -34,6 +35,8 @@ function resultPhrase(status: EpistemicStatus): string {
       return "Resultado: Observado — Hubo respuesta medible del objetivo.";
     case "REFUTED":
       return "Resultado: Refutado — El objetivo resistió o bloqueó el intento.";
+    case "INCONCLUSIVE":
+      return "Resultado: Inconcluso — Evidencia insuficiente para validar o refutar.";
     default:
       return "Resultado: En análisis — Hipótesis derivada.";
   }
@@ -71,21 +74,47 @@ function parseHumanImpact(item: ImpactAssessment, chain?: AttackChain) {
   }
 
   // Derive business risk and posture based strictly on epistemic status and step outcome
-  const isRefuted = item.epistemicStatus === "REFUTED" || rlsStep?.outcome === "refuted";
+  const isInconclusive =
+    item.epistemicStatus === "INCONCLUSIVE" ||
+    rlsStep?.outcome === "inconclusive" ||
+    /inconclus/i.test(rawMsg) ||
+    /0 records observed/i.test(rawMsg);
+  const isProtectedBoundary =
+    (item.epistemicStatus === "REFUTED" || rlsStep?.outcome === "refuted") &&
+    (rawMsg.includes("401") ||
+      rawMsg.includes("403") ||
+      rawMsg.includes("boundary enforced") ||
+      rawMsg.includes("proteg"));
+  const isRefuted =
+    (item.epistemicStatus === "REFUTED" || rlsStep?.outcome === "refuted") &&
+    !isInconclusive;
   const isFailed = rlsStep?.outcome === "failed";
   const isVerifiedOrObserved =
+    !isInconclusive &&
     (item.epistemicStatus === "VERIFIED" || item.epistemicStatus === "OBSERVED") &&
     (!rlsStep || rlsStep.outcome === "succeeded");
 
   let businessRisk: string;
   let riskLevel: "protected" | "vulnerable" | "inconclusive" | "failed" = "inconclusive";
 
-  if (isRefuted) {
-    riskLevel = "protected";
+  if (isInconclusive) {
+    riskLevel = "inconclusive";
     if (tableName) {
-      businessRisk = `Control verificado: El acceso anónimo fue denegado por las políticas Row Level Security (RLS) del objetivo (HTTP 401/403). La tabla '${tableName}' protegió sus registros correctamente y no se observó exposición de datos.`;
+      businessRisk = `Observación inconclusa: La prueba en la tabla '${tableName}' devolvió una respuesta vacía, no estructurada o de tipo HTML/soft-404. No se observó exposición de datos, pero tampoco una denegación explícita (HTTP 401/403). La postura de seguridad permanece no determinada.`;
     } else {
-      businessRisk = `Control verificado: Las defensas del objetivo bloquearon el vector de acceso evaluado. El control de seguridad se sostuvo y no se observó compromiso.`;
+      businessRisk = `Observación inconclusa: La evidencia obtenida es insuficiente para determinar si el objetivo es vulnerable o si el control de seguridad está activo.`;
+    }
+  } else if (isRefuted) {
+    if (isProtectedBoundary) {
+      riskLevel = "protected";
+      if (tableName) {
+        businessRisk = `Control verificado: El acceso anónimo fue denegado por las políticas Row Level Security (RLS) del objetivo (HTTP 401/403). La tabla '${tableName}' protegió sus registros correctamente y no se observó exposición de datos.`;
+      } else {
+        businessRisk = `Control verificado: Las defensas del objetivo bloquearon el vector de acceso evaluado (HTTP 401/403). El control de seguridad se sostuvo y no se observó compromiso.`;
+      }
+    } else {
+      riskLevel = "inconclusive";
+      businessRisk = `Prueba refutada: La hipótesis de vulnerabilidad no se sostuvo, pero no se observó una denegación explícita de seguridad (HTTP 401/403).`;
     }
   } else if (isFailed) {
     riskLevel = "failed";

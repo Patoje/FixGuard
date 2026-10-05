@@ -214,19 +214,32 @@ export function extractDiscoveredTables(
 
         if (isReadStep) {
           const isInconclusive =
+            step.outcome === "inconclusive" ||
+            step.epistemicStatus === "INCONCLUSIVE" ||
             reasonCode === "inconclusive_empty_table" ||
             reasonCode === "supabase_rls_no_records_observed" ||
+            reasonCode === "not_data_api_html_body" ||
+            reasonCode === "target_attribution_unverified" ||
+            reasonCode === "incomplete_or_contradictory_evidence" ||
+            reasonCode === "no_world_readable_tables" ||
             /inconclus/i.test(msg) ||
             /0 records observed/i.test(msg) ||
             /0 registros observados/i.test(msg);
 
-          if (step.outcome === "refuted" || step.epistemicStatus === "REFUTED") {
-            if (isInconclusive) {
-              entry.readStatus = "inconclusive";
-              entry.readMessage = msg || "Respuesta vacía (0 registros) — inconcluso sobre RLS";
-            } else {
+          if (step.outcome === "inconclusive" || step.epistemicStatus === "INCONCLUSIVE" || isInconclusive) {
+            entry.readStatus = "inconclusive";
+            entry.readMessage = msg || "Respuesta vacía o inconclusa — no se pudo confirmar exposición ni protección";
+          } else if (step.outcome === "refuted" || step.epistemicStatus === "REFUTED") {
+            const isProtected =
+              reasonCode === "read_boundary_enforced" ||
+              /401|403/.test(msg) ||
+              /boundary enforced/i.test(msg);
+            if (isProtected) {
               entry.readStatus = "protected";
               entry.readMessage = msg || "Lectura denegada por política RLS (HTTP 401/403)";
+            } else {
+              entry.readStatus = "inconclusive";
+              entry.readMessage = msg || "Prueba no concluyente — no se observó debilidad ni bloqueo 401/403";
             }
           } else if (step.outcome === "failed") {
             if (entry.readStatus !== "protected") {

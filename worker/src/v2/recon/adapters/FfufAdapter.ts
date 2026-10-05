@@ -28,6 +28,19 @@ export class FfufAdapter implements ContentDiscoveryTool {
     const rawTarget = typeof request.targetUrl === 'string' ? request.targetUrl.trim() : '';
     const rawWordlist = typeof request.wordlistPath === 'string' ? request.wordlistPath.trim() : '';
 
+    if (!rawWordlist) {
+      return {
+        status: 'preflight_denied',
+        contractVersion: CONTENT_DISCOVERY_CONTRACT_VERSION,
+        targetUrl: rawTarget,
+        wordlistPath: rawWordlist,
+        reasonCode: 'missing_wordlist_path',
+        reason: 'ffuf content discovery strictly requires an authorized non-empty wordlist path',
+        explicitNonClaims: CONTENT_DISCOVERY_NON_CLAIMS,
+        lineage: request.lineage,
+      };
+    }
+
     // Unified Atomic Preflight Gate
     const preflight = await runAdapterPreflight({
       target: rawTarget,

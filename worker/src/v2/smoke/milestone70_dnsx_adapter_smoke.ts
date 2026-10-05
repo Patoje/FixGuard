@@ -185,7 +185,7 @@ async function runMilestone70SmokeTests() {
       assert.strictEqual(runner.calls.length, 1);
       assert.strictEqual(runner.calls[0].binary, 'dnsx');
       assert.deepStrictEqual(runner.calls[0].args, [
-        '-d',
+        '-l',
         'example.com',
         '-json',
         '-a',

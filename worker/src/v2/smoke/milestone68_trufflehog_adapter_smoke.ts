@@ -506,6 +506,29 @@ async function runMilestone68SmokeTests() {
     console.log('    -> Clean zero observations on empty output and fail-closed malformed line resilience verified');
   }
 
+  // -------------------------------------------------------------------------
+  // Assertion 10: Non-Git Web Asset Protection (No Git Clone on Web URLs)
+  // -------------------------------------------------------------------------
+  console.log('[*] Assertion 10: Non-Git Web Asset Protection (No Git Clone on Web URLs)');
+  {
+    const runner = new MockProcessRunner();
+    const adapter = new TrufflehogAdapter(runner);
+    const auth = setupAuthorizedContext();
+
+    const result = await adapter.scanSecrets({
+      targetUrlOrPath: 'https://example.com/app.js',
+      ...auth,
+    });
+
+    assert.strictEqual(result.status, 'execution_failed');
+    if (result.status === 'execution_failed') {
+      assert.strictEqual(result.reasonCode, 'target_not_git_repository');
+      assert(result.reason.includes('not a confirmed Git repository'));
+    }
+    assert.strictEqual(runner.calls.length, 0, 'Zero child processes spawned for non-git web URL');
+    console.log('    -> Non-git web asset safely rejected with 0 child processes spawned');
+  }
+
   console.log('\n[✔] ALL MILESTONE 68 SECRET DISCOVERY ADAPTER SMOKE ASSERTIONS PASSED SUCCESSFULLY.');
 }
 

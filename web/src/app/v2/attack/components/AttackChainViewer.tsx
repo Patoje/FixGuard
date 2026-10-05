@@ -11,6 +11,7 @@ const OUTCOME_ES: Record<AttackChainStepOutcome, string> = {
   succeeded: "succeeded",
   refuted: "refuted",
   failed: "falló",
+  inconclusive: "inconcluso",
 };
 
 const IMPACT_ES: Partial<Record<ImpactLevel, string>> = {

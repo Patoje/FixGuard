@@ -15,7 +15,7 @@ import { V2ApiError, type V2ApiClientConfig } from './v2Api';
 // Shared / epistemic
 // ---------------------------------------------------------------------------
 
-export type EpistemicStatus = 'OBSERVED' | 'INFERRED' | 'VERIFIED' | 'REFUTED';
+export type EpistemicStatus = 'OBSERVED' | 'INFERRED' | 'VERIFIED' | 'REFUTED' | 'INCONCLUSIVE';
 
 export type AttackPlanScopeClass =
   | 'single_parameter'
@@ -206,6 +206,7 @@ export type AttackStepExecutionOutcome =
   | 'succeeded'
   | 'observed'
   | 'refuted'
+  | 'inconclusive'
   | 'failed'
   | 'preflight_denied'
   | 'capability_not_implemented';
@@ -268,7 +269,7 @@ export type AttackChainStatus =
   | 'failed'
   | 'abandoned';
 
-export type AttackChainStepOutcome = 'succeeded' | 'refuted' | 'failed';
+export type AttackChainStepOutcome = 'succeeded' | 'refuted' | 'failed' | 'inconclusive';
 
 export interface AttackChainStepEvidence {
   readonly evidenceId?: string;
@@ -769,6 +770,8 @@ export function formatEpistemicBadge(status: EpistemicStatus): string {
       return '[REFUTED - TARGET RESISTED]';
     case 'OBSERVED':
       return '[OBSERVED]';
+    case 'INCONCLUSIVE':
+      return '[INCONCLUSIVE - INSUFFICIENT EVIDENCE]';
     default: {
       const _exhaustive: never = status;
       return _exhaustive;

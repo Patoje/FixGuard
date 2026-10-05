@@ -372,8 +372,8 @@ All completed milestones are verified via active TypeScript contracts and the re
      - **Stage 1 (Domain & Zone)**: Dispatches `Subfinder` + `Dnsx` for subdomain enumeration and multi-record DNS resolution.
      - **Stage 2 (Port & Service Discovery)**: Dispatches `Naabu` across discovered hosts/IPs.
      - **Stage 3 (HTTP & TLS Inspection)**: Dispatches `Httpx` on web ports + `Tlsx` on HTTPS targets.
-     - **Stage 4 (Surface Crawling & Parameter Discovery)**: Dispatches `CompositeUrlDiscovery` (`Katana`/`Gau`) + `Ffuf` content discovery + `Arjun` parameter discovery.
-     - **Stage 5 (Secret & Credential Inspection)**: Dispatches `Trufflehog` on discovered endpoints/scripts.
+     - **Stage 4 (Surface Crawling & Parameter Discovery)**: Dispatches `CompositeUrlDiscovery` (`Katana`/`Gau` concurrent dual-engine) + `Arjun` parameter discovery by default; `Ffuf` content discovery executes conditionally when operator supplies `wordlistPath`.
+     - **Stage 5 (Secret & Credential Inspection)**: In-memory `StaticSecretScanningService` scans discovered JavaScript bundles; `Trufflehog` is strictly confined to confirmed Git repository targets (refuses HTTP web targets).
      - **Safety & Scaling Gateways**:
        - Atomic root preflight (`runAdapterPreflight`) enforcing target FQDN format, runtime-branded authorization check, scope boundary check, and SSRF/DNS rebinding defense.
        - `TargetExecutionCoordinator` per-host rate limiting and concurrency ceiling routing every child tool call.

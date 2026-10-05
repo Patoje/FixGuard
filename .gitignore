@@ -3,7 +3,14 @@ worker/tools/*.exe
 node_modules/
 dist/
 .next/
+# Environment variables & secrets
 .env
+.env.*
+*.env
+**/.env
+**/.env.*
+web/.env
+worker/.env
 
 # Herramientas de terceros ignoradas
 tools/XSStrike/

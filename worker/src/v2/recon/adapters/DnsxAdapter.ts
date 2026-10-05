@@ -107,7 +107,7 @@ export class DnsxAdapter implements DnsResolutionTool {
 
     // Execution Phase: Assemble isolated dnsx CLI arguments
     const args = [
-      '-d', targetDomain,
+      '-l', targetDomain,
       '-json',
     ];
 
@@ -132,7 +132,7 @@ export class DnsxAdapter implements DnsResolutionTool {
     if (request.cdn === true) args.push('-cdn');
 
     // Wildcard Filtering (-wd <targetDomain>)
-    if (request.wildcardFiltering !== false) {
+    if (request.wildcardFiltering === true) {
       args.push('-wd', targetDomain);
     }
 

@@ -185,6 +185,88 @@ function runSmokeTests(): void {
   });
   assert.equal(evaluateFindingAutoPromotion(bxssOk).decision, 'auto_promote');
 
+  // 6b. Supabase RLS: empty array, empty object {}, missing body, HTML -> dropped as noise
+  const rlsEmptyArray = baseDraft('dft_rls_empty_arr', 'supabase_rls_abuse', {
+    endpointUrl: 'https://app.example.com/rest/v1/users',
+    supabaseTableName: 'users',
+    supabaseClaimKind: 'SUPABASE_RLS_WORLD_READABLE',
+    baselineStatusCode: 200,
+    baselineBodyHash: 'hash_arr',
+    sanitizedSnippet: '[]',
+  });
+  assert.equal(evaluateFindingAutoPromotion(rlsEmptyArray).decision, 'drop_as_noise');
+
+  const rlsEmptyObj = baseDraft('dft_rls_empty_obj', 'supabase_rls_abuse', {
+    endpointUrl: 'https://app.example.com/rest/v1/users',
+    supabaseTableName: 'users',
+    supabaseClaimKind: 'SUPABASE_RLS_WORLD_READABLE',
+    baselineStatusCode: 200,
+    baselineBodyHash: 'hash_obj',
+    sanitizedSnippet: '{}',
+  });
+  assert.equal(evaluateFindingAutoPromotion(rlsEmptyObj).decision, 'drop_as_noise');
+
+  const rlsMissingBody = baseDraft('dft_rls_no_body', 'supabase_rls_abuse', {
+    endpointUrl: 'https://app.example.com/rest/v1/users',
+    supabaseTableName: 'users',
+    supabaseClaimKind: 'SUPABASE_RLS_WORLD_READABLE',
+    baselineStatusCode: 200,
+    baselineBodyHash: 'hash_nobody',
+    sanitizedSnippet: '   ',
+  });
+  assert.equal(evaluateFindingAutoPromotion(rlsMissingBody).decision, 'drop_as_noise');
+
+  const rlsHtml = baseDraft('dft_rls_html', 'supabase_rls_abuse', {
+    endpointUrl: 'https://app.example.com/rest/v1/users',
+    supabaseTableName: 'users',
+    supabaseClaimKind: 'SUPABASE_RLS_WORLD_READABLE',
+    baselineStatusCode: 200,
+    baselineBodyHash: 'hash_html',
+    sanitizedSnippet: '<!doctype html><html><body>Error</body></html>',
+  });
+  assert.equal(evaluateFindingAutoPromotion(rlsHtml).decision, 'drop_as_noise');
+
+  const rlsRealRows = baseDraft('dft_rls_real_rows', 'supabase_rls_abuse', {
+    endpointUrl: 'https://app.example.com/rest/v1/users',
+    supabaseTableName: 'users',
+    supabaseClaimKind: 'SUPABASE_RLS_WORLD_READABLE',
+    baselineStatusCode: 200,
+    baselineBodyHash: 'hash_real',
+    supabaseRowCountHint: 3,
+    sanitizedSnippet: '[{"id":1,"email":"admin@example.com"}]',
+  });
+  assert.equal(evaluateFindingAutoPromotion(rlsRealRows).decision, 'auto_promote');
+
+  // 6b. Static secret exposure signal gate: missing/empty snippet or filePath -> keep_as_draft; complete -> auto_promote
+  const secretMissingSnippet = baseDraft('dft_secret_no_snip', 'static_secret_exposure', {
+    filePath: '/static/js/bundle.js',
+    sanitizedSnippet: '   ',
+  });
+  assert.equal(
+    evaluateFindingAutoPromotion(secretMissingSnippet).decision,
+    'keep_as_draft',
+    'Blank sanitizedSnippet must keep static_secret_exposure as draft'
+  );
+
+  const secretMissingPath = baseDraft('dft_secret_no_path', 'static_secret_exposure', {
+    sanitizedSnippet: 'ghp_xxxx1234567890',
+  });
+  assert.equal(
+    evaluateFindingAutoPromotion(secretMissingPath).decision,
+    'keep_as_draft',
+    'Missing filePath must keep static_secret_exposure as draft'
+  );
+
+  const secretValid = baseDraft('dft_secret_valid', 'static_secret_exposure', {
+    filePath: '/static/js/bundle.js',
+    sanitizedSnippet: 'ghp_xxxx1234567890',
+  });
+  assert.equal(
+    evaluateFindingAutoPromotion(secretValid).decision,
+    'auto_promote',
+    'Valid static secret exposure with filePath and snippet must auto_promote'
+  );
+
   // 7. applyFindingAutoPromotion partitions correctly
   const result = applyFindingAutoPromotion({
     drafts: [idorOk, idorNoise, idorBolaSameBody, headers, routes, reflOk],

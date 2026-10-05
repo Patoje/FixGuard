@@ -68,7 +68,7 @@ export function isHighImpactLevel(level: ImpactLevel): boolean {
   return HIGH_IMPACT_LEVELS.has(level);
 }
 
-export type AttackChainStepOutcome = 'succeeded' | 'refuted' | 'failed';
+export type AttackChainStepOutcome = 'succeeded' | 'refuted' | 'failed' | 'inconclusive';
 
 /**
  * Safe evidence summary attached to a chain step.
@@ -182,9 +182,10 @@ export interface GetAttackChainsResult {
  */
 export const EPISTEMIC_RANK: Readonly<Record<EpistemicStatus, number>> = {
   REFUTED: 0,
-  INFERRED: 1,
-  OBSERVED: 2,
-  VERIFIED: 3,
+  INCONCLUSIVE: 1,
+  INFERRED: 2,
+  OBSERVED: 3,
+  VERIFIED: 4,
 };
 
 export function minEpistemicStatus(
