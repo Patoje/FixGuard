@@ -4,9 +4,22 @@
  * Hermetic, mutation-safe persistence for advisory attack plans.
  */
 
+import fs from 'node:fs';
+import path from 'node:path';
 import type { AttackPlan } from './AttackPlanContracts.js';
 import type { AttackPlanRepository } from './AttackPlanRepository.js';
 import { PersistenceConflictError, RecordNotFoundError } from '../storage/StorageErrors.js';
+
+const DEV_CACHE_DIR = path.join(process.cwd(), '.dev_cache');
+const PLANS_CACHE_FILE = path.join(DEV_CACHE_DIR, 'attack_plans.json');
+
+function isDevPersistenceEnabled(): boolean {
+  return (
+    process.env.NODE_ENV !== 'test' &&
+    process.env.FIXGUARD_V2_HERMETIC_RECON !== '1' &&
+    process.env.FIXGUARD_DISABLE_DEV_CACHE !== '1'
+  );
+}
 
 function isAttackPlanShape(value: unknown): value is AttackPlan {
   if (typeof value !== 'object' || value === null) {
@@ -30,6 +43,39 @@ function isAttackPlanShape(value: unknown): value is AttackPlan {
 export class InMemoryAttackPlanRepository implements AttackPlanRepository {
   private readonly plans = new Map<string, AttackPlan>();
 
+  constructor() {
+    if (isDevPersistenceEnabled()) {
+      try {
+        if (fs.existsSync(PLANS_CACHE_FILE)) {
+          const raw = fs.readFileSync(PLANS_CACHE_FILE, 'utf-8');
+          const data = JSON.parse(raw);
+          if (Array.isArray(data)) {
+            for (const item of data) {
+              if (item && typeof item.planId === 'string') {
+                this.plans.set(item.planId, item);
+              }
+            }
+          }
+        }
+      } catch {
+        // fail-safe recovery
+      }
+    }
+  }
+
+  private persistDevCache(): void {
+    if (!isDevPersistenceEnabled()) return;
+    try {
+      if (!fs.existsSync(DEV_CACHE_DIR)) {
+        fs.mkdirSync(DEV_CACHE_DIR, { recursive: true });
+      }
+      const data = Array.from(this.plans.values());
+      fs.writeFileSync(PLANS_CACHE_FILE, JSON.stringify(data, null, 2), 'utf-8');
+    } catch {
+      // non-blocking
+    }
+  }
+
   private clone(plan: AttackPlan): AttackPlan {
     return JSON.parse(JSON.stringify(plan)) as AttackPlan;
   }
@@ -46,6 +92,7 @@ export class InMemoryAttackPlanRepository implements AttackPlanRepository {
     }
     const cloned = this.clone(plan);
     this.plans.set(cloned.planId, cloned);
+    this.persistDevCache();
     return this.clone(cloned);
   }
 
@@ -87,6 +134,7 @@ export class InMemoryAttackPlanRepository implements AttackPlanRepository {
     }
     const cloned = this.clone({ ...plan, executable: false });
     this.plans.set(cloned.planId, cloned);
+    this.persistDevCache();
     return this.clone(cloned);
   }
 
@@ -112,6 +160,9 @@ export class InMemoryAttackPlanRepository implements AttackPlanRepository {
         this.plans.delete(id);
         removed += 1;
       }
+    }
+    if (removed > 0) {
+      this.persistDevCache();
     }
     return removed;
   }

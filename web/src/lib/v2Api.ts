@@ -129,6 +129,9 @@ export interface StartOrchestratedAssessmentParams {
   readonly config?: {
     readonly skipStages?: readonly string[];
     readonly timeoutPerStageMs?: number;
+    readonly wordlistPath?: string;
+    readonly enableGatedDictTopK?: boolean;
+    readonly enableDeepRecon?: boolean;
   };
   readonly sessionIdentities?: ByotSessionIdentityBundleDto;
   /** Operator-explicit related hosts (e.g. Supabase project) added to authorized scope. */

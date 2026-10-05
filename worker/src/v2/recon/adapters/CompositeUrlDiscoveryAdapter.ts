@@ -83,10 +83,22 @@ export class CompositeUrlDiscoveryAdapter implements UrlDiscoveryTool {
     const gauTimeoutMs = capTimeout(request.timeoutMs, GAU_HARD_TIMEOUT_MS);
     const maxDepth = typeof request.maxDepth === 'number' && request.maxDepth > 0 ? request.maxDepth : 3;
 
+    const katanaArgs = ['-u', targetUrl, '-silent', '-jsonl', '-depth', String(maxDepth), '-jc', '-jsl'];
+    if (this.dnsResolver) {
+      katanaArgs.push(
+        '-ef',
+        'png,jpg,jpeg,gif,svg,css,woff,woff2,ico,webp,ttf,eot',
+        '-kf',
+        'all',
+        '-fs',
+        'rdn'
+      );
+    }
+
     const [katanaOutput, gauOutput] = await Promise.all([
       this.processRunner.execute({
         binary: 'katana',
-        args: ['-u', targetUrl, '-silent', '-json', '-depth', String(maxDepth), '-jc', '-jsl'],
+        args: katanaArgs,
         timeoutMs: katanaTimeoutMs,
       }),
       this.processRunner.execute({

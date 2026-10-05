@@ -201,6 +201,11 @@ export function AssessmentLauncherCard({
       const result = await startOrchestratedAssessment({
         targetDomain: cleaned,
         actorId: actorId.trim() || undefined,
+        config: {
+          wordlistPath: "api",
+          enableGatedDictTopK: true,
+          enableDeepRecon: true,
+        },
         ...(sessionIdentities ? { sessionIdentities } : {}),
         ...(relatedAllowedHosts.length > 0
           ? { relatedAllowedHosts }

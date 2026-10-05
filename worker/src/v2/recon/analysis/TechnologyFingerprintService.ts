@@ -401,8 +401,25 @@ export class TechnologyFingerprintService {
       // -----------------------------------------------------------------------
       // 3. Script / Link / Asset Paths & Query Parameter Versions
       // -----------------------------------------------------------------------
-      // WordPress Asset & Plugin detection
-      if (bodyText.includes('/wp-content/') || bodyText.includes('/wp-includes/')) {
+      // WordPress Asset & Plugin detection (require relative path, meta generator, or same-origin asset; ignore 3rd-party external domains)
+      let isSameOriginWp = false;
+      if (url) {
+        try {
+          const host = new URL(url).hostname;
+          if (bodyText.includes(`//${host}/wp-content/`) || bodyText.includes(`//${host}/wp-includes/`)) {
+            isSameOriginWp = true;
+          }
+        } catch {
+          // ignore URL parse error
+        }
+      }
+      const hasWpAsset =
+        /(?:src|href)=["']\/(?:wp-content|wp-includes)\//i.test(bodyText) ||
+        /<meta\s+[^>]*name=["']generator["'][^>]*content=["']WordPress/i.test(bodyText) ||
+        /\/(?:wp-json\/|wp-login\.php)/i.test(bodyText) ||
+        isSameOriginWp;
+
+      if (hasWpAsset) {
         addTech({
           name: 'WordPress',
           category: 'cms',

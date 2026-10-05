@@ -103,6 +103,10 @@ export class FfufAdapter implements ContentDiscoveryTool {
       args.push('-recursion', '-recursion-depth', String(request.recursionDepth));
     }
 
+    if (this.dnsResolver) {
+      args.push('-mc', '200,204,301,302,307,401,403,405', '-fc', '404');
+    }
+
     const timeoutMs = Math.min(
       typeof request.timeoutMs === 'number' && request.timeoutMs > 0
         ? request.timeoutMs

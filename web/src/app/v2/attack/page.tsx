@@ -26,6 +26,7 @@ import {
   v2AttackApi,
   V2ApiError,
   buildWorkbenchScopeGrant,
+  suggestBlastRadiusForCapability,
   type AttackPlan,
   type AttackCapabilityKind,
   type AttackChain,
@@ -42,6 +43,7 @@ import {
   getOrchestratedAssessmentSummary,
   getOrchestratedAssessmentStatus,
   type LineageTuple,
+  type TargetProfileDto,
 } from "@/lib/v2Api";
 import { isStrictSafeId } from "@/lib/v2/idGenerator";
 import { AttackAuthorizationModal } from "./components/AttackAuthorizationModal";
@@ -49,10 +51,11 @@ import { AttackChainViewer } from "./components/AttackChainViewer";
 import { PostExploitationPanel } from "./components/PostExploitationPanel";
 import { ImpactAssessmentView } from "./components/ImpactAssessmentView";
 import { DatabaseTablesViewer, extractDiscoveredTables } from "./components/DatabaseTablesViewer";
+import { DiscoveredSurfaceViewer } from "./components/DiscoveredSurfaceViewer";
 import type { OperatorAttackRecommendation } from "@/lib/v2AttackApi";
 import { getOperatorSessionIdentity } from "@/lib/v2/operatorSession";
 
-type ResultsPanel = "tables" | "chains" | "impact" | "post_exploit" | null;
+type ResultsPanel = "surface" | "tables" | "chains" | "impact" | "post_exploit" | null;
 
 export type AttackModeContentProps = {
   readonly forcedAssessmentId?: string;
@@ -78,34 +81,123 @@ function asLateralMechanism(value: string): LateralMovementMechanism {
   return "credential_reuse";
 }
 
+function parseCurlCommand(
+  rawCmd: string,
+  defaultDomain?: string
+): {
+  url: string | null;
+  method: string;
+  headers: Record<string, string>;
+  body?: string;
+} {
+  const tokens: string[] = [];
+  const regex = /[^\s"']+|"([^"]*)"|'([^']*)'/g;
+  let match: RegExpExecArray | null;
+  while ((match = regex.exec(rawCmd)) !== null) {
+    tokens.push(match[1] ?? match[2] ?? match[0]);
+  }
+
+  let method = "GET";
+  let url: string | null = null;
+  const headers: Record<string, string> = {};
+  let body: string | undefined = undefined;
+
+  for (let i = 0; i < tokens.length; i++) {
+    const token = tokens[i];
+    if (token === "-X" || token === "--request") {
+      if (i + 1 < tokens.length) {
+        method = tokens[i + 1].toUpperCase();
+        i++;
+      }
+    } else if (token === "-I" || token === "--head") {
+      method = "HEAD";
+    } else if (token === "-H" || token === "--header") {
+      if (i + 1 < tokens.length) {
+        const headerStr = tokens[i + 1];
+        const colonIdx = headerStr.indexOf(":");
+        if (colonIdx > 0) {
+          const k = headerStr.slice(0, colonIdx).trim();
+          const v = headerStr.slice(colonIdx + 1).trim();
+          headers[k] = v;
+        }
+        i++;
+      }
+    } else if (token === "-d" || token === "--data" || token === "--data-raw") {
+      if (i + 1 < tokens.length) {
+        body = tokens[i + 1];
+        if (method === "GET") method = "POST";
+        i++;
+      }
+    } else if (!token.startsWith("-") && token !== "curl") {
+      if (token.startsWith("http://") || token.startsWith("https://")) {
+        if (!url) url = token;
+      } else if (token.startsWith("/") && defaultDomain) {
+        if (!url) url = `https://${defaultDomain}${token}`;
+      }
+    }
+  }
+
+  if (!url) {
+    const urlMatch = /(https?:\/\/[^\s"']+)/.exec(rawCmd);
+    if (urlMatch) {
+      url = urlMatch[1];
+    } else if (defaultDomain) {
+      const pathMatch = /(\/[a-zA-Z0-9_\-./?&=%#]*)/.exec(rawCmd);
+      if (pathMatch) {
+        url = `https://${defaultDomain}${pathMatch[1]}`;
+      }
+    }
+  }
+
+  return { url, method, headers, body };
+}
+
 function formatPlanCommand(plan: AttackPlan): string {
   const target = (plan.targetUrl || "").trim();
   const cleanTarget = target.split("?")[0].trim();
 
   if (!target && !cleanTarget) {
-    return `# [OBJETIVO_NO_DISPONIBLE] El plan ${plan.planId} (${plan.capability}) no tiene un targetUrl asignado. Seleccione un objetivo para construir el comando.`;
+    return `# [OBJETIVO_NO_DISPONIBLE] El plan ${plan.planId} (${plan.capability}) no tiene un targetUrl asignado.`;
   }
+
+  const effectiveUrl = cleanTarget || target;
 
   switch (plan.capability as string) {
     case "supabase_rls_read_confirm": {
       const url = cleanTarget ? `${cleanTarget}?select=*&limit=1` : target;
-      return `curl -s -X GET "${url}" -H "apikey: anon"`;
+      return `curl -s -i -X GET "${url}" -H "apikey: anon" -H "Accept: application/json"`;
     }
     case "supabase_rls_write_probe": {
-      return `curl -s -X POST "${cleanTarget || target}" -H "apikey: anon" -H "Content-Type: application/json" -d '{"fixguard_probe":true}'`;
+      return `curl -s -i -X POST "${effectiveUrl}" -H "apikey: anon" -H "Content-Type: application/json" -d '{"fixguard_probe":true}'`;
     }
     case "supabase_authz_write_matrix": {
-      return `curl -s -X POST "${cleanTarget || target}" -H "Authorization: Bearer <jwt_a>" -d '{"owner":"user_b"}'`;
+      return `curl -s -i -X POST "${effectiveUrl}" -H "apikey: anon" -H "Authorization: Bearer <jwt_operator>" -H "Content-Type: application/json" -d '{"role":"authenticated"}'`;
     }
-    case "idor_read_differential":
+    case "idor_read_differential": {
+      return `curl -s -i -X GET "${effectiveUrl}" -H "Authorization: Bearer <identity_a_token>" -H "Accept: application/json"`;
+    }
     case "auth_boundary_differential": {
-      return `curl -s -X GET "${cleanTarget || target}" -H "Authorization: Bearer <identities=A,B>"`;
+      return `curl -s -i -X GET "${effectiveUrl}" -H "X-Original-URL: ${effectiveUrl}" -H "User-Agent: Mozilla/5.0"`;
     }
     case "jwt_alg_none_probe": {
-      return `curl -s -X GET "${cleanTarget || target}" -H "Authorization: Bearer eyJhbGciOiJub25lIiwidHlwIjoiSldUIn0..."`;
+      return `curl -s -i -X GET "${effectiveUrl}" -H "Authorization: Bearer eyJhbGciOiJub25lIiwidHlwIjoiSldUIn0.eyJzdWIiOiJhZG1pbiIsImlhdCI6MTUxNjIzOTAyMn0."`;
     }
-    case "cors_chain_exploit": {
-      return `curl -s -I -X GET "${cleanTarget || target}" -H "Origin: https://attacker.com"`;
+    case "cors_chain_exploit":
+    case "cors_misconfiguration_probe": {
+      return `curl -s -i -X GET "${effectiveUrl}" -H "Origin: https://evil-fixguard-test.com" -H "Access-Control-Request-Method: GET"`;
+    }
+    case "security_header_probe": {
+      return `curl -s -I -X GET "${effectiveUrl}" -H "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64)"`;
+    }
+    case "open_redirect_probe": {
+      return `curl -s -i -X GET "${cleanTarget}?redirect=https://bing.com" -H "User-Agent: Mozilla/5.0"`;
+    }
+    case "information_disclosure_probe": {
+      return `curl -s -i -X GET "${cleanTarget}/.env" -H "User-Agent: Mozilla/5.0"`;
+    }
+    case "graphql_surface_probe":
+    case "graphql_auth_delta": {
+      return `curl -s -i -X POST "${effectiveUrl}" -H "Content-Type: application/json" -d '{"query":"{__schema{types{name}}}"}'`;
     }
     case "sql_injection_verification":
     case "sql_oracle_advancement": {
@@ -116,13 +208,13 @@ function formatPlanCommand(plan: AttackPlan): string {
       return `dalfox url "${target}" ${plan.parameterName ? `-p ${plan.parameterName} ` : ""}--silence`;
     }
     case "lfi_path_traversal": {
-      return `curl -s "${cleanTarget}?${plan.parameterName || "file"}=../../../../etc/passwd"`;
+      return `curl -s -i -X GET "${cleanTarget}?${plan.parameterName || "file"}=../../../../etc/passwd"`;
     }
     case "next_server_action_diff": {
-      return `curl -s -X POST "${cleanTarget || target}" -H "Next-Action: <action_id>"`;
+      return `curl -s -i -X POST "${effectiveUrl}" -H "Next-Action: 1" -H "Content-Type: application/json" -d '[]'`;
     }
     default: {
-      return `curl -s -X GET "${cleanTarget || target}"`;
+      return `curl -s -i -X GET "${effectiveUrl}" -H "User-Agent: Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36"`;
     }
   }
 }
@@ -196,6 +288,8 @@ function AttackModeContent({
   const [lateralBusy, setLateralBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
+  const [targetProfile, setTargetProfile] = useState<TargetProfileDto | null>(null);
+  const [loadedPlan, setLoadedPlan] = useState<AttackPlan | null>(null);
 
   // Terminal state
   const [terminalLogs, setTerminalLogs] = useState<string[]>([
@@ -221,12 +315,21 @@ function AttackModeContent({
   }, [terminalLogs]);
 
   const displayPlans = useMemo(() => {
-    return plans.map((p) => {
-      if (authorizedPlanIds.has(p.planId) && p.status === "ready_for_authorization") {
-        return { ...p, status: "authorized" as const };
-      }
-      return p;
-    });
+    return plans
+      .filter((p) => {
+        if (p.executable === false) return false;
+        if (p.status === "prerequisite_missing") return false;
+        if (p.prerequisites && p.prerequisites.some((req) => req.satisfied === false)) {
+          return false;
+        }
+        return true;
+      })
+      .map((p) => {
+        if (authorizedPlanIds.has(p.planId) && p.status === "ready_for_authorization") {
+          return { ...p, status: "authorized" as const };
+        }
+        return p;
+      });
   }, [plans, authorizedPlanIds]);
 
   const loadAll = useCallback(async (id: string) => {
@@ -272,6 +375,10 @@ function AttackModeContent({
         const summary = await getOrchestratedAssessmentSummary(id);
         if (summary.targetDomain) {
           setTargetDomain(summary.targetDomain);
+        }
+        if (summary.profile) {
+          setTargetProfile(summary.profile);
+          setResultsPanel((prev) => (prev === null ? "surface" : prev));
         }
       } catch {
         // Summary optional
@@ -510,6 +617,7 @@ function AttackModeContent({
       // Load command into interactive terminal prompt without auto-sending
       const cmdStr = formatPlanCommand(planToAuth);
       setTerminalInput(cmdStr);
+      setLoadedPlan(planToAuth);
       setTimeout(() => {
         terminalInputRef.current?.focus();
       }, 50);
@@ -535,6 +643,45 @@ function AttackModeContent({
     }
   };
 
+  const executePlanWithAutoAuth = async (plan: AttackPlan, customCmdText?: string) => {
+    if (!isStrictSafeId(operatorId)) {
+      addTerminalLog(`[✖ ERROR] Operator ID '${operatorId}' inválido`);
+      return;
+    }
+
+    // Auto-authorize if not authorized yet
+    if (!authorizedPlanIds.has(plan.planId) && plan.status !== "authorized") {
+      setIsAuthorizing(true);
+      const blastRadius: BlastRadiusClass = suggestBlastRadiusForCapability(plan.capability);
+      addTerminalLog(`[*] Auto-autorizando plan ${plan.planId} con privilegios de administrador...`);
+      try {
+        const authRes = await v2AttackApi.authorizeAttackPlan(assessmentId, plan.planId, {
+          operatorId,
+          blastRadiusClass: blastRadius,
+        });
+        setLastAuthMeta(authRes.token);
+        setAuthorizedPlanIds((prev) => new Set([...prev, plan.planId]));
+        addTerminalLog(
+          `[✔ AUTHORIZED] Plan ${plan.planId} auto-autorizado con éxito [Blast: ${blastRadius}].`
+        );
+      } catch (authErr) {
+        const msg =
+          authErr instanceof V2ApiError
+            ? `[${authErr.errorType}] ${authErr.message}${authErr.reasonCode ? ` (${authErr.reasonCode})` : ""}`
+            : authErr instanceof Error
+              ? authErr.message
+              : "Fallo de autorización";
+        addTerminalLog(`[✖ ERROR] No se pudo autorizar el plan: ${msg}`);
+        setIsAuthorizing(false);
+        return;
+      } finally {
+        setIsAuthorizing(false);
+      }
+    }
+
+    await handleExecute(plan, customCmdText);
+  };
+
   const handleRecommendAuthorizeRun = async (rec: OperatorAttackRecommendation) => {
     if (!rec.planId) {
       addTerminalLog(`[!] La recomendación no tiene plan vinculado.`);
@@ -542,15 +689,12 @@ function AttackModeContent({
     }
     const plan = displayPlans.find((p) => p.planId === rec.planId);
     if (!plan) {
-      addTerminalLog(`[!] Plan ${rec.planId} no encontrado en este assessment.`);
+      addTerminalLog(`[!] Plan ${rec.planId} no encontrado o requisitos no satisfechos.`);
       return;
     }
     setSelectedRecRank(rec.rank);
     setSelectedPlanId(plan.planId);
-
-    // Always open modal so operator can review and select their preferred blast radius
-    setAuthorizeThenExecute(true);
-    setAuthModalPlan(plan);
+    await executePlanWithAutoAuth(plan);
   };
 
   const handleCopyCommand = async (cmd: string, id: string) => {
@@ -563,9 +707,87 @@ function AttackModeContent({
     }
   };
 
-  const handleLoadPrompt = (cmd: string) => {
+  const handleLoadPrompt = (cmd: string, plan?: AttackPlan) => {
     setTerminalInput(cmd);
+    if (plan) {
+      setLoadedPlan(plan);
+      addTerminalLog(`[👉 CARGADO EN PROMPT] $ ${cmd}`);
+      addTerminalLog(
+        `[!] Plan ${plan.planId} (${plan.title || plan.capability}) vinculado al prompt. Presioná Enter para ejecutar.`
+      );
+    } else {
+      setLoadedPlan(null);
+      addTerminalLog(`[👉 CARGADO EN PROMPT] $ ${cmd}`);
+      addTerminalLog(`[!] Presioná Enter o hacé clic en 'Ejecutar' para iniciar la prueba.`);
+    }
     terminalInputRef.current?.focus();
+  };
+
+  const executeDirectHttpProbe = async (rawCmd: string) => {
+    const parsedCmd = parseCurlCommand(rawCmd, targetDomain);
+    if (!parsedCmd.url) {
+      addTerminalLog(`fixguard@v2:~$ ${rawCmd}`);
+      addTerminalLog(`[✖ ERROR] No se pudo identificar una URL válida en el comando curl.`);
+      return;
+    }
+
+    addTerminalLog(`fixguard@v2:~$ ${rawCmd}`);
+    addTerminalLog(`[*] Conectando a [${parsedCmd.method}] ${parsedCmd.url}...`);
+
+    try {
+      const res = await fetch("/api/terminal/probe", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          url: parsedCmd.url,
+          method: parsedCmd.method,
+          headers: parsedCmd.headers,
+          body: parsedCmd.body,
+        }),
+      });
+
+      const data = await res.json();
+      if (!data.success) {
+        addTerminalLog(`[✖ ERROR] ${data.error || "Fallo en la conexión"}`);
+        if (data.durationMs) {
+          addTerminalLog(`    ↳ Latencia: ${data.durationMs}ms`);
+        }
+        return;
+      }
+
+      const statusNum = Number(data.status);
+      const isSuccess = statusNum >= 200 && statusNum < 400;
+      const statusIcon = isSuccess ? "[✔ SUCCESS]" : "[!]";
+
+      addTerminalLog(
+        `${statusIcon} HTTP/1.1 ${data.status} ${data.statusText || ""} (${data.durationMs}ms)`
+      );
+      addTerminalLog(`--- [CABECERAS DEVUELTAS] ---`);
+      if (data.headers && typeof data.headers === "object") {
+        for (const [k, v] of Object.entries(data.headers)) {
+          addTerminalLog(`    < ${k}: ${v}`);
+        }
+      }
+
+      if (data.bodySnippet) {
+        addTerminalLog(`--- [CUERPO DE LA RESPUESTA] ---`);
+        try {
+          const parsedJson = JSON.parse(data.bodySnippet);
+          const pretty = JSON.stringify(parsedJson, null, 2);
+          for (const line of pretty.split("\n")) {
+            addTerminalLog(`    ${line}`);
+          }
+        } catch {
+          for (const rawLine of String(data.bodySnippet).split("\n").slice(0, 60)) {
+            addTerminalLog(`    ${rawLine}`);
+          }
+        }
+        addTerminalLog(`--------------------------------`);
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Error inesperado de red";
+      addTerminalLog(`[✖ ERROR] Error al despachar sonda HTTP: ${msg}`);
+    }
   };
 
   const handleTerminalSubmit = async (e: React.FormEvent) => {
@@ -590,7 +812,8 @@ function AttackModeContent({
       addTerminalLog(`  status          - Muestra estado del assessment, target y telemetría`);
       addTerminalLog(`  plans           - Lista todos los planes de ataque autorizables`);
       addTerminalLog(`  run <planId>    - Ejecuta un plan de ataque por ID`);
-      addTerminalLog(`  auth <planId>   - Abre el modal de autorización para un plan`);
+      addTerminalLog(`  auth <planId>   - Autoriza un plan con privilegios de administrador`);
+      addTerminalLog(`  curl <url>      - Ejecuta una prueba HTTP/HTTPS real en el objetivo`);
       addTerminalLog(`  clear           - Limpia la pantalla de la terminal`);
       addTerminalLog(`  help            - Muestra este menú`);
       return;
@@ -620,154 +843,93 @@ function AttackModeContent({
 
     if (rawCmd.startsWith("run ") || rawCmd.startsWith("execute ")) {
       const planId = rawCmd.split(" ")[1]?.trim();
-      const plan = displayPlans.find((p) => p.planId === planId);
+      const plan = displayPlans.find((p) => p.planId === planId) || plans.find((p) => p.planId === planId);
       if (!plan) {
         addTerminalLog(`fixguard@v2:~$ ${rawCmd}`);
         addTerminalLog(`[✖ ERROR] Plan ID '${planId}' no encontrado.`);
         return;
       }
-      await handleExecute(plan, rawCmd);
+      await executePlanWithAutoAuth(plan, rawCmd);
       return;
     }
 
     if (rawCmd.startsWith("auth ")) {
       const planId = rawCmd.split(" ")[1]?.trim();
-      const plan = displayPlans.find((p) => p.planId === planId);
+      const plan = displayPlans.find((p) => p.planId === planId) || plans.find((p) => p.planId === planId);
       if (!plan) {
         addTerminalLog(`fixguard@v2:~$ ${rawCmd}`);
         addTerminalLog(`[✖ ERROR] Plan ID '${planId}' no encontrado.`);
         return;
       }
-      setAuthorizeThenExecute(false);
-      setAuthModalPlan(plan);
+      addTerminalLog(`fixguard@v2:~$ ${rawCmd}`);
+      try {
+        setIsAuthorizing(true);
+        const blastRadius: BlastRadiusClass = suggestBlastRadiusForCapability(plan.capability);
+        const authRes = await v2AttackApi.authorizeAttackPlan(assessmentId, plan.planId, {
+          operatorId,
+          blastRadiusClass: blastRadius,
+        });
+        setLastAuthMeta(authRes.token);
+        setAuthorizedPlanIds((prev) => new Set([...prev, plan.planId]));
+        addTerminalLog(
+          `[✔ AUTHORIZED] Plan ${plan.planId} autorizado exitosamente con privilegios de administrador.`
+        );
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : "Fallo de autorización";
+        addTerminalLog(`[✖ ERROR] Falló autorización: ${msg}`);
+      } finally {
+        setIsAuthorizing(false);
+      }
       return;
     }
 
-    // Try matching if the operator ran a synthesized fixguard attack command
-    const planMatch = /--plan=([a-zA-Z0-9_-]+)/.exec(rawCmd);
-    const capMatch = /--cap=([a-zA-Z0-9_-]+)/.exec(rawCmd);
+    // Direct curl or HTTP probing (Default behavior for routes tested from table or custom commands)
+    if (
+      rawCmd.startsWith("curl ") ||
+      rawCmd.startsWith("http://") ||
+      rawCmd.startsWith("https://")
+    ) {
+      // Check if this command explicitly targets an attack plan by planId
+      const planMatch = /--plan=([a-zA-Z0-9_-]+)/.exec(rawCmd);
+      if (planMatch?.[1]) {
+        const pByPlanId = displayPlans.find((p) => p.planId === planMatch[1]);
+        if (pByPlanId) {
+          await executePlanWithAutoAuth(pByPlanId, rawCmd);
+          return;
+        }
+      }
+
+      // If user explicitly loaded an attack plan from the left panel cards and didn't modify it to another URL
+      if (
+        loadedPlan &&
+        (rawCmd === formatPlanCommand(loadedPlan) || rawCmd.includes(loadedPlan.planId))
+      ) {
+        await executePlanWithAutoAuth(loadedPlan, rawCmd);
+        return;
+      }
+
+      // OTHERWISE: Execute the raw CLI curl command directly via /api/terminal/probe!
+      await executeDirectHttpProbe(rawCmd);
+      return;
+    }
+
+    // Fallback: check if matches an ad-hoc or named capability
     let targetPlan: AttackPlan | undefined;
-
-    if (planMatch?.[1]) {
-      const pByPlanId = displayPlans.find((p) => p.planId === planMatch[1]);
-      if (capMatch?.[1] && pByPlanId && pByPlanId.capability !== capMatch[1]) {
-        // Operator changed --cap in prompt: find plan with that capability for the same target
-        const pByCap = displayPlans.find(
-          (p) =>
-            p.capability === capMatch[1] &&
-            (p.targetUrl === pByPlanId.targetUrl || !pByPlanId.targetUrl)
-        );
-        if (pByCap) {
-          targetPlan = pByCap;
-        } else {
-          // Synthesize an ad-hoc plan on the fly for the requested capability
-          const adHocCap = capMatch[1] as AttackCapabilityKind;
-          const targetUrl = pByPlanId.targetUrl || (targetDomain ? `https://${targetDomain}` : undefined);
-          targetPlan = {
-            contractVersion: "fixguard-attack-planning/v0",
-            kind: "attack_plan",
-            planId: `apl_adhoc_${adHocCap}_${Date.now().toString(36)}`,
-            assessmentId,
-            scanId: lineage?.scanId || `scan_${assessmentId}`,
-            capability: adHocCap,
-            title: `Ad-Hoc Manual Probe: ${adHocCap}`,
-            reasoning: `Prueba manual solicitada por el operador en terminal para la capacidad '${adHocCap}'.`,
-            status: "ready_for_authorization",
-            blastRadius: "single_resource",
-            capabilityGained: "active_validation",
-            sourceFindingIds: [],
-            sourceFindingTypes: [],
-            prerequisites: [
-              {
-                kind: "host_in_scope",
-                description: "Host en alcance autorizado",
-                satisfied: true,
-              },
-            ],
-            steps: [
-              {
-                stepId: `step_adhoc_${adHocCap}_1`,
-                ordinal: 1,
-                title: `Ejecutar probe ${adHocCap}`,
-                description: `Invocar probe manual para '${adHocCap}' sobre el objetivo.`,
-                status: "ready",
-                requiredPermissions: ["active_http_get", "active_http_post"],
-              },
-            ],
-            targetUrl,
-            lineage: lineage || {
-              assessmentId,
-              scanId: `scan_${assessmentId}`,
-              authorizationGrantId: `grant_${assessmentId}`,
-              authorizationDecisionId: `dec_${assessmentId}`,
-              actorId: operatorId,
-            },
-            createdAt: new Date().toISOString(),
-            executable: false,
-          };
-
-          addTerminalLog(
-            `[⚡ PLAN SINTETIZADO] Se creó un plan ad-hoc dinámico para la capacidad '${adHocCap}' sobre ${targetUrl || targetDomain}.`
-          );
-        }
-      } else {
-        targetPlan = pByPlanId;
-      }
-    } else if (capMatch?.[1]) {
-      const pByCap = displayPlans.find((p) => p.capability === capMatch[1]);
-      if (pByCap) {
-        targetPlan = pByCap;
-      }
-    }
-
-    // Match curl or HTTP command by URL and method
-    if (!targetPlan) {
-      const isPost = /\b(POST|write)\b/i.test(rawCmd);
-      for (const p of displayPlans) {
-        if (!p.targetUrl) continue;
-        try {
-          const pPath = new URL(p.targetUrl).pathname;
-          if (pPath && pPath !== "/" && rawCmd.includes(pPath)) {
-            if (isPost && p.capability.includes("write")) {
-              targetPlan = p;
-              break;
-            } else if (!isPost && !p.capability.includes("write")) {
-              targetPlan = p;
-              break;
-            }
-          }
-        } catch {
-          if (rawCmd.includes(p.targetUrl)) {
-            targetPlan = p;
-            break;
-          }
-        }
-      }
-    }
-
-    // Fallback: match by capability name in string
-    if (!targetPlan) {
-      for (const p of displayPlans) {
-        if (rawCmd.includes(p.capability)) {
-          targetPlan = p;
-          break;
-        }
+    for (const p of displayPlans) {
+      if (rawCmd.includes(p.capability) || rawCmd.includes(p.planId)) {
+        targetPlan = p;
+        break;
       }
     }
 
     if (targetPlan) {
-      if (!authorizedPlanIds.has(targetPlan.planId) && targetPlan.status !== "authorized") {
-        setAuthorizeThenExecute(true);
-        setAuthModalPlan(targetPlan);
-      } else {
-        await handleExecute(targetPlan, rawCmd);
-      }
+      await executePlanWithAutoAuth(targetPlan, rawCmd);
       return;
     }
 
     // Unknown command
     addTerminalLog(`fixguard@v2:~$ ${rawCmd}`);
-    addTerminalLog(`[!] Comando no reconocido o plan no vinculado. Escribí 'help' o 'plans'.`);
+    addTerminalLog(`[!] Comando no reconocido. Escribí 'help' o ejecutá un comando curl sobre el target.`);
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
@@ -831,9 +993,12 @@ function AttackModeContent({
       recommendation?: OperatorAttackRecommendation;
     }> = [];
 
-    // 1. Add recommendations
+    // 1. Add recommendations if backed by a valid displayPlan
     for (const rec of recommendations) {
       const plan = rec.planId ? displayPlans.find((p) => p.planId === rec.planId) : undefined;
+      // Skip if recommendation is tied to a plan that doesn't satisfy prerequisites
+      if (rec.planId && !plan) continue;
+
       list.push({
         id: rec.recommendationId,
         title: rec.humanLabel,
@@ -842,7 +1007,7 @@ function AttackModeContent({
         rank: rec.rank,
         whyPreferred: rec.whyPreferred,
         reason: rec.reason,
-        commandSummary: plan ? formatPlanCommand(plan) : rec.commandSummary || `curl -s -X GET "${targetDomain}"`,
+        commandSummary: plan ? formatPlanCommand(plan) : rec.commandSummary || `curl -s -i -X GET "${targetDomain}"`,
         plan,
         recommendation: rec,
       });
@@ -1106,7 +1271,7 @@ function AttackModeContent({
 
                         <button
                           type="button"
-                          onClick={() => handleLoadPrompt(item.commandSummary)}
+                          onClick={() => handleLoadPrompt(item.commandSummary, item.plan)}
                           className="inline-flex items-center gap-1.5 rounded-lg border border-blue-500/30 bg-blue-500/10 px-2.5 py-1.5 text-xs font-medium text-blue-300 hover:bg-blue-500/20 transition"
                           title="Cargar comando en la consola para editarlo"
                         >
@@ -1137,14 +1302,13 @@ function AttackModeContent({
                               onClick={() => {
                                 const plan = item.plan;
                                 if (!plan) return;
-                                setAuthorizeThenExecute(true);
-                                setAuthModalPlan(plan);
+                                void executePlanWithAutoAuth(plan);
                               }}
                               className="inline-flex items-center gap-1.5 rounded-lg bg-orange-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-orange-500 disabled:opacity-50 transition shadow-md shadow-orange-600/20"
-                              title="Elegir alcance y autorizar ejecución"
+                              title="Lanzar prueba con privilegios de administrador"
                             >
                               <Play className="h-3.5 w-3.5 fill-current" />
-                              <span>{isPlanAuthorized ? "Opciones / Lanzar" : "Lanzar"}</span>
+                              <span>Lanzar</span>
                             </button>
                           </div>
                         )}
@@ -1265,6 +1429,31 @@ function AttackModeContent({
             </p>
           </div>
 
+          {/* Discovered Surface: Endpoints & Technologies */}
+          <ResultsAccordion
+            id="surface"
+            title={`Rutas & Endpoints Descubiertos (${targetProfile?.endpoints?.length || 0})`}
+            subtitle="Superficie de ataque HTTP, parámetros y tecnologías indexadas en Recon"
+            open={resultsPanel === "surface"}
+            onToggle={() => toggleResults("surface")}
+          >
+            <DiscoveredSurfaceViewer
+              profile={targetProfile}
+              targetDomain={targetDomain}
+              onSendCurlToTerminal={(curlCommand) => {
+                setTerminalInput(curlCommand);
+                setLoadedPlan(null);
+                addTerminalLog(`[👉 CARGADO EN PROMPT] $ ${curlCommand}`);
+                addTerminalLog(
+                  `[!] Presioná Enter en el teclado o hacé clic en 'Ejecutar' para iniciar la prueba HTTP directa.`
+                );
+                if (typeof window !== "undefined") {
+                  window.scrollTo({ top: 0, behavior: "smooth" });
+                }
+              }}
+            />
+          </ResultsAccordion>
+
           {/* Discovered Database Tables & Data Explorer */}
           <ResultsAccordion
             id="tables"
@@ -1278,13 +1467,13 @@ function AttackModeContent({
               chains={chains}
               completedPlanIds={completedPlanIds}
               onSelectPlanToRun={(targetPlan) => {
-                setAuthModalPlan(targetPlan);
-                setTerminalInput(formatPlanCommand(targetPlan));
+                void executePlanWithAutoAuth(targetPlan);
               }}
               onSendCurlToTerminal={(curlCommand) => {
                 setTerminalInput(curlCommand);
+                setLoadedPlan(null);
                 addTerminalLog(`[👉 CARGADO EN PROMPT] $ ${curlCommand}`);
-                addTerminalLog(`[!] Presioná Enter en el teclado o hacé clic en 'Ejecutar' para iniciar la prueba.`);
+                addTerminalLog(`[!] Presioná Enter en el teclado o hacé clic en 'Ejecutar' para iniciar la prueba HTTP directa.`);
                 if (typeof window !== "undefined") {
                   window.scrollTo({ top: 0, behavior: "smooth" });
                 }

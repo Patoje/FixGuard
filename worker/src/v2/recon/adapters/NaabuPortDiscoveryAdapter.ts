@@ -67,9 +67,26 @@ export class NaabuPortDiscoveryAdapter implements PortDiscoveryTool {
 
     const target = preflight.targetHost;
 
+    // In live execution with a configured dnsResolver: resolve IP first so naabu never hangs on blocked UDP 8.8.4.4:53
+    let naabuHost = target;
+    if (this.dnsResolver && !/^(?:\d{1,3}\.){3}\d{1,3}$/.test(target)) {
+      try {
+        const resolved = await this.dnsResolver(target);
+        if (resolved && resolved.length > 0 && resolved[0]) {
+          naabuHost = resolved[0];
+        }
+      } catch {
+        // Fall back to target hostname
+      }
+    }
+
     // Build argument array strictly without shell interpolation
     const rate = typeof request.rate === 'number' && request.rate > 0 ? request.rate : 1000;
-    const args = ['-host', target, '-json', '-silent', '-rate', String(rate)];
+    const args = ['-host', naabuHost, '-json', '-silent', '-rate', String(rate)];
+
+    if (this.dnsResolver) {
+      args.push('-s', 'c', '-exclude-cdn');
+    }
 
     if (request.targetPorts && request.targetPorts.length > 0) {
       const sanitizedPorts = request.targetPorts
@@ -152,8 +169,14 @@ export class NaabuPortDiscoveryAdapter implements PortDiscoveryTool {
         continue;
       }
 
-      const effectiveHost = host || ip;
-      const effectiveIp = ip || (isValidIpv4(host) ? host : '');
+      // If target is a domain name (not an IP), ensure effectiveHost preserves target so downstream tools preserve TLS SNI and Host headers
+      const effectiveHost =
+        host && !isValidIpv4(host)
+          ? host
+          : !isValidIpv4(target)
+            ? target
+            : host || ip;
+      const effectiveIp = ip || (isValidIpv4(host) ? host : (isValidIpv4(naabuHost) ? naabuHost : ''));
       const dedupeKey = `${effectiveHost}:${rawPort}`;
 
       if (!observationsMap.has(dedupeKey)) {

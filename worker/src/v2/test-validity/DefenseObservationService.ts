@@ -335,6 +335,20 @@ export function challengeDefensesFromProbes(args: {
 }
 
 export function isBlockingDefense(obs: DefenseObservation): boolean {
+  // Passive presence fingerprints in headers or server banners indicate CDN/WAF presence in the path,
+  // but do not constitute an active block or challenge unless accompanied by a blocking status code or body.
+  if (
+    obs.reasonCode === 'waf_server_fingerprint' ||
+    obs.reasonCode === 'waf_header_cf_ray' ||
+    obs.reasonCode === 'waf_header_x_azure_ref' ||
+    obs.reasonCode === 'waf_header_x_akamai_request_id' ||
+    obs.reasonCode === 'waf_header_x_sucuri_id' ||
+    obs.reasonCode === 'waf_header_x_sucuri_cache' ||
+    obs.reasonCode === 'waf_header_x_iinfo'
+  ) {
+    return false;
+  }
+
   return (
     obs.controlKind === 'waf' ||
     obs.controlKind === 'bot' ||

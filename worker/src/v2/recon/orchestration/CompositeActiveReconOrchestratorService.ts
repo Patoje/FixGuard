@@ -12,7 +12,7 @@
  * graceful stage containment, and unbroken lineage preservation.
  */
 
-import { runAdapterPreflight, FQDN_REGEX, extractHost } from '../adapters/AdapterPreflightPipeline.js';
+import { runAdapterPreflight, FQDN_REGEX, extractHost, isValidIpv4 } from '../adapters/AdapterPreflightPipeline.js';
 import { isInternalOrSsrfTarget } from '../policy/PassiveEgressPolicy.js';
 import { validateSessionHealth } from '../../core/SessionLifecycleService.js';
 import { TargetExecutionCoordinator } from '../../runtime/TargetExecutionCoordinator.js';
@@ -756,6 +756,7 @@ export class CompositeActiveReconOrchestratorService {
                 authorizedScopeGrant: request.authorizedScopeGrant,
                 lineage: request.lineage,
                 timeoutMs: request.config?.timeoutMs,
+                rate: 100,
               })
           );
 
@@ -820,19 +821,27 @@ export class CompositeActiveReconOrchestratorService {
       const urlsToInspect = new Set<string>();
       if (ports.length > 0) {
         for (const p of ports) {
+          const effectivePortHost =
+            isValidIpv4(p.host) && !isValidIpv4(request.targetDomain)
+              ? request.targetDomain
+              : p.host;
           if (p.port === 443 || p.port === 8443) {
-            urlsToInspect.add(`https://${p.host}:${p.port}`);
+            urlsToInspect.add(`https://${effectivePortHost}:${p.port}`);
           } else if (p.port === 80 || p.port === 8080) {
-            urlsToInspect.add(`http://${p.host}:${p.port}`);
+            urlsToInspect.add(`http://${effectivePortHost}:${p.port}`);
           } else {
-            urlsToInspect.add(`https://${p.host}:${p.port}`);
-            urlsToInspect.add(`http://${p.host}:${p.port}`);
+            urlsToInspect.add(`https://${effectivePortHost}:${p.port}`);
+            urlsToInspect.add(`http://${effectivePortHost}:${p.port}`);
           }
         }
       } else {
         urlsToInspect.add(`https://${request.targetDomain}`);
         urlsToInspect.add(`http://${request.targetDomain}`);
       }
+
+      // Always guarantee the primary root domain is inspected alongside open ports
+      urlsToInspect.add(`https://${request.targetDomain}`);
+      urlsToInspect.add(`http://${request.targetDomain}`);
 
       // Phase D1 Step 2 — probe each validated seed URL alongside root (URL-level, not host-collapsed).
       if (request.seedUrls && request.seedUrls.length > 0) {
@@ -1396,12 +1405,23 @@ export class CompositeActiveReconOrchestratorService {
       }
       if (webObservations.length > 0) {
         for (const w of webObservations) {
+          try {
+            const h = new URL(w.url).hostname.toLowerCase();
+            // Never crawl raw CDN IPs when the assessment target is a domain name
+            if (isValidIpv4(h) && !isValidIpv4(request.targetDomain)) {
+              continue;
+            }
+          } catch {
+            continue;
+          }
           if (!rootUrls.includes(w.url)) {
             rootUrls.push(w.url);
           }
         }
-      } else if (rootUrls.length === 0) {
-        rootUrls.push(`https://${request.targetDomain}`);
+      }
+      const primaryRootDomainUrl = `https://${request.targetDomain}`;
+      if (!rootUrls.includes(primaryRootDomainUrl)) {
+        rootUrls.unshift(primaryRootDomainUrl);
       }
 
       // Once-per-host crawl roots (gau is host-scoped — never amplify per path).
@@ -1409,12 +1429,18 @@ export class CompositeActiveReconOrchestratorService {
       for (const rootUrl of rootUrls) {
         try {
           const host = new URL(rootUrl).hostname.toLowerCase().replace(/\.$/, '');
+          if (isValidIpv4(host) && !isValidIpv4(request.targetDomain)) {
+            continue;
+          }
           if (!hostToCrawlRoot.has(host)) {
             hostToCrawlRoot.set(host, rootUrl);
           }
         } catch {
           // ignore malformed roots
         }
+      }
+      if (!hostToCrawlRoot.has(request.targetDomain)) {
+        hostToCrawlRoot.set(request.targetDomain, primaryRootDomainUrl);
       }
       const uniqueHostRoots = Array.from(hostToCrawlRoot.entries()).sort(([a], [b]) => {
         if (a === request.targetDomain) return -1;
@@ -1430,7 +1456,7 @@ export class CompositeActiveReconOrchestratorService {
         fuzzRoots.push(url);
       }
       if (fuzzRoots.length === 0) {
-        fuzzRoots.push(`https://${request.targetDomain}`);
+        fuzzRoots.push(primaryRootDomainUrl);
       }
 
       const primaryResolveBase =

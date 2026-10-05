@@ -1709,6 +1709,17 @@ All completed milestones are verified via active TypeScript contracts and the re
 - **Problem**: ADR-001 enforces authorization branding via an in-memory `WeakSet<object>`, which is process-local. It cannot cross process or worker node boundaries.
 - **Proposal**: If FixGuard evolves from a single-node system into a distributed cluster, introduce an asymmetric cryptographic signing port (e.g. Ed25519) to verify decisions across process boundaries without sacrificing non-forgery guarantees.
 
+### Proposal E: WAF, CDN & Network-Aware Port Discovery Hardening (Naabu & Active Recon)
+- **Problem**:
+  1. Naabu's default rate of 1000 packets/sec triggers rate-limiting, SYN-flood protections, and IP bans on CDNs/WAFs (Cloudflare, AWS WAF, Akamai, Imperva, etc.).
+  2. Naabu attempts direct external UDP queries to `8.8.4.4:53`/`8.8.8.8:53` by default, which are blocked on corporate/campus firewalls, causing fatal `no valid ipv4 or ipv6 targets were found` exits.
+  3. Scanning 65k or broad port ranges against CDN edge proxies is unproductive (edge proxies only expose HTTP/HTTPS) and causes immediate perimeter blacklisting.
+- **Proposal**:
+  1. **DNS & IP Forwarding**: Pass the already validated target IP or local OS resolver to `NaabuPortDiscoveryAdapter` to eliminate dependency on external public DNS port 53.
+  2. **Multi-CDN Awareness (`-exclude-cdn` / `-ec`)**: Enable `naabu -exclude-cdn` to automatically leverage `cdncheck` (supporting 30+ CDN/WAF providers including Cloudflare, Akamai, CloudFront, Fastly, Imperva) and restrict edge scans to authorized web ports (80/443).
+  3. **Stealth Pacing & TCP Connect (`-rate 50-100`, `-s c`)**: Reduce default port scanning rate from 1000 to a defensive baseline (50–100 pps) with full TCP Connect handshakes to mimic legitimate traffic and remain below IDS/WAF anomaly thresholds.
+  4. **Targeted Port Profiles**: Default to top-100 or web-focused port lists rather than indiscriminate sweeps against external targets.
+
 ---
 
 ## 6. Problems, Risks & Technical Debt

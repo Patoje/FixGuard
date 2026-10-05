@@ -904,7 +904,14 @@ const defaultHttpTransport: IdorHttpProbeTransport = async (
 
 const defaultDnsResolver = async (host: string): Promise<string[]> => {
   try {
-    return await dns.resolve4(host);
+    const res = await dns.resolve4(host);
+    if (res && res.length > 0) return res;
+  } catch {
+    // c-ares lookup can fail on macOS network switch or CNAME alias; fall back to OS getaddrinfo
+  }
+  try {
+    const lookup = await dns.lookup(host, { all: true });
+    return lookup.map((entry) => entry.address).filter(Boolean);
   } catch {
     return [];
   }

@@ -276,9 +276,29 @@ export function EvidenceTriageBoard({
       </div>
 
       {error && (
-        <div className="mt-4 flex items-start gap-2 rounded-lg border border-rose-500/30 bg-rose-500/10 p-3 text-xs text-rose-300">
-          <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
-          <span>{error}</span>
+        <div className="mt-4 flex flex-col gap-2 rounded-lg border border-rose-500/30 bg-rose-500/10 p-3 text-xs text-rose-300">
+          <div className="flex items-start gap-2">
+            <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
+            <span>{error}</span>
+          </div>
+          {error.includes("was not found") && (
+            <div className="mt-1 pt-2 border-t border-rose-500/20 flex items-center justify-between">
+              <span className="text-zinc-400">
+                La sesión anterior finalizó debido al reinicio del worker. Podés iniciar un escaneo nuevo que ahora se preserva en disco.
+              </span>
+              <a
+                href="/v2"
+                onClick={() => {
+                  try {
+                    sessionStorage.removeItem("fg_v2_active_assessment");
+                  } catch {}
+                }}
+                className="inline-flex items-center gap-1.5 rounded bg-rose-500/20 border border-rose-500/30 px-3 py-1 text-xs font-medium text-rose-200 hover:bg-rose-500/30 transition-colors"
+              >
+                Lanzar nuevo análisis
+              </a>
+            </div>
+          )}
         </div>
       )}
 

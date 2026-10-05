@@ -28,3 +28,6 @@ skills-lock.json
 # Local cleanup diagnostics
 fixguard_dirty_status_before_cleanup.txt
 fixguard_staged_files_before_reset.txt
+
+# Local development cache (survives hot reloads)
+.dev_cache/
