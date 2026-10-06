@@ -148,9 +148,21 @@ export interface BrowserProxyConfig {
   readonly bypass?: string;
 }
 
+export interface BrowserCookieRecord {
+  readonly name: string;
+  readonly value: string;
+  readonly domain?: string;
+  readonly path?: string;
+  readonly expires?: number;
+  readonly httpOnly?: boolean;
+  readonly secure?: boolean;
+  readonly sameSite?: 'Strict' | 'Lax' | 'None';
+}
+
 export interface BrowserContextInstance {
   newPage(): Promise<PageInstance>;
   addInitScript?(script: string | { content?: string; path?: string }): Promise<void>;
+  cookies?(urls?: string | readonly string[]): Promise<readonly BrowserCookieRecord[]>;
   close(): Promise<void>;
 }
 

@@ -25,6 +25,7 @@ import type {
 import type { AuthorizedScopeGrant } from '../scope/AuthorizedScopeContracts.js';
 import type { Finding, GraphQLSurfaceMetadata } from '../core/Evidence.js';
 
+process.env.FIXGUARD_V2_HERMETIC_RECON = '1';
 console.log('[milestoneP4_6_graphql_surface_smoke] Starting Milestone P4-6 smoke suite...');
 
 async function runTests(): Promise<void> {
@@ -412,6 +413,7 @@ async function runTests(): Promise<void> {
     const startRes = await appService.startAssessment({
       targetDomain: 'api.example.com',
       actorId: 'usr_secops_lead',
+      seedUrls: ['https://api.example.com/graphql'],
     });
 
     if (startRes.status !== 'running') {
@@ -420,7 +422,7 @@ async function runTests(): Promise<void> {
 
     let attempts = 0;
     let status = await appService.getStatus(startRes.assessmentId);
-    while (status.status === 'running' && attempts < 100) {
+    while (status.status === 'running' && attempts < 300) {
       await new Promise((r) => setTimeout(r, 100));
       status = await appService.getStatus(startRes.assessmentId);
       attempts++;

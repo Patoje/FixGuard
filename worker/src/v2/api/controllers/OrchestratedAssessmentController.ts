@@ -192,6 +192,56 @@ export class OrchestratedAssessmentController {
     }
   };
 
+  public resumeChallenge = async (
+    req: Request,
+    res: Response,
+    next: NextFunction
+  ): Promise<void> => {
+    try {
+      const assessmentId = req.params.assessmentId;
+      if (!assessmentId || typeof assessmentId !== 'string' || !isStrictSafeId(assessmentId)) {
+        throw new ApiValidationError('Field assessmentId must satisfy strict identifier format');
+      }
+
+      const body = (req.body ?? {}) as Record<string, unknown>;
+      const operatorId = body.operatorId;
+      if (!operatorId || typeof operatorId !== 'string' || !isStrictSafeId(operatorId)) {
+        throw new ApiValidationError('Field operatorId must satisfy strict identifier format');
+      }
+
+      const callback = ((body.callback ?? body) as Record<string, unknown>);
+      const confirmedCookies: Record<string, string> = {};
+      if (callback.confirmedCookies && typeof callback.confirmedCookies === 'object') {
+        for (const [k, v] of Object.entries(callback.confirmedCookies as Record<string, unknown>)) {
+          if (typeof v === 'string') {
+            confirmedCookies[k] = v;
+          }
+        }
+      }
+
+      const challengeId =
+        typeof callback.challengeId === 'string' && callback.challengeId.trim().length > 0
+          ? callback.challengeId.trim()
+          : `chl_${Date.now()}`;
+
+      const result = await this.service.resumeOperatorChallenge({
+        assessmentId,
+        operatorId,
+        callback: {
+          challengeId,
+          ...(Object.keys(confirmedCookies).length > 0 ? { confirmedCookies } : {}),
+          ...(typeof callback.operatorNotes === 'string'
+            ? { operatorNotes: callback.operatorNotes }
+            : {}),
+        },
+      });
+
+      res.status(200).json(result);
+    } catch (err) {
+      next(err);
+    }
+  };
+
   public getStatus = async (
     req: Request,
     res: Response,

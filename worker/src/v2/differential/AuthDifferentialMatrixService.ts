@@ -32,6 +32,15 @@ function sha256Hex(content: string): string {
   return createHash('sha256').update(content).digest('hex').slice(0, 16);
 }
 
+function stripDynamicNoise(content: string): string {
+  return content
+    .replace(/\b\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})?\b/g, '')
+    .replace(/\b[0-9a-f]{32,64}\b/gi, '')
+    .replace(/\b(?:csrf[-_]?token|nonce|request[-_]?id)\s*[:=]\s*["'][^"']+["']/gi, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 function detectShapeKind(
   body: string
 ): 'empty' | 'json_object' | 'json_array' | 'html' | 'text' {
@@ -43,8 +52,8 @@ function detectShapeKind(
   return 'text';
 }
 
-const SENSITIVE_PATH_PATTERN =
-  /\/(?:api|rpc|rest|user|users|account|admin|dashboard|profile|settings|tenants|orders|invoices)\b/i;
+const PRIVILEGED_SENSITIVE_PATH_PATTERN =
+  /(?:admin|internal|dashboard|settings|management|secret|private|sensitive|unprotected_admin)\b/i;
 
 export async function runAuthDifferentialMatrix(
   request: AuthDifferentialMatrixRequest
@@ -187,11 +196,17 @@ export async function runAuthDifferentialMatrix(
         reasonCode = 'both_contexts_denied';
         explanation = 'Both anonymous and authenticated requests received denial (401/403)';
       } else if (anonRes.statusCode === 200 && authRes.statusCode === 200) {
-        if (anonHash === authHash) {
-          if (SENSITIVE_PATH_PATTERN.test(endpointUrl)) {
+        const normalizedAnonHash = sha256Hex(stripDynamicNoise(anonRes.bodyText));
+        const normalizedAuthHash = sha256Hex(stripDynamicNoise(authRes.bodyText));
+        const isSemanticallyIdentical =
+          anonHash === authHash || normalizedAnonHash === normalizedAuthHash;
+
+        if (isSemanticallyIdentical) {
+          if (PRIVILEGED_SENSITIVE_PATH_PATTERN.test(endpointUrl)) {
             classification = 'potential_authorization_boundary';
             reasonCode = 'sensitive_endpoint_identical_response';
-            explanation = 'Sensitive route returned identical HTTP 200 response to both anonymous and authenticated callers';
+            explanation =
+              'Sensitive route returned identical HTTP 200 response to both anonymous and authenticated callers';
           } else {
             classification = 'expected_auth_difference';
             reasonCode = 'public_surface_identical_response';
@@ -200,7 +215,8 @@ export async function runAuthDifferentialMatrix(
         } else {
           classification = 'application_behavior_differs';
           reasonCode = 'response_body_hash_divergence';
-          explanation = 'Both returned HTTP 200, but authenticated response differed in body hash/structure';
+          explanation =
+            'Both returned HTTP 200, but authenticated response differed in body hash/structure';
         }
       } else {
         classification = 'inconclusive';

@@ -47,6 +47,8 @@ import {
   observeDownloadedDocument,
 } from '../../observation/DocumentMetadataReader.js';
 import { PriorityReconFrontierService } from '../frontier/PriorityReconFrontierService.js';
+import { ChallengeClassifierService } from '../../challenge/ChallengeClassifierService.js';
+import { ChallengeBrowserContinuationService } from '../../challenge/ChallengeBrowserContinuationService.js';
 
 import type {
   ActiveReconOrchestrationRequest,
@@ -77,6 +79,7 @@ import type {
 import type {
   WebInspectionResult,
   DiscoveredWebObservation,
+  WebInspectionContextKind,
 } from '../adapters/WebInspectionContracts.js';
 import { WEB_OBSERVATION_BODY_CHUNK_MAX_BYTES } from '../adapters/WebInspectionContracts.js';
 import type {
@@ -855,6 +858,27 @@ export class CompositeActiveReconOrchestratorService {
       // Hop-1 mines these bodies; hop-2 re-mines only hop-1 app_endpoint bodies (no third hop).
       const stage3PrimaryInspectUrls = new Set<string>(urlsToInspect);
 
+      // Session awareness & context isolation (Block A.1 Part 2 & Part 8)
+      const effectiveContextKind: WebInspectionContextKind =
+        request.sessionSanctuary?.hasAuthenticatedContext() ? 'authenticated' : 'anonymous';
+
+      const getEffectiveSessionHeaders = (): Readonly<Record<string, string>> | undefined => {
+        if (request.sessionSanctuary) {
+          const headers = request.sessionSanctuary.createProbeHeaders(effectiveContextKind);
+          if (Object.keys(headers).length > 0) {
+            return Object.freeze(headers);
+          }
+        } else if (request.byotHarvestHeaders && Object.keys(request.byotHarvestHeaders).length > 0) {
+          return request.byotHarvestHeaders;
+        }
+        return undefined;
+      };
+
+      // Challenge continuation retry budget (Block A.1 Part 13)
+      let challengeContinuationsAttempted = 0;
+      const maxChallengeContinuations = 3;
+      const challengedUrlsAttempted = new Set<string>();
+
       for (const targetUrl of urlsToInspect) {
         let currentHost = request.targetDomain;
         try {
@@ -874,6 +898,8 @@ export class CompositeActiveReconOrchestratorService {
                   authorizedScopeGrant: request.authorizedScopeGrant,
                   lineage: request.lineage,
                   timeoutMs: request.config?.timeoutMs,
+                  contextKind: effectiveContextKind,
+                  sessionHeaders: getEffectiveSessionHeaders(),
                 }),
               httpStatusFromWebInspection,
             );
@@ -881,6 +907,102 @@ export class CompositeActiveReconOrchestratorService {
             if (webResult.status === 'success') {
               for (const obs of webResult.observations) {
                 webObservations.push(obs);
+
+                // Real challenge classification in the live assessment path
+                if (obs.statusCode === 403 || obs.statusCode === 503 || obs.statusCode === 429) {
+                  const challengeClassification = ChallengeClassifierService.classify({
+                    statusCode: obs.statusCode,
+                    headers: obs.headers ?? {},
+                    bodyText: obs.bodyText ?? '',
+                    targetHost: parsed.hostname,
+                  });
+
+                  if (
+                    challengeClassification.verdict === 'browser_challenge' &&
+                    challengeClassification.requiresBrowser
+                  ) {
+                    stage3Warnings.push(
+                      `Edge challenge detected on ${targetUrl}: ${challengeClassification.reasonCode}`
+                    );
+
+                    if (request.sessionSanctuary) {
+                      if (challengeContinuationsAttempted >= maxChallengeContinuations) {
+                        stage3Warnings.push(
+                          `Challenge continuation budget exhausted (limit ${maxChallengeContinuations}) on ${targetUrl}`
+                        );
+                      } else if (!challengedUrlsAttempted.has(targetUrl)) {
+                        challengedUrlsAttempted.add(targetUrl);
+                        challengeContinuationsAttempted++;
+                        try {
+                          const continuationRes =
+                            await ChallengeBrowserContinuationService.evaluateAndProgress({
+                              challengeUrl: targetUrl,
+                              signals: {
+                                statusCode: obs.statusCode,
+                                headers: obs.headers ?? {},
+                                bodyText: obs.bodyText ?? '',
+                                targetHost: parsed.hostname,
+                              },
+                              sessionSanctuary: request.sessionSanctuary,
+                              browserLauncher: request.browserLauncher,
+                              transport: request.probeTransport,
+                              timeoutMs: request.config?.timeoutMs,
+                            });
+
+                          if (
+                            continuationRes.state === 'validated' &&
+                            continuationRes.applicationReachable
+                          ) {
+                            stage3Warnings.push(
+                              `Edge challenge successfully resolved via browser continuation on ${targetUrl} (captured cookies: ${continuationRes.capturedCookieNames.join(', ') || 'none'})`
+                            );
+
+                            // Block A.1 Part 5: Immediate re-probe SAME target URL using acquired session
+                            const reprobeHeaders = getEffectiveSessionHeaders();
+                            const reprobeResult = await executeObservingHttpStatus(
+                              coordinator,
+                              parsed.hostname,
+                              () =>
+                                this.tools.webTool.inspectWeb({
+                                  targetUrl,
+                                  verifiedAuthorizationDecision: request.verifiedAuthorizationDecision,
+                                  authorizedScopeGrant: request.authorizedScopeGrant,
+                                  lineage: request.lineage,
+                                  timeoutMs: request.config?.timeoutMs,
+                                  contextKind: 'challenge_validation',
+                                  sessionHeaders: reprobeHeaders,
+                                }),
+                              httpStatusFromWebInspection,
+                            );
+
+                            if (reprobeResult.status === 'success') {
+                              for (const postObs of reprobeResult.observations) {
+                                const augmentedObs: DiscoveredWebObservation = {
+                                  ...postObs,
+                                  postChallengeForObservation: {
+                                    originalStatusCode: obs.statusCode,
+                                    challengeReasonCode: challengeClassification.reasonCode,
+                                    resolvedAt: continuationRes.validatedAt ?? new Date().toISOString(),
+                                  },
+                                };
+                                webObservations.push(augmentedObs);
+                              }
+                              absorbObservedFacts(reprobeResult.observedFacts);
+                            }
+                          } else if (continuationRes.state === 'waiting_for_operator') {
+                            stage3Warnings.push(
+                              `Edge challenge requires operator interaction on ${targetUrl}: ${continuationRes.operatorMessage}`
+                            );
+                          }
+                        } catch (progErr) {
+                          stage3Warnings.push(
+                            `Browser challenge progression attempt failed on ${targetUrl}: ${progErr instanceof Error ? progErr.message : String(progErr)}`
+                          );
+                        }
+                      }
+                    }
+                  }
+                }
               }
               absorbObservedFacts(webResult.observedFacts);
               // Upgrade matching assessment_seed URL provenance to direct_observation after HTTP.
@@ -1067,6 +1189,8 @@ export class CompositeActiveReconOrchestratorService {
                 authorizedScopeGrant: request.authorizedScopeGrant,
                 lineage: request.lineage,
                 timeoutMs: request.config?.timeoutMs,
+                contextKind: effectiveContextKind,
+                sessionHeaders: getEffectiveSessionHeaders(),
               }),
             httpStatusFromWebInspection,
           );
@@ -1075,6 +1199,148 @@ export class CompositeActiveReconOrchestratorService {
           if (webResult.status === 'success') {
             for (const obs of webResult.observations) {
               webObservations.push(obs);
+
+              // Real challenge classification in the live crawl frontier path
+              if (obs.statusCode === 403 || obs.statusCode === 503 || obs.statusCode === 429) {
+                const challengeClassification = ChallengeClassifierService.classify({
+                  statusCode: obs.statusCode,
+                  headers: obs.headers ?? {},
+                  bodyText: obs.bodyText ?? '',
+                  targetHost: parsed.hostname,
+                });
+
+                if (
+                  challengeClassification.verdict === 'browser_challenge' &&
+                  challengeClassification.requiresBrowser
+                ) {
+                  stage3Warnings.push(
+                    `Edge challenge detected during crawl on ${next.url}: ${challengeClassification.reasonCode}`
+                  );
+
+                  if (request.sessionSanctuary) {
+                    if (challengeContinuationsAttempted >= maxChallengeContinuations) {
+                      stage3Warnings.push(
+                        `Challenge continuation budget exhausted (limit ${maxChallengeContinuations}) on ${next.url}`
+                      );
+                    } else if (!challengedUrlsAttempted.has(next.url)) {
+                      challengedUrlsAttempted.add(next.url);
+                      challengeContinuationsAttempted++;
+                      try {
+                        const continuationRes =
+                          await ChallengeBrowserContinuationService.evaluateAndProgress({
+                            challengeUrl: next.url,
+                            signals: {
+                              statusCode: obs.statusCode,
+                              headers: obs.headers ?? {},
+                              bodyText: obs.bodyText ?? '',
+                              targetHost: parsed.hostname,
+                            },
+                            sessionSanctuary: request.sessionSanctuary,
+                            browserLauncher: request.browserLauncher,
+                            transport: request.probeTransport,
+                            timeoutMs: request.config?.timeoutMs,
+                          });
+
+                        if (
+                          continuationRes.state === 'validated' &&
+                          continuationRes.applicationReachable
+                        ) {
+                          stage3Warnings.push(
+                            `Edge challenge resolved via browser continuation on crawl URL ${next.url} (captured cookies: ${continuationRes.capturedCookieNames.join(', ') || 'none'})`
+                          );
+
+                          // Block A.1 Part 5 & 7: Immediate re-probe & feed into pipeline
+                          const crawlReprobeHeaders = getEffectiveSessionHeaders();
+                          const crawlReprobeResult = await executeObservingHttpStatus(
+                            coordinator,
+                            parsed.hostname,
+                            () =>
+                              this.tools.webTool.inspectWeb({
+                                targetUrl: next.url,
+                                verifiedAuthorizationDecision: request.verifiedAuthorizationDecision,
+                                authorizedScopeGrant: request.authorizedScopeGrant,
+                                lineage: request.lineage,
+                                timeoutMs: request.config?.timeoutMs,
+                                contextKind: 'challenge_validation',
+                                sessionHeaders: crawlReprobeHeaders,
+                              }),
+                            httpStatusFromWebInspection,
+                          );
+
+                          if (crawlReprobeResult.status === 'success') {
+                            for (const postObs of crawlReprobeResult.observations) {
+                              const augmentedObs: DiscoveredWebObservation = {
+                                ...postObs,
+                                postChallengeForObservation: {
+                                  originalStatusCode: obs.statusCode,
+                                  challengeReasonCode: challengeClassification.reasonCode,
+                                  resolvedAt: continuationRes.validatedAt ?? new Date().toISOString(),
+                                },
+                              };
+                              webObservations.push(augmentedObs);
+
+                              // Part 7: Mine links from post-challenge application body
+                              if (
+                                next.depth < crawlMaxDepth &&
+                                typeof postObs.bodyText === 'string' &&
+                                postObs.bodyText.length > 0
+                              ) {
+                                const postExtracted = htmlExtractor.extract({
+                                  bodyText: postObs.bodyText,
+                                  baseUrl: postObs.url,
+                                  targetDomain: request.targetDomain,
+                                  authorizedScopeGrant: request.authorizedScopeGrant,
+                                  maxResults: request.config?.maxHop2Routes ?? 500,
+                                });
+
+                                const postExtractedAt = new Date().toISOString();
+                                for (const subCandidate of postExtracted.accepted) {
+                                  if (subCandidate.kind === 'static_bundle') continue;
+                                  if (!knownUrlInventory.has(subCandidate.url)) {
+                                    knownUrlInventory.add(subCandidate.url);
+                                    newRoutesYielded++;
+                                    urls.push({
+                                      url: subCandidate.url,
+                                      host: subCandidate.host,
+                                      path: subCandidate.path,
+                                      ...(subCandidate.query !== undefined ? { query: subCandidate.query } : {}),
+                                      sources: Object.freeze([HTML_LINK_EXTRACTION_SOURCE]),
+                                      discoveredAt: postExtractedAt,
+                                      collectedAt: postExtractedAt,
+                                      freshness: 'live',
+                                      sourceReliability: 'direct_observation',
+                                    });
+
+                                    if (
+                                      subCandidate.kind === 'app_endpoint' &&
+                                      !httpInspectedUrls.has(subCandidate.url) &&
+                                      next.depth + 1 < crawlMaxDepth
+                                    ) {
+                                      priorityFrontier.enqueue({
+                                        url: subCandidate.url,
+                                        host: subCandidate.host,
+                                        path: subCandidate.path,
+                                        query: subCandidate.query,
+                                        source: HTML_LINK_EXTRACTION_SOURCE,
+                                        depth: next.depth + 1,
+                                      });
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                            absorbObservedFacts(crawlReprobeResult.observedFacts);
+                          }
+                        }
+                      } catch (progErr) {
+                        stage3Warnings.push(
+                          `Browser continuation failed on crawl URL ${next.url}: ${progErr instanceof Error ? progErr.message : String(progErr)}`
+                        );
+                      }
+                    }
+                  }
+                }
+              }
 
               // Mine new links from app_endpoint body if within depth limit
               if (

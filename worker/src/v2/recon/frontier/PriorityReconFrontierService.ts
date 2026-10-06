@@ -54,6 +54,76 @@ const RESOURCE_COLLECTION_SEGMENTS = new Set([
   'doc',
 ]);
 
+const STATIC_DICTIONARY_SUBPATHS = new Set([
+  'me',
+  'profile',
+  'settings',
+  'account',
+  'admin',
+  'billing',
+  'keys',
+  'sessions',
+  'security',
+  'preferences',
+  'avatar',
+  'notifications',
+  'audit',
+  'export',
+  'import',
+  'invite',
+  'members',
+  'roles',
+  'permissions',
+  'tokens',
+  'webhooks',
+  'integrations',
+  'logs',
+  'activity',
+  'health',
+  'status',
+  'version',
+  'info',
+  'metrics',
+  'docs',
+  'schema',
+  'openapi',
+  'search',
+  'list',
+  'create',
+  'new',
+  'edit',
+  'delete',
+  'update',
+  'view',
+  'all',
+  'recent',
+  'popular',
+  'default',
+  'current',
+  'active',
+  'pending',
+  'archived',
+  'trash',
+  'draft',
+  'drafts',
+  'login',
+  'logout',
+  'register',
+  'signup',
+  'signin',
+  'password',
+  'reset',
+  'verify',
+  'confirm',
+  'callback',
+  'oauth',
+  'auth',
+  '2fa',
+  'mfa',
+  'sso',
+  'saml',
+]);
+
 export interface PriorityReconFrontierOptions {
   /** Maximum URLs allowed per structural pattern before de-prioritization/saturation. Default: 4 */
   readonly maxUrlsPerPattern?: number;
@@ -85,6 +155,7 @@ export class PriorityReconFrontierService {
     const normalized: string[] = [];
     for (let i = 0; i < segments.length; i++) {
       const seg = segments[i]!;
+      const segLower = seg.toLowerCase();
       const prevSeg = i > 0 ? segments[i - 1]!.toLowerCase() : '';
 
       if (UUID_PATTERN.test(seg)) {
@@ -93,10 +164,13 @@ export class PriorityReconFrontierService {
         normalized.push('{id}');
       } else if (HEX_HASH_PATTERN.test(seg)) {
         normalized.push('{hash}');
+      } else if (STATIC_DICTIONARY_SUBPATHS.has(segLower)) {
+        // Distinct semantic action or subresource: preserve literal to prevent collision
+        normalized.push(segLower);
       } else if (RESOURCE_COLLECTION_SEGMENTS.has(prevSeg) && seg.length >= 2) {
         normalized.push('{slug}');
       } else {
-        normalized.push(seg.toLowerCase());
+        normalized.push(segLower);
       }
     }
 
@@ -117,7 +191,21 @@ export class PriorityReconFrontierService {
     const seenCount = this.patternCounts.get(normalizedPattern) ?? 0;
     this.patternCounts.set(normalizedPattern, seenCount + 1);
 
-    if (seenCount >= this.maxUrlsPerPattern) {
+    const isApi = input.isApiHint === true || API_PATH_REGEX.test(input.path);
+    const hasAuthRelevance = AUTH_PATH_REGEX.test(input.path);
+    const isParameterized =
+      normalizedPattern.includes('{id}') ||
+      normalizedPattern.includes('{uuid}') ||
+      normalizedPattern.includes('{hash}') ||
+      normalizedPattern.includes('{slug}');
+
+    // Allow expanded crawl depth for API / auth-relevant parameterized routes to support IDOR discovery
+    const patternLimit =
+      (isApi || hasAuthRelevance) && isParameterized
+        ? this.maxUrlsPerPattern * 3
+        : this.maxUrlsPerPattern;
+
+    if (seenCount >= patternLimit) {
       this.totalSkippedPatternSaturation++;
       // Pattern is saturated (e.g. 10th pagination link of /catalog?page=X).
       // Skip from active exploration to preserve crawl request budget for diverse routes.
@@ -127,9 +215,6 @@ export class PriorityReconFrontierService {
     const parameterCount = input.query
       ? input.query.split('&').filter((p) => p.trim().length > 0).length
       : 0;
-
-    const isApi = input.isApiHint === true || API_PATH_REGEX.test(input.path);
-    const hasAuthRelevance = AUTH_PATH_REGEX.test(input.path);
 
     // Novelty calculation: first time seen = 1.0, drops with subsequent instances
     const novelty =

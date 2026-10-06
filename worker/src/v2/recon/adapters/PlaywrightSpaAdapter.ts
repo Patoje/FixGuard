@@ -49,6 +49,7 @@ import type {
   BrowserAutomationTool,
   BrowserInstance,
   BrowserContextInstance,
+  BrowserCookieRecord,
   BrowserProxyConfig,
   PageInstance,
   PlaywrightBrowserLauncher,
@@ -229,6 +230,28 @@ class PlaywrightBrowserContextWrapper implements BrowserContextInstance {
 
   async addInitScript(script: string | { content?: string; path?: string }): Promise<void> {
     await this.rawContext.addInitScript(script);
+  }
+
+  async cookies(urls?: string | readonly string[]): Promise<readonly BrowserCookieRecord[]> {
+    const rawCookies = await this.rawContext.cookies(
+      urls ? (Array.isArray(urls) ? [...urls] : [urls as string]) : undefined
+    );
+    return Object.freeze(
+      rawCookies.map((c) =>
+        Object.freeze({
+          name: c.name,
+          value: c.value,
+          ...(c.domain ? { domain: c.domain } : {}),
+          ...(c.path ? { path: c.path } : {}),
+          ...(typeof c.expires === 'number' ? { expires: c.expires } : {}),
+          ...(typeof c.httpOnly === 'boolean' ? { httpOnly: c.httpOnly } : {}),
+          ...(typeof c.secure === 'boolean' ? { secure: c.secure } : {}),
+          ...(c.sameSite === 'Strict' || c.sameSite === 'Lax' || c.sameSite === 'None'
+            ? { sameSite: c.sameSite }
+            : {}),
+        })
+      )
+    );
   }
 
   async close(): Promise<void> {

@@ -48,7 +48,15 @@ export interface DiscoveredWebObservation {
   readonly collectedAt?: string;
   readonly freshness?: 'live' | 'historical' | 'unknown';
   readonly sourceReliability?: 'direct_observation' | 'historical_archive' | 'inferred_relationship';
+  /** Optional metadata indicating this observation was produced by re-probing after edge challenge resolution. */
+  readonly postChallengeForObservation?: {
+    readonly originalStatusCode: number;
+    readonly challengeReasonCode: string;
+    readonly resolvedAt: string;
+  };
 }
+
+export type WebInspectionContextKind = 'anonymous' | 'authenticated' | 'challenge_validation';
 
 export interface WebInspectionRequest {
   readonly targetUrl: string;
@@ -56,6 +64,10 @@ export interface WebInspectionRequest {
   readonly authorizedScopeGrant: AuthorizedScopeGrant;
   readonly lineage: AuthorizedActiveReconRequestLineage;
   readonly timeoutMs?: number;
+  /** Explicit purpose/context of this probe (defaults to 'anonymous' if unspecified). */
+  readonly contextKind?: WebInspectionContextKind;
+  /** Explicit authorized session headers / cookies for session-aware or post-challenge inspections. */
+  readonly sessionHeaders?: Readonly<Record<string, string>>;
 }
 
 export type WebInspectionResult =

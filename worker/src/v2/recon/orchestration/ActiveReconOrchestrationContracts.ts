@@ -250,6 +250,10 @@ export interface ActiveReconOrchestrationRequest {
   readonly byotBrowserLauncher?: PlaywrightBrowserLauncher;
   /** Force HTTP-only BYOT harvest (skip Playwright). */
   readonly byotHarvestHttpOnly?: boolean;
+  /** Optional session sanctuary holding isolated contexts & challenge states. */
+  readonly sessionSanctuary?: import('../../session/SessionSanctuaryService.js').SessionSanctuaryService;
+  /** Injectable browser launcher for challenge progression. */
+  readonly browserLauncher?: PlaywrightBrowserLauncher;
 }
 
 export interface AggregatedReconObservations {

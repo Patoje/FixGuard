@@ -29,6 +29,7 @@ import {
   type SessionHealthState,
 } from './SessionSanctuaryContracts.js';
 import { observeDefensesFromHttpResponse } from '../test-validity/DefenseObservationService.js';
+import type { BrowserCookieRecord } from '../recon/adapters/BrowserAutomationContracts.js';
 
 export interface CreateSessionSanctuaryOptions {
   readonly targetDomain: string;
@@ -391,16 +392,90 @@ export class SessionSanctuaryService {
     const ctx = this.contexts.get(kind);
     if (!ctx) return;
 
+    // Preserve existing BYOT session cookies while applying new/updated challenge cookies
     const updatedCookies = newCookies
       ? Object.freeze({ ...ctx.cookies, ...newCookies })
       : ctx.cookies;
 
+    // Epistemic health invariant (Part 12):
+    // Resolving edge challenge restores edge access, but does NOT automatically
+    // certify application authentication if it was expired, rejected, or unauthenticated.
+    let nextHealth: SessionHealthState = ctx.healthState;
+    if (challengeState === 'resolved') {
+      if (kind === 'anonymous') {
+        nextHealth = 'valid';
+      } else if (ctx.healthState === 'challenged') {
+        // Edge challenge cleared; if auth was previously valid or unknown, restore to valid
+        nextHealth = ctx.authenticationState === 'authenticated' ? 'valid' : 'unknown';
+      }
+      // If auth was expired or rejected, resolving edge challenge keeps it expired/rejected!
+    } else if (challengeState === 'detected' || challengeState === 'waiting_for_operator') {
+      nextHealth = 'challenged';
+    }
+
     this.updateContext(kind, {
       challengeState,
       cookies: updatedCookies,
-      healthState: challengeState === 'resolved' ? 'valid' : ctx.healthState,
+      healthState: nextHealth,
       lastValidatedAt: new Date().toISOString(),
+      ...(challengeState === 'resolved' ? { lastHealthReason: 'Edge challenge resolved' } : {}),
     });
+  }
+
+  /**
+   * Imports cookies from browser progression into the sanctuary context.
+   * Enforces origin safety: cookies must belong to targetDomain (or subdomains).
+   * Drops any third-party or expired cookies to prevent cross-target session contamination.
+   * Returns the list of imported cookie names.
+   */
+  public importBrowserCookies(
+    kind: SessionContextKind,
+    cookies: readonly BrowserCookieRecord[],
+    challengeState: SessionChallengeState = 'resolved'
+  ): readonly string[] {
+    const ctx = this.contexts.get(kind);
+    if (!ctx) return Object.freeze([]);
+
+    const normalizedTargetDomain = this.targetDomain.toLowerCase();
+    const acceptedCookies: Record<string, string> = {};
+    const importedNames: string[] = [];
+    const nowMs = Date.now();
+
+    for (const cookie of cookies) {
+      if (!cookie.name || typeof cookie.value !== 'string') continue;
+
+      // 1. Expiration check: drop expired cookies
+      if (typeof cookie.expires === 'number' && cookie.expires > 0) {
+        const expiresMs = cookie.expires > 1e11 ? cookie.expires : cookie.expires * 1000;
+        if (expiresMs <= nowMs) {
+          // Expired cookie dropped
+          continue;
+        }
+      }
+
+      // 2. Origin & Scope safety check: reject third-party cookies
+      if (cookie.domain) {
+        let cleanDomain = cookie.domain.toLowerCase().trim();
+        if (cleanDomain.startsWith('.')) cleanDomain = cleanDomain.slice(1);
+        const matchesScope =
+          cleanDomain === normalizedTargetDomain ||
+          cleanDomain.endsWith(`.${normalizedTargetDomain}`) ||
+          normalizedTargetDomain.endsWith(`.${cleanDomain}`);
+        if (!matchesScope) {
+          // Off-scope cookie: reject to prevent cross-origin leakage
+          continue;
+        }
+      }
+
+      acceptedCookies[cookie.name] = cookie.value;
+      importedNames.push(cookie.name);
+    }
+
+    if (importedNames.length > 0 || challengeState) {
+      this.updateChallengeState(kind, challengeState, Object.freeze(acceptedCookies));
+    }
+
+    return Object.freeze(importedNames);
   }
 
   private updateContext(

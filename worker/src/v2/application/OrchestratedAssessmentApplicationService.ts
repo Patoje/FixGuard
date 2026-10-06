@@ -87,6 +87,11 @@ import {
 import { observeAnonSessionGetDelta } from '../observation/AnonSessionGetDeltaObservation.js';
 import { SessionSanctuaryService } from '../session/SessionSanctuaryService.js';
 import { runAuthDifferentialMatrix } from '../differential/AuthDifferentialMatrixService.js';
+import { ChallengeBrowserContinuationService } from '../challenge/ChallengeBrowserContinuationService.js';
+import type {
+  ChallengeContinuationResult,
+  OperatorChallengeCallbackInput,
+} from '../challenge/ChallengeContinuationContracts.js';
 import type { DetectionSuppressionRecord } from '../detection/DetectionTargetBridge.js';
 import { analyzeTlsConfiguration } from '../detection/TlsConfigurationAnalysisService.js';
 import { runSourcemapExposureDetection } from '../detection/SourcemapExposureDetectionService.js';
@@ -3037,6 +3042,67 @@ export class OrchestratedAssessmentApplicationService {
   }
 
   /**
+   * Resumes an assessment waiting on an edge challenge after operator completion (HITL).
+   * Validates operator authorization, imports confirmed session state, runs canary validation,
+   * and records progress in the assessment record.
+   */
+  public async resumeOperatorChallenge(args: {
+    readonly assessmentId: string;
+    readonly operatorId: string;
+    readonly callback: OperatorChallengeCallbackInput;
+  }): Promise<ChallengeContinuationResult> {
+    const { assessmentId, operatorId, callback } = args;
+    if (!assessmentId || typeof assessmentId !== 'string' || !isStrictSafeId(assessmentId)) {
+      throw new ApiValidationError('Field assessmentId must satisfy strict identifier format');
+    }
+    if (!operatorId || typeof operatorId !== 'string' || !isStrictSafeId(operatorId)) {
+      throw new ApiValidationError('Field operatorId must satisfy strict identifier format');
+    }
+
+    const record = await this.repository.findById(assessmentId);
+    if (!record) {
+      throw new SessionNotFoundError(
+        `Orchestrated assessment '${assessmentId}' was not found`,
+        assessmentId
+      );
+    }
+    if (record.status === 'completed' || record.status === 'failed' || record.status === 'preflight_denied') {
+      throw new ApiValidationError(`Cannot resume challenge for assessment in terminal state '${record.status}'`);
+    }
+    if (operatorId !== record.lineage.actorId) {
+      throw new UnauthorizedGatewayError(
+        'Operator is not the assessment actor',
+        'operator_mismatch'
+      );
+    }
+
+    const sanctuary = new SessionSanctuaryService({
+      targetDomain: record.targetDomain,
+      originUrl: `https://${record.targetDomain}/`,
+    });
+
+    const challengeUrl = `https://${record.targetDomain}/`;
+    const result = await ChallengeBrowserContinuationService.resumeAfterOperatorCompletion(
+      callback,
+      challengeUrl,
+      sanctuary,
+      this.httpTransport
+    );
+
+    if (result.state === 'validated' && result.applicationReachable) {
+      await this.repository.update(assessmentId, (prev) => ({
+        ...prev,
+        degradedCapabilities: [
+          ...(prev.degradedCapabilities ?? []),
+          `operator_challenge_resolved: ${callback.challengeId ?? 'manual'}`,
+        ],
+      }));
+    }
+
+    return result;
+  }
+
+  /**
    * For executable A/B recommendations missing planId, mint/link finding-backed plans
    * so Authorize+Run can proceed when preconditions (e.g. BYOT) are satisfied.
    * Never auto-executes.
@@ -5371,20 +5437,40 @@ export class OrchestratedAssessmentApplicationService {
       sessionIdentities,
     });
 
+    let authSessionHealthy = true;
     if (sessionSanctuary.hasAuthenticatedContext()) {
       try {
-        await sessionSanctuary.validateSessionHealth('authenticated', this.httpTransport);
+        const canary = await sessionSanctuary.validateSessionHealth(
+          'authenticated',
+          this.httpTransport
+        );
+        if (canary.healthState === 'expired' || canary.healthState === 'rejected') {
+          authSessionHealthy = false;
+          await this.repository.update(record.assessmentId, (prev) => ({
+            ...prev,
+            degradedCapabilities: [
+              ...(prev.degradedCapabilities ?? []),
+              `authenticated_session_unhealthy: ${canary.healthState} (${canary.reason})`,
+            ],
+          }));
+        }
       } catch {
         // Canary probe failure must never abort assessment pipeline
       }
     }
 
-    const identityAContext = sessionIdentities?.identityA
-      ? buildProbeAuthContext(sessionIdentities.identityA)
-      : buildAnonymousProbeContext('identity_anon_a');
+    const identityAContext =
+      sessionIdentities?.identityA && authSessionHealthy
+        ? buildProbeAuthContext(sessionIdentities.identityA)
+        : buildAnonymousProbeContext('identity_anon_a');
 
     const byotHarvestHeaders = (() => {
-      if (sessionIdentities?.identityA) {
+      if (sessionSanctuary.hasAuthenticatedContext() && authSessionHealthy) {
+        const headers = sessionSanctuary.createProbeHeaders('authenticated');
+        if (Object.keys(headers).length > 0) {
+          return headers;
+        }
+      } else if (sessionIdentities?.identityA && authSessionHealthy) {
         const material = byotIdentityToExecuteMaterial(sessionIdentities.identityA);
         if (material.headers && Object.keys(material.headers).length > 0) {
           return material.headers;
@@ -5414,14 +5500,15 @@ export class OrchestratedAssessmentApplicationService {
     const orchestrator = new CompositeActiveReconOrchestratorService(this.reconAdapters);
     const reconResult = await orchestrator.orchestrate({
       targetDomain: record.targetDomain,
-        verifiedAuthorizationDecision: verifiedDecision,
-        authorizedScopeGrant: scopeGrant,
-        lineage,
-        config,
-        coordinator,
-        dnsResolver: this.dnsResolver,
-        probeTransport: this.httpTransport,
-        ...(planificableSeedUrls && planificableSeedUrls.length > 0
+      verifiedAuthorizationDecision: verifiedDecision,
+      authorizedScopeGrant: scopeGrant,
+      lineage,
+      config,
+      coordinator,
+      dnsResolver: this.dnsResolver,
+      probeTransport: this.httpTransport,
+      sessionSanctuary,
+      ...(planificableSeedUrls && planificableSeedUrls.length > 0
           ? { seedUrls: planificableSeedUrls }
           : {}),
         ...(degradedBinaries && degradedBinaries.length > 0

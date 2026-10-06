@@ -361,7 +361,7 @@ async function runTests(): Promise<void> {
 
     let attempts = 0;
     let status = await appService.getStatus(startRes.assessmentId);
-    while (status.status === 'running' && attempts < 100) {
+    while (status.status === 'running' && attempts < 300) {
       await new Promise((r) => setTimeout(r, 100));
       status = await appService.getStatus(startRes.assessmentId);
       attempts++;

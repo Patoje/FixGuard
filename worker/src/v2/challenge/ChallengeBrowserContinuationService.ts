@@ -34,7 +34,10 @@ import {
   type ResponseChallengeSignals,
 } from './ChallengeClassifierService.js';
 import type { SessionSanctuaryService } from '../session/SessionSanctuaryService.js';
-import type { PlaywrightBrowserLauncher } from '../recon/adapters/BrowserAutomationContracts.js';
+import type {
+  PlaywrightBrowserLauncher,
+  BrowserCookieRecord,
+} from '../recon/adapters/BrowserAutomationContracts.js';
 import { DefaultPlaywrightBrowserLauncher } from '../recon/adapters/PlaywrightSpaAdapter.js';
 import {
   selectBrowserProfile,
@@ -135,21 +138,69 @@ export class ChallengeBrowserContinuationService {
         };
       }
 
-      // Application route reached!
-      const validatedAt = new Date().toISOString();
-      options.sessionSanctuary.updateChallengeState('anonymous', 'resolved');
-      if (options.sessionSanctuary.hasAuthenticatedContext()) {
-        options.sessionSanctuary.updateChallengeState('authenticated', 'resolved');
+      // Extract cookies from browser context BEFORE closing it
+      let capturedCookies: readonly BrowserCookieRecord[] = Object.freeze([]);
+      if (typeof context.cookies === 'function') {
+        try {
+          capturedCookies = await context.cookies(options.challengeUrl);
+        } catch {
+          // Best-effort cookie extraction
+        }
       }
 
+      // Transfer captured cookies into sanctuary with strict origin boundaries
+      const importedCookieNames = options.sessionSanctuary.importBrowserCookies(
+        'anonymous',
+        capturedCookies,
+        'resolved'
+      );
+      if (options.sessionSanctuary.hasAuthenticatedContext()) {
+        options.sessionSanctuary.importBrowserCookies(
+          'authenticated',
+          capturedCookies,
+          'resolved'
+        );
+      }
+
+      // Validate post-challenge application reachability if transport is provided
+      let applicationReachable = true;
+      let reasonCode = 'browser_progression_succeeded';
+      let operatorMessage =
+        'Browser progression successfully navigated past edge challenge to application';
+
+      if (options.transport) {
+        try {
+          const canary = await options.sessionSanctuary.validateSessionHealth(
+            options.sessionSanctuary.hasAuthenticatedContext() ? 'authenticated' : 'anonymous',
+            options.transport,
+            options.challengeUrl
+          );
+          if (canary.healthState === 'challenged') {
+            applicationReachable = false;
+            reasonCode = 'still_challenged_after_browser_progression';
+            operatorMessage = `Browser progression completed but application canary was still challenged: ${canary.reason}`;
+          } else if (canary.healthState !== 'valid' && canary.healthState !== 'degraded') {
+            applicationReachable = false;
+            reasonCode = 'application_unreachable_after_browser_progression';
+            operatorMessage = `Browser progression completed but application canary failed: ${canary.reason}`;
+          }
+        } catch (canaryErr) {
+          applicationReachable = false;
+          reasonCode = 'canary_failed_after_browser_progression';
+          operatorMessage = `Application canary failed after browser progression: ${canaryErr instanceof Error ? canaryErr.message : String(canaryErr)}`;
+        }
+      }
+
+      const validatedAt = new Date().toISOString();
+
       return {
-        state: 'validated',
+        state: applicationReachable ? 'validated' : 'failed',
         challengeUrl: options.challengeUrl,
-        reasonCode: 'browser_progression_succeeded',
-        applicationReachable: true,
-        capturedCookieNames: Object.freeze([]),
+        reasonCode,
+        applicationReachable,
+        capturedCookieNames: importedCookieNames,
         validatedAt,
-        operatorMessage: 'Browser progression successfully navigated past edge challenge to application',
+        operatorMessage,
       };
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
