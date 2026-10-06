@@ -452,16 +452,32 @@ async function testRuntimeHardening() {
   // Wrong kind
   assert.strictEqual(validateAuthorizedScopeGrant({ ...makeGrant(), kind: 'something_else' }).isValid, false);
 
-  // Classification flag true
+  // Speculative claim rejection (confirmsVulnerabilities: true)
   assert.strictEqual(
-    validateAuthorizedScopeGrant({ ...makeGrant(), classification: { ...baseClassification, createsRealFindings: true } }).isValid,
+    validateAuthorizedScopeGrant({ ...makeGrant(), classification: { ...baseClassification, confirmsVulnerabilities: true } }).isValid,
     false
   );
 
-  // executesNetwork: true in classification
+  // Non-boolean classification flag
   assert.strictEqual(
-    validateAuthorizedScopeGrant({ ...makeGrant(), classification: { ...baseClassification, executesNetwork: true } }).isValid,
+    validateAuthorizedScopeGrant({ ...makeGrant(), classification: { ...baseClassification, executesNetwork: 'true' as any } }).isValid,
     false
+  );
+
+  // Valid execution classification (executesNetwork: true, executesTools: true, createsRealFindings: true)
+  assert.strictEqual(
+    validateAuthorizedScopeGrant({
+      ...makeGrant(),
+      classification: {
+        ...baseClassification,
+        executesNetwork: true,
+        executesTools: true,
+        createsRealFindings: true,
+        createsPersistedEvidence: true,
+        persistsData: true,
+      },
+    }).isValid,
+    true
   );
 
   // permissionSet with string "true"

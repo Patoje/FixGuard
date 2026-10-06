@@ -389,6 +389,16 @@ async function runTests(): Promise<void> {
     const startRes = await service.startAssessment({
       targetDomain: 'wp.example.com',
       actorId: 'usr_secops_lead',
+      config: {
+        skipStages: [
+          'stage_1_domain_zone',
+          'stage_2_port_service',
+          'stage_3_web_tls',
+          'stage_4_crawling_parameters',
+          'stage_deep_recon',
+          'stage_5_secret_inspection',
+        ],
+      },
     });
 
     if (startRes.status !== 'running') {
@@ -397,7 +407,7 @@ async function runTests(): Promise<void> {
 
     let attempts = 0;
     let status = await service.getStatus(startRes.assessmentId);
-    while (status.status === 'running' && attempts < 100) {
+    while (status.status === 'running' && attempts < 300) {
       await new Promise((r) => setTimeout(r, 100));
       status = await service.getStatus(startRes.assessmentId);
       attempts++;

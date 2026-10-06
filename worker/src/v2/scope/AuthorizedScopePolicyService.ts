@@ -130,7 +130,26 @@ function validateClassification(cls: unknown): ValidationResult {
   if (!keysVal.isValid) return keysVal;
   const record = cls as Record<string, unknown>;
   for (const key of CLASSIFICATION_KEYS) {
-    if (record[key] !== false) return { isValid: false, errorCode: 'unsafe_content_rejected', message: `Classification flag ${key} must be false` };
+    if (typeof record[key] !== 'boolean') {
+      return {
+        isValid: false,
+        errorCode: 'unsafe_content_rejected',
+        message: `Classification flag ${key} must be a boolean`,
+      };
+    }
+  }
+  if (
+    record.confirmsVulnerabilities === true ||
+    record.makesRiskClaims === true ||
+    record.makesSeverityClaims === true ||
+    record.makesImpactClaims === true
+  ) {
+    return {
+      isValid: false,
+      errorCode: 'unsafe_content_rejected',
+      message:
+        'Scope policy classification must not make speculative vulnerability, risk, severity, or impact claims',
+    };
   }
   return { isValid: true };
 }

@@ -67,7 +67,7 @@ export interface AssessmentSeed {
 
 export interface StartOrchestratedAssessmentCommand {
   readonly targetDomain: string;
-  readonly actorId?: string;
+  readonly actorId: string;
   readonly config?: ActiveReconOrchestrationConfig;
   readonly sessionIdentities?: ByotSessionIdentityBundle;
   /** Absolute in-scope URLs to seed into crawl / endpoint inventory (OBSERVED). */

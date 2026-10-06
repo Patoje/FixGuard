@@ -38,6 +38,30 @@ export function createFailClosedCtFetch(): typeof fetch {
   };
 }
 
+/**
+ * Production CT fetch with outbound egress & SSRF validation.
+ * Ensures queries target only the public Certificate Transparency log service
+ * via HTTPS, preventing raw unvalidated network egress.
+ */
+export function createEgressGuardedCtFetch(underlyingFetch: typeof fetch = fetch): typeof fetch {
+  return async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+    const rawUrl =
+      typeof input === 'string'
+        ? input
+        : input instanceof URL
+          ? input.toString()
+          : input.url;
+    const parsed = new URL(rawUrl);
+    if (parsed.protocol !== 'https:' || parsed.hostname !== 'crt.sh') {
+      throw new Error(`CT egress policy violation: disallowed protocol or host ${parsed.origin}`);
+    }
+    if (isInternalOrSsrfTarget(parsed.hostname)) {
+      throw new Error(`CT egress policy violation: SSRF target ${parsed.hostname}`);
+    }
+    return underlyingFetch(input, init);
+  };
+}
+
 export class CrtShAdapter implements SubdomainDiscoveryTool {
   private readonly fetchImpl: typeof fetch;
   private readonly dnsResolver: PreSpawnDnsResolver | undefined;

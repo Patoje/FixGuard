@@ -48,7 +48,7 @@ import { SECRET_DISCOVERY_NON_CLAIMS } from '../recon/adapters/SecretDiscoveryCo
 import { URL_DISCOVERY_NON_CLAIMS } from '../recon/adapters/UrlDiscoveryContracts.js';
 import { CONTENT_DISCOVERY_NON_CLAIMS } from '../recon/adapters/ContentDiscoveryContracts.js';
 import { PlaywrightSpaAdapter } from '../recon/adapters/PlaywrightSpaAdapter.js';
-import { CrtShAdapter, createFailClosedCtFetch } from '../recon/adapters/CrtShAdapter.js';
+import { CrtShAdapter, createFailClosedCtFetch, createEgressGuardedCtFetch } from '../recon/adapters/CrtShAdapter.js';
 import { LocalProcessRunner } from '../core/ProcessRunner.js';
 import { CompositeUrlDiscoveryAdapter } from '../recon/adapters/CompositeUrlDiscoveryAdapter.js';
 import { FfufAdapter } from '../recon/adapters/FfufAdapter.js';
@@ -85,6 +85,8 @@ import {
   observeDownloadedDocument,
 } from '../observation/DocumentMetadataReader.js';
 import { observeAnonSessionGetDelta } from '../observation/AnonSessionGetDeltaObservation.js';
+import { SessionSanctuaryService } from '../session/SessionSanctuaryService.js';
+import { runAuthDifferentialMatrix } from '../differential/AuthDifferentialMatrixService.js';
 import type { DetectionSuppressionRecord } from '../detection/DetectionTargetBridge.js';
 import { analyzeTlsConfiguration } from '../detection/TlsConfigurationAnalysisService.js';
 import { runSourcemapExposureDetection } from '../detection/SourcemapExposureDetectionService.js';
@@ -919,23 +921,22 @@ const defaultDnsResolver = async (host: string): Promise<string[]> => {
 
 /**
  * Default composition wires CrtShAdapter as passiveCtTool (class + port).
- * Transport is fail-closed without a live fetch injection so hermetic smokes
- * never hang on crt.sh or ingest non-deterministic CT data. Live/scripts inject
- * `new CrtShAdapter({ fetchApi: fetch })` for real historical CT lookups.
- * CT ≠ live probing.
+ * Outbound requests are egress-guarded to ensure queries reach only crt.sh
+ * via HTTPS with strict SSRF validation. Real historical CT lookups proceed
+ * and merge discovered subdomains into canonical reconnaissance inventory.
  */
 function createDefaultPassiveCtTool(
   dnsResolver: (host: string) => Promise<string[]>
 ): SubdomainDiscoveryTool {
   const adapter = new CrtShAdapter({
     dnsResolver,
-    fetchApi: createFailClosedCtFetch(),
+    fetchApi: createEgressGuardedCtFetch(),
   });
   return {
     async discoverSubdomains(req) {
       return adapter.discoverSubdomains({
         ...req,
-        timeoutMs: req.timeoutMs ?? 2_000,
+        timeoutMs: req.timeoutMs ?? 15_000,
       });
     },
   };
@@ -1567,6 +1568,14 @@ export class OrchestratedAssessmentApplicationService {
       degradedBinarySet.add(missing);
     }
 
+    // Surface missing Chromium upfront when SPA/crawling stage is active (loud degrade)
+    if (!skipStages.has('stage_4_crawling_parameters')) {
+      const browserAvail = await this.availabilityService.checkBrowserAvailability();
+      if (!browserAvail.available) {
+        degradedBinarySet.add('chromium');
+      }
+    }
+
     // Hermetic stub composition substitutes shallow stubs for several CLIs — surface them.
     if (this.usingHermeticStubReconAdapters) {
       const hermeticStubByStage: Readonly<Record<ReconStageName, readonly string[]>> = {
@@ -1597,10 +1606,12 @@ export class OrchestratedAssessmentApplicationService {
     const scanId = `scan_orch_${timestamp}_${rand}`;
     const grantId = `grant_orch_${timestamp}_${rand}`;
     const decisionId = `dec_orch_${timestamp}_${rand}`;
-    const actorId =
-      command.actorId && isStrictSafeId(command.actorId)
-        ? command.actorId
-        : 'usr_secops_api';
+    if (!command.actorId || !isStrictSafeId(command.actorId)) {
+      throw new ApiValidationError(
+        "Field 'actorId' is required and must satisfy strict identifier format (e.g. 'usr_operator')"
+      );
+    }
+    const actorId = command.actorId;
 
     const relatedHosts = (command.relatedAllowedHosts ?? [])
       .map((h) => h.trim().toLowerCase().replace(/^https?:\/\//, '').replace(/\/.*$/, ''))
@@ -1664,15 +1675,15 @@ export class OrchestratedAssessmentApplicationService {
       },
 
       classification: {
-        createsRealFindings: false,
-        createsPersistedEvidence: false,
+        createsRealFindings: true,
+        createsPersistedEvidence: true,
         confirmsVulnerabilities: false,
         makesRiskClaims: false,
         makesSeverityClaims: false,
         makesImpactClaims: false,
-        executesNetwork: false,
-        executesTools: false,
-        persistsData: false,
+        executesNetwork: true,
+        executesTools: true,
+        persistsData: true,
       },
     };
 
@@ -5354,6 +5365,20 @@ export class OrchestratedAssessmentApplicationService {
       maxConcurrency: 2,
     });
 
+    const sessionSanctuary = new SessionSanctuaryService({
+      targetDomain: record.targetDomain,
+      originUrl: `https://${record.targetDomain}/`,
+      sessionIdentities,
+    });
+
+    if (sessionSanctuary.hasAuthenticatedContext()) {
+      try {
+        await sessionSanctuary.validateSessionHealth('authenticated', this.httpTransport);
+      } catch {
+        // Canary probe failure must never abort assessment pipeline
+      }
+    }
+
     const identityAContext = sessionIdentities?.identityA
       ? buildProbeAuthContext(sessionIdentities.identityA)
       : buildAnonymousProbeContext('identity_anon_a');
@@ -5387,8 +5412,8 @@ export class OrchestratedAssessmentApplicationService {
 
     // 1. M73 Composite Active Reconnaissance Orchestration
     const orchestrator = new CompositeActiveReconOrchestratorService(this.reconAdapters);
-      const reconResult = await orchestrator.orchestrate({
-        targetDomain: record.targetDomain,
+    const reconResult = await orchestrator.orchestrate({
+      targetDomain: record.targetDomain,
         verifiedAuthorizationDecision: verifiedDecision,
         authorizedScopeGrant: scopeGrant,
         lineage,
@@ -5732,7 +5757,7 @@ export class OrchestratedAssessmentApplicationService {
               source: 'postgrest_openapi',
               discoveredAt: new Date().toISOString(),
             });
-            if (fed.length > 0 && reconResult.status === 'success') {
+            if (fed.length > 0) {
               const existing = new Set(
                 reconResult.aggregatedObservations.urls.map((u) => u.url)
               );
@@ -5756,38 +5781,43 @@ export class OrchestratedAssessmentApplicationService {
 
       // F4.0 read detectors run in runReadDetectionPass above, before plan generation.
 
-      // F1.6 — anon vs session GET is an OBSERVED fact, not a Finding.
+      // Anonymous vs Authenticated Differential Matrix (Block A)
       if (
-        sessionIdentities?.identityA &&
+        sessionSanctuary.hasAuthenticatedContext() &&
         !coordinator.isCircuitOpen(record.targetDomain)
       ) {
-        const sessionIdentity = buildProbeAuthContext(sessionIdentities.identityA);
         const deltaTargets = detectionBridge.appEndpoints
           .filter((endpoint) => endpoint.path !== '/' && endpoint.epistemicStatus === 'OBSERVED')
-          .slice(0, 2);
-        for (const endpoint of deltaTargets) {
-          if (coordinator.isCircuitOpen(record.targetDomain)) break;
+          .map((endpoint) => endpoint.url);
+
+        if (deltaTargets.length > 0) {
           try {
-            const pathKey = endpoint.path.replace(/[^a-zA-Z0-9]/g, '').slice(0, 24) || 'root';
-            const observed = await observeAnonSessionGetDelta({
-              detectionId: `obs_delta_${record.assessmentId.slice(-8)}_${pathKey}`,
-              endpointUrl: endpoint.url,
-              identityA: sessionIdentity,
+            const matrixBudget =
+              typeof (config as Record<string, unknown> | undefined)?.authDifferentialEndpointBudget === 'number' &&
+              Number((config as Record<string, unknown>).authDifferentialEndpointBudget) > 0
+                ? Number((config as Record<string, unknown>).authDifferentialEndpointBudget)
+                : 15;
+
+            const matrixResult = await runAuthDifferentialMatrix({
+              targetDomain: record.targetDomain,
+              endpointUrls: deltaTargets,
+              sessionSanctuary,
               verifiedAuthorizationDecision: verifiedDecision,
               scopeGrant,
               lineage,
               transport: this.httpTransport,
               dnsResolver: this.dnsResolver,
-              observedAt: new Date().toISOString(),
+              maxEndpoints: matrixBudget,
             });
-            if (observed.fact) {
+
+            if (matrixResult.generatedFacts.length > 0) {
               persistedObservedFacts = acceptObservedFacts([
                 ...persistedObservedFacts,
-                observed.fact,
+                ...matrixResult.generatedFacts,
               ]);
             }
           } catch {
-            // Observation failure must not invent a finding.
+            // Matrix observation failure must never abort assessment or fabricate findings
           }
         }
       }

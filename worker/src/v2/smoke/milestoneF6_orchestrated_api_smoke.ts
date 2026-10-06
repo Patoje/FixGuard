@@ -390,7 +390,7 @@ async function runMilestoneF6SmokeTests(): Promise<void> {
         'Content-Type': 'application/json',
         Authorization: `Bearer ${TEST_SECRET}`,
       },
-      body: JSON.stringify({ targetDomain: '127.0.0.1' }),
+      body: JSON.stringify({ targetDomain: '127.0.0.1', actorId: 'usr_secops_f6_tester' }),
     });
     assert.strictEqual(loopbackRes.status, 403, 'Loopback IP must be rejected with 403');
     const loopbackBody = (await loopbackRes.json()) as { error: string; reasonCode?: string };
@@ -403,7 +403,7 @@ async function runMilestoneF6SmokeTests(): Promise<void> {
         'Content-Type': 'application/json',
         Authorization: `Bearer ${TEST_SECRET}`,
       },
-      body: JSON.stringify({ targetDomain: 'localhost' }),
+      body: JSON.stringify({ targetDomain: 'localhost', actorId: 'usr_secops_f6_tester' }),
     });
     assert.strictEqual(localhostRes.status, 403, 'localhost must be rejected with 403');
 
@@ -414,7 +414,7 @@ async function runMilestoneF6SmokeTests(): Promise<void> {
         'Content-Type': 'application/json',
         Authorization: `Bearer ${TEST_SECRET}`,
       },
-      body: JSON.stringify({ targetDomain: 'internal-evil.corp' }),
+      body: JSON.stringify({ targetDomain: 'internal-evil.corp', actorId: 'usr_secops_f6_tester' }),
     });
     assert.strictEqual(privateDnsRes.status, 403, 'Private-resolving domain must be rejected with 403');
 
@@ -425,7 +425,7 @@ async function runMilestoneF6SmokeTests(): Promise<void> {
         'Content-Type': 'application/json',
         Authorization: `Bearer ${TEST_SECRET}`,
       },
-      body: JSON.stringify({ targetDomain: 'nonexistent-host-404.corp' }),
+      body: JSON.stringify({ targetDomain: 'nonexistent-host-404.corp', actorId: 'usr_secops_f6_tester' }),
     });
     assert.strictEqual(unresolvableRes.status, 400, 'Unresolvable domain must fail closed with 400');
 

@@ -183,7 +183,7 @@ async function main(): Promise<void> {
     console.log('\n[*] POST /orchestrated/assessments/start');
     const startRes = await apiJson(baseUrl, '/orchestrated/assessments/start', {
       method: 'POST',
-      body: JSON.stringify({ targetDomain: TARGET_HOST }),
+      body: JSON.stringify({ targetDomain: TARGET_HOST, actorId: OPERATOR_ID }),
     });
     if (startRes.status !== 202) {
       throw new Error(`start failed HTTP ${startRes.status}: ${JSON.stringify(startRes.body)}`);

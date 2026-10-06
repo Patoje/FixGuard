@@ -46,6 +46,7 @@ import {
   defaultDocumentCopyDirectory,
   observeDownloadedDocument,
 } from '../../observation/DocumentMetadataReader.js';
+import { PriorityReconFrontierService } from '../frontier/PriorityReconFrontierService.js';
 
 import type {
   ActiveReconOrchestrationRequest,
@@ -962,79 +963,98 @@ export class CompositeActiveReconOrchestratorService {
       }
 
       // -----------------------------------------------------------------
-      // Phase D1 Step 3 — Passive HTML link & route extraction (hop-1, max 25)
-      // Hermetic: only bodies from stage3PrimaryInspectUrls. Scope+egress already
-      // enforced inside HtmlRouteExtractionService (fail-closed OOS drop).
+      // Phase D1 Step 3 & 4 — Adaptive Frontier HTML Link & Route Extraction
+      // Information discovery-driven: explores in-scope routes until
+      // frontier exhaustion, duplicate saturation, or explicit request budget.
+      // Arbitrary hard-coded caps (25/20) removed.
       // -----------------------------------------------------------------
       const htmlExtractor = new HtmlRouteExtractionService();
       const knownUrlInventory = new Set<string>(urls.map((u) => u.url));
       for (const primary of stage3PrimaryInspectUrls) {
         knownUrlInventory.add(primary);
       }
-      const hop1ExtractedUrls: string[] = [];
-      const hop1AppEndpointUrls: string[] = [];
-      const htmlExtractedAt = new Date().toISOString();
 
+      const crawlRequestBudget =
+        typeof request.config?.crawlRequestBudget === 'number' && request.config.crawlRequestBudget > 0
+          ? Math.floor(request.config.crawlRequestBudget)
+          : 150;
+      const crawlMaxDepth =
+        typeof request.config?.crawlMaxDepth === 'number' && request.config.crawlMaxDepth > 0
+          ? Math.floor(request.config.crawlMaxDepth)
+          : 3;
+      const saturationThreshold =
+        typeof request.config?.crawlDuplicateSaturationThreshold === 'number' &&
+        request.config.crawlDuplicateSaturationThreshold > 0
+          ? Math.floor(request.config.crawlDuplicateSaturationThreshold)
+          : 10;
+
+      // Initialize the priority crawl frontier with information-gain ranking
+      const priorityFrontier = new PriorityReconFrontierService();
+
+      // Extract initial candidates from primary inspections (depth 0)
       for (const webObs of webObservations) {
-        if (hop1ExtractedUrls.length >= HTML_ROUTE_EXTRACTION_MAX_PER_STAGE) {
-          break;
-        }
-        if (!stage3PrimaryInspectUrls.has(webObs.url)) {
-          continue;
-        }
-        if (typeof webObs.bodyText !== 'string' || webObs.bodyText.length === 0) {
-          continue;
-        }
+        if (!stage3PrimaryInspectUrls.has(webObs.url)) continue;
+        if (typeof webObs.bodyText !== 'string' || webObs.bodyText.length === 0) continue;
 
-        const remaining = HTML_ROUTE_EXTRACTION_MAX_PER_STAGE - hop1ExtractedUrls.length;
         const extracted = htmlExtractor.extract({
           bodyText: webObs.bodyText,
           baseUrl: webObs.url,
           targetDomain: request.targetDomain,
           authorizedScopeGrant: request.authorizedScopeGrant,
-          maxResults: remaining,
+          maxResults: request.config?.maxHop1Routes ?? 500,
         });
 
+        const extractedAt = new Date().toISOString();
         for (const candidate of extracted.accepted) {
-          if (hop1ExtractedUrls.length >= HTML_ROUTE_EXTRACTION_MAX_PER_STAGE) {
-            break;
-          }
-          if (knownUrlInventory.has(candidate.url)) {
-            continue;
-          }
-          knownUrlInventory.add(candidate.url);
-          hop1ExtractedUrls.push(candidate.url);
-          if (candidate.kind === 'app_endpoint') {
-            hop1AppEndpointUrls.push(candidate.url);
-          }
+          if (!knownUrlInventory.has(candidate.url)) {
+            knownUrlInventory.add(candidate.url);
+            urls.push({
+              url: candidate.url,
+              host: candidate.host,
+              path: candidate.path,
+              ...(candidate.query !== undefined ? { query: candidate.query } : {}),
+              sources: Object.freeze([HTML_LINK_EXTRACTION_SOURCE]),
+              discoveredAt: extractedAt,
+              collectedAt: extractedAt,
+              freshness: 'live',
+              sourceReliability: 'direct_observation',
+            });
 
-          urls.push({
-            url: candidate.url,
-            host: candidate.host,
-            path: candidate.path,
-            ...(candidate.query !== undefined ? { query: candidate.query } : {}),
-            sources: Object.freeze([HTML_LINK_EXTRACTION_SOURCE]),
-            discoveredAt: htmlExtractedAt,
-            collectedAt: htmlExtractedAt,
-            freshness: 'live',
-            sourceReliability: 'direct_observation',
-          });
-
-          // Enqueue for hop-1 HTTP probe (hop-2 mining follows after probe).
-          urlsToInspect.add(candidate.url);
+            if (
+              candidate.kind === 'app_endpoint' &&
+              !httpInspectedUrls.has(candidate.url)
+            ) {
+              priorityFrontier.enqueue({
+                url: candidate.url,
+                host: candidate.host,
+                path: candidate.path,
+                query: candidate.query,
+                source: HTML_LINK_EXTRACTION_SOURCE,
+                depth: 1,
+              });
+            }
+          }
         }
       }
 
-      // Hop-1 probe of HTML-extracted URLs (inventory already registered above).
-      for (const extractedUrl of hop1ExtractedUrls) {
-        if (httpInspectedUrls.has(extractedUrl)) {
-          continue;
+      // Frontier exploration loop
+      let consecutiveZeroYieldPasses = 0;
+      let crawlStopReason: string | undefined;
+
+      while (priorityFrontier.hasMore()) {
+        if (httpInspectedUrls.size >= crawlRequestBudget) {
+          crawlStopReason = `Crawl frontier reached request budget of ${crawlRequestBudget} requests`;
+          break;
         }
+
+        const next = priorityFrontier.next()!;
+        if (httpInspectedUrls.has(next.url)) continue;
+
         let currentHost = request.targetDomain;
         try {
-          const parsed = new URL(extractedUrl);
+          const parsed = new URL(next.url);
           currentHost = parsed.hostname;
-          httpInspectedUrls.add(extractedUrl);
+          httpInspectedUrls.add(next.url);
           httpInspectedHosts.add(parsed.hostname);
 
           const webResult = await executeObservingHttpStatus(
@@ -1042,7 +1062,7 @@ export class CompositeActiveReconOrchestratorService {
             parsed.hostname,
             () =>
               this.tools.webTool.inspectWeb({
-                targetUrl: extractedUrl,
+                targetUrl: next.url,
                 verifiedAuthorizationDecision: request.verifiedAuthorizationDecision,
                 authorizedScopeGrant: request.authorizedScopeGrant,
                 lineage: request.lineage,
@@ -1051,15 +1071,76 @@ export class CompositeActiveReconOrchestratorService {
             httpStatusFromWebInspection,
           );
 
+          let newRoutesYielded = 0;
           if (webResult.status === 'success') {
             for (const obs of webResult.observations) {
               webObservations.push(obs);
+
+              // Mine new links from app_endpoint body if within depth limit
+              if (
+                next.depth < crawlMaxDepth &&
+                typeof obs.bodyText === 'string' &&
+                obs.bodyText.length > 0
+              ) {
+                const subExtracted = htmlExtractor.extract({
+                  bodyText: obs.bodyText,
+                  baseUrl: obs.url,
+                  targetDomain: request.targetDomain,
+                  authorizedScopeGrant: request.authorizedScopeGrant,
+                  maxResults: request.config?.maxHop2Routes ?? 500,
+                });
+
+                const subExtractedAt = new Date().toISOString();
+                for (const subCandidate of subExtracted.accepted) {
+                  if (subCandidate.kind === 'static_bundle') continue;
+                  if (!knownUrlInventory.has(subCandidate.url)) {
+                    knownUrlInventory.add(subCandidate.url);
+                    newRoutesYielded++;
+                    urls.push({
+                      url: subCandidate.url,
+                      host: subCandidate.host,
+                      path: subCandidate.path,
+                      ...(subCandidate.query !== undefined ? { query: subCandidate.query } : {}),
+                      sources: Object.freeze([HTML_LINK_EXTRACTION_SOURCE]),
+                      discoveredAt: subExtractedAt,
+                      collectedAt: subExtractedAt,
+                      freshness: 'live',
+                      sourceReliability: 'direct_observation',
+                    });
+
+                    if (
+                      subCandidate.kind === 'app_endpoint' &&
+                      !httpInspectedUrls.has(subCandidate.url) &&
+                      next.depth + 1 < crawlMaxDepth
+                    ) {
+                      priorityFrontier.enqueue({
+                        url: subCandidate.url,
+                        host: subCandidate.host,
+                        path: subCandidate.path,
+                        query: subCandidate.query,
+                        source: HTML_LINK_EXTRACTION_SOURCE,
+                        depth: next.depth + 1,
+                      });
+                    }
+                  }
+                }
+              }
             }
             absorbObservedFacts(webResult.observedFacts);
           } else if (webResult.status === 'preflight_denied' || webResult.status === 'execution_failed') {
             stage3Warnings.push(
-              `HTML-extracted URL inspection ${webResult.status} on ${extractedUrl}: ${webResult.reasonCode}`
+              `Crawl frontier URL inspection ${webResult.status} on ${next.url}: ${webResult.reasonCode}`
             );
+          }
+
+          if (newRoutesYielded === 0) {
+            consecutiveZeroYieldPasses++;
+            if (consecutiveZeroYieldPasses >= saturationThreshold) {
+              crawlStopReason = `Crawl frontier reached duplicate saturation (${saturationThreshold} consecutive pages with no new in-scope routes)`;
+              break;
+            }
+          } else {
+            consecutiveZeroYieldPasses = 0;
           }
         } catch (err) {
           if (err instanceof TargetInstabilityError || coordinator.isCircuitOpen(currentHost)) {
@@ -1075,120 +1156,15 @@ export class CompositeActiveReconOrchestratorService {
             return buildCircuitBrokenResult(currentHost);
           }
           stage3Warnings.push(
-            `HTML-extracted URL inspection error on ${extractedUrl}: ${err instanceof Error ? err.message : String(err)}`
+            `Crawl frontier inspection error on ${next.url}: ${err instanceof Error ? err.message : String(err)}`
           );
         }
       }
 
-      // -----------------------------------------------------------------
-      // Phase D1 Step 4 — Hop-2 HTML extraction from app_endpoint bodies only
-      // (never /_next/static). Cap additional URLs; no third hop.
-      // -----------------------------------------------------------------
-      const hop1AppEndpointSet = new Set<string>(hop1AppEndpointUrls);
-      const hop2ExtractedUrls: string[] = [];
-      const hop2ExtractedAt = new Date().toISOString();
-
-      for (const webObs of webObservations) {
-        if (hop2ExtractedUrls.length >= HTML_ROUTE_EXTRACTION_MAX_HOP2) {
-          break;
-        }
-        if (!hop1AppEndpointSet.has(webObs.url)) {
-          continue;
-        }
-        if (typeof webObs.bodyText !== 'string' || webObs.bodyText.length === 0) {
-          continue;
-        }
-
-        const remaining = HTML_ROUTE_EXTRACTION_MAX_HOP2 - hop2ExtractedUrls.length;
-        const extracted = htmlExtractor.extract({
-          bodyText: webObs.bodyText,
-          baseUrl: webObs.url,
-          targetDomain: request.targetDomain,
-          authorizedScopeGrant: request.authorizedScopeGrant,
-          maxResults: remaining,
-        });
-
-        for (const candidate of extracted.accepted) {
-          if (hop2ExtractedUrls.length >= HTML_ROUTE_EXTRACTION_MAX_HOP2) {
-            break;
-          }
-          // Prefer useful surface: skip static bundles on hop-2 inventory budget.
-          if (candidate.kind === 'static_bundle') {
-            continue;
-          }
-          if (knownUrlInventory.has(candidate.url)) {
-            continue;
-          }
-          knownUrlInventory.add(candidate.url);
-          hop2ExtractedUrls.push(candidate.url);
-
-          urls.push({
-            url: candidate.url,
-            host: candidate.host,
-            path: candidate.path,
-            ...(candidate.query !== undefined ? { query: candidate.query } : {}),
-            sources: Object.freeze([HTML_LINK_EXTRACTION_SOURCE]),
-            discoveredAt: hop2ExtractedAt,
-            collectedAt: hop2ExtractedAt,
-            freshness: 'live',
-            sourceReliability: 'direct_observation',
-          });
-        }
-      }
-
-      // One-shot probe of hop-2 URLs (register + observe; bodies are never re-mined).
-      for (const extractedUrl of hop2ExtractedUrls) {
-        if (httpInspectedUrls.has(extractedUrl)) {
-          continue;
-        }
-        let currentHost = request.targetDomain;
-        try {
-          const parsed = new URL(extractedUrl);
-          currentHost = parsed.hostname;
-          httpInspectedUrls.add(extractedUrl);
-          httpInspectedHosts.add(parsed.hostname);
-
-          const webResult = await executeObservingHttpStatus(
-            coordinator,
-            parsed.hostname,
-            () =>
-              this.tools.webTool.inspectWeb({
-                targetUrl: extractedUrl,
-                verifiedAuthorizationDecision: request.verifiedAuthorizationDecision,
-                authorizedScopeGrant: request.authorizedScopeGrant,
-                lineage: request.lineage,
-                timeoutMs: request.config?.timeoutMs,
-              }),
-            httpStatusFromWebInspection,
-          );
-
-          if (webResult.status === 'success') {
-            for (const obs of webResult.observations) {
-              webObservations.push(obs);
-            }
-            absorbObservedFacts(webResult.observedFacts);
-          } else if (webResult.status === 'preflight_denied' || webResult.status === 'execution_failed') {
-            stage3Warnings.push(
-              `HTML hop-2 URL inspection ${webResult.status} on ${extractedUrl}: ${webResult.reasonCode}`
-            );
-          }
-        } catch (err) {
-          if (err instanceof TargetInstabilityError || coordinator.isCircuitOpen(currentHost)) {
-            createDraft('stage_3_web_tls', request.targetDomain, 'web_technologies', webObservations.length);
-            createDraft('stage_3_web_tls', request.targetDomain, 'tls_certificates', tlsCertificates.length);
-            await recordStageResult({
-              stage: 'stage_3_web_tls',
-              status: 'partial_failure',
-              durationMs: Date.now() - stage3Start,
-              observationsCount: webObservations.length + tlsCertificates.length,
-              warnings: [`Circuit breaker tripped on ${currentHost}`],
-            });
-            return buildCircuitBrokenResult(currentHost);
-          }
-          stage3Warnings.push(
-            `HTML hop-2 URL inspection error on ${extractedUrl}: ${err instanceof Error ? err.message : String(err)}`
-          );
-        }
+      if (crawlStopReason) {
+        stage3Warnings.push(crawlStopReason);
+      } else if (priorityFrontier.size() === 0) {
+        stage3Warnings.push('Crawl frontier exhausted: all reachable in-scope HTML routes discovered');
       }
 
       // -----------------------------------------------------------------

@@ -334,7 +334,7 @@ export function parseStartOrchestratedAssessmentBody(
   body: unknown
 ): {
   targetDomain: string;
-  actorId?: string;
+  actorId: string;
   config?: Record<string, unknown>;
   sessionIdentities?: ByotSessionIdentityBundle;
   seedUrls?: readonly string[];
@@ -382,8 +382,10 @@ export function parseStartOrchestratedAssessmentBody(
     throw new ApiValidationError('Field targetDomain must be a non-empty string');
   }
 
-  if (actorId !== undefined && (typeof actorId !== 'string' || !isStrictSafeId(actorId))) {
-    throw new ApiValidationError('Field actorId must satisfy strict identifier format');
+  if (!actorId || typeof actorId !== 'string' || !isStrictSafeId(actorId)) {
+    throw new ApiValidationError(
+      "Field 'actorId' is required and must satisfy strict identifier format (e.g. 'usr_operator')"
+    );
   }
 
   if (config !== undefined && (typeof config !== 'object' || config === null || Array.isArray(config))) {
@@ -414,7 +416,7 @@ export function parseStartOrchestratedAssessmentBody(
 
   return {
     targetDomain: targetDomain.trim(),
-    ...(actorId ? { actorId } : {}),
+    actorId,
     ...(config ? { config: config as Record<string, unknown> } : {}),
     ...(parsedSessionIdentities ? { sessionIdentities: parsedSessionIdentities } : {}),
     ...(parsedSeedUrls ? { seedUrls: parsedSeedUrls } : {}),

@@ -172,6 +172,25 @@ export interface ActiveReconOrchestrationConfig {
   readonly enableByotHarvest?: boolean;
   /** Skip Playwright and harvest with the assessment HTTP transport. */
   readonly byotHarvestHttpOnly?: boolean;
+  /**
+   * Crawl frontier maximum request budget for HTML link discovery.
+   * Default: 150 requests. Crawling halts when exhausted or frontier empties.
+   */
+  readonly crawlRequestBudget?: number;
+  /**
+   * Crawl frontier maximum link depth.
+   * Default: 3.
+   */
+  readonly crawlMaxDepth?: number;
+  /**
+   * Maximum consecutive inspected pages with zero new in-scope link yield
+   * before terminating due to duplicate saturation. Default: 10.
+   */
+  readonly crawlDuplicateSaturationThreshold?: number;
+  /** Legacy / optional caller override for hop-1 extracted routes limit. */
+  readonly maxHop1Routes?: number;
+  /** Legacy / optional caller override for hop-2 extracted routes limit. */
+  readonly maxHop2Routes?: number;
 }
 
 import type { PreSpawnDnsResolver } from '../adapters/AdapterPreflightPipeline.js';

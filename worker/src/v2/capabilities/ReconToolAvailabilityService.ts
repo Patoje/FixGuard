@@ -201,4 +201,24 @@ export class ReconToolAvailabilityService {
       missingTools,
     };
   }
+
+  /**
+   * Verifies whether Chromium / Playwright is available on the system
+   * for SPA & RSC crawling.
+   */
+  public async checkBrowserAvailability(): Promise<{
+    available: boolean;
+    path?: string;
+    error?: string;
+  }> {
+    try {
+      const { checkPlaywrightAvailability } = await import(
+        '../recon/adapters/PlaywrightSpaAdapter.js'
+      );
+      return checkPlaywrightAvailability();
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      return { available: false, error: msg };
+    }
+  }
 }

@@ -32,15 +32,15 @@ export const AUTHORIZED_SCOPE_POLICY_CONTRACT_VERSION: AuthorizedScopePolicyCont
 // ---------------------------------------------------------------------------
 
 export interface AuthorizedScopePolicyClassificationFlags {
-  createsRealFindings: false;
-  createsPersistedEvidence: false;
-  confirmsVulnerabilities: false;
-  makesRiskClaims: false;
-  makesSeverityClaims: false;
-  makesImpactClaims: false;
-  executesNetwork: false;
-  executesTools: false;
-  persistsData: false;
+  createsRealFindings: boolean;
+  createsPersistedEvidence: boolean;
+  confirmsVulnerabilities: boolean;
+  makesRiskClaims: boolean;
+  makesSeverityClaims: boolean;
+  makesImpactClaims: boolean;
+  executesNetwork: boolean;
+  executesTools: boolean;
+  persistsData: boolean;
 }
 
 // ---------------------------------------------------------------------------

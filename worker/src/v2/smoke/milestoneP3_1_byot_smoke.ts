@@ -70,6 +70,7 @@ async function runTests(): Promise<void> {
   try {
     parseStartOrchestratedAssessmentBody({
       targetDomain: 'target.example.com',
+      actorId: 'usr_operator_01',
       sessionIdentities: {
         identityA: {
           identityId: 'valid_id',

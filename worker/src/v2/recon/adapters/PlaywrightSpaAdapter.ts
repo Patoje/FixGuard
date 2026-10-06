@@ -517,6 +517,26 @@ function resolveHydrationWaitMs(requested: number | undefined): number {
   return Math.min(raw, SPA_DISCOVERY_MAX_HYDRATION_WAIT_MS);
 }
 
+export interface PlaywrightAvailabilityProbeResult {
+  readonly available: boolean;
+  readonly path?: string;
+  readonly error?: string;
+}
+
+/**
+ * Checks whether Playwright and its underlying Chromium browser binary
+ * are installed and available for execution. Safe, non-throwing probe.
+ */
+export function checkPlaywrightAvailability(): PlaywrightAvailabilityProbeResult {
+  try {
+    const execPath = chromium.executablePath();
+    return { available: true, path: execPath };
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    return { available: false, error: msg };
+  }
+}
+
 export class PlaywrightSpaAdapter implements BrowserAutomationTool {
   private readonly defaultLauncher: PlaywrightBrowserLauncher;
 
