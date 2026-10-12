@@ -366,6 +366,12 @@ export async function runReadDetectionPass(
     invoked.push(name);
   };
 
+  const testedSecurityHeaderHosts = new Set<string>();
+  const testedOpenRedirectHosts = new Set<string>();
+  const testedInformationDisclosureHosts = new Set<string>();
+  const testedCorsHosts = new Set<string>();
+  const testedGraphqlHosts = new Set<string>();
+
   for (let index = 0; index < inventory.entries.length; index += 1) {
     if (circuitOpen(input)) {
       break;
@@ -378,6 +384,13 @@ export async function runReadDetectionPass(
     if (!endpointUrl) {
       continue;
     }
+    const host = (() => {
+      try {
+        return new URL(endpointUrl).hostname.toLowerCase();
+      } catch {
+        return '';
+      }
+    })();
     const method = readMethod(entry.method);
     const auth = input.identityA ? { authContext: input.identityA } : {};
     const shared = {
@@ -391,124 +404,136 @@ export async function runReadDetectionPass(
       ...(input.coordinator ? { coordinator: input.coordinator } : {}),
     };
 
-    try {
-      note('security_header');
-      const headerResult = await runSecurityHeaderDetection({
-        ...shared,
-        kind: 'security_header_detection_request',
-        detectionId: `det_rd_hdr_${index}`,
-        endpointUrl,
-        method,
-        ...auth,
-      });
-      keepDetectorOutcome(findings, drafts, {
-        ...(headerResult.finding ? { finding: headerResult.finding } : {}),
-        status: headerResult.status,
-        ...(headerResult.evidenceDraft ? { evidenceDraft: headerResult.evidenceDraft } : {}),
-        context: {
+    if (!testedSecurityHeaderHosts.has(host)) {
+      testedSecurityHeaderHosts.add(host);
+      try {
+        note('security_header');
+        const headerResult = await runSecurityHeaderDetection({
+          ...shared,
+          kind: 'security_header_detection_request',
+          detectionId: `det_rd_hdr_${index}`,
           endpointUrl,
-          detectionKind: 'missing_security_headers',
-          missingHeaders: headerResult.missingHeaders,
-          presentHeaders: headerResult.presentHeaders,
-        },
-      });
-    } catch {
-      // Detector failure must not invent a finding.
+          method,
+          ...auth,
+        });
+        keepDetectorOutcome(findings, drafts, {
+          ...(headerResult.finding ? { finding: headerResult.finding } : {}),
+          status: headerResult.status,
+          ...(headerResult.evidenceDraft ? { evidenceDraft: headerResult.evidenceDraft } : {}),
+          context: {
+            endpointUrl,
+            detectionKind: 'missing_security_headers',
+            missingHeaders: headerResult.missingHeaders,
+            presentHeaders: headerResult.presentHeaders,
+          },
+        });
+      } catch {
+        // Detector failure must not invent a finding.
+      }
     }
 
     if (circuitOpen(input)) break;
 
-    try {
-      note('open_redirect');
-      const redirectResult = await runOpenRedirectDetection({
-        ...shared,
-        kind: 'open_redirect_detection_request',
-        detectionId: `det_rd_redir_${index}`,
-        endpointUrl,
-        method,
-        ...auth,
-      });
-      keepDetectorOutcome(findings, drafts, {
-        ...(redirectResult.finding ? { finding: redirectResult.finding } : {}),
-        status: redirectResult.status,
-        ...(redirectResult.evidenceDraft ? { evidenceDraft: redirectResult.evidenceDraft } : {}),
-        context: {
+    if (!testedOpenRedirectHosts.has(host)) {
+      testedOpenRedirectHosts.add(host);
+      try {
+        note('open_redirect');
+        const redirectResult = await runOpenRedirectDetection({
+          ...shared,
+          kind: 'open_redirect_detection_request',
+          detectionId: `det_rd_redir_${index}`,
           endpointUrl,
-          detectionKind: 'open_redirect',
-          ...(redirectResult.parameterName ? { parameterName: redirectResult.parameterName } : {}),
-          ...(redirectResult.injectedCanary ? { injectedCanary: redirectResult.injectedCanary } : {}),
-          ...(redirectResult.finalDestination
-            ? { finalDestination: redirectResult.finalDestination }
-            : {}),
-          ...(redirectResult.redirectChain ? { redirectChain: redirectResult.redirectChain } : {}),
-        },
-      });
-    } catch {
-      // Detector failure must not invent a finding.
+          method,
+          ...auth,
+        });
+        keepDetectorOutcome(findings, drafts, {
+          ...(redirectResult.finding ? { finding: redirectResult.finding } : {}),
+          status: redirectResult.status,
+          ...(redirectResult.evidenceDraft ? { evidenceDraft: redirectResult.evidenceDraft } : {}),
+          context: {
+            endpointUrl,
+            detectionKind: 'open_redirect',
+            ...(redirectResult.parameterName ? { parameterName: redirectResult.parameterName } : {}),
+            ...(redirectResult.injectedCanary ? { injectedCanary: redirectResult.injectedCanary } : {}),
+            ...(redirectResult.finalDestination
+              ? { finalDestination: redirectResult.finalDestination }
+              : {}),
+            ...(redirectResult.redirectChain ? { redirectChain: redirectResult.redirectChain } : {}),
+          },
+        });
+      } catch {
+        // Detector failure must not invent a finding.
+      }
     }
 
     if (circuitOpen(input)) break;
 
-    try {
-      note('information_disclosure');
-      const disclosureResult = await runInformationDisclosureDetection({
-        ...shared,
-        kind: 'information_disclosure_detection_request',
-        detectionId: `det_rd_info_${index}`,
-        endpointUrl,
-        method,
-        ...auth,
-      });
-      const primary = disclosureResult.disclosures[0];
-      keepDetectorOutcome(findings, drafts, {
-        ...(disclosureResult.finding ? { finding: disclosureResult.finding } : {}),
-        status: disclosureResult.status,
-        ...(disclosureResult.evidenceDraft
-          ? { evidenceDraft: disclosureResult.evidenceDraft }
-          : {}),
-        context: {
+    if (!testedInformationDisclosureHosts.has(host)) {
+      testedInformationDisclosureHosts.add(host);
+      try {
+        note('information_disclosure');
+        const disclosureResult = await runInformationDisclosureDetection({
+          ...shared,
+          kind: 'information_disclosure_detection_request',
+          detectionId: `det_rd_info_${index}`,
           endpointUrl,
-          detectionKind: 'information_disclosure',
-          ...(primary
-            ? {
-                disclosureKind: primary.disclosureKind,
-                disclosedFragment: primary.disclosedFragment,
-                trigger: primary.trigger,
-              }
+          method,
+          ...auth,
+        });
+        const primary = disclosureResult.disclosures[0];
+        keepDetectorOutcome(findings, drafts, {
+          ...(disclosureResult.finding ? { finding: disclosureResult.finding } : {}),
+          status: disclosureResult.status,
+          ...(disclosureResult.evidenceDraft
+            ? { evidenceDraft: disclosureResult.evidenceDraft }
             : {}),
-        },
-      });
-    } catch {
-      // Detector failure must not invent a finding.
+          context: {
+            endpointUrl,
+            detectionKind: 'information_disclosure',
+            ...(primary
+              ? {
+                  disclosureKind: primary.disclosureKind,
+                  disclosedFragment: primary.disclosedFragment,
+                  trigger: primary.trigger,
+                }
+              : {}),
+          },
+        });
+      } catch {
+        // Detector failure must not invent a finding.
+      }
     }
 
     if (circuitOpen(input)) break;
 
-    try {
-      note('cors_misconfiguration');
-      const corsResult = await runCorsMisconfigurationDetection({
-        ...shared,
-        kind: 'cors_misconfiguration_detection_request',
-        detectionId: `det_rd_cors_${index}`,
-        endpointUrl,
-        method,
-        ...auth,
-      });
-      keepDetectorOutcome(findings, drafts, {
-        ...(corsResult.finding ? { finding: corsResult.finding } : {}),
-        status: corsResult.status,
-        ...(corsResult.evidenceDraft ? { evidenceDraft: corsResult.evidenceDraft } : {}),
-        context: {
+    if (!testedCorsHosts.has(host)) {
+      testedCorsHosts.add(host);
+      try {
+        note('cors_misconfiguration');
+        const corsResult = await runCorsMisconfigurationDetection({
+          ...shared,
+          kind: 'cors_misconfiguration_detection_request',
+          detectionId: `det_rd_cors_${index}`,
           endpointUrl,
-          detectionKind: 'cors_misconfiguration',
-          ...(corsResult.reflectedOrigin ? { reflectedOrigin: corsResult.reflectedOrigin } : {}),
-          ...(corsResult.allowCredentials !== undefined
-            ? { allowCredentials: corsResult.allowCredentials }
-            : {}),
-        },
-      });
-    } catch {
-      // Detector failure must not invent a finding.
+          method,
+          ...auth,
+        });
+        keepDetectorOutcome(findings, drafts, {
+          ...(corsResult.finding ? { finding: corsResult.finding } : {}),
+          status: corsResult.status,
+          ...(corsResult.evidenceDraft ? { evidenceDraft: corsResult.evidenceDraft } : {}),
+          context: {
+            endpointUrl,
+            detectionKind: 'cors_misconfiguration',
+            ...(corsResult.reflectedOrigin ? { reflectedOrigin: corsResult.reflectedOrigin } : {}),
+            ...(corsResult.allowCredentials !== undefined
+              ? { allowCredentials: corsResult.allowCredentials }
+              : {}),
+          },
+        });
+      } catch {
+        // Detector failure must not invent a finding.
+      }
     }
 
     if (circuitOpen(input)) break;
@@ -553,7 +578,8 @@ export async function runReadDetectionPass(
     if (circuitOpen(input)) break;
 
     const graphql = graphqlInvocation(endpointUrl, observedGraphqlUrls);
-    if (graphql) {
+    if (graphql && !testedGraphqlHosts.has(host)) {
+      testedGraphqlHosts.add(host);
       try {
         note('graphql_surface');
         const graphqlResult = await runGraphQLSurfaceDetection({

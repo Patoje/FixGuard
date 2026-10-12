@@ -663,11 +663,16 @@ export class CompositeActiveReconOrchestratorService {
       const hostsToResolve = new Set<string>();
       hostsToResolve.add(request.targetDomain);
       for (const sub of subdomains) {
-        hostsToResolve.add(sub.subdomain);
+        const subHost =
+          (typeof sub.subdomain === 'string' && sub.subdomain) ||
+          (typeof (sub as { domain?: string }).domain === 'string' && (sub as { domain?: string }).domain);
+        if (subHost) {
+          hostsToResolve.add(subHost);
+        }
       }
 
       for (const host of hostsToResolve) {
-        if (dnsResolvedHosts.has(host)) continue;
+        if (!host || typeof host !== 'string' || dnsResolvedHosts.has(host)) continue;
         dnsResolvedHosts.add(host);
         try {
           const dnsResult: DnsResolutionResult = await coordinator.execute(
@@ -1279,8 +1284,9 @@ export class CompositeActiveReconOrchestratorService {
                               };
                               webObservations.push(augmentedObs);
 
-                              // Part 7: Mine links from post-challenge application body
+                              // Part 7: Mine links from post-challenge application body (no third hop)
                               if (
+                                next.depth < 2 &&
                                 next.depth < crawlMaxDepth &&
                                 typeof postObs.bodyText === 'string' &&
                                 postObs.bodyText.length > 0
@@ -1343,7 +1349,9 @@ export class CompositeActiveReconOrchestratorService {
               }
 
               // Mine new links from app_endpoint body if within depth limit
+              // Hop-1 bodies yield hop-2 endpoints; hop-2 bodies are never mined (no third hop).
               if (
+                next.depth < 2 &&
                 next.depth < crawlMaxDepth &&
                 typeof obs.bodyText === 'string' &&
                 obs.bodyText.length > 0

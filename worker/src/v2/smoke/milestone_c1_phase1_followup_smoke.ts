@@ -859,6 +859,7 @@ async function main(): Promise<void> {
   await assertObservedSupabaseApikey();
 
   console.log('[milestone_c1_phase1_followup_smoke] ALL PASSED');
+  process.exit(0);
 }
 
 main().catch((err) => {

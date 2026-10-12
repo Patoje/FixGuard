@@ -380,6 +380,7 @@ import type {
   OperatorStackHints,
 } from '../attack-recommendation/AttackOperatorRecommendationContracts.js';
 import { HypothesisSchedulerService } from '../hypothesis-scheduler/HypothesisSchedulerService.js';
+import { HYPOTHESIS_SCHEDULER_CONTRACT_VERSION } from '../hypothesis-scheduler/HypothesisSchedulerContracts.js';
 import type { DefenseObservation } from '../test-validity/TestValidityContracts.js';
 import { TEST_VALIDITY_CONTRACT_VERSION } from '../test-validity/TestValidityContracts.js';
 import { factsFromCapturedRecon } from '../observation/CapturedHostFacts.js';
@@ -1358,6 +1359,7 @@ export class OrchestratedAssessmentApplicationService {
    * never accept JSON lookalikes from HTTP bodies.
    */
   private readonly sealedVerifiedDecisions = new Map<string, VerifiedAuthorizationDecision>();
+  private readonly assessmentHypotheses = new Map<string, readonly import('../hypothesis-scheduler/HypothesisSchedulerContracts.js').SecurityHypothesis[]>();
 
   constructor(deps: OrchestratedAssessmentServiceDependencies) {
     this.repository = deps.repository;
@@ -2281,20 +2283,30 @@ export class OrchestratedAssessmentApplicationService {
 
     const asgNodeKinds =
       record.attackSurfaceGraph?.nodes.map((n) => String(n.kind)) ?? [];
-    const hypothesisSchedule = new HypothesisSchedulerService().schedule({
-      assessmentId: record.assessmentId,
-      scanId: record.scanId,
-      findings: findings.map((f) => ({
-        id: f.id,
-        type: f.type,
-        metadataKind: f.metadata.kind,
-        target: f.target,
-      })),
-      asgNodeKinds,
-      stackHints,
-      identityCount: preconditions.identityCount,
-      hasJwtIdentity: preconditions.hasJwtIdentity,
-    });
+    const runtimeHypotheses = this.assessmentHypotheses.get(assessmentId);
+    const hypothesisSchedule = runtimeHypotheses
+      ? {
+          contractVersion: HYPOTHESIS_SCHEDULER_CONTRACT_VERSION,
+          kind: 'hypothesis_schedule' as const,
+          assessmentId: record.assessmentId,
+          scanId: record.scanId,
+          hypotheses: runtimeHypotheses,
+          rulesApplied: Object.freeze(['Projected from canonical investigation runtime']),
+        }
+      : new HypothesisSchedulerService().schedule({
+          assessmentId: record.assessmentId,
+          scanId: record.scanId,
+          findings: findings.map((f) => ({
+            id: f.id,
+            type: f.type,
+            metadataKind: f.metadata.kind,
+            target: f.target,
+          })),
+          asgNodeKinds,
+          stackHints,
+          identityCount: preconditions.identityCount,
+          hasJwtIdentity: preconditions.hasJwtIdentity,
+        });
 
     // F4.5 — WAF pacing identity comes from markers already on the profile.
     // A host without those markers does not launch wafw00f.
@@ -2384,6 +2396,21 @@ export class OrchestratedAssessmentApplicationService {
       lineage: result.lineage,
       generatedAt: result.generatedAt,
     };
+  }
+
+  public recordInvestigationHypotheses(
+    assessmentId: string,
+    hypotheses: readonly import('../hypothesis-scheduler/HypothesisSchedulerContracts.js').SecurityHypothesis[]
+  ): void {
+    if (assessmentId && isStrictSafeId(assessmentId)) {
+      this.assessmentHypotheses.set(assessmentId, hypotheses);
+    }
+  }
+
+  public getInvestigationHypotheses(
+    assessmentId: string
+  ): readonly import('../hypothesis-scheduler/HypothesisSchedulerContracts.js').SecurityHypothesis[] | undefined {
+    return this.assessmentHypotheses.get(assessmentId);
   }
 
   /**
@@ -6086,7 +6113,7 @@ export class OrchestratedAssessmentApplicationService {
           detectionBridge.ecosystemProfile.spaFramework === 'nuxtjs' ||
           (detectionBridge.ecosystemProfile.hasSpa &&
             !detectionBridge.detectedTechnologies.some((t) =>
-              t.name.toLowerCase().includes('wordpress')
+              typeof t?.name === 'string' && t.name.toLowerCase().includes('wordpress')
             ));
 
         if (!coordinator.isCircuitOpen(record.targetDomain) && !isModernSpaWithoutWordpress) {
@@ -6905,6 +6932,9 @@ export class OrchestratedAssessmentApplicationService {
         readInvestigationLoop = investigation.record;
         transcript = investigation.transcript;
         findings.splice(0, findings.length, ...investigation.findings);
+        if (investigation.hypotheses && investigation.hypotheses.length > 0) {
+          this.assessmentHypotheses.set(record.assessmentId, investigation.hypotheses);
+        }
       }
 
       // If circuit breaker opened during detection, record circuit_broken with evidence preserved

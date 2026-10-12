@@ -26,11 +26,29 @@ function looksSuccessful(signals: HttpResponseDefenseSignals): boolean {
 
 function looksBlocked(signals: HttpResponseDefenseSignals): boolean {
   const status = signals.statusCode;
-  if (status === 403 || status === 429 || status === 503) return true;
+  if (status === 429) return true;
   const body = signals.bodyExcerpt ?? '';
-  return /vercel\s*security\s*checkpoint|attention\s+required|captcha|just\s+a\s+moment|cf-browser-verification/i.test(
-    body
+  const hasChallengeBody =
+    /vercel\s*security\s*checkpoint|attention\s+required|captcha|just\s+a\s+moment|cf-browser-verification/i.test(
+      body
+    );
+  if (hasChallengeBody) return true;
+
+  const names = (signals.headerNames ?? []).map((n) => n.toLowerCase());
+  const hasWafHeaders = names.some((n) =>
+    /cf-ray|cf-mitigated|x-sucuri|x-akamai|x-firewall|challenge/.test(n)
   );
+
+  if (status === 503) {
+    return hasChallengeBody || hasWafHeaders;
+  }
+
+  if (status === 403) {
+    // 403 with WAF challenge markers is interfered; clean application 403 is a valid application response.
+    return hasChallengeBody || hasWafHeaders;
+  }
+
+  return false;
 }
 
 function mergeDefenses(

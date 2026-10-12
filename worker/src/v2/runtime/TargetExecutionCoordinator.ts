@@ -186,6 +186,7 @@ export class TargetExecutionCoordinator {
    * Returns true if the circuit breaker for this host is currently OPEN (blocking all requests).
    */
   public isCircuitOpen(host: string): boolean {
+    if (!host || typeof host !== 'string') return false;
     const normalizedHost = host.toLowerCase().trim();
     const currentState = this.updateCircuitState(normalizedHost);
     return currentState === 'OPEN';
@@ -195,6 +196,7 @@ export class TargetExecutionCoordinator {
    * Returns the current state of the circuit breaker ('CLOSED' | 'OPEN' | 'HALF_OPEN').
    */
   public getCircuitState(host: string): CircuitBreakerState {
+    if (!host || typeof host !== 'string') return 'CLOSED';
     const normalizedHost = host.toLowerCase().trim();
     return this.updateCircuitState(normalizedHost);
   }
@@ -203,6 +205,19 @@ export class TargetExecutionCoordinator {
    * Returns detailed circuit health telemetry for a target host.
    */
   public getCircuitStats(host: string): HostCircuitHealth {
+    if (!host || typeof host !== 'string') {
+      return {
+        state: 'CLOSED',
+        consecutiveFailures: 0,
+        consecutiveSuccesses: 0,
+        total5xxErrors: 0,
+        totalTimeouts: 0,
+        totalErrors: 0,
+        lastFailureTimeMs: null,
+        lastStateChangeTimeMs: Date.now(),
+        trippedCount: 0,
+      };
+    }
     const normalizedHost = host.toLowerCase().trim();
     const state = this.getOrCreateHostState(normalizedHost);
     this.updateCircuitState(normalizedHost);
@@ -227,6 +242,7 @@ export class TargetExecutionCoordinator {
     host: string,
     status: number | 'timeout' | 'error'
   ): void {
+    if (!host || typeof host !== 'string') return;
     const normalizedHost = host.toLowerCase().trim();
     const state = this.getOrCreateHostState(normalizedHost);
     const config = this.getHostCircuitConfig(normalizedHost);
