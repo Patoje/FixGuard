@@ -25,16 +25,17 @@ import { createHash } from 'node:crypto';
 import {
   ATTACK_AUTHORIZATION_CONTRACT_VERSION,
   AUTHORIZE_READ_OBSERVATION_REQUEST_KIND,
+  type AuthorizeReadObservationFromVerifiedDecisionRequest,
+  type AuthorizeReadObservationResult,
   type ReadObservationBlastRadiusClass,
 } from '../attack-authorization/AttackAuthorizationContracts.js';
-import type { AttackAuthorizationService } from '../attack-authorization/AttackAuthorizationService.js';
 import {
   ATTACK_EXECUTION_CONTRACT_VERSION,
   type AttackCapabilityIdentityRef,
   type AttackExecutionRecord,
+  type AttackExecutionRequest,
   type AttackExecutionResult,
 } from '../attack-execution/AttackExecutionContracts.js';
-import type { AttackExecutionService } from '../attack-execution/AttackExecutionService.js';
 import {
   AttackPlanGeneratorService,
   isAccountBoundaryPath,
@@ -276,6 +277,42 @@ function surfaceHintForUrl(url: string): AttackPlanSurfaceHint | null {
   };
 }
 
+/**
+ * M1 — narrow structural ports for the two active-execution touchpoints this
+ * coordinator depends on (minting a read-observation authorization token, and
+ * executing one authorized probe). `AttackAuthorizationService` and
+ * `AttackExecutionService` already satisfy these shapes; defining them here
+ * removes the coordinator's compile-time dependency on those concrete classes
+ * without changing either class or its call signatures. Each request
+ * parameter uses the exact existing request contract this file's one call
+ * site already constructs (`AuthorizeReadObservationFromVerifiedDecisionRequest`,
+ * `AttackExecutionRequest`) rather than `unknown` — the real services declare
+ * their public methods as `(request: unknown) => Promise<...>`, and a function
+ * accepting `unknown` is a valid substitute wherever a function accepting a
+ * narrower type is expected, so both concrete classes still satisfy these
+ * port signatures unchanged.
+ *
+ * M1 follow-up: this was previously left as `unknown` after narrowing it
+ * surfaced a `tsc` error — `decision` (below, at the `verified_decision_missing`
+ * guard) was typed `VerifiedAuthorizationDecision | undefined` for the rest of
+ * the function because `isRuntimeEstablishedVerifiedAuthorizationDecision`
+ * returns a plain `boolean`, not a type predicate, so TS never narrowed past
+ * that guard. The fix did not require touching that function: adding an
+ * explicit `decision === undefined` check to this file's own guard gives TS a
+ * native narrowing expression it can carry for the rest of the function,
+ * closing the gap entirely locally, with no cast and no signature change
+ * elsewhere.
+ */
+export interface ReadObservationAuthorizationPort {
+  authorizeReadObservationFromVerifiedDecision(
+    request: AuthorizeReadObservationFromVerifiedDecisionRequest
+  ): Promise<AuthorizeReadObservationResult>;
+}
+
+export interface ReadObservationExecutionPort {
+  execute(request: AttackExecutionRequest): Promise<AttackExecutionResult>;
+}
+
 export interface InvestigationRuntimeCoordinatorInput {
   readonly assessmentId: string;
   readonly lineage: AuthorizedActiveReconRequestLineage;
@@ -289,8 +326,20 @@ export interface InvestigationRuntimeCoordinatorInput {
   readonly probeInventory: ProbeInventory;
   readonly planRepository: AttackPlanRepository;
   readonly planGenerator: AttackPlanGeneratorService;
-  readonly authorizationService: AttackAuthorizationService;
-  readonly executionService: AttackExecutionService;
+  /**
+   * Optional by design (M1): a read-only composition that never needs to
+   * mint an authorization token or execute an active probe may omit this.
+   * When absent, any hypothesis that would require active execution is
+   * reported as a truthful failed/inconclusive step — never silently
+   * skipped, and never treated as executed or successful.
+   */
+  readonly authorizationService?: ReadObservationAuthorizationPort;
+  /**
+   * Optional by design (M1), same rationale as `authorizationService`.
+   * Execution is still never attempted without an established authorization
+   * token, regardless of whether this is present.
+   */
+  readonly executionService?: ReadObservationExecutionPort;
   readonly recordOutcome: (args: {
     readonly assessmentId: string;
     readonly planId: string;
@@ -616,7 +665,12 @@ export class InvestigationRuntimeCoordinator {
     };
 
     const decision = input.verifiedAuthorizationDecision;
-    if (!isRuntimeEstablishedVerifiedAuthorizationDecision(decision)) {
+    // The explicit `=== undefined` check is redundant at runtime — the
+    // validator already returns false for undefined — but it gives
+    // TypeScript a native narrowing expression, so `decision` is typed
+    // `VerifiedAuthorizationDecision` (not `| undefined`) for the rest of
+    // this function, matching the two ports' now-exact request contracts.
+    if (decision === undefined || !isRuntimeEstablishedVerifiedAuthorizationDecision(decision)) {
       return finish('verified_decision_missing');
     }
 
@@ -674,6 +728,44 @@ export class InvestigationRuntimeCoordinator {
         findingsForSurface: novelFindingsFiltered,
         hints,
         draftSignals: novelSignalsFiltered,
+      });
+    };
+
+    /**
+     * M1 — truthful failed/inconclusive step record for a hypothesis that
+     * cannot proceed: either because no authorization token could be
+     * established (pre-existing behavior, any denial reason), or because no
+     * active-execution capability is configured for this composition (new).
+     * Never marks the step as completed/successful and never fabricates an
+     * authorization or execution result — it simply records that the step
+     * did not happen, exactly like the pre-existing authorization-denial path.
+     */
+    const recordCapabilityUnavailableStep = (args: {
+      readonly plan: AttackPlan;
+      readonly blastRadiusClass: ReadObservationBlastRadiusClass;
+      readonly hypothesis: SecurityHypothesis;
+      readonly reasonCode: string;
+    }): void => {
+      executedSteps.push({
+        planId: args.plan.planId,
+        capability: args.plan.capability,
+        blastRadiusClass: args.blastRadiusClass,
+        status: 'failed',
+        reasonCode: args.reasonCode,
+      });
+      transcriptSteps.push({
+        capability: args.plan.capability,
+        url: transcriptTargetForPlan(args.plan),
+        blastRadiusClass: args.blastRadiusClass,
+        outcome: 'failed',
+        invocation: { kind: 'not_invoked' },
+      });
+      hypothesesMap.set(args.hypothesis.hypothesisId, {
+        ...args.hypothesis,
+        state: 'inconclusive',
+        investigationCount: (args.hypothesis.investigationCount ?? 0) + 1,
+        blocked: true,
+        blockReason: 'none',
       });
     };
 
@@ -784,7 +876,22 @@ export class InvestigationRuntimeCoordinator {
         await input.planRepository.savePlans([targetPlan]);
       }
 
-      // 4. Mint read observation authorization token
+      // 4. Mint read observation authorization token — only if an
+      // authorization capability is configured for this composition. A
+      // read-only composition that omits it never mints a token and never
+      // reaches step 5; the hypothesis is reported as failed/inconclusive,
+      // exactly like any other authorization-denial reason below.
+      if (!input.authorizationService) {
+        executedPlanIds.add(targetPlan.planId);
+        recordCapabilityUnavailableStep({
+          plan: targetPlan,
+          blastRadiusClass,
+          hypothesis: nextSelection.selectedHypothesis,
+          reasonCode: 'active_authorization_capability_not_configured',
+        });
+        continue;
+      }
+
       const minted = await input.authorizationService.authorizeReadObservationFromVerifiedDecision({
         contractVersion: ATTACK_AUTHORIZATION_CONTRACT_VERSION,
         kind: AUTHORIZE_READ_OBSERVATION_REQUEST_KIND,
@@ -798,32 +905,35 @@ export class InvestigationRuntimeCoordinator {
       executedPlanIds.add(targetPlan.planId);
 
       if (minted.status !== 'established') {
-        executedSteps.push({
-          planId: targetPlan.planId,
-          capability: targetPlan.capability,
+        recordCapabilityUnavailableStep({
+          plan: targetPlan,
           blastRadiusClass,
-          status: 'failed',
+          hypothesis: nextSelection.selectedHypothesis,
           reasonCode: minted.reasonCode,
-        });
-        transcriptSteps.push({
-          capability: targetPlan.capability,
-          url: transcriptTargetForPlan(targetPlan),
-          blastRadiusClass,
-          outcome: 'failed',
-          invocation: { kind: 'not_invoked' },
-        });
-        const failedHyp = nextSelection.selectedHypothesis;
-        hypothesesMap.set(failedHyp.hypothesisId, {
-          ...failedHyp,
-          state: 'inconclusive',
-          investigationCount: (failedHyp.investigationCount ?? 0) + 1,
-          blocked: true,
-          blockReason: 'none',
         });
         continue;
       }
 
-      // 5. Execute probe through AttackExecutionService and capture full response
+      // 5. Execute probe through AttackExecutionService and capture full
+      // response — only if an execution capability is configured.
+      // Authorization is already established at this point; execution is
+      // simply never attempted when this is absent (never fabricated as
+      // completed, never silently dropped).
+      if (!input.executionService) {
+        recordCapabilityUnavailableStep({
+          plan: targetPlan,
+          blastRadiusClass,
+          hypothesis: nextSelection.selectedHypothesis,
+          reasonCode: 'active_execution_capability_not_configured',
+        });
+        continue;
+      }
+      // Narrowed to a local const: the guard above only narrows
+      // `input.executionService` within this synchronous block — the
+      // closure passed to captureStepInvocation below is a separate function
+      // scope, so TypeScript cannot carry that narrowing into it otherwise.
+      const executionService = input.executionService;
+
       let capturedResponse: {
         statusCode: number;
         headers: Readonly<Record<string, string>>;
@@ -845,7 +955,7 @@ export class InvestigationRuntimeCoordinator {
       };
 
       const captured = await captureStepInvocation(() =>
-        input.executionService.execute({
+        executionService.execute({
           contractVersion: ATTACK_EXECUTION_CONTRACT_VERSION,
           kind: 'attack_execution_request',
           planId: targetPlan.planId,

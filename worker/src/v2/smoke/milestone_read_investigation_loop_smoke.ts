@@ -357,6 +357,82 @@ async function main(): Promise<void> {
     assert.equal(parseReadInvestigationLoopRecord(extra), null);
   }
 
+  // M1 — read-only composition (authorizationService AND executionService
+  // both omitted). Zero network calls. The hypothesis is reported truthfully
+  // as a failed/inconclusive step, never as completed or silently skipped.
+  {
+    const box = await harness();
+    const counted = countingTransport();
+    await box.plans.savePlans([
+      plan({ planId: 'plan_ril_no_capability', targetUrl: IN_SCOPE, createdAt: '2026-09-30T12:00:00.000Z' }),
+    ]);
+    const result = await runReadInvestigationLoop({
+      assessmentId: ASSESSMENT,
+      lineage: lineage(),
+      verifiedAuthorizationDecision: decision,
+      scopeGrant: scopeGrant(),
+      coordinator: new TargetExecutionCoordinator({ requestsPerSecond: 5, maxConcurrency: 2 }),
+      dnsResolver: async () => ['93.184.216.34'],
+      transport: counted.transport,
+      circuitHost: HOST,
+      findings: [],
+      probeInventory: inventory(),
+      planRepository: box.plans,
+      planGenerator: new AttackPlanGeneratorService(),
+      // authorizationService / executionService intentionally omitted.
+      recordOutcome: (outcome) => box.service.recordAttackExecutionOutcome(outcome),
+    });
+    assert.deepEqual(counted.calls, []);
+    assert.equal(result.record.executedSteps.length, 1);
+    assert.equal(result.record.executedSteps[0]?.status, 'failed');
+    assert.equal(
+      result.record.executedSteps[0]?.reasonCode,
+      'active_authorization_capability_not_configured'
+    );
+    const blockedHyp = result.hypotheses.find((h) => h.state === 'inconclusive');
+    assert.ok(blockedHyp, 'hypothesis must be reported inconclusive, never fabricated as supported');
+    assert.ok(parseReadInvestigationLoopRecord(result.record));
+  }
+
+  // M1 — authorizationService present (so a token CAN be established) but
+  // executionService omitted. Authorization happens; execution never does.
+  // Zero network calls, and the step is reported as a truthful failure.
+  {
+    const box = await harness();
+    const counted = countingTransport();
+    await box.plans.savePlans([
+      plan({ planId: 'plan_ril_no_execution', targetUrl: IN_SCOPE, createdAt: '2026-09-30T12:00:00.000Z' }),
+    ]);
+    const result = await runReadInvestigationLoop({
+      assessmentId: ASSESSMENT,
+      lineage: lineage(),
+      verifiedAuthorizationDecision: decision,
+      scopeGrant: scopeGrant(),
+      coordinator: new TargetExecutionCoordinator({ requestsPerSecond: 5, maxConcurrency: 2 }),
+      dnsResolver: async () => ['93.184.216.34'],
+      transport: counted.transport,
+      circuitHost: HOST,
+      findings: [],
+      probeInventory: inventory(),
+      planRepository: box.plans,
+      planGenerator: new AttackPlanGeneratorService(),
+      authorizationService: box.auth,
+      // executionService intentionally omitted.
+      recordOutcome: (outcome) => box.service.recordAttackExecutionOutcome(outcome),
+    });
+    assert.deepEqual(counted.calls, []);
+    assert.equal(box.auth.planIds.length, 1, 'authorization must still be attempted');
+    assert.equal(result.record.executedSteps.length, 1);
+    assert.equal(result.record.executedSteps[0]?.status, 'failed');
+    assert.equal(
+      result.record.executedSteps[0]?.reasonCode,
+      'active_execution_capability_not_configured'
+    );
+    const blockedHyp = result.hypotheses.find((h) => h.state === 'inconclusive');
+    assert.ok(blockedHyp, 'hypothesis must be reported inconclusive, never fabricated as supported');
+    assert.ok(parseReadInvestigationLoopRecord(result.record));
+  }
+
   // Step cap 1 runs one plan and stops while another read plan is queued.
   {
     const box = await harness();
