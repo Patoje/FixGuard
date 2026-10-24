@@ -473,6 +473,15 @@ export interface ReviewParrotImportObservationResponse {
   readonly finding?: FindingDto;
 }
 
+/** R4 — result of importing an operator-supplied Parrot export file. */
+export interface ImportParrotFileResponse {
+  readonly status: 'accepted' | 'rejected';
+  readonly reasonCode?: string;
+  readonly rejectionDetail?: string;
+  readonly observations: readonly ParrotImportedObservationDto[];
+  readonly importedCount: number;
+}
+
 export interface ReviewEvidenceDraftResponse {
   readonly assessmentId: string;
   readonly draftId: string;
@@ -712,6 +721,26 @@ export class V2OrchestratedApiClient {
   }
 
   /**
+   * R4 — imports an operator-supplied Parrot export file. `rawFile` is
+   * untrusted input, validated fail-closed server-side — this call never
+   * creates a Finding by itself.
+   * POST /api/v2/assessments/:assessmentId/parrot-import
+   */
+  public async importParrotFile(
+    assessmentId: string,
+    rawFile: unknown,
+    importedBy: string
+  ): Promise<ImportParrotFileResponse> {
+    return this.request<ImportParrotFileResponse>(
+      `/assessments/${encodeURIComponent(assessmentId)}/parrot-import`,
+      {
+        method: 'POST',
+        body: JSON.stringify({ rawFile, importedBy }),
+      }
+    );
+  }
+
+  /**
    * P4 — reviews one Parrot-imported observation. Only approve_evidence on
    * a 'confirmed' outcome ever creates a Finding.
    * POST /api/v2/assessments/:assessmentId/parrot-import/:observationId/review
@@ -826,6 +855,17 @@ export async function getTargetDossier(
 ): Promise<TargetDossierDto> {
   const client = config ? new V2OrchestratedApiClient(config) : v2OrchestratedApi;
   return client.getTargetDossier(assessmentId);
+}
+
+/** R4 — imports an operator-supplied Parrot export file (untrusted input, validated server-side). */
+export async function importParrotFile(
+  assessmentId: string,
+  rawFile: unknown,
+  importedBy: string,
+  config?: V2ApiClientConfig
+): Promise<ImportParrotFileResponse> {
+  const client = config ? new V2OrchestratedApiClient(config) : v2OrchestratedApi;
+  return client.importParrotFile(assessmentId, rawFile, importedBy);
 }
 
 /** P4 — lists Parrot-imported observations for an assessment. */

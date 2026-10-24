@@ -8,6 +8,7 @@
 
 import type { AuthorizedExecutionLineageTuple } from '../detection/DetectionContracts.js';
 import type { VerificationState } from '../core/VerificationStateContracts.js';
+import type { DetectedTechnology } from '../core/TechnologyContracts.js';
 
 export type AttackSurfaceContractVersion = 'fixguard-attack-surface/v0';
 export const ATTACK_SURFACE_CONTRACT_VERSION: AttackSurfaceContractVersion =
@@ -137,6 +138,13 @@ export interface ApplicationNode extends AsgNodeBase {
   readonly metadata: {
     readonly name: string;
     readonly technologies: readonly string[];
+    /**
+     * R2 — the same technologies, carrying the category/version/confidence
+     * already computed by TechnologyFingerprintService (and discarded by the
+     * flat `technologies` list above). No new detection: this threads
+     * TargetProfile.detectedTechnologies through unchanged.
+     */
+    readonly detectedTechnologies?: readonly DetectedTechnology[];
   };
 }
 

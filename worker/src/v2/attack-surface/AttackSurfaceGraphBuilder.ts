@@ -228,6 +228,9 @@ export const AttackSurfaceGraphBuilder = {
       metadata: {
         name: rootHostname,
         technologies: [...profile.technologies],
+        ...(profile.detectedTechnologies && profile.detectedTechnologies.length > 0
+          ? { detectedTechnologies: [...profile.detectedTechnologies] }
+          : {}),
       },
     });
 
