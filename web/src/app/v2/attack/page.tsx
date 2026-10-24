@@ -52,6 +52,7 @@ import { PostExploitationPanel } from "./components/PostExploitationPanel";
 import { ImpactAssessmentView } from "./components/ImpactAssessmentView";
 import { DatabaseTablesViewer, extractDiscoveredTables } from "./components/DatabaseTablesViewer";
 import { DiscoveredSurfaceViewer } from "./components/DiscoveredSurfaceViewer";
+import { ParrotHandoffPanel } from "./components/ParrotHandoffPanel";
 import type { OperatorAttackRecommendation } from "@/lib/v2AttackApi";
 import { getOperatorSessionIdentity } from "@/lib/v2/operatorSession";
 
@@ -1318,6 +1319,8 @@ function AttackModeContent({
                 })
               )}
             </div>
+
+            {assessmentId && <ParrotHandoffPanel assessmentId={assessmentId} />}
           </div>
 
           {/* RIGHT COLUMN: Terminal Táctica Interactiva (7 cols) */}

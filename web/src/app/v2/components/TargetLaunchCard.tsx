@@ -31,7 +31,7 @@ interface TargetLaunchCardProps {
   isRunning: boolean;
 }
 
-function cleanDomain(input: string): string {
+export function cleanDomain(input: string): string {
   return input
     .trim()
     .toLowerCase()
@@ -39,7 +39,7 @@ function cleanDomain(input: string): string {
     .replace(/\/.*$/, "");
 }
 
-function isPrivateOrLoopbackHost(hostname: string): boolean {
+export function isPrivateOrLoopbackHost(hostname: string): boolean {
   if (hostname === "localhost" || hostname.endsWith(".localhost")) return true;
   if (/^127\./.test(hostname)) return true;
   if (/^10\./.test(hostname)) return true;

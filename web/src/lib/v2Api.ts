@@ -17,11 +17,13 @@ export interface LineageTuple {
 
 export interface StageResultDto {
   readonly stage: string;
-  readonly status: 'success' | 'partial_failure' | 'failed' | 'skipped';
+  // Matches worker ReconStageExecutionResult (ActiveReconOrchestrationContracts.ts)
+  // exactly — verified against a live /status response, not assumed; this type
+  // previously said 'success' | 'failed', which the backend never sends.
+  readonly status: 'completed' | 'skipped' | 'partial_failure';
   readonly observationsCount: number;
   readonly durationMs: number;
   readonly warnings?: readonly string[];
-  readonly error?: string;
 }
 
 export interface FindingDto {
@@ -389,6 +391,50 @@ export interface ReviewEvidenceDraftParams {
   readonly notes?: string;
 }
 
+/** R3/P3 — Target Dossier DTOs (mirrors worker TargetDossierContracts.ts). */
+export interface TargetDossierSurfaceSummaryDto {
+  readonly totalEndpoints: number;
+  readonly byClassification: Record<string, number>;
+  readonly unclassifiedEndpointUrls: readonly string[];
+  readonly unclassifiedEndpointUrlsTruncated: boolean;
+}
+
+export interface TargetDossierHypothesisDto {
+  readonly hypothesisId: string;
+  readonly hypothesisKind: string;
+  readonly title: string;
+  readonly epistemicStatus: string;
+  readonly score: number;
+  readonly rationale: string;
+  readonly blocked: boolean;
+  readonly blockReason: string;
+  readonly deferredToManualValidation: boolean;
+  readonly suggestedCapability?: string;
+  readonly targetUrl?: string;
+}
+
+export interface TargetDossierFindingDto {
+  readonly findingId: string;
+  readonly type: string;
+  readonly severity: string;
+  readonly title: string;
+  readonly target: string;
+  readonly confidence: number;
+  readonly verificationState: string;
+}
+
+export interface TargetDossierDto {
+  readonly dossierId: string;
+  readonly assessmentId: string;
+  readonly scanId: string;
+  readonly targetDomain: string;
+  readonly generatedAt: string;
+  readonly surfaceSummary: TargetDossierSurfaceSummaryDto;
+  readonly hypotheses: readonly TargetDossierHypothesisDto[];
+  readonly hypothesesTruncated: boolean;
+  readonly findings: readonly TargetDossierFindingDto[];
+}
+
 /** P4 — a Parrot-imported observation (never a Finding by itself). */
 export interface ParrotImportedObservationDto {
   readonly observationId: string;
@@ -643,6 +689,17 @@ export class V2OrchestratedApiClient {
   }
 
   /**
+   * R3/P3 — Target Dossier: classified surface + ranked hypotheses +
+   * approved findings. Read-only, no new probing.
+   * GET /api/v2/assessments/:assessmentId/dossier
+   */
+  public async getTargetDossier(assessmentId: string): Promise<TargetDossierDto> {
+    return this.request<TargetDossierDto>(
+      `/assessments/${encodeURIComponent(assessmentId)}/dossier`
+    );
+  }
+
+  /**
    * P4 — lists Parrot-imported observations pending (or already) reviewed.
    * GET /api/v2/assessments/:assessmentId/parrot-import
    */
@@ -760,6 +817,15 @@ export async function reviewEvidenceDraft(
 ): Promise<ReviewEvidenceDraftResponse> {
   const client = config ? new V2OrchestratedApiClient(config) : v2OrchestratedApi;
   return client.reviewEvidenceDraft(assessmentId, draftId, params);
+}
+
+/** R3/P3 — fetches the Target Dossier for an assessment. */
+export async function getTargetDossier(
+  assessmentId: string,
+  config?: V2ApiClientConfig
+): Promise<TargetDossierDto> {
+  const client = config ? new V2OrchestratedApiClient(config) : v2OrchestratedApi;
+  return client.getTargetDossier(assessmentId);
 }
 
 /** P4 — lists Parrot-imported observations for an assessment. */

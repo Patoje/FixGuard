@@ -97,7 +97,7 @@ function formatStageLine(stage: StageResultDto): TerminalLine {
     tools: "pipeline",
   };
   const stamp = new Date().toISOString().slice(11, 19);
-  const ok = stage.status === "success" || stage.status === "partial_failure";
+  const ok = stage.status === "completed" || stage.status === "partial_failure";
   return {
     id: `${stage.stage}-${stage.durationMs}-${stage.observationsCount}`,
     at: stamp,
