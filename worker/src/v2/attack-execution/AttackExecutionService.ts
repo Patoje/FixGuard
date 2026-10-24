@@ -420,7 +420,7 @@ export class AttackExecutionService {
         );
       }
 
-      // Gate 6: scope boundary & state-change authorization
+      // Gate 6: scope boundary, active-validation permission & state-change authorization
       if (!isScopeAllowed(targetHost, req.scopeGrant)) {
         return this.gateFail(
           executionId,
@@ -433,6 +433,33 @@ export class AttackExecutionService {
           targetHost,
           'gate_scope',
           'Safety gate 6 failed: target host is outside authorized scope'
+        );
+      }
+
+      // Active-validation permission is mandatory for every execution reaching
+      // this service, per operator policy. It is an independent, exact
+      // requirement: no other permission (endpointDiscovery, lightValidation,
+      // authenticatedTesting, etc.) may substitute for it, and it is not
+      // inferred from blastRadiusClass. req.scopeGrant is the authoritative,
+      // server-sealed grant at both production call sites (verified: the
+      // automatic investigation loop's scopeGrant is constructed server-side
+      // in OrchestratedAssessmentApplicationService.startAssessment and never
+      // reassigned from client input; the manual execute route's scopeGrant
+      // is the sealed grant returned by rebindScopeGrantForAssessment, never
+      // the client-supplied object). Fails closed on anything other than the
+      // literal boolean `true` (absent, malformed, or any other value).
+      if (req.scopeGrant.permissionSet.activeValidation !== true) {
+        return this.gateFail(
+          executionId,
+          plan,
+          req,
+          startedAt,
+          stepRecords,
+          findings,
+          step,
+          targetHost,
+          'gate_scope',
+          'Safety gate 6 failed: scope grant does not permit active validation (permissionSet.activeValidation is not true)'
         );
       }
 
