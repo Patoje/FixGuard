@@ -268,9 +268,11 @@ in the dossier, confirmed double-review fails closed with
 `observation_already_reviewed`. `web/src/lib/v2Api.ts` gained the client
 methods/types for this (`getParrotImportObservations`,
 `reviewParrotImportObservation`) — `cd web && npm run build` exits 0.
-**Not done**: the actual UI panel/page wiring in `web/src/app/v2/review/`
-to list and review these observations from the browser — only the API
-client is ready for it.
+**UI done (2026-10-24, later increment)**: not in `/v2/review/` as originally
+scoped — operator decided it belongs in Stage 4 (Attack Mode) instead, next
+to the existing evidence/recommendations panel. See
+`web/src/app/v2/attack/components/ParrotHandoffPanel.tsx`. P4 is now fully
+closed, backend and UI.
 
 **Problem:** R4 increment 1 stores `ParrotImportedObservation`s in their own
 silo. There's no path from "Parrot confirmed this" to an actual `Finding` —
