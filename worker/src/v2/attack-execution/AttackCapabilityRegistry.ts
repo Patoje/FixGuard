@@ -34,6 +34,12 @@ import { createCredentialReuseCapability } from './capabilities/CredentialReuseC
 import { createAuthBoundaryDifferentialCapability } from './capabilities/AuthBoundaryDifferentialCapability.js';
 import { createGraphqlAuthDeltaCapability } from './capabilities/GraphqlAuthDeltaCapability.js';
 import { CredentialVaultService } from '../post-exploitation/CredentialVaultService.js';
+import { createSecurityHeaderProbeCapability } from './capabilities/SecurityHeaderProbeCapability.js';
+import { createInformationDisclosureProbeCapability } from './capabilities/InformationDisclosureProbeCapability.js';
+import { createOpenRedirectProbeCapability } from './capabilities/OpenRedirectProbeCapability.js';
+import { createGraphQLSurfaceProbeCapability } from './capabilities/GraphQLSurfaceProbeCapability.js';
+import { createSessionFixationProbeCapability } from './capabilities/SessionFixationProbeCapability.js';
+import { createCorsMisconfigurationProbeCapability } from './capabilities/CorsMisconfigurationProbeCapability.js';
 
 function succeeded(reasonCode: string, safeMessage: string, evidenceId?: string): AttackCapabilityExecutionResult {
   return {
@@ -142,6 +148,17 @@ export class AttackCapabilityRegistry {
         createCredentialReuseCapability({ vault: new CredentialVaultService() }),
         createAuthBoundaryDifferentialCapability(),
         createGraphqlAuthDeltaCapability(),
+        // P0 (recon-first pivot, operator decision 2026-10-24): passive
+        // read-only probes, bridged to their existing detection/*Service.ts
+        // functions. Reachable only through this fully-authorized
+        // AttackPlan -> authorize -> execute path (explicit per-target
+        // activeValidation + human-authorized plan) — never auto-invoked.
+        createSecurityHeaderProbeCapability(),
+        createInformationDisclosureProbeCapability(),
+        createOpenRedirectProbeCapability(),
+        createGraphQLSurfaceProbeCapability(),
+        createSessionFixationProbeCapability(),
+        createCorsMisconfigurationProbeCapability(),
       ] as const);
     for (const port of initial) {
       this.ports.set(port.capability, port);

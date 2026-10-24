@@ -2,7 +2,29 @@
 
 ## Milestone P0 — Bridge passive detectors into AttackCapabilityRegistry (URGENT, found via live testing)
 
-**Status:** IN PROGRESS.
+**Status:** COMPLETED (2026-10-24). 6 thin wrappers added in
+`attack-execution/capabilities/` (`SecurityHeaderProbeCapability.ts`,
+`InformationDisclosureProbeCapability.ts`, `OpenRedirectProbeCapability.ts`,
+`GraphQLSurfaceProbeCapability.ts`, `SessionFixationProbeCapability.ts`,
+`CorsMisconfigurationProbeCapability.ts`) and registered in
+`AttackCapabilityRegistry.createDefault()`. Operator decision: register all
+6 including `cors_misconfiguration_probe` (one of ADR-013's originally
+frozen 6) — see the ADR-013 amendment for the reasoning (the authorized
+plan→execute path already requires explicit per-target `activeValidation`,
+so a capability being unavailable there served no additional safety
+purpose once that gate exists; `idor_read_differential` and
+`auth_boundary_differential`, also on ADR-013's original list, were
+already registered this way before this change).
+
+**Verified live, end to end, against `negocios-inmobiliarios.vercel.app`**:
+re-ran the assessment after registering the wrappers — `security_header_probe`
+steps now show `invocation.kind: 'http'` (a real request was sent, not
+`not_invoked`) and produced a genuine evidence draft, `requiresHumanReview:
+true`: the target is missing all 8 recommended security headers (CSP,
+HSTS, X-Frame-Options, Referrer-Policy, Permissions-Policy, COOP, CORP,
+COEP). This is the first real, substantive output FixGuard V2 has produced
+end-to-end this session — recon → classification → authorized execution →
+evidence pending human review, exactly as designed, nothing auto-confirmed.
 
 **How this was found:** ran real assessments against 3 authorized Vercel
 sites (`firma-nu.vercel.app`, `inmobiliaria-cornejo-web-rho.vercel.app`,

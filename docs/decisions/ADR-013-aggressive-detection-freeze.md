@@ -92,6 +92,49 @@ consistent with "Tools execute. Intelligence decides. Humans authorize."
 - Re-enabling is a single-line flip (`AGGRESSIVE_DETECTION_FROZEN = false`)
   plus a new ADR superseding this one — not a rewrite.
 
+## Amendment (2026-10-24, operator decision, found via live testing)
+
+Live testing against 3 real authorized targets found that
+`AttackCapabilityRegistry` had no registered wrapper for any of the 6
+passive read capabilities the plan generator produces
+(`security_header_probe`, `information_disclosure_probe`,
+`cors_misconfiguration_probe`, `open_redirect_probe`,
+`graphql_surface_probe`, `session_fixation_probe`) — so even a fully
+human-authorized plan (explicit `activeValidation` permission + authorized
+`AttackPlan` + explicit `execute()` call) failed as
+`capability_not_implemented`, indistinguishable in the transcript from a
+genuine preflight denial. This produced zero findings on every target
+regardless of how much the recon layer discovered.
+
+The operator's instruction: any URL submitted for assessment already
+carries full permissions and explicit authorization by the nature of this
+product (a personal, single-operator workbench — nothing runs against a
+target the operator didn't explicitly point FixGuard at), so that
+authorization should never leave a capability unavailable through the
+fully-authorized execute path. This section 2's original phrasing
+("already gated... no new wiring") is **amended**: it correctly describes
+why `attack-execution/*` needed no *code change* to satisfy the freeze
+(the automatic paths were already closed), but it did not anticipate gaps
+where a capability had *no* path to execution at all, defeating the whole
+point of having an authorized path. Resolution:
+
+- Wrappers for all 6 passive capabilities above are now registered in
+  `AttackCapabilityRegistry.createDefault()`, bridging directly to their
+  existing, R5-confirmed-sound `detection/*Service.ts` functions — no new
+  detection logic, only the missing bridge.
+- This explicitly includes `cors_misconfiguration_probe`, one of this
+  ADR's original 6 frozen detectors. It remains frozen from FixGuard's own
+  **automatic** `ReadDetectionPass.ts` sweep (unchanged, `
+  AGGRESSIVE_DETECTION_FROZEN = true` still applies there) — this
+  amendment only makes it reachable through the pre-existing, already
+  mandatory `activeValidation` + plan-authorization gate, the same gate
+  every other registered capability (including `idor_read_differential`
+  and `auth_boundary_differential`, both on this ADR's original frozen
+  list) already sat behind before this amendment.
+- No automatic execution path changed. No detector's confirmation logic
+  changed. This is purely closing a registration gap, not reopening the
+  freeze.
+
 ## What NOT to do
 
 - Do not delete the frozen detector services, their contracts, or their
