@@ -1,5 +1,84 @@
 # FixGuard V2 — Implementation Plan: Recon-First Depth (Phase R, next increments)
 
+## Milestone P0 — Bridge passive detectors into AttackCapabilityRegistry (URGENT, found via live testing)
+
+**Status:** IN PROGRESS.
+
+**How this was found:** ran real assessments against 3 authorized Vercel
+sites (`firma-nu.vercel.app`, `inmobiliaria-cornejo-web-rho.vercel.app`,
+`negocios-inmobiliarios.vercel.app`, 2026-10-24). Recon + R2 classification
+worked well on all three (190/87/36 endpoints classified, 0% unknown), but
+all three produced **zero findings**. Traced to two separate, both real,
+root causes:
+
+1. **FIXED**: `shouldEnableSpaDiscovery()` in
+   `CompositeActiveReconOrchestratorService.ts` only auto-enabled
+   Playwright-based SPA discovery on detected Next.js signals. All 3 test
+   sites are Vite/React SPAs (no Next.js signals) — so Playwright never
+   ran, no route got classified `screen` (`InventoryRouteClass.ts` only
+   trusts `playwright_spa`/`spa_network`/`rsc_discovery`/
+   `html_link_extraction`/`html_hop_extra` as confirmed screens), so
+   `applicationUrlsFromInventory()` returned empty, so zero read-plans were
+   ever generated regardless of what was discovered. **Changed (operator
+   decision, 2026-10-24): SPA/Playwright discovery is now enabled by
+   default for every assessment**, overridable via
+   `config.enableSpaDiscovery: false`. Verified live: re-ran
+   `inmobiliaria-cornejo-web-rho.vercel.app` with no config flag — `
+   playwright_spa` now appears in discovered sources, 20 plans went
+   `ready_for_authorization` (was 0 before the fix).
+2. **NOT YET FIXED (this milestone's real scope)**: even with plans
+   `ready_for_authorization`, executing them still failed —
+   `AttackCapabilityRegistry.createDefault()` has **no registered
+   `AttackCapabilityPort` wrapper** for any of the 6 passive/read
+   capabilities that `DeferredSurfaceProbePlans.ts` generates
+   (`security_header_probe`, `information_disclosure_probe`,
+   `cors_misconfiguration_probe`, `open_redirect_probe`,
+   `graphql_surface_probe`, `session_fixation_probe`). Only the
+   ADR-013-frozen "aggressive" capabilities
+   (`cors_chain_exploit`, `auth_bypass_probe`, `jwt_alg_none_probe`,
+   `sql_oracle_advancement`, `nuclei_xss_scan`, `sql_injection_verification`,
+   `credential_reuse`, the Supabase/NextServerAction ones) have real
+   wrappers. `AttackExecutionService` falls back to
+   `createNotImplementedCapability()` for the 6 passive ones, which the
+   transcript surfaces indistinguishably from a genuine `preflight_denied`
+   (`executionStatus()` maps anything that isn't `'completed'`/`'failed'`
+   to `'preflight_denied'`). The 19 passive detectors R5 confirmed sound
+   (`SecurityHeaderDetectionService.ts` etc., under `detection/`) are real
+   and working — they're just never invoked by this pipeline. Only
+   `ReadDetectionPass.ts` calls them directly, and nothing in the default
+   `startAssessment` → `InvestigationRuntimeCoordinator` plan-execution path
+   routes through `ReadDetectionPass` for AttackPlan-originated read steps.
+
+**Plan for the remaining scope:**
+1. Write thin `AttackCapabilityPort` wrapper(s) in
+   `attack-execution/capabilities/` for the 6 passive capability kinds,
+   each delegating to its existing `detection/*Service.ts` function
+   (`runSecurityHeaderDetection`, `runInformationDisclosureDetection`,
+   `runCorsMisconfigurationDetection`, `runOpenRedirectDetection`,
+   `runGraphQLSurfaceDetection`, `runSessionFixationDetection`) — no new
+   detection logic, just the bridge `AttackCapabilityRegistry` expects.
+2. **ADR-013 check before registering `cors_misconfiguration_probe`**: this
+   plan-level capability name maps to `CorsMisconfigurationDetectionService`,
+   which is on the frozen list (it's one of the 6 originally frozen in
+   `ReadDetectionPass.ts`). Confirm with the operator whether registering
+   it here (a different code path than the frozen one) re-opens exactly
+   what ADR-013 closed, or whether it's fine since this path still requires
+   `activeValidation` + explicit plan authorization (unlike the fully
+   automatic `ReadDetectionPass` sweep). Likely resolution: register the
+   other 5, leave `cors_misconfiguration_probe` unregistered (stays
+   `capability_not_implemented`) to honor ADR-013 consistently.
+3. Register the new wrappers in `AttackCapabilityRegistry.createDefault()`.
+4. Re-run against the 3 test sites; confirm `findings` is no longer always
+   `[]` and the transcript shows genuine `completed`/`secure_target_abstained`
+   outcomes instead of `capability_not_implemented`-as-`preflight_denied`.
+5. Update `docs/ROADMAP.md` and this plan with the result.
+
+**Depends on:** nothing new (R5's audit already confirmed these 19
+detectors are sound).
+**Non-goal:** does not touch any of the 6 ADR-013-frozen capabilities'
+registration status.
+
+
 **Status:** DRAFT — awaiting operator approval before any file is touched.
 **Scope:** the 5 gaps identified against the recon-first vision (deep recon →
 classify → find real gaps → hand off aggressive validation to Parrot). Each

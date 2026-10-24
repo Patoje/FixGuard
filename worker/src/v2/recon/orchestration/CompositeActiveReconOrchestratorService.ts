@@ -174,17 +174,26 @@ function webObservationHasNextSignals(obs: DiscoveredWebObservation): boolean {
   return false;
 }
 
+/**
+ * P0 follow-up (2026-10-24, operator decision): SPA/Playwright discovery is
+ * now enabled by default for every assessment, not just Next.js-signaled
+ * ones. Verified live against 3 real Vercel-hosted sites this session —
+ * Vite/React SPAs (no Next.js signals) produced zero "screen"-classified
+ * routes and zero executable read plans until this was forced on, so
+ * gating it behind a Next.js-only heuristic silently starved the
+ * investigation loop on any non-Next.js SPA. Still explicitly overridable
+ * via `config.enableSpaDiscovery: false` for an operator who wants to skip
+ * the extra Playwright cost on a known-static/non-SPA target.
+ */
 function shouldEnableSpaDiscovery(
   request: {
     readonly seedUrls?: readonly string[];
     readonly config?: { readonly enableSpaDiscovery?: boolean };
   },
-  webObservations: readonly DiscoveredWebObservation[]
+  _webObservations: readonly DiscoveredWebObservation[]
 ): boolean {
   if (request.config?.enableSpaDiscovery === false) return false;
-  if (request.config?.enableSpaDiscovery === true) return true;
-  if (request.seedUrls && request.seedUrls.length > 0) return true;
-  return webObservations.some(webObservationHasNextSignals);
+  return true;
 }
 
 /**
