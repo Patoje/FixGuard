@@ -378,6 +378,83 @@ export class HypothesisSchedulerService {
       );
     }
 
+    // P1 (recon-first pivot) — recon/classification gap hypotheses.
+    // Never vulnerability hypotheses: they recommend an investigation step
+    // (a passive/classification capability) that would reduce an unknown
+    // about the target, scored RECOMMENDED rather than INFERRED/OBSERVED.
+    const gaps = input.surfaceGaps;
+    if (gaps) {
+      if (gaps.unclassifiedEndpointCount > 0) {
+        rulesApplied.push('rule_recon_endpoint_classification_gap');
+        const ratio = gaps.totalEndpointCount > 0
+          ? gaps.unclassifiedEndpointCount / gaps.totalEndpointCount
+          : 1;
+        raw.push(
+          Object.freeze({
+            contractVersion: HYPOTHESIS_SCHEDULER_CONTRACT_VERSION,
+            kind: 'security_hypothesis',
+            hypothesisId: shaId([input.assessmentId, 'endpoint_classification_gap']),
+            hypothesisKind: 'endpoint_classification_gap',
+            title: `${gaps.unclassifiedEndpointCount} endpoint(s) still unclassified`,
+            epistemicStatus: 'RECOMMENDED',
+            score: Math.round(40 + ratio * 30),
+            rationale: `${gaps.unclassifiedEndpointCount} of ${gaps.totalEndpointCount} discovered endpoints have no surface classification yet — understanding what they are is a prerequisite to deciding what (if anything) to investigate further.`,
+            sourceFindingIds: Object.freeze([]),
+            deferredToManualValidation: false,
+            blocked: false,
+            blockReason: 'none',
+            ...(gaps.sampleUnclassifiedEndpointUrls && gaps.sampleUnclassifiedEndpointUrls.length > 0
+              ? { candidateTargetUrls: Object.freeze([...gaps.sampleUnclassifiedEndpointUrls]) }
+              : {}),
+          })
+        );
+      }
+
+      if (gaps.unknownAuthRequirementEndpointCount > 0) {
+        rulesApplied.push('rule_recon_auth_boundary_unmapped');
+        raw.push(
+          Object.freeze({
+            contractVersion: HYPOTHESIS_SCHEDULER_CONTRACT_VERSION,
+            kind: 'security_hypothesis',
+            hypothesisId: shaId([input.assessmentId, 'auth_boundary_unmapped']),
+            hypothesisKind: 'auth_boundary_unmapped',
+            title: `${gaps.unknownAuthRequirementEndpointCount} endpoint(s) with unmapped auth requirement`,
+            epistemicStatus: 'RECOMMENDED',
+            score: 45,
+            rationale: `${gaps.unknownAuthRequirementEndpointCount} endpoints have an unconfirmed auth requirement — mapping this (passively, via observed response behavior) is a prerequisite for any later auth-related hypothesis.`,
+            sourceFindingIds: Object.freeze([]),
+            deferredToManualValidation: false,
+            blocked: false,
+            blockReason: 'none',
+          })
+        );
+      }
+    }
+
+    if (
+      hasEndpoint &&
+      (!stack.technologyNames || stack.technologyNames.length === 0)
+    ) {
+      rulesApplied.push('rule_recon_technology_unconfirmed');
+      raw.push(
+        Object.freeze({
+          contractVersion: HYPOTHESIS_SCHEDULER_CONTRACT_VERSION,
+          kind: 'security_hypothesis',
+          hypothesisId: shaId([input.assessmentId, 'technology_unconfirmed']),
+          hypothesisKind: 'technology_unconfirmed',
+          title: 'Target technology stack not yet confirmed',
+          epistemicStatus: 'RECOMMENDED',
+          score: 35,
+          rationale:
+            'Endpoints were discovered but no technology/framework fingerprint has been recorded — passive tech-detection would ground later classification.',
+          sourceFindingIds: Object.freeze([]),
+          deferredToManualValidation: false,
+          blocked: false,
+          blockReason: 'none',
+        })
+      );
+    }
+
     const ranked = [...raw].sort((a, b) => {
       if (b.score !== a.score) return b.score - a.score;
       return a.hypothesisId.localeCompare(b.hypothesisId);

@@ -205,6 +205,20 @@ export class AttackSurfaceQueryService {
   }
 
   /**
+   * P1 — Count of endpoints whose auth requirement is still 'unknown'.
+   * A direct, queryable gap signal feeding HypothesisSchedulerService's
+   * `auth_boundary_unmapped` recon-gap hypothesis.
+   */
+  countUnknownAuthRequirementEndpoints(): number {
+    let count = 0;
+    for (const node of this.graph.nodes) {
+      if (node.kind !== 'endpoint') continue;
+      if (node.metadata.authRequirement === 'unknown') count += 1;
+    }
+    return count;
+  }
+
+  /**
    * R2 — Count of endpoints per surface classification. A quick, honest
    * picture of surface composition (how much is REST vs GraphQL vs static
    * assets vs admin/internal vs still unclassified) without claiming

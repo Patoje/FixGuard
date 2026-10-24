@@ -19,7 +19,17 @@ export type SecurityHypothesisKind =
   | 'parameter_reflection'
   | 'graphql_surface_probe'
   | 'spa_surface_probe'
-  | 'header_hardening_gap';
+  | 'header_hardening_gap'
+  /**
+   * P1 (recon-first pivot) — recon/classification gap hypotheses. These are
+   * not vulnerability hypotheses: they recommend an investigation step
+   * (always a passive/classification capability, never an active probe)
+   * that would reduce what's still unknown about the target. Scheduled
+   * with epistemicStatus 'RECOMMENDED'.
+   */
+  | 'endpoint_classification_gap'
+  | 'technology_unconfirmed'
+  | 'auth_boundary_unmapped';
 
 export type HypothesisEpistemicStatus = 'INFERRED' | 'OBSERVED' | 'RECOMMENDED';
 
@@ -153,6 +163,18 @@ export interface SecurityHypothesis {
   };
 }
 
+/**
+ * P1 — precomputed recon/classification gap signals (from R2's
+ * AttackSurfaceQueryService). Passed as a projection, not the raw graph,
+ * keeping the scheduler decoupled and pure — same pattern as `asgNodeKinds`.
+ */
+export interface HypothesisSchedulerSurfaceGapSignals {
+  readonly totalEndpointCount: number;
+  readonly unclassifiedEndpointCount: number;
+  readonly sampleUnclassifiedEndpointUrls?: readonly string[];
+  readonly unknownAuthRequirementEndpointCount: number;
+}
+
 export interface HypothesisSchedulerStackHints {
   readonly hasSpa?: boolean;
   readonly hasVercel?: boolean;
@@ -178,6 +200,8 @@ export interface HypothesisSchedulerInput {
   /** True when an OBSERVED parameter exists. Surface SQL stays blocked when absent. */
   readonly hasObservedParameter?: boolean;
   readonly maxHypotheses?: number;
+  /** P1 — recon/classification gap signals; omit to skip gap-hypothesis rules. */
+  readonly surfaceGaps?: HypothesisSchedulerSurfaceGapSignals;
 }
 
 export interface HypothesisSchedulerResult {

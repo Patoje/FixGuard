@@ -114,6 +114,7 @@ import {
 } from '../comparison/ResponseComparatorContracts.js';
 import { correlateCorsIdorChains } from '../intelligence/correlation/CorsIdorChainCorrelator.js';
 import { correlateCrossFindingChains } from '../intelligence/correlation/CrossFindingChainCorrelator.js';
+import { classifyEndpointSurface } from '../attack-surface/EndpointSurfaceClassifier.js';
 
 const READ_CLASS_BY_CAPABILITY: Partial<
   Record<AttackCapabilityKind, ReadObservationBlastRadiusClass>
@@ -137,6 +138,34 @@ function isReadClass(value: unknown): value is ReadObservationBlastRadiusClass {
     value === 'read_authenticated' ||
     value === 'read_escalated'
   );
+}
+
+/**
+ * P1 (recon-first pivot) — prioritizes probe-inventory entries whose
+ * surface is not yet classified (R2's EndpointSurfaceKind) ahead of
+ * already-classified ones, within the same step budget. A pure, stable
+ * reorder: it never drops an entry, never changes which detectors run on
+ * it, and never touches the budget/circuit-breaker logic — only the order
+ * the existing read-investigation loop considers entries in. Entries
+ * discovered later during the loop (dynamic inventory growth) are
+ * unaffected — only the inventory present at loop start is reordered.
+ */
+export function prioritizeUnclassifiedInventoryEntries(
+  inventory: ProbeInventory
+): ProbeInventory {
+  const scored = inventory.entries.map((entry, originalIndex) => ({
+    entry,
+    originalIndex,
+    isUnclassified: classifyEndpointSurface({ path: entry.path, method: entry.method }) === 'unknown',
+  }));
+  scored.sort((a, b) => {
+    if (a.isUnclassified !== b.isUnclassified) return a.isUnclassified ? -1 : 1;
+    return a.originalIndex - b.originalIndex; // stable within each group
+  });
+  return {
+    ...inventory,
+    entries: Object.freeze(scored.map((s) => s.entry)),
+  };
 }
 
 export function readObservationClassForPlan(plan: AttackPlan): ReadObservationBlastRadiusClass | null {
@@ -381,7 +410,7 @@ export class InvestigationRuntimeCoordinator {
     const stepBudget = input.stepBudget ?? READ_INVESTIGATION_DEFAULT_STEP_BUDGET;
     const maxRequestsPerHyp = input.maxRequestsPerHypothesis ?? 2;
 
-    let inventory = input.probeInventory;
+    let inventory = prioritizeUnclassifiedInventoryEntries(input.probeInventory);
     let findings = [...input.findings];
     const executedSteps: ReadInvestigationExecutedStep[] = [];
     const transcriptSteps: AssessmentTranscriptExecutedStep[] = [];

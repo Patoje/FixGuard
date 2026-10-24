@@ -2388,6 +2388,26 @@ export class OrchestratedAssessmentApplicationService {
 
     const asgNodeKinds =
       record.attackSurfaceGraph?.nodes.map((n) => String(n.kind)) ?? [];
+    // P1 (recon-first pivot) — precomputed recon-gap signals for the
+    // scheduler's recon-gap hypothesis rules. Read-only projection of the
+    // graph; never re-probes anything.
+    const surfaceGaps = record.attackSurfaceGraph
+      ? (() => {
+          const query = new AttackSurfaceQueryService(record.attackSurfaceGraph!);
+          const unclassified = query.findUnclassifiedEndpoints();
+          const totalEndpointCount = record.attackSurfaceGraph!.nodes.filter(
+            (n) => n.kind === 'endpoint'
+          ).length;
+          return {
+            totalEndpointCount,
+            unclassifiedEndpointCount: unclassified.length,
+            sampleUnclassifiedEndpointUrls: Object.freeze(
+              unclassified.slice(0, 10).map((m) => m.node.metadata.url)
+            ),
+            unknownAuthRequirementEndpointCount: query.countUnknownAuthRequirementEndpoints(),
+          };
+        })()
+      : undefined;
     const runtimeHypotheses = this.assessmentHypotheses.get(assessmentId);
     const hypothesisSchedule = runtimeHypotheses
       ? {
@@ -2409,6 +2429,7 @@ export class OrchestratedAssessmentApplicationService {
           })),
           asgNodeKinds,
           stackHints,
+          ...(surfaceGaps ? { surfaceGaps } : {}),
           identityCount: preconditions.identityCount,
           hasJwtIdentity: preconditions.hasJwtIdentity,
         });
