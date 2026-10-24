@@ -1737,9 +1737,11 @@ All completed milestones are verified via active TypeScript contracts and the re
 - **Done when:** a short written table exists; this is a documentation deliverable, not new code. ✅
 
 ### Milestone R6: V1/Web Alignment Cleanup
-- **Status:** PROPOSED.
-- **Goal:** Confirm or refute whether `web/` still queries V1 tables (flagged as a known risk in §6.1.4 but not reconfirmed since M62/F6/F7); fix only if still true. Separately, make the V1 retirement timing decision (§7.3: delete now vs. archive to a branch).
-- **Depends on:** nothing; independent, low-risk, bounded.
+- **Status:** COMPLETED (2026-10-24).
+- **Finding (corrects §6.1.4):** the live UI surface was already clean — `web/src/app/page.tsx` already `redirect("/v2")`s with an explicit comment that V2 is the only supported UI. §6.1.4's "frontend queries V1 tables" risk was stale: nothing in the rendered app imported the V1-era components (`OffensiveArsenal`, `VulnerabilityCard`, `HeroScanner`) or `web/src/app/actions.ts`. What remained live was narrower: orphaned-but-still-routable Next.js API endpoints (`/api/scans`, `/api/scans/[id]`, `/api/scans/attack`, `/api/attack`, `/api/authorizations`, `/api/diff`, `/api/export/*`, `/api/auth-session`) that, if hit directly, would still execute against a direct Postgres connection (`web/src/db/db.ts` + `schema.ts`, V1 schema) completely bypassing the decommissioned V1 worker.
+- **Decision (operator, 2026-10-24):** delete now, not archive — confirmed orphaned via grep (zero live references) before removal.
+- **Done:** removed `web/src/db/{schema,db}.ts`, `web/drizzle.config.ts`, `web/src/app/actions.ts`, `web/src/app/diff/page.tsx`, all 9 legacy `web/src/app/api/*` route files listed above, and the 3 orphaned V1-era components. Verified with `cd web && npm run build` (compiles clean, route tree now shows only `/`, `/v2*`, `/api/terminal/probe`) and `npm run typecheck:v2`.
+- **Left untouched (out of scope):** `web/src/app/api/terminal/probe/route.ts` — also orphaned (no current caller) but not V1/DB-coupled, so not part of this cleanup; `drizzle-orm`/`drizzle-kit` remain in `web/package.json` devDependencies, unused but low-risk to leave for now.
 
 **Suggested sequencing:** R1 and R2 first (in parallel, both low-risk and purely additive to existing passive data); R5 can run anytime alongside them since it's read-only; R3 once R1/R2 have real output to export; R4 only after R3; R6 whenever convenient, it blocks nothing else.
 
