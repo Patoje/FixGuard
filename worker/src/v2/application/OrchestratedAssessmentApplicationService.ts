@@ -381,6 +381,8 @@ import type {
 } from '../attack-recommendation/AttackOperatorRecommendationContracts.js';
 import { HypothesisSchedulerService } from '../hypothesis-scheduler/HypothesisSchedulerService.js';
 import { HYPOTHESIS_SCHEDULER_CONTRACT_VERSION } from '../hypothesis-scheduler/HypothesisSchedulerContracts.js';
+import { buildTargetDossier } from '../dossier/TargetDossierBuilderService.js';
+import type { TargetDossier } from '../dossier/TargetDossierContracts.js';
 import type { DefenseObservation } from '../test-validity/TestValidityContracts.js';
 import { TEST_VALIDITY_CONTRACT_VERSION } from '../test-validity/TestValidityContracts.js';
 import { factsFromCapturedRecon } from '../observation/CapturedHostFacts.js';
@@ -2179,6 +2181,39 @@ export class OrchestratedAssessmentApplicationService {
       attackSurfaceGraph: record.attackSurfaceGraph ?? null,
       lineage: record.lineage,
     };
+  }
+
+  /**
+   * R3 — Target Dossier: a single, clean, structured read-only snapshot of
+   * classified surface (R2), ranked hypotheses with ADR-013 provenance (R1),
+   * and human-approved findings. Assembles only — never probes, never mints
+   * authorization. Intended as the artifact an operator hands off to manual
+   * tooling (Parrot) for active validation.
+   */
+  public async getTargetDossier(assessmentId: string): Promise<TargetDossier> {
+    if (!assessmentId || typeof assessmentId !== 'string' || !isStrictSafeId(assessmentId)) {
+      throw new ApiValidationError('Field assessmentId must satisfy strict identifier format');
+    }
+
+    const record = await this.repository.findById(assessmentId);
+    if (!record) {
+      throw new SessionNotFoundError(
+        `Orchestrated assessment '${assessmentId}' was not found`,
+        assessmentId
+      );
+    }
+
+    const hypotheses = this.assessmentHypotheses.get(assessmentId) ?? [];
+
+    return buildTargetDossier({
+      assessmentId: record.assessmentId,
+      scanId: record.scanId,
+      targetDomain: record.targetDomain,
+      lineage: record.lineage,
+      attackSurfaceGraph: record.attackSurfaceGraph ?? null,
+      hypotheses,
+      findings: record.findings,
+    });
   }
 
   /**

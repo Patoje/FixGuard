@@ -296,6 +296,29 @@ export class OrchestratedAssessmentController {
     }
   };
 
+  /**
+   * R3 — Target Dossier: classified surface + ranked hypotheses (with
+   * ADR-013 deferredToManualValidation provenance) + approved findings, as
+   * a single read-only export for manual (Parrot) handoff.
+   */
+  public getTargetDossier = async (
+    req: Request,
+    res: Response,
+    next: NextFunction
+  ): Promise<void> => {
+    try {
+      const assessmentId = req.params.assessmentId;
+      if (!assessmentId || typeof assessmentId !== 'string' || !isStrictSafeId(assessmentId)) {
+        throw new ApiValidationError('Field assessmentId must satisfy strict identifier format');
+      }
+
+      const result = await this.service.getTargetDossier(assessmentId);
+      res.status(200).json(result);
+    } catch (err) {
+      next(err);
+    }
+  };
+
   public getAttackPlans = async (
     req: Request,
     res: Response,

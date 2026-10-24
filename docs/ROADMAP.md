@@ -1717,7 +1717,7 @@ All completed milestones are verified via active TypeScript contracts and the re
 - **Done when:** a `TargetProfile` for a real target shows categorized, de-duplicated structure (not just a flat URL list) that a human reviewer agrees is accurate.
 
 ### Milestone R3: Clean Target Dossier Export (Operator-Facing Artifact)
-- **Status:** PROPOSED.
+- **Status:** IN PROGRESS — increment 1 landed (2026-10-24): new `worker/src/v2/dossier/` module (`TargetDossierContracts.ts` + `TargetDossierBuilderService.ts`, exact-key closed-world validated per ADR-003) assembling a `TargetDossier` from already-computed assessment state only — surface classification summary + sampled unclassified endpoints (R2), ranked hypotheses with `deferredToManualValidation` provenance preserved (R1), and human-approved findings. Zero new probing; pure read-only reorganization. Exposed via `OrchestratedAssessmentApplicationService.getTargetDossier()` and `GET /api/v2/assessments/:assessmentId/dossier` (+ `/orchestrated/...` alias), following the existing `getAttackSurface` pattern. Not yet done: an actual export format/UI for carrying the dossier into Parrot (this increment is the backend read model only) — that's the natural next increment.
 - **Goal:** A single, clean, structured export of everything FixGuard has established about a target — classified surface (R2), ranked unknowns (R1), passive findings, with strict `OBSERVED`/`INFERRED`/`RECOMMENDED` tagging — as the artifact an operator hands off to Parrot for manual active work.
 - **Depends on:** R1, R2.
 - **Done when:** the export is self-contained, versioned, and legible enough that an operator could work entirely from it in Parrot without returning to the FixGuard UI.

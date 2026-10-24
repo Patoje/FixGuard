@@ -39,6 +39,8 @@ export function createV2Router(root: V2CompositionRoot): Router {
 
   // Milestone A2 — Attack Surface Graph read model
   router.get('/assessments/:assessmentId/attack-surface', orchestratedController.getAttackSurface);
+  // R3 — Target Dossier (classified surface + ranked hypotheses + findings, for manual/Parrot handoff)
+  router.get('/assessments/:assessmentId/dossier', orchestratedController.getTargetDossier);
   // Milestone A3 — Attack Plans read model (advisory only)
   router.get('/assessments/:assessmentId/attack-plans', orchestratedController.getAttackPlans);
   // Operator A/B recommendations (deterministic; never auto-execute)
@@ -118,6 +120,7 @@ export function createV2Router(root: V2CompositionRoot): Router {
   router.get('/orchestrated/assessments/:assessmentId/status', orchestratedController.getStatus);
   router.get('/orchestrated/assessments/:assessmentId/evidence-drafts', orchestratedController.getEvidenceDrafts);
   router.get('/orchestrated/assessments/:assessmentId/attack-surface', orchestratedController.getAttackSurface);
+  router.get('/orchestrated/assessments/:assessmentId/dossier', orchestratedController.getTargetDossier);
   router.get('/orchestrated/assessments/:assessmentId/attack-plans', orchestratedController.getAttackPlans);
   router.get(
     '/orchestrated/assessments/:assessmentId/attack-recommendations',
