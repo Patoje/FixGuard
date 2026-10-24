@@ -26,6 +26,7 @@ import type {
 } from './AttackSurfaceContracts.js';
 import { ATTACK_SURFACE_CONTRACT_VERSION } from './AttackSurfaceContracts.js';
 import { classifyEndpointSurface } from './EndpointSurfaceClassifier.js';
+import type { ExtractedRoute } from '../sast/StaticRouteExtractionService.js';
 
 export interface AsgSessionAuthContext {
   /** Stable identity id only — never embed session token material. */
@@ -47,6 +48,14 @@ export interface AttackSurfaceGraphBuilderInput {
    * Refs/ids only — never embed live tokens.
    */
   readonly authContexts?: readonly AsgSessionAuthContext[];
+  /**
+   * P2 — routes extracted from local/bundle source code
+   * (StaticRouteExtractionService). Code presence is not a live
+   * confirmation, so every node built from this is `INFERRED`, never
+   * `OBSERVED`, until a passive detector actually confirms the route
+   * responds.
+   */
+  readonly staticRoutes?: readonly ExtractedRoute[];
 }
 
 function sha256Short(content: string): string {
@@ -520,6 +529,43 @@ export const AttackSurfaceGraphBuilder = {
       }
     }
 
+    // P2 — statically extracted routes (StaticRouteExtractionService).
+    // Code presence is not a live confirmation: always INFERRED, never
+    // OBSERVED, and never deduplicated into an already-recon-observed
+    // endpoint node (a different route could coincidentally share a path
+    // but not a method; stableId is keyed on both, so a genuine duplicate
+    // naturally collapses via acc.addNode's own dedup).
+    for (const route of input.staticRoutes ?? []) {
+      const prov = baseProvenance(profile, 'static_analysis', {
+        sourceId: route.sourceFilePath,
+      });
+      const methods =
+        route.supportedMethods.length > 0 ? route.supportedMethods : ['GET'];
+      for (const rawMethod of methods) {
+        const method = rawMethod.toUpperCase();
+        const path = route.extractedRoutePattern;
+        const url = `https://${rootHostname}${path}`;
+        const endpointNode = acc.addNode({
+          id: stableId('endpoint', [method, url]),
+          kind: 'endpoint',
+          epistemicStatus: 'INFERRED',
+          provenance: prov,
+          label: `${method} ${path}`,
+          metadata: {
+            url,
+            path,
+            method,
+            authRequirement: 'unknown',
+            flawCategories: [],
+            surfaceClassification: route.isInternalOnly
+              ? 'admin_or_internal'
+              : classifyEndpointSurface({ path, method }),
+          },
+        });
+        acc.link('exposes', applicationNode.id, endpointNode.id, 'INFERRED', prov);
+      }
+    }
+
     // Parameter discovery observations
     for (const paramObs of observations.parameters ?? []) {
       const status = freshnessToEpistemic(paramObs.freshness, paramObs.sourceReliability);
@@ -689,6 +735,44 @@ export const AttackSurfaceGraphBuilder = {
           sessionProv,
           'session_bound_for_auth_testing'
         );
+      }
+    }
+
+    // P2 — service boundary grouping: deterministic, structural-only
+    // (first path segment). Not a claim about actual service/microservice
+    // architecture — purely "these endpoints share a path prefix" so an
+    // operator can see the surface grouped, not as a flat list. Only
+    // groups of 2+ distinct endpoints get a boundary node (a singleton
+    // "group" carries no information).
+    {
+      const beforeGrouping = acc.snapshot();
+      const endpointsByPrefix = new Map<string, AsgNode[]>();
+      for (const node of beforeGrouping.nodes) {
+        if (node.kind !== 'endpoint') continue;
+        const segments = node.metadata.path.split('/').filter((s) => s.length > 0);
+        if (segments.length === 0) continue; // root path carries no boundary signal
+        const prefix = `/${segments[0]}`;
+        const group = endpointsByPrefix.get(prefix) ?? [];
+        group.push(node);
+        endpointsByPrefix.set(prefix, group);
+      }
+      const boundaryProv = baseProvenance(profile, 'graph_derivation', {
+        sourceId: 'service_boundary_grouping',
+      });
+      for (const [prefix, members] of endpointsByPrefix) {
+        if (members.length < 2) continue;
+        const boundaryNode = acc.addNode({
+          id: stableId('svcboundary', [rootHostname, prefix]),
+          kind: 'service_boundary',
+          epistemicStatus: 'INFERRED',
+          provenance: boundaryProv,
+          label: `Service boundary: ${prefix}`,
+          metadata: { pathPrefix: prefix, endpointCount: members.length },
+        });
+        acc.link('exposes', applicationNode.id, boundaryNode.id, 'INFERRED', boundaryProv);
+        for (const member of members) {
+          acc.link('groups', boundaryNode.id, member.id, 'INFERRED', boundaryProv);
+        }
       }
     }
 

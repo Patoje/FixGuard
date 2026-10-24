@@ -159,6 +159,7 @@ import { LateralMovementService } from '../attack-planning/LateralMovementServic
 import { scanSourceFilesForSecrets } from '../sast/StaticSecretScanningService.js';
 import { scanManifestsForVulnerabilities } from '../sast/DependencyVulnerabilityScanService.js';
 import { scanFilesForStaticRoutes } from '../sast/StaticRouteExtractionService.js';
+import type { ExtractedRoute } from '../sast/StaticRouteExtractionService.js';
 import { defaultOobCanaryManager } from '../oob/OobCanaryManager.js';
 import type { Finding } from '../core/Evidence.js';
 import type { VerificationState } from '../core/VerificationStateContracts.js';
@@ -6688,6 +6689,9 @@ export class OrchestratedAssessmentApplicationService {
         }
 
         // Static Route Extraction Scan (Milestone P6-3: Static Route & Endpoint Extraction Engine)
+        // P2: extractedStaticRoutes feeds AttackSurfaceGraphBuilder below as
+        // INFERRED endpoint nodes (code presence, not a live confirmation).
+        const extractedStaticRoutes: ExtractedRoute[] = [];
         try {
           const sourceFilesToScan: { filePath: string; content: string }[] = [];
           for (const webObs of reconResult.aggregatedObservations.webObservations) {
@@ -6742,6 +6746,9 @@ export class OrchestratedAssessmentApplicationService {
             }
             for (const finding of routeResult.findings) {
               findings.push(finding);
+            }
+            for (const route of routeResult.extractedRoutes) {
+              extractedStaticRoutes.push(route);
             }
           }
         } catch {
@@ -6945,6 +6952,7 @@ export class OrchestratedAssessmentApplicationService {
         findings,
         observations: reconResult.aggregatedObservations,
         authContexts: buildAsgAuthContexts(sessionIdentities, profile.updatedAt),
+        staticRoutes: extractedStaticRoutes,
       });
 
       const attackPlanResult = this.attackPlanGenerator.generate({

@@ -13,6 +13,7 @@ import type {
   EndpointSurfaceKind,
   IdentityNode,
   IpAddressNode,
+  ServiceBoundaryNode,
   EpistemicStatus,
 } from './AttackSurfaceContracts.js';
 
@@ -240,5 +241,38 @@ export class AttackSurfaceQueryService {
       counts[classification] += 1;
     }
     return Object.freeze(counts);
+  }
+
+  /**
+   * P2 — endpoints grouped by their structural service boundary (shared
+   * path prefix). Mirrors `summarizeEndpointSurfaceClassification()`'s
+   * read-only style: reads what `AttackSurfaceGraphBuilder` already
+   * derived, no recomputation. Each boundary's `endpoints` is already
+   * ordered by discovery/build order, not re-sorted.
+   */
+  groupEndpointsByServiceBoundary(): readonly {
+    readonly boundary: ServiceBoundaryNode;
+    readonly endpoints: readonly EndpointNode[];
+  }[] {
+    const results: {
+      readonly boundary: ServiceBoundaryNode;
+      readonly endpoints: readonly EndpointNode[];
+    }[] = [];
+    for (const node of this.graph.nodes) {
+      if (node.kind !== 'service_boundary') continue;
+      const memberIds = new Set(
+        this.graph.edges
+          .filter((e) => e.kind === 'groups' && e.fromNodeId === node.id)
+          .map((e) => e.toNodeId)
+      );
+      const endpoints: EndpointNode[] = [];
+      for (const candidate of this.graph.nodes) {
+        if (candidate.kind === 'endpoint' && memberIds.has(candidate.id)) {
+          endpoints.push(candidate);
+        }
+      }
+      results.push({ boundary: node, endpoints: Object.freeze(endpoints) });
+    }
+    return Object.freeze(results);
   }
 }

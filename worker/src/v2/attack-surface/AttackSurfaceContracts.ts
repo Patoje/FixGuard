@@ -36,7 +36,12 @@ export type AsgNodeKind =
   | 'vulnerability'
   | 'data_api_table'
   | 'data_api_rpc'
-  | 'auth_boundary';
+  | 'auth_boundary'
+  /** P2 — a structural grouping of endpoints sharing a path prefix.
+   * Purely derived from already-built graph data (graph_derivation
+   * provenance), never a confirmed architectural claim — hence always
+   * INFERRED. */
+  | 'service_boundary';
 
 export type AsgEdgeKind =
   | 'resolves_to'
@@ -52,13 +57,18 @@ export type AsgEdgeKind =
   | 'enables_attack'
   | 'exposes_rest'
   | 'readable_as'
-  | 'writable_as';
+  | 'writable_as'
+  /** P2 — service_boundary node to the endpoints it structurally groups. */
+  | 'groups';
 
 export type AsgProvenanceSourceKind =
   | 'target_profile'
   | 'recon_observation'
   | 'finding'
-  | 'graph_derivation';
+  | 'graph_derivation'
+  /** P2 — statically extracted from source/bundle code (StaticRouteExtractionService),
+   * never a live confirmation. Nodes from this source are always `INFERRED`. */
+  | 'static_analysis';
 
 export interface AsgProvenance {
   readonly assessmentId: string;
@@ -227,6 +237,19 @@ export interface AuthBoundaryNode extends AsgNodeBase {
   };
 }
 
+/**
+ * P2 — a structural grouping of endpoints sharing a path prefix (e.g. all
+ * `/api/orders/*`). Deterministic, purely from path structure already in
+ * the graph — not a claim about actual service/microservice architecture.
+ */
+export interface ServiceBoundaryNode extends AsgNodeBase {
+  readonly kind: 'service_boundary';
+  readonly metadata: {
+    readonly pathPrefix: string;
+    readonly endpointCount: number;
+  };
+}
+
 export type AsgNode =
   | DomainNode
   | SubdomainNode
@@ -241,7 +264,8 @@ export type AsgNode =
   | VulnerabilityNode
   | DataApiTableNode
   | DataApiRpcNode
-  | AuthBoundaryNode;
+  | AuthBoundaryNode
+  | ServiceBoundaryNode;
 
 export interface AsgEdge {
   readonly id: string;
