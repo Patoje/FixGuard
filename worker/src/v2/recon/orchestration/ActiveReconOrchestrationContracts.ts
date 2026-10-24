@@ -141,6 +141,15 @@ export interface ActiveReconOrchestrationConfig {
    * - omitted: enable when seedUrls present OR Next.js/RSC signals observed in Stage 3.
    */
   readonly enableSpaDiscovery?: boolean;
+  /**
+   * P5 — explicit operator opt-out of the per-target cooldown
+   * (OrchestratedAssessmentApplicationService.startAssessment). Default
+   * false: the cooldown applies. The cooldown exists to keep FixGuard's
+   * own repeated runs from looking like abusive traffic volume to the
+   * target's WAF/bot-protection — not a bypass of anything the target
+   * itself enforces.
+   */
+  readonly skipCooldown?: boolean;
   /** Cap on Playwright page navigations (default SPA_DISCOVERY_MAX_PAGES). */
   readonly spaDiscoveryMaxPages?: number;
   /** Cap on ranked jsluice JS targets per stage_4 root (default JSLUICE_MAX_TARGETS_DEFAULT). */

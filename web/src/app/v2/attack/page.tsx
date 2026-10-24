@@ -58,6 +58,34 @@ import { getOperatorSessionIdentity } from "@/lib/v2/operatorSession";
 
 type ResultsPanel = "surface" | "tables" | "chains" | "impact" | "post_exploit" | null;
 
+/**
+ * ADR-013 capability names frozen for automatic use (mirrors the backend
+ * source of truth: worker/src/v2/hypothesis-scheduler/HypothesisSchedulerContracts.ts
+ * DEFERRED_TO_MANUAL_VALIDATION_NAMES, capability-name entries only).
+ * Used only as a fallback for plan-only cards that have no
+ * `recommendation.deferredToManualValidation` from the backend; whenever a
+ * recommendation is present, its own flag is authoritative.
+ */
+const DEFERRED_CAPABILITY_NAMES = new Set<string>([
+  "idor_read_differential",
+  "auth_bypass_probe",
+  "cors_misconfiguration_probe",
+  "cors_chain_exploit",
+  "jwt_alg_none_probe",
+  "sql_oracle_advancement",
+  "sql_injection_verification",
+  "parameter_reflection_probe",
+  "open_redirect_probe",
+  "graphql_auth_delta",
+  "nuclei_xss_scan",
+  "lfi_path_traversal",
+  "credential_reuse",
+  "supabase_rls_write_probe",
+  "supabase_authz_write_matrix",
+  "next_server_action_diff",
+  "serverless_race_condition_probe",
+]);
+
 export type AttackModeContentProps = {
   readonly forcedAssessmentId?: string;
   readonly embedded?: boolean;
@@ -1204,6 +1232,15 @@ function AttackModeContent({
                           <span className="text-[10px] font-mono px-2 py-0.5 rounded border border-zinc-800 bg-zinc-900 text-purple-300">
                             {item.capability}
                           </span>
+                          {(item.recommendation?.deferredToManualValidation ??
+                            DEFERRED_CAPABILITY_NAMES.has(item.capability)) && (
+                            <span
+                              className="text-[10px] font-mono px-2 py-0.5 rounded border border-amber-500/40 bg-amber-500/10 text-amber-300"
+                              title="ADR-013: capacidad congelada para uso automático — requiere validación manual (Parrot)"
+                            >
+                              diferido
+                            </span>
+                          )}
                         </div>
 
                         {item.plan && (

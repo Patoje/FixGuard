@@ -171,6 +171,7 @@ import {
   ApiValidationError,
   UnauthorizedGatewayError,
   ConcurrencyLimitExceededError,
+  TargetCooldownActiveError,
 } from '../api/ApiErrors.js';
 import {
   isStrictSafeId,
@@ -1364,6 +1365,15 @@ export class OrchestratedAssessmentApplicationService {
   private readonly activeInvestigationRuntime: ActiveInvestigationRuntimeService;
   private readonly parrotImportRepository: ParrotImportRepository;
   private readonly activeAssessments = new Map<string, Promise<void>>();
+  /**
+   * P5 — per-target cooldown tracking (targetDomain -> last started-at ms).
+   * Not a bot-detection workaround: it exists so FixGuard's own repeated
+   * full-pipeline runs against the same domain in a short window don't
+   * read as abusive traffic volume to the target's own WAF/bot-protection.
+   * In-memory, per-process — resets on restart, same lifecycle as
+   * activeAssessments.
+   */
+  private readonly lastAssessmentStartedAtByDomain = new Map<string, number>();
   private readonly heartbeatIntervalMs: number;
   private readonly sessionKeepAliveIntervalMs: number;
   private readonly assessmentHardMaxMs: number;
@@ -1548,6 +1558,32 @@ export class OrchestratedAssessmentApplicationService {
         'ssrf_target_blocked'
       );
     }
+
+    // P5 — per-target cooldown. Fail-closed unless the operator explicitly
+    // opts out (config.skipCooldown) — their own call, not an automatic
+    // bypass. Default 10 minutes, overridable via
+    // FIXGUARD_TARGET_COOLDOWN_MS for operators who want a different pace.
+    if (command.config?.skipCooldown !== true) {
+      const cooldownMs = (() => {
+        const raw = parseInt(process.env.FIXGUARD_TARGET_COOLDOWN_MS ?? '600000', 10);
+        return Number.isNaN(raw) || raw < 0 ? 600000 : raw;
+      })();
+      const lastStartedAt = this.lastAssessmentStartedAtByDomain.get(cleanedDomain);
+      if (cooldownMs > 0 && lastStartedAt !== undefined) {
+        const elapsedMs = Date.now() - lastStartedAt;
+        if (elapsedMs < cooldownMs) {
+          const retryAfterMs = cooldownMs - elapsedMs;
+          throw new TargetCooldownActiveError(
+            `Assessment for '${cleanedDomain}' started ${Math.round(elapsedMs / 1000)}s ago. ` +
+              `Waiting avoids FixGuard's own repeated runs looking like abusive traffic to the ` +
+              `target's WAF/bot-protection. Retry in ${Math.ceil(retryAfterMs / 1000)}s, or pass ` +
+              `config.skipCooldown: true to proceed now anyway.`,
+            retryAfterMs
+          );
+        }
+      }
+    }
+    this.lastAssessmentStartedAtByDomain.set(cleanedDomain, Date.now());
 
     // SSRF Gate 2: Resolve DNS and check all returned IP addresses
     let resolvedIps: string[];

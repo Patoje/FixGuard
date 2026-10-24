@@ -13,6 +13,7 @@ import {
   UnauthorizedGatewayError,
   UnavailableToolsError,
   ConcurrencyLimitExceededError,
+  TargetCooldownActiveError,
 } from './ApiErrors.js';
 import {
   AttackChainValidationError,
@@ -182,6 +183,17 @@ export function v2ErrorHandler(
 
   // 7b. ConcurrencyLimitExceededError -> 429 Too Many Requests
   if (err instanceof ConcurrencyLimitExceededError) {
+    const body: SafeErrorResponseBody = {
+      error: 'TooManyRequests',
+      message: err.message,
+      reasonCode: err.reasonCode
+    };
+    res.status(429).json(body);
+    return;
+  }
+
+  // 7c. TargetCooldownActiveError -> 429 Too Many Requests
+  if (err instanceof TargetCooldownActiveError) {
     const body: SafeErrorResponseBody = {
       error: 'TooManyRequests',
       message: err.message,

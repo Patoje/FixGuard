@@ -45,3 +45,21 @@ export class ConcurrencyLimitExceededError extends Error {
   }
 }
 
+/**
+ * Fail-closed per-target cooldown, not a bot-detection workaround: it
+ * exists so FixGuard's own repeated full-pipeline runs against the same
+ * domain in a short window don't look like abusive traffic volume to the
+ * target's own WAF/bot-protection. Overridable via
+ * config.skipCooldown — the operator's own call.
+ */
+export class TargetCooldownActiveError extends Error {
+  constructor(
+    message: string,
+    public readonly retryAfterMs: number,
+    public readonly reasonCode: string = 'target_cooldown_active'
+  ) {
+    super(message);
+    this.name = 'TargetCooldownActiveError';
+  }
+}
+

@@ -160,6 +160,12 @@ export interface OperatorAttackRecommendation {
   readonly sourceFindingId?: string;
   readonly sourceFindingType?: string;
   readonly score: number;
+  /** ADR-013: true when capabilityKind belongs to the active/aggressive
+   * confirmation layer frozen for automatic use — still shown for operator
+   * awareness, but it's a manual (Parrot) action, not FixGuard's own next
+   * step. Previously computed on the backend (P0/P1) but never reached
+   * this client type. */
+  readonly deferredToManualValidation?: boolean;
 }
 
 export interface GetAttackRecommendationsResponse {
