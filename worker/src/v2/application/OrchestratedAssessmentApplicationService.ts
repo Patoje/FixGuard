@@ -2362,10 +2362,15 @@ export class OrchestratedAssessmentApplicationService {
       byotMeta,
     });
 
-    // Soft preference: prefer capabilities suggested by unblocked high-score hypotheses.
+    // Soft preference: prefer capabilities suggested by unblocked high-score
+    // hypotheses. ADR-013: hypotheses tagged `deferredToManualValidation`
+    // belong to the frozen active-confirmation layer and must never be
+    // auto-preferred as FixGuard's own next step.
     const preferredCaps = new Set(
       hypothesisSchedule.hypotheses
-        .filter((h) => !h.blocked && h.score >= 70 && h.suggestedCapability)
+        .filter(
+          (h) => !h.blocked && !h.deferredToManualValidation && h.score >= 70 && h.suggestedCapability
+        )
         .map((h) => h.suggestedCapability as string)
     );
     const orderedRecommendations =

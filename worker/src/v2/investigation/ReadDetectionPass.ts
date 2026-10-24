@@ -35,6 +35,19 @@ import { runAuthBypassDetection } from '../detection/AuthBypassDetectionService.
 import { runAuthBoundaryDifferentialDetection } from '../detection/AuthBoundaryDifferentialDetectionService.js';
 import { runIdorDifferentialDetection } from '../detection/IdorDifferentialDetectionService.js';
 
+/**
+ * Product-direction freeze (see docs/decisions/ADR-013-aggressive-detection-freeze.md):
+ * FixGuard's product focus is reconnaissance, application modeling, and
+ * classification depth. Active differential/injection-style detectors
+ * (open redirect, CORS misconfiguration probing, parameter reflection,
+ * auth bypass/boundary differential, IDOR differential) are frozen — code
+ * stays in place, untouched, but is no longer auto-invoked from the
+ * automatic read-investigation loop. "Aggressive" validation is delegated
+ * to manual, operator-driven tooling (Parrot) outside this service.
+ * Flip to `false` to re-enable; do not delete the gated blocks below.
+ */
+const AGGRESSIVE_DETECTION_FROZEN = true;
+
 export type ReadDetectionDetectorName =
   | 'security_header'
   | 'open_redirect'
@@ -436,33 +449,37 @@ export async function runReadDetectionPass(
 
     if (!testedOpenRedirectHosts.has(host)) {
       testedOpenRedirectHosts.add(host);
-      try {
-        note('open_redirect');
-        const redirectResult = await runOpenRedirectDetection({
-          ...shared,
-          kind: 'open_redirect_detection_request',
-          detectionId: `det_rd_redir_${index}`,
-          endpointUrl,
-          method,
-          ...auth,
-        });
-        keepDetectorOutcome(findings, drafts, {
-          ...(redirectResult.finding ? { finding: redirectResult.finding } : {}),
-          status: redirectResult.status,
-          ...(redirectResult.evidenceDraft ? { evidenceDraft: redirectResult.evidenceDraft } : {}),
-          context: {
+      if (AGGRESSIVE_DETECTION_FROZEN) {
+        skipped.push({ detector: 'open_redirect', reasonCode: 'aggressive_layer_frozen' });
+      } else {
+        try {
+          note('open_redirect');
+          const redirectResult = await runOpenRedirectDetection({
+            ...shared,
+            kind: 'open_redirect_detection_request',
+            detectionId: `det_rd_redir_${index}`,
             endpointUrl,
-            detectionKind: 'open_redirect',
-            ...(redirectResult.parameterName ? { parameterName: redirectResult.parameterName } : {}),
-            ...(redirectResult.injectedCanary ? { injectedCanary: redirectResult.injectedCanary } : {}),
-            ...(redirectResult.finalDestination
-              ? { finalDestination: redirectResult.finalDestination }
-              : {}),
-            ...(redirectResult.redirectChain ? { redirectChain: redirectResult.redirectChain } : {}),
-          },
-        });
-      } catch {
-        // Detector failure must not invent a finding.
+            method,
+            ...auth,
+          });
+          keepDetectorOutcome(findings, drafts, {
+            ...(redirectResult.finding ? { finding: redirectResult.finding } : {}),
+            status: redirectResult.status,
+            ...(redirectResult.evidenceDraft ? { evidenceDraft: redirectResult.evidenceDraft } : {}),
+            context: {
+              endpointUrl,
+              detectionKind: 'open_redirect',
+              ...(redirectResult.parameterName ? { parameterName: redirectResult.parameterName } : {}),
+              ...(redirectResult.injectedCanary ? { injectedCanary: redirectResult.injectedCanary } : {}),
+              ...(redirectResult.finalDestination
+                ? { finalDestination: redirectResult.finalDestination }
+                : {}),
+              ...(redirectResult.redirectChain ? { redirectChain: redirectResult.redirectChain } : {}),
+            },
+          });
+        } catch {
+          // Detector failure must not invent a finding.
+        }
       }
     }
 
@@ -508,31 +525,35 @@ export async function runReadDetectionPass(
 
     if (!testedCorsHosts.has(host)) {
       testedCorsHosts.add(host);
-      try {
-        note('cors_misconfiguration');
-        const corsResult = await runCorsMisconfigurationDetection({
-          ...shared,
-          kind: 'cors_misconfiguration_detection_request',
-          detectionId: `det_rd_cors_${index}`,
-          endpointUrl,
-          method,
-          ...auth,
-        });
-        keepDetectorOutcome(findings, drafts, {
-          ...(corsResult.finding ? { finding: corsResult.finding } : {}),
-          status: corsResult.status,
-          ...(corsResult.evidenceDraft ? { evidenceDraft: corsResult.evidenceDraft } : {}),
-          context: {
+      if (AGGRESSIVE_DETECTION_FROZEN) {
+        skipped.push({ detector: 'cors_misconfiguration', reasonCode: 'aggressive_layer_frozen' });
+      } else {
+        try {
+          note('cors_misconfiguration');
+          const corsResult = await runCorsMisconfigurationDetection({
+            ...shared,
+            kind: 'cors_misconfiguration_detection_request',
+            detectionId: `det_rd_cors_${index}`,
             endpointUrl,
-            detectionKind: 'cors_misconfiguration',
-            ...(corsResult.reflectedOrigin ? { reflectedOrigin: corsResult.reflectedOrigin } : {}),
-            ...(corsResult.allowCredentials !== undefined
-              ? { allowCredentials: corsResult.allowCredentials }
-              : {}),
-          },
-        });
-      } catch {
-        // Detector failure must not invent a finding.
+            method,
+            ...auth,
+          });
+          keepDetectorOutcome(findings, drafts, {
+            ...(corsResult.finding ? { finding: corsResult.finding } : {}),
+            status: corsResult.status,
+            ...(corsResult.evidenceDraft ? { evidenceDraft: corsResult.evidenceDraft } : {}),
+            context: {
+              endpointUrl,
+              detectionKind: 'cors_misconfiguration',
+              ...(corsResult.reflectedOrigin ? { reflectedOrigin: corsResult.reflectedOrigin } : {}),
+              ...(corsResult.allowCredentials !== undefined
+                ? { allowCredentials: corsResult.allowCredentials }
+                : {}),
+            },
+          });
+        } catch {
+          // Detector failure must not invent a finding.
+        }
       }
     }
 
@@ -544,6 +565,10 @@ export async function runReadDetectionPass(
         continue;
       }
       if (circuitOpen(input)) break;
+      if (AGGRESSIVE_DETECTION_FROZEN) {
+        skipped.push({ detector: 'parameter_reflection', reasonCode: 'aggressive_layer_frozen' });
+        continue;
+      }
       try {
         note('parameter_reflection');
         const reflectionResult = await runParameterReflectionDetection({
@@ -620,57 +645,65 @@ export async function runReadDetectionPass(
     }
 
     if (input.identityA && !circuitOpen(input) && !challengeSurface) {
-      try {
-        note('auth_bypass');
-        const authResult = await runAuthBypassDetection({
-          contractVersion: DETECTION_CONTRACT_VERSION,
-          kind: 'auth_bypass_detection_request',
-          detectionId: `det_rd_auth_${index}`,
-          ...lineageFields,
-          verifiedAuthorizationDecision: input.verifiedAuthorizationDecision,
-          scopeGrant: input.scopeGrant,
-          endpointUrl,
-          method,
-          identityA: input.identityA,
-          transport: input.transport,
-          dnsResolver: input.dnsResolver,
-        });
-        keepDetectorOutcome(findings, drafts, {
-          ...(authResult.finding ? { finding: authResult.finding } : {}),
-          status: authResult.status,
-          ...(authResult.evidenceDraft ? { evidenceDraft: authResult.evidenceDraft } : {}),
-          context: {
-            endpointUrl: authResult.endpointUrl,
-            detectionKind: 'auth_bypass',
-            bypassMechanism: authResult.bypassMechanism,
-            ...(authResult.similarityRatio !== undefined
-              ? { bodySimilarityRatio: authResult.similarityRatio }
-              : {}),
-          },
-        });
-      } catch {
-        // Detector failure must not invent a finding.
+      if (AGGRESSIVE_DETECTION_FROZEN) {
+        skipped.push({ detector: 'auth_bypass', reasonCode: 'aggressive_layer_frozen' });
+      } else {
+        try {
+          note('auth_bypass');
+          const authResult = await runAuthBypassDetection({
+            contractVersion: DETECTION_CONTRACT_VERSION,
+            kind: 'auth_bypass_detection_request',
+            detectionId: `det_rd_auth_${index}`,
+            ...lineageFields,
+            verifiedAuthorizationDecision: input.verifiedAuthorizationDecision,
+            scopeGrant: input.scopeGrant,
+            endpointUrl,
+            method,
+            identityA: input.identityA,
+            transport: input.transport,
+            dnsResolver: input.dnsResolver,
+          });
+          keepDetectorOutcome(findings, drafts, {
+            ...(authResult.finding ? { finding: authResult.finding } : {}),
+            status: authResult.status,
+            ...(authResult.evidenceDraft ? { evidenceDraft: authResult.evidenceDraft } : {}),
+            context: {
+              endpointUrl: authResult.endpointUrl,
+              detectionKind: 'auth_bypass',
+              bypassMechanism: authResult.bypassMechanism,
+              ...(authResult.similarityRatio !== undefined
+                ? { bodySimilarityRatio: authResult.similarityRatio }
+                : {}),
+            },
+          });
+        } catch {
+          // Detector failure must not invent a finding.
+        }
       }
     }
 
     if (input.identityA && !circuitOpen(input) && !challengeSurface) {
-      try {
-        note('auth_boundary_differential');
-        await runAuthBoundaryDifferentialDetection({
-          contractVersion: DETECTION_CONTRACT_VERSION,
-          kind: 'auth_boundary_differential_detection_request',
-          detectionId: `det_rd_abnd_${index}`,
-          ...lineageFields,
-          verifiedAuthorizationDecision: input.verifiedAuthorizationDecision,
-          scopeGrant: input.scopeGrant,
-          endpointUrl,
-          identityA: input.identityA,
-          ...(input.identityB ? { identityB: input.identityB } : {}),
-          transport: input.transport,
-          dnsResolver: input.dnsResolver,
-        });
-      } catch {
-        // Detector failure must not invent a finding.
+      if (AGGRESSIVE_DETECTION_FROZEN) {
+        skipped.push({ detector: 'auth_boundary_differential', reasonCode: 'aggressive_layer_frozen' });
+      } else {
+        try {
+          note('auth_boundary_differential');
+          await runAuthBoundaryDifferentialDetection({
+            contractVersion: DETECTION_CONTRACT_VERSION,
+            kind: 'auth_boundary_differential_detection_request',
+            detectionId: `det_rd_abnd_${index}`,
+            ...lineageFields,
+            verifiedAuthorizationDecision: input.verifiedAuthorizationDecision,
+            scopeGrant: input.scopeGrant,
+            endpointUrl,
+            identityA: input.identityA,
+            ...(input.identityB ? { identityB: input.identityB } : {}),
+            transport: input.transport,
+            dnsResolver: input.dnsResolver,
+          });
+        } catch {
+          // Detector failure must not invent a finding.
+        }
       }
     }
 
@@ -683,37 +716,41 @@ export async function runReadDetectionPass(
       const resource = observedResourceId(entry);
       if (resource) {
         idorInvoked = true;
-        try {
-          note('idor_differential');
-          const idorResult = await runIdorDifferentialDetection({
-            contractVersion: DETECTION_CONTRACT_VERSION,
-            kind: 'idor_differential_detection_request',
-            detectionId: `det_rd_idor_${index}`,
-            ...lineageFields,
-            verifiedAuthorizationDecision: input.verifiedAuthorizationDecision,
-            scopeGrant: input.scopeGrant,
-            endpointUrl,
-            method,
-            resourceParamName: resource.resourceParamName,
-            baselineResourceId: resource.baselineResourceId,
-            identityA: input.identityA,
-            identityB: input.identityB,
-            transport: input.transport,
-            dnsResolver: input.dnsResolver,
-          });
-          keepDetectorOutcome(findings, drafts, {
-            ...(idorResult.finding ? { finding: idorResult.finding } : {}),
-            status: idorResult.status,
-            ...(idorResult.evidenceDraft ? { evidenceDraft: idorResult.evidenceDraft } : {}),
-            context: {
+        if (AGGRESSIVE_DETECTION_FROZEN) {
+          skipped.push({ detector: 'idor_differential', reasonCode: 'aggressive_layer_frozen' });
+        } else {
+          try {
+            note('idor_differential');
+            const idorResult = await runIdorDifferentialDetection({
+              contractVersion: DETECTION_CONTRACT_VERSION,
+              kind: 'idor_differential_detection_request',
+              detectionId: `det_rd_idor_${index}`,
+              ...lineageFields,
+              verifiedAuthorizationDecision: input.verifiedAuthorizationDecision,
+              scopeGrant: input.scopeGrant,
               endpointUrl,
-              detectionKind: 'idor_access_control',
+              method,
               resourceParamName: resource.resourceParamName,
               baselineResourceId: resource.baselineResourceId,
-            },
-          });
-        } catch {
-          // Detector failure must not invent a finding.
+              identityA: input.identityA,
+              identityB: input.identityB,
+              transport: input.transport,
+              dnsResolver: input.dnsResolver,
+            });
+            keepDetectorOutcome(findings, drafts, {
+              ...(idorResult.finding ? { finding: idorResult.finding } : {}),
+              status: idorResult.status,
+              ...(idorResult.evidenceDraft ? { evidenceDraft: idorResult.evidenceDraft } : {}),
+              context: {
+                endpointUrl,
+                detectionKind: 'idor_access_control',
+                resourceParamName: resource.resourceParamName,
+                baselineResourceId: resource.baselineResourceId,
+              },
+            });
+          } catch {
+            // Detector failure must not invent a finding.
+          }
         }
       }
     }

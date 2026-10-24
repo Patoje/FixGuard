@@ -251,3 +251,22 @@
   - Never attempt to build an interactive in-line HTTP proxy daemon.
   - Never reimplement mature CLI network tools in TypeScript.
 
+---
+
+## ADR-013: Freeze of Active/Aggressive Differential Detection Layer
+
+- **ID:** ADR-013
+- **Status:** `ACCEPTED` (`CONFIRMED` in `worker/src/v2/investigation/ReadDetectionPass.ts`)
+- **Context:**
+  Product direction reset (operator decision, 2026-10-24): FixGuard's value is reconnaissance, application modeling, and classification depth, not the broadest catalog of active exploitation-style probes. A call-site trace found only 6 injection/differential detectors were actually auto-invoked in production, all from the automatic read-investigation loop: open redirect, CORS misconfiguration, parameter reflection, auth bypass, auth boundary differential, IDOR differential. Most of the remaining ~30 `detection/*` services were already unreachable outside their own smoke tests.
+- **Decision:**
+  The 6 live detectors are gated behind `AGGRESSIVE_DETECTION_FROZEN = true` in `ReadDetectionPass.ts` — code untouched, unwired from the automatic loop, each skip recorded with `reasonCode: 'aggressive_layer_frozen'` for auditability. `attack-execution/attack-planning/attack-authorization/verification/oob/post-exploitation` are frozen for further development only (no code change needed — already gated behind explicit operator authorization). Passive/classification detectors (headers, info disclosure, GraphQL surface, sourcemap, manifest, subdomain takeover, WordPress/CMS/API-sprawl/dependency-confusion fingerprinting, SAST, all recon adapters, intelligence layer) remain active and are the development focus.
+- **Motive:**
+  Active confirmation of a vulnerability is now an explicit, manual, operator-driven step (delegated to Parrot), not something that runs automatically against every discovered route during routine reconnaissance.
+- **Consequences:**
+  Assessments no longer produce Findings/drafts for the 6 frozen detection kinds; this is visible in the pass's `skipped` list, not silent. Re-enabling is a single flag flip plus a superseding ADR.
+- **What NOT to do:**
+  - Never delete the frozen detector services, contracts, or smoke tests.
+  - Never add new active/injection-style detectors to the automatic read-investigation loop while this ADR is in effect.
+  - See `docs/decisions/ADR-013-aggressive-detection-freeze.md` for full detail.
+

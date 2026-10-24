@@ -10,6 +10,7 @@ import type {
   AttackSurfaceGraphQueryMatch,
   AsgEdge,
   EndpointNode,
+  EndpointSurfaceKind,
   IdentityNode,
   IpAddressNode,
   EpistemicStatus,
@@ -175,5 +176,55 @@ export class AttackSurfaceQueryService {
     }
 
     return Object.freeze(matches);
+  }
+
+  /**
+   * R2 — Endpoints whose surface classification is missing or 'unknown'.
+   * A direct, queryable "classification gap" signal: these are the
+   * endpoints a recon-first investigation should look at next to understand
+   * what they actually are, before any deeper probing is considered.
+   */
+  findUnclassifiedEndpoints(): readonly AttackSurfaceGraphQueryMatch<EndpointNode>[] {
+    const matches: AttackSurfaceGraphQueryMatch<EndpointNode>[] = [];
+    for (const node of this.graph.nodes) {
+      if (node.kind !== 'endpoint') {
+        continue;
+      }
+      const classification = node.metadata.surfaceClassification;
+      if (classification !== undefined && classification !== 'unknown') {
+        continue;
+      }
+      const related = edgesForNode(this.graph, node.id);
+      matches.push({
+        node,
+        epistemicStatus: strongestEpistemic(node.epistemicStatus, related),
+        relatedEdges: related,
+      });
+    }
+    return Object.freeze(matches);
+  }
+
+  /**
+   * R2 — Count of endpoints per surface classification. A quick, honest
+   * picture of surface composition (how much is REST vs GraphQL vs static
+   * assets vs admin/internal vs still unclassified) without claiming
+   * anything about vulnerability or severity.
+   */
+  summarizeEndpointSurfaceClassification(): Readonly<Record<EndpointSurfaceKind, number>> {
+    const counts: Record<EndpointSurfaceKind, number> = {
+      rest_api: 0,
+      graphql_api: 0,
+      static_asset: 0,
+      auth_boundary: 0,
+      admin_or_internal: 0,
+      spa_client_route: 0,
+      unknown: 0,
+    };
+    for (const node of this.graph.nodes) {
+      if (node.kind !== 'endpoint') continue;
+      const classification = node.metadata.surfaceClassification ?? 'unknown';
+      counts[classification] += 1;
+    }
+    return Object.freeze(counts);
   }
 }

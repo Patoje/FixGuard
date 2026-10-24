@@ -1689,6 +1689,62 @@ All completed milestones are verified via active TypeScript contracts and the re
 
 ---
 
+## 4.1. Phase R: Recon-First Pivot (Post-ADR-013)
+
+> [!IMPORTANT]
+> **Product direction reset (2026-10-24, ADR-013).** FixGuard's value is
+> reconnaissance depth, application modeling, and classification — not
+> breadth of active/injection-style detectors. The 6 live differential
+> detectors in the automatic read-investigation loop are frozen
+> (`AGGRESSIVE_DETECTION_FROZEN = true` in `ReadDetectionPass.ts`); active
+> confirmation of vulnerabilities is now a manual, operator-driven step
+> delegated to external tooling (Parrot), not an automatic FixGuard
+> capability. The milestones below are the natural next steps under this
+> direction. None are started as of this entry.
+
+### Milestone R1: Investigation Model Consolidation (Ranked "What Next")
+- **Status:** PROPOSED.
+- **Goal:** Make `HypothesisSchedulerService` + `InvestigationRuntimeCoordinator` the actual decision point of an assessment: given the current `TargetProfile`/`AttackSurfaceGraph` and everything recon has found so far, produce a ranked list of "what's still unknown" with a stated reason for each, and map each gap to the specific capability (an existing passive detector or recon adapter) that would close it — instead of the current fixed 5-stage pipeline order.
+- **Depends on:** nothing new; reads existing `TargetProfile`, `AttackSurfaceGraph`, `EpistemicStatus` on graph edges.
+- **Non-goals:** does not add new active probing; does not touch frozen detectors.
+- **Done when:** given a real assessment, an operator can ask "what should I look at next and why" and get a ranked, evidence-sourced answer — not a hardcoded stage order dressed up as reasoning.
+- **Risk:** easy to fake with a handful of if/else rules that look like intelligence but aren't grounded in the actual evidence graph; verify against real `AttackSurfaceGraph` output, not synthetic fixtures.
+
+### Milestone R2: Classification Depth (Endpoint/Service/Framework Taxonomy)
+- **Status:** IN PROGRESS — increment 1 landed (2026-10-24): deterministic, path-pattern-based `EndpointSurfaceKind` classification (`rest_api` / `graphql_api` / `static_asset` / `auth_boundary` / `admin_or_internal` / `spa_client_route` / `unknown`) wired into all 5 `EndpointNode` construction sites in `AttackSurfaceGraphBuilder.ts` via `EndpointSurfaceClassifier.ts`. Query support added: `AttackSurfaceQueryService.findUnclassifiedEndpoints()` (a direct, queryable gap signal) and `.summarizeEndpointSurfaceClassification()`. Not yet done: service/microservice-boundary detection and technology/framework classification beyond what `TargetProfile`/`ApplicationNode.technologies` already carries — those need richer signal than path patterns alone and remain open for a future increment.
+- **Goal:** Enrich `TargetProfile`/`AttackSurfaceGraph` node classification beyond today's flat endpoint list: categorize each discovered surface element (REST resource, GraphQL endpoint, static asset, SPA client route, admin/internal panel, auth boundary, likely microservice/service boundary, third-party-integration call) using only passive/fingerprinting signals already collected (headers, tech-detect, route patterns, JS analysis, OpenAPI/GraphQL introspection where present).
+- **Depends on:** R1's gap-ranking benefits from this, but can be built in parallel since it only consumes existing passive detector output.
+- **Done when:** a `TargetProfile` for a real target shows categorized, de-duplicated structure (not just a flat URL list) that a human reviewer agrees is accurate.
+
+### Milestone R3: Clean Target Dossier Export (Operator-Facing Artifact)
+- **Status:** PROPOSED.
+- **Goal:** A single, clean, structured export of everything FixGuard has established about a target — classified surface (R2), ranked unknowns (R1), passive findings, with strict `OBSERVED`/`INFERRED`/`RECOMMENDED` tagging — as the artifact an operator hands off to Parrot for manual active work.
+- **Depends on:** R1, R2.
+- **Done when:** the export is self-contained, versioned, and legible enough that an operator could work entirely from it in Parrot without returning to the FixGuard UI.
+
+### Milestone R4: Parrot Import Boundary (Untrusted Evidence Ingestion, v0)
+- **Status:** PROPOSED.
+- **Goal:** Versioned file import of Parrot's output back into FixGuard, treated as untrusted input: validated, provenance-tagged, routed through the same draft→review pipeline as any other evidence (ADR-003, ADR-005) — never auto-confirmed into a `Finding`.
+- **Depends on:** R3 (the export format this import should round-trip with).
+- **Non-goals:** no always-on VM bridge, no remote execution agent — file-based only, operator-triggered on both ends.
+
+### Milestone R5: Detector Confirmation-Discipline Audit
+- **Status:** COMPLETED (2026-10-24). See `docs/decisions/R5-detector-confirmation-audit.md`.
+- **Goal:** Read-only pass over all `detection/*` services (frozen and still-active) checking what "confirmed"/`vulnerability_detected` actually means in each one's code against ADR-005's bar, independent of whether they're currently wired. Produces a decision table: retire permanently, keep frozen pending Parrot-assisted re-design, or re-confirm as still valid passive/classification signal.
+- **Headline finding:** every detector gates `Finding` creation behind an explicit `humanReviewDecision.decision === 'approve_evidence'` — no systemic auto-promotion-without-review violation. The real variance is signal quality shown to the reviewer, not whether a human is in the loop.
+- **Verdicts:** retire permanently — `ObjectMappingAnomalyDetectionService` (echo ≠ applied), `StateTransitionAnomalyDetectionService` (hardcoded success-string matching). Keep frozen, needs redesign — `AuthBypassDetectionService` (body-similarity heuristic), `JwtAlgorithmConfusionDetectionService` (baseline-rejection assumption unverified). Needs a dedicated follow-up review — `SupabaseBolaBflaWriteExpansionService`, `NextServerActionDifferentialDetectionService`, `MultiIdentityAuthzMatrixService`. Re-confirmed sound, stay active — the remaining ~19 passive/classification detectors. Already covered by ADR-013 for policy reasons (not signal weakness, several are the most rigorous in the codebase) — IDOR, CORS, credentialed CORS, parameter reflection, auth boundary differential, open redirect, blind SSRF, blind XSS.
+- **Depends on:** nothing; ran independent of R1–R4.
+- **Done when:** a short written table exists; this is a documentation deliverable, not new code. ✅
+
+### Milestone R6: V1/Web Alignment Cleanup
+- **Status:** PROPOSED.
+- **Goal:** Confirm or refute whether `web/` still queries V1 tables (flagged as a known risk in §6.1.4 but not reconfirmed since M62/F6/F7); fix only if still true. Separately, make the V1 retirement timing decision (§7.3: delete now vs. archive to a branch).
+- **Depends on:** nothing; independent, low-risk, bounded.
+
+**Suggested sequencing:** R1 and R2 first (in parallel, both low-risk and purely additive to existing passive data); R5 can run anytime alongside them since it's read-only; R3 once R1/R2 have real output to export; R4 only after R3; R6 whenever convenient, it blocks nothing else.
+
+---
+
 ## 5. Architectural Proposals (`PROPOSED` — NOT YET DECIDED)
 
 > [!NOTE]

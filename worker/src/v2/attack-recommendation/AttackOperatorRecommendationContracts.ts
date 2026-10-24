@@ -55,6 +55,11 @@ export interface OperatorAttackRecommendation {
   readonly sourceFindingId?: string;
   readonly sourceFindingType?: string;
   readonly score: number;
+  /** ADR-013: true when `capabilityKind` belongs to the active/aggressive
+   * confirmation layer frozen for automatic use — still shown for operator
+   * awareness, but understood as a manual (Parrot) action, not something
+   * FixGuard itself should be nudging toward next. */
+  readonly deferredToManualValidation?: boolean;
 }
 
 export interface OperatorStackHints {

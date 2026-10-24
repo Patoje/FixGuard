@@ -20,6 +20,7 @@ import {
 } from './AttackOperatorRecommendationContracts.js';
 import { isBlockingDefense } from '../test-validity/DefenseObservationService.js';
 import type { DefenseObservation } from '../test-validity/TestValidityContracts.js';
+import { isDeferredToManualValidation } from '../hypothesis-scheduler/HypothesisSchedulerContracts.js';
 
 /** Spray-style capabilities that WAF/bot defenses often invalidate. */
 const DEFENSE_SENSITIVE_CAPABILITIES: ReadonlySet<AttackCapabilityKind> = new Set([
@@ -829,7 +830,14 @@ export class AttackRecommendationService {
       rulesApplied
     );
 
-    const recommendations = rankTopTwo(candidates, input.assessmentId);
+    // ADR-013: tag recommendations whose capability belongs to the frozen
+    // active-confirmation layer, so operator-facing UIs can show them as
+    // manual/Parrot actions rather than FixGuard's own next-step guidance.
+    const recommendations = rankTopTwo(candidates, input.assessmentId).map((r) =>
+      isDeferredToManualValidation(r.capabilityKind)
+        ? Object.freeze({ ...r, deferredToManualValidation: true })
+        : r
+    );
 
     return {
       contractVersion: ATTACK_OPERATOR_RECOMMENDATION_CONTRACT_VERSION,

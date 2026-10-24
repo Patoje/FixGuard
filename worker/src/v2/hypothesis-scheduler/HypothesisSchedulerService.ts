@@ -5,6 +5,7 @@
 
 import {
   HYPOTHESIS_SCHEDULER_CONTRACT_VERSION,
+  isDeferredToManualValidation,
   type HypothesisBlockReason,
   type HypothesisSchedulerInput,
   type HypothesisSchedulerResult,
@@ -207,6 +208,8 @@ export class HypothesisSchedulerService {
             rationale: `Derived from finding ${f.id} (${f.type})`,
             sourceFindingIds: Object.freeze([f.id]),
             ...(capability ? { suggestedCapability: capability } : {}),
+            deferredToManualValidation:
+              isDeferredToManualValidation(kind) || isDeferredToManualValidation(capability),
             blocked: !pre.satisfied,
             blockReason: pre.blockReason,
             ...(pre.detail ? { blockDetail: pre.detail } : {}),
@@ -243,6 +246,7 @@ export class HypothesisSchedulerService {
             : 'SPA signals present — expand JS/endpoint surface before spray',
           sourceFindingIds: Object.freeze([]),
           suggestedCapability: 'parameter_reflection_probe',
+          deferredToManualValidation: isDeferredToManualValidation('parameter_reflection_probe'),
           blocked: vercelNext,
           blockReason: vercelNext ? 'stack_policy_deprioritized' : 'none',
           ...(vercelNext
@@ -278,6 +282,7 @@ export class HypothesisSchedulerService {
           rationale: 'ASG contains endpoints but dual identities are not present',
           sourceFindingIds: Object.freeze([]),
           suggestedCapability: 'idor_read_differential',
+          deferredToManualValidation: true,
           blocked: true,
           blockReason: pre.blockReason,
           blockDetail: pre.detail,
@@ -319,6 +324,9 @@ export class HypothesisSchedulerService {
           rationale,
           sourceFindingIds: Object.freeze([]),
           ...(suggestedCapability ? { suggestedCapability } : {}),
+          deferredToManualValidation:
+            isDeferredToManualValidation(hypothesisKind) ||
+            isDeferredToManualValidation(suggestedCapability),
           blocked: !pre.satisfied,
           blockReason: pre.blockReason,
           ...(pre.detail ? { blockDetail: pre.detail } : {}),

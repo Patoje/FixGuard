@@ -25,6 +25,7 @@ import type {
   EpistemicStatus,
 } from './AttackSurfaceContracts.js';
 import { ATTACK_SURFACE_CONTRACT_VERSION } from './AttackSurfaceContracts.js';
+import { classifyEndpointSurface } from './EndpointSurfaceClassifier.js';
 
 export interface AsgSessionAuthContext {
   /** Stable identity id only — never embed session token material. */
@@ -389,6 +390,7 @@ export const AttackSurfaceGraphBuilder = {
           method: web.method.toUpperCase(),
           authRequirement: 'unknown',
           flawCategories: [],
+          surfaceClassification: classifyEndpointSurface({ path, method: web.method }),
         },
       });
       acc.link('exposes', applicationNode.id, endpointNode.id, status, prov);
@@ -441,6 +443,10 @@ export const AttackSurfaceGraphBuilder = {
           method: 'GET',
           authRequirement: 'unknown',
           flawCategories: [],
+          surfaceClassification: classifyEndpointSurface({
+            path: urlObs.path || '/',
+            method: 'GET',
+          }),
         },
       });
       acc.link('exposes', applicationNode.id, endpointNode.id, status, prov);
@@ -464,6 +470,7 @@ export const AttackSurfaceGraphBuilder = {
           method: ep.method.toUpperCase(),
           authRequirement: ep.authRequirement,
           flawCategories: [...ep.flawCategories],
+          surfaceClassification: classifyEndpointSurface({ path: ep.path, method: ep.method }),
         },
       });
       acc.link('exposes', applicationNode.id, endpointNode.id, 'OBSERVED', prov);
@@ -540,6 +547,7 @@ export const AttackSurfaceGraphBuilder = {
             method: paramObs.method.toUpperCase(),
             authRequirement: 'unknown',
             flawCategories: [],
+            surfaceClassification: classifyEndpointSurface({ path, method: paramObs.method }),
           },
         });
         acc.link('exposes', applicationNode.id, endpointId, status, prov);
@@ -622,6 +630,10 @@ export const AttackSurfaceGraphBuilder = {
               method: endpointMatch.method.toUpperCase(),
               authRequirement: endpointMatch.authRequirement,
               flawCategories: [...endpointMatch.flawCategories],
+              surfaceClassification: classifyEndpointSurface({
+                path: endpointMatch.path,
+                method: endpointMatch.method,
+              }),
             },
           });
         }

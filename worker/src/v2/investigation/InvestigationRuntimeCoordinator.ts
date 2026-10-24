@@ -58,6 +58,7 @@ import {
 import type { IdorHttpProbeTransport } from '../detection/DetectionContracts.js';
 import {
   HYPOTHESIS_SCHEDULER_CONTRACT_VERSION,
+  isDeferredToManualValidation,
   type SecurityHypothesis,
   type SecurityHypothesisKind,
 } from '../hypothesis-scheduler/HypothesisSchedulerContracts.js';
@@ -499,6 +500,7 @@ export class InvestigationRuntimeCoordinator {
             targetUrl,
             normalizedRoutePattern: norm.normalizedPattern,
             suggestedCapability: p.capability,
+            deferredToManualValidation: isDeferredToManualValidation(p.capability),
             supportingEvidence: Object.freeze([`Registered plan ${p.planId}`]),
             contradictingEvidence: Object.freeze([]),
             blocked: false,

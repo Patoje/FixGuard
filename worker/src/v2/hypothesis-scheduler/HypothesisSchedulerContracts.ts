@@ -42,6 +42,60 @@ export type HypothesisLifecycleState =
 
 export type HypothesisPriorityBand = 'critical' | 'high' | 'medium' | 'low';
 
+/**
+ * ADR-013 (2026-10-24): hypothesis/capability names that represent active,
+ * injection- or identity-differential-style confirmation. These are no
+ * longer treated as FixGuard's own "next actionable step" — they remain
+ * visible (useful provenance for a future manual handoff to Parrot) but are
+ * tagged `deferredToManualValidation: true` and excluded from automatic
+ * recommendation boosting. Extends ADR-013's explicit 6-detector list to the
+ * two capabilities (`supabase_rls_read_confirm`, `graphql_auth_delta`) that
+ * share the same read_authenticated/read_escalated identity-differential
+ * shape in `InvestigationRuntimeCoordinator`'s existing blast-radius
+ * classification, plus the write/state-changing capabilities that were
+ * already gated behind `AttackExecutionService` and never auto-suggested.
+ */
+const DEFERRED_TO_MANUAL_VALIDATION_NAMES: ReadonlySet<string> = new Set([
+  // Hypothesis kinds (HypothesisSchedulerService.schedule)
+  'idor_differential',
+  'auth_bypass',
+  'auth_boundary_differential',
+  'credentialed_cors',
+  'jwt_confusion',
+  'sql_oracle',
+  'parameter_reflection',
+  'supabase_rls_read_confirm',
+  // Capability names (InvestigationRuntimeCoordinator / AttackPlan.capability)
+  'idor_read_differential',
+  'auth_bypass_probe',
+  'cors_misconfiguration_probe',
+  'cors_chain_exploit',
+  'jwt_alg_none_probe',
+  'sql_oracle_advancement',
+  'sql_injection_verification',
+  'parameter_reflection_probe',
+  'open_redirect_probe',
+  'graphql_auth_delta',
+  'nuclei_xss_scan',
+  'lfi_path_traversal',
+  'credential_reuse',
+  'supabase_rls_write_probe',
+  'supabase_authz_write_matrix',
+  'next_server_action_diff',
+  'serverless_race_condition_probe',
+]);
+
+/**
+ * True when a hypothesis kind or suggested/plan capability name is part of
+ * the active-confirmation layer deferred to manual (Parrot) validation under
+ * ADR-013. Used to tag `SecurityHypothesis.deferredToManualValidation` and to
+ * exclude these hypotheses from automatic recommendation preference boosts.
+ */
+export function isDeferredToManualValidation(name: string | undefined): boolean {
+  if (!name) return false;
+  return DEFERRED_TO_MANUAL_VALIDATION_NAMES.has(name);
+}
+
 export interface SecurityHypothesis {
   readonly contractVersion: HypothesisSchedulerContractVersion;
   readonly kind: 'security_hypothesis';
@@ -53,6 +107,10 @@ export interface SecurityHypothesis {
   readonly rationale: string;
   readonly sourceFindingIds: readonly string[];
   readonly suggestedCapability?: string;
+  /** ADR-013: true when this hypothesis belongs to the active/aggressive
+   * confirmation layer frozen for automatic use — kept as provenance for a
+   * future manual Parrot handoff, never auto-preferred as the next step. */
+  readonly deferredToManualValidation?: boolean;
   readonly blocked: boolean;
   readonly blockReason: HypothesisBlockReason;
   readonly blockDetail?: string;

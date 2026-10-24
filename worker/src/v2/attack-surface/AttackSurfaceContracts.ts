@@ -130,6 +130,22 @@ export interface ApplicationNode extends AsgNodeBase {
   };
 }
 
+/**
+ * R2 — Endpoint surface classification (recon-first pivot, read-only).
+ * Deterministic, pattern-based classification of what kind of surface an
+ * endpoint is, derived only from its path/method — never from a guessed
+ * severity or exploitability claim. 'unknown' is the honest default when no
+ * pattern matches; this is a descriptive tag, not a finding.
+ */
+export type EndpointSurfaceKind =
+  | 'rest_api'
+  | 'graphql_api'
+  | 'static_asset'
+  | 'auth_boundary'
+  | 'admin_or_internal'
+  | 'spa_client_route'
+  | 'unknown';
+
 export interface EndpointNode extends AsgNodeBase {
   readonly kind: 'endpoint';
   readonly metadata: {
@@ -138,6 +154,7 @@ export interface EndpointNode extends AsgNodeBase {
     readonly method: string;
     readonly authRequirement: 'unknown' | 'none' | 'authenticated';
     readonly flawCategories: readonly string[];
+    readonly surfaceClassification?: EndpointSurfaceKind;
   };
 }
 
