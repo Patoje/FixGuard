@@ -250,6 +250,28 @@ companion? (Affects step 1's scope.)
 
 ## Milestone P4 — Close the Parrot loop: import → human review → Finding
 
+**Status:** Backend COMPLETE and live-verified (2026-10-24); UI NOT done
+(session hit its usage limit). New `ParrotImportPromotionService.ts`:
+`evaluateParrotPromotion()`, fixed hypothesisKind -> Finding type/severity
+table (covers both HypothesisSchedulerService naming and the live
+InvestigationRuntimeCoordinator capability-name path — a real bug caught
+during verification, fixed before commit). `ParrotImportedObservation`
+gained an optional `review` field; repository gained `getObservation` +
+`recordReview` (fails closed on double-review). New
+`POST /assessments/:assessmentId/parrot-import/:observationId/review`.
+New `ParrotConfirmedMetadata` added to `core/Evidence.ts`'s `FindingMetadata`
+union (no type-bypass casts). Live-verified end to end against
+`inmobiliaria-cornejo-web-rho.vercel.app`: imported a Parrot observation
+referencing a real `cors_misconfiguration_probe` hypothesis, approved it,
+got a real `CORS_MISCONFIGURATION`/`high` Finding, confirmed it persisted
+in the dossier, confirmed double-review fails closed with
+`observation_already_reviewed`. `web/src/lib/v2Api.ts` gained the client
+methods/types for this (`getParrotImportObservations`,
+`reviewParrotImportObservation`) — `cd web && npm run build` exits 0.
+**Not done**: the actual UI panel/page wiring in `web/src/app/v2/review/`
+to list and review these observations from the browser — only the API
+client is ready for it.
+
 **Problem:** R4 increment 1 stores `ParrotImportedObservation`s in their own
 silo. There's no path from "Parrot confirmed this" to an actual `Finding` —
 defeating the point of importing in the first place.

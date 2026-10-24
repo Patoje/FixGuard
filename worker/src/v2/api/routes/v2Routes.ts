@@ -49,6 +49,11 @@ export function createV2Router(root: V2CompositionRoot): Router {
     '/assessments/:assessmentId/parrot-import',
     orchestratedController.getParrotImportObservations
   );
+  // P4 — close the Parrot loop: human review -> Finding (never automatic)
+  router.post(
+    '/assessments/:assessmentId/parrot-import/:observationId/review',
+    orchestratedController.reviewParrotImportObservation
+  );
   // Milestone A3 — Attack Plans read model (advisory only)
   router.get('/assessments/:assessmentId/attack-plans', orchestratedController.getAttackPlans);
   // Operator A/B recommendations (deterministic; never auto-execute)

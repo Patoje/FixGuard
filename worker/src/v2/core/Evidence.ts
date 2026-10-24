@@ -104,6 +104,20 @@ export interface WeakTlsMetadata {
   readonly lineage?: Record<string, unknown>;
 }
 
+/** P4 — a Finding promoted from a human-reviewed, Parrot-imported
+ * observation (parrot-import/ParrotImportPromotionService.ts). Never
+ * created without an explicit `approve_evidence` review decision. */
+export interface ParrotConfirmedMetadata {
+  readonly kind: 'parrot_confirmed_metadata';
+  readonly category: string;
+  readonly sourceKind: 'parrot_file_import';
+  readonly hypothesisId: string;
+  readonly hypothesisKind: string;
+  readonly observationId: string;
+  readonly reviewerId: string;
+  readonly reviewedAt: string;
+}
+
 export interface DiscoveryFindingMetadata {
   readonly kind: 'discovery_finding_metadata';
   readonly category?: string;
@@ -549,7 +563,8 @@ export type FindingMetadata =
   | OobCanaryMetadata
   | BlindSsrfDetectionMetadata
   | BlindXssDetectionMetadata
-  | DiscoveryFindingMetadata;
+  | DiscoveryFindingMetadata
+  | ParrotConfirmedMetadata;
 
 
 

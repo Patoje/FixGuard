@@ -117,6 +117,19 @@ export interface ParrotImportedObservation {
     readonly noAutoConfirmation: true;
     readonly treatedAsUntrustedInput: true;
   };
+  /**
+   * P4 — set only after an explicit human review decision (same
+   * `humanReviewDecision.decision === 'approve_evidence'` discipline every
+   * detection/*Service.ts already requires, R5-confirmed with zero
+   * exceptions). Absent means still pending. Never set by the import file
+   * itself — only by the dedicated review action.
+   */
+  readonly review?: {
+    readonly decision: 'approve_evidence' | 'reject' | 'needs_more_review';
+    readonly reviewerId: string;
+    readonly reviewedAt: string;
+    readonly findingId?: string;
+  };
 }
 
 export type ParrotImportRejectionReason =

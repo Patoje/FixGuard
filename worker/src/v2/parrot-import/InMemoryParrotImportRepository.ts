@@ -28,4 +28,37 @@ export class InMemoryParrotImportRepository implements ParrotImportRepository {
     const existing = this.byAssessment.get(assessmentId) ?? [];
     return Object.freeze(existing.map((o) => this.clone(o)));
   }
+
+  async getObservation(
+    assessmentId: string,
+    observationId: string
+  ): Promise<ParrotImportedObservation | null> {
+    const existing = this.byAssessment.get(assessmentId) ?? [];
+    const found = existing.find((o) => o.observationId === observationId);
+    return found ? this.clone(found) : null;
+  }
+
+  async recordReview(
+    assessmentId: string,
+    observationId: string,
+    review: NonNullable<ParrotImportedObservation['review']>
+  ): Promise<ParrotImportedObservation> {
+    const existing = this.byAssessment.get(assessmentId) ?? [];
+    const index = existing.findIndex((o) => o.observationId === observationId);
+    if (index === -1) {
+      throw new Error(`Parrot import observation '${observationId}' was not found`);
+    }
+    const current = existing[index];
+    if (!current) {
+      throw new Error(`Parrot import observation '${observationId}' was not found`);
+    }
+    if (current.review) {
+      throw new Error(`Parrot import observation '${observationId}' was already reviewed`);
+    }
+    const updated: ParrotImportedObservation = { ...current, review };
+    const next = [...existing];
+    next[index] = updated;
+    this.byAssessment.set(assessmentId, next);
+    return this.clone(updated);
+  }
 }

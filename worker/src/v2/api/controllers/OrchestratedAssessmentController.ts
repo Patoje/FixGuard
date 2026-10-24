@@ -391,6 +391,49 @@ export class OrchestratedAssessmentController {
     }
   };
 
+  /**
+   * P4 — reviews one Parrot-imported observation. Body:
+   * { decision: 'approve_evidence' | 'reject' | 'needs_more_review', reviewerId }.
+   * Only 'approve_evidence' on a 'confirmed' outcome, for a promotable
+   * hypothesis kind, ever creates a Finding.
+   */
+  public reviewParrotImportObservation = async (
+    req: Request,
+    res: Response,
+    next: NextFunction
+  ): Promise<void> => {
+    try {
+      const assessmentId = req.params.assessmentId;
+      const observationId = req.params.observationId;
+      if (!assessmentId || typeof assessmentId !== 'string' || !isStrictSafeId(assessmentId)) {
+        throw new ApiValidationError('Field assessmentId must satisfy strict identifier format');
+      }
+      if (!observationId || typeof observationId !== 'string' || !isStrictSafeId(observationId)) {
+        throw new ApiValidationError('Field observationId must satisfy strict identifier format');
+      }
+      const decision = req.body?.decision;
+      if (decision !== 'approve_evidence' && decision !== 'reject' && decision !== 'needs_more_review') {
+        throw new ApiValidationError(
+          "Field decision must be one of 'approve_evidence', 'reject', 'needs_more_review'"
+        );
+      }
+      const reviewerId = req.body?.reviewerId;
+      if (!reviewerId || typeof reviewerId !== 'string') {
+        throw new ApiValidationError('Field reviewerId is required');
+      }
+
+      const result = await this.service.reviewParrotImportObservation({
+        assessmentId,
+        observationId,
+        decision,
+        reviewerId,
+      });
+      res.status(200).json(result);
+    } catch (err) {
+      next(err);
+    }
+  };
+
   /** R4 — lists previously accepted Parrot import observations (read-only). */
   public getParrotImportObservations = async (
     req: Request,

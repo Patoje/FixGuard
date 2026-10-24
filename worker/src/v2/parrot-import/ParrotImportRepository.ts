@@ -13,4 +13,18 @@ export interface ParrotImportRepository {
   ): Promise<void>;
 
   listByAssessmentId(assessmentId: string): Promise<readonly ParrotImportedObservation[]>;
+
+  getObservation(
+    assessmentId: string,
+    observationId: string
+  ): Promise<ParrotImportedObservation | null>;
+
+  /** P4 — records a human review decision on one observation (sets its
+   * `review` field). Fails closed (throws) if the observation is already
+   * reviewed or doesn't exist — a review decision is made once. */
+  recordReview(
+    assessmentId: string,
+    observationId: string,
+    review: NonNullable<ParrotImportedObservation['review']>
+  ): Promise<ParrotImportedObservation>;
 }

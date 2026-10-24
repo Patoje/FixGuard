@@ -391,6 +391,8 @@ import type {
 } from '../parrot-import/ParrotImportContracts.js';
 import type { ParrotImportRepository } from '../parrot-import/ParrotImportRepository.js';
 import { InMemoryParrotImportRepository } from '../parrot-import/InMemoryParrotImportRepository.js';
+import { evaluateParrotPromotion } from '../parrot-import/ParrotImportPromotionService.js';
+import type { ParrotPromotionResult } from '../parrot-import/ParrotImportPromotionService.js';
 import type { DefenseObservation } from '../test-validity/TestValidityContracts.js';
 import { TEST_VALIDITY_CONTRACT_VERSION } from '../test-validity/TestValidityContracts.js';
 import { factsFromCapturedRecon } from '../observation/CapturedHostFacts.js';
@@ -2285,6 +2287,86 @@ export class OrchestratedAssessmentApplicationService {
       throw new ApiValidationError('Field assessmentId must satisfy strict identifier format');
     }
     return this.parrotImportRepository.listByAssessmentId(assessmentId);
+  }
+
+  /**
+   * P4 — reviews a Parrot-imported observation. Mirrors the explicit
+   * `approve_evidence` discipline every detection/*Service.ts already
+   * requires (R5-confirmed, zero exceptions): a Finding is only ever
+   * created on `approve_evidence` AND the observation's own `outcome ===
+   * 'confirmed'`, and only for a hypothesis kind in the fixed, FixGuard-
+   * owned classification table (ParrotImportPromotionService.ts) — never
+   * from anything the import file itself claimed. `reject` and
+   * `needs_more_review` never create a Finding. A review decision is
+   * recorded once; reviewing an already-reviewed observation fails closed.
+   */
+  public async reviewParrotImportObservation(args: {
+    readonly assessmentId: string;
+    readonly observationId: string;
+    readonly decision: 'approve_evidence' | 'reject' | 'needs_more_review';
+    readonly reviewerId: string;
+    readonly reviewedAt?: string;
+  }): Promise<ParrotPromotionResult> {
+    const { assessmentId, observationId } = args;
+    if (!assessmentId || typeof assessmentId !== 'string' || !isStrictSafeId(assessmentId)) {
+      throw new ApiValidationError('Field assessmentId must satisfy strict identifier format');
+    }
+    if (!observationId || typeof observationId !== 'string' || !isStrictSafeId(observationId)) {
+      throw new ApiValidationError('Field observationId must satisfy strict identifier format');
+    }
+    if (!args.reviewerId || typeof args.reviewerId !== 'string' || !isStrictSafeId(args.reviewerId)) {
+      throw new ApiValidationError('Field reviewerId must satisfy strict identifier format');
+    }
+
+    const record = await this.repository.findById(assessmentId);
+    if (!record) {
+      throw new SessionNotFoundError(
+        `Orchestrated assessment '${assessmentId}' was not found`,
+        assessmentId
+      );
+    }
+
+    const observation = await this.parrotImportRepository.getObservation(assessmentId, observationId);
+    if (!observation) {
+      return { promoted: false, reasonCode: 'observation_not_found' };
+    }
+    if (observation.review) {
+      return { promoted: false, reasonCode: 'observation_already_reviewed' };
+    }
+
+    const dossier = await this.getTargetDossier(assessmentId);
+    const matchedHypothesis = dossier.hypotheses.find(
+      (h) => h.hypothesisId === observation.hypothesisId
+    );
+    if (!matchedHypothesis) {
+      return { promoted: false, reasonCode: 'hypothesis_not_found' };
+    }
+
+    const reviewedAt = args.reviewedAt ?? new Date().toISOString();
+    const result = evaluateParrotPromotion({
+      observation,
+      matchedHypothesis,
+      decision: args.decision,
+      reviewerId: args.reviewerId,
+      reviewedAt,
+    });
+
+    await this.parrotImportRepository.recordReview(assessmentId, observationId, {
+      decision: args.decision,
+      reviewerId: args.reviewerId,
+      reviewedAt,
+      ...(result.finding ? { findingId: result.finding.id } : {}),
+    });
+
+    if (result.finding) {
+      const findingToAdd = result.finding;
+      await this.repository.update(assessmentId, (prev) => ({
+        ...prev,
+        findings: [...prev.findings, findingToAdd],
+      }));
+    }
+
+    return result;
   }
 
   /**

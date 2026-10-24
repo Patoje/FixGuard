@@ -389,6 +389,44 @@ export interface ReviewEvidenceDraftParams {
   readonly notes?: string;
 }
 
+/** P4 — a Parrot-imported observation (never a Finding by itself). */
+export interface ParrotImportedObservationDto {
+  readonly observationId: string;
+  readonly assessmentId: string;
+  readonly scanId: string;
+  readonly dossierId: string;
+  readonly hypothesisId: string;
+  readonly outcome: 'confirmed' | 'not_confirmed' | 'inconclusive';
+  readonly operatorNote: string;
+  readonly evidenceExcerpt?: string;
+  readonly importedBy: string;
+  readonly importedAt: string;
+  readonly requiresHumanReview: true;
+  readonly review?: {
+    readonly decision: 'approve_evidence' | 'reject' | 'needs_more_review';
+    readonly reviewerId: string;
+    readonly reviewedAt: string;
+    readonly findingId?: string;
+  };
+}
+
+export interface GetParrotImportObservationsResponse {
+  readonly assessmentId: string;
+  readonly observationCount: number;
+  readonly observations: readonly ParrotImportedObservationDto[];
+}
+
+export interface ReviewParrotImportObservationParams {
+  readonly decision: 'approve_evidence' | 'reject' | 'needs_more_review';
+  readonly reviewerId: string;
+}
+
+export interface ReviewParrotImportObservationResponse {
+  readonly promoted: boolean;
+  readonly reasonCode: string;
+  readonly finding?: FindingDto;
+}
+
 export interface ReviewEvidenceDraftResponse {
   readonly assessmentId: string;
   readonly draftId: string;
@@ -605,6 +643,37 @@ export class V2OrchestratedApiClient {
   }
 
   /**
+   * P4 — lists Parrot-imported observations pending (or already) reviewed.
+   * GET /api/v2/assessments/:assessmentId/parrot-import
+   */
+  public async getParrotImportObservations(
+    assessmentId: string
+  ): Promise<GetParrotImportObservationsResponse> {
+    return this.request<GetParrotImportObservationsResponse>(
+      `/assessments/${encodeURIComponent(assessmentId)}/parrot-import`
+    );
+  }
+
+  /**
+   * P4 — reviews one Parrot-imported observation. Only approve_evidence on
+   * a 'confirmed' outcome ever creates a Finding.
+   * POST /api/v2/assessments/:assessmentId/parrot-import/:observationId/review
+   */
+  public async reviewParrotImportObservation(
+    assessmentId: string,
+    observationId: string,
+    params: ReviewParrotImportObservationParams
+  ): Promise<ReviewParrotImportObservationResponse> {
+    return this.request<ReviewParrotImportObservationResponse>(
+      `/assessments/${encodeURIComponent(assessmentId)}/parrot-import/${encodeURIComponent(observationId)}/review`,
+      {
+        method: 'POST',
+        body: JSON.stringify(params),
+      }
+    );
+  }
+
+  /**
    * Generates and downloads a signed defensive HTML report.
    * POST /api/v2/orchestrated/assessments/:assessmentId/report/html
    */
@@ -691,6 +760,26 @@ export async function reviewEvidenceDraft(
 ): Promise<ReviewEvidenceDraftResponse> {
   const client = config ? new V2OrchestratedApiClient(config) : v2OrchestratedApi;
   return client.reviewEvidenceDraft(assessmentId, draftId, params);
+}
+
+/** P4 — lists Parrot-imported observations for an assessment. */
+export async function getParrotImportObservations(
+  assessmentId: string,
+  config?: V2ApiClientConfig
+): Promise<GetParrotImportObservationsResponse> {
+  const client = config ? new V2OrchestratedApiClient(config) : v2OrchestratedApi;
+  return client.getParrotImportObservations(assessmentId);
+}
+
+/** P4 — reviews one Parrot-imported observation (approve/reject/needs more review). */
+export async function reviewParrotImportObservation(
+  assessmentId: string,
+  observationId: string,
+  params: ReviewParrotImportObservationParams,
+  config?: V2ApiClientConfig
+): Promise<ReviewParrotImportObservationResponse> {
+  const client = config ? new V2OrchestratedApiClient(config) : v2OrchestratedApi;
+  return client.reviewParrotImportObservation(assessmentId, observationId, params);
 }
 
 export async function generateHtmlReport(
