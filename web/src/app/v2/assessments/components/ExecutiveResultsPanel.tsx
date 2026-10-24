@@ -136,6 +136,15 @@ export function ExecutiveResultsPanel({ summary }: ExecutiveResultsPanelProps) {
             Generar Informe Defensivo (HTML)
           </button>
 
+          {/* P3 — Target Dossier export: surface + hypotheses + findings, for manual (Parrot) handoff */}
+          <a
+            href={`${process.env.NEXT_PUBLIC_V2_API_URL ?? "/api/v2"}/assessments/${encodeURIComponent(summary.assessmentId)}/dossier/export?format=md`}
+            className="rounded-xl border border-sky-500/40 bg-sky-500/10 hover:bg-sky-500/20 px-3 py-1.5 text-xs font-mono text-sky-300 font-semibold flex items-center gap-1.5 transition"
+          >
+            <Download className="h-3.5 w-3.5 text-sky-400" />
+            Descargar Dossier (Markdown)
+          </a>
+
           <div className="flex items-center gap-1 rounded-xl border border-zinc-800 bg-zinc-900/60 p-1 text-xs font-mono">
             <button
               type="button"

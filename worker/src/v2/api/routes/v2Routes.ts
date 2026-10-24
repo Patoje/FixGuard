@@ -41,6 +41,8 @@ export function createV2Router(root: V2CompositionRoot): Router {
   router.get('/assessments/:assessmentId/attack-surface', orchestratedController.getAttackSurface);
   // R3 — Target Dossier (classified surface + ranked hypotheses + findings, for manual/Parrot handoff)
   router.get('/assessments/:assessmentId/dossier', orchestratedController.getTargetDossier);
+  // P3 — downloadable export (?format=json|md) of the same dossier
+  router.get('/assessments/:assessmentId/dossier/export', orchestratedController.exportTargetDossier);
   // R4 — Parrot Import Boundary (v0): untrusted file import, never auto-confirmed
   router.post('/assessments/:assessmentId/parrot-import', orchestratedController.importParrotFile);
   router.get(
@@ -127,6 +129,7 @@ export function createV2Router(root: V2CompositionRoot): Router {
   router.get('/orchestrated/assessments/:assessmentId/evidence-drafts', orchestratedController.getEvidenceDrafts);
   router.get('/orchestrated/assessments/:assessmentId/attack-surface', orchestratedController.getAttackSurface);
   router.get('/orchestrated/assessments/:assessmentId/dossier', orchestratedController.getTargetDossier);
+  router.get('/orchestrated/assessments/:assessmentId/dossier/export', orchestratedController.exportTargetDossier);
   router.get('/orchestrated/assessments/:assessmentId/attack-plans', orchestratedController.getAttackPlans);
   router.get(
     '/orchestrated/assessments/:assessmentId/attack-recommendations',

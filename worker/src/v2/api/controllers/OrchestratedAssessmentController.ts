@@ -28,6 +28,7 @@ import type { OrchestratedAssessmentApplicationService } from '../../application
 import type { AttackAuthorizationService } from '../../attack-authorization/AttackAuthorizationService.js';
 import type { AttackExecutionService } from '../../attack-execution/AttackExecutionService.js';
 import { ATTACK_AUTHORIZATION_CONTRACT_VERSION } from '../../attack-authorization/AttackAuthorizationContracts.js';
+import { renderTargetDossierMarkdown } from '../../dossier/TargetDossierMarkdownRenderer.js';
 import { ATTACK_EXECUTION_CONTRACT_VERSION } from '../../attack-execution/AttackExecutionContracts.js';
 import {
   parseStartOrchestratedAssessmentBody,
@@ -314,6 +315,46 @@ export class OrchestratedAssessmentController {
 
       const result = await this.service.getTargetDossier(assessmentId);
       res.status(200).json(result);
+    } catch (err) {
+      next(err);
+    }
+  };
+
+  /**
+   * P3 — downloadable export of the Target Dossier. `?format=md` (default
+   * `json`) sends the human-readable Markdown companion; either way this
+   * only renders the already-built dossier (no new probing, no new data).
+   */
+  public exportTargetDossier = async (
+    req: Request,
+    res: Response,
+    next: NextFunction
+  ): Promise<void> => {
+    try {
+      const assessmentId = req.params.assessmentId;
+      if (!assessmentId || typeof assessmentId !== 'string' || !isStrictSafeId(assessmentId)) {
+        throw new ApiValidationError('Field assessmentId must satisfy strict identifier format');
+      }
+      const format = req.query.format === 'md' ? 'md' : 'json';
+
+      const dossier = await this.service.getTargetDossier(assessmentId);
+      const baseName = `fixguard-dossier-${assessmentId}`;
+
+      if (format === 'md') {
+        const markdown = renderTargetDossierMarkdown(dossier);
+        res
+          .setHeader('Content-Type', 'text/markdown; charset=utf-8')
+          .setHeader('Content-Disposition', `attachment; filename="${baseName}.md"`)
+          .status(200)
+          .send(markdown);
+        return;
+      }
+
+      res
+        .setHeader('Content-Type', 'application/json; charset=utf-8')
+        .setHeader('Content-Disposition', `attachment; filename="${baseName}.json"`)
+        .status(200)
+        .send(JSON.stringify(dossier, null, 2));
     } catch (err) {
       next(err);
     }

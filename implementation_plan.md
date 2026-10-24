@@ -209,6 +209,20 @@ clearly `INFERRED`, never claim a confirmed architecture.
 
 ## Milestone P3 — Target Dossier: real file export + download
 
+**Status:** COMPLETED (2026-10-24). JSON + Markdown companion (resolved the
+open question in favor of both, since the dossier's rationale/hypothesis
+fields read well as Markdown and JSON stays the machine-readable source of
+truth). New `TargetDossierMarkdownRenderer.ts` (pure formatting, no new
+data). New `GET /assessments/:assessmentId/dossier/export?format=json|md`
+(+ `/orchestrated/...` alias), `Content-Disposition: attachment` on both
+formats. Minimal UI affordance added: a "Descargar Dossier (Markdown)"
+button next to the existing HTML-report button in
+`ExecutiveResultsPanel.tsx`. Verified live (one light, single run against
+`inmobiliaria-cornejo-web-rho.vercel.app`, respecting today's rate
+concerns): both formats return correct `Content-Type` and
+`Content-Disposition` headers and well-formed content. `npm run
+typecheck:v2` and `cd web && npm run build` both exit 0.
+
 **Problem:** R3 increment 1 is a JSON API response, not the "versioned file
 an operator carries to Parrot" the vision describes.
 
