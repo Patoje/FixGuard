@@ -319,6 +319,56 @@ export class OrchestratedAssessmentController {
     }
   };
 
+  /**
+   * R4 — Parrot Import Boundary (v0). Accepts an operator-supplied file as
+   * untrusted input, validated fail-closed (ParrotImportContracts.ts).
+   * Body: { rawFile: <the Parrot export JSON>, importedBy: <operator id> }.
+   */
+  public importParrotFile = async (
+    req: Request,
+    res: Response,
+    next: NextFunction
+  ): Promise<void> => {
+    try {
+      const assessmentId = req.params.assessmentId;
+      if (!assessmentId || typeof assessmentId !== 'string' || !isStrictSafeId(assessmentId)) {
+        throw new ApiValidationError('Field assessmentId must satisfy strict identifier format');
+      }
+      const importedBy = req.body?.importedBy;
+      if (!importedBy || typeof importedBy !== 'string') {
+        throw new ApiValidationError('Field importedBy is required');
+      }
+
+      const result = await this.service.importParrotFile({
+        assessmentId,
+        rawFile: req.body?.rawFile,
+        importedBy,
+      });
+      res.status(result.status === 'accepted' ? 200 : 400).json(result);
+    } catch (err) {
+      next(err);
+    }
+  };
+
+  /** R4 — lists previously accepted Parrot import observations (read-only). */
+  public getParrotImportObservations = async (
+    req: Request,
+    res: Response,
+    next: NextFunction
+  ): Promise<void> => {
+    try {
+      const assessmentId = req.params.assessmentId;
+      if (!assessmentId || typeof assessmentId !== 'string' || !isStrictSafeId(assessmentId)) {
+        throw new ApiValidationError('Field assessmentId must satisfy strict identifier format');
+      }
+
+      const observations = await this.service.listParrotImportObservations(assessmentId);
+      res.status(200).json({ assessmentId, observationCount: observations.length, observations });
+    } catch (err) {
+      next(err);
+    }
+  };
+
   public getAttackPlans = async (
     req: Request,
     res: Response,

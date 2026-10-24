@@ -41,6 +41,12 @@ export function createV2Router(root: V2CompositionRoot): Router {
   router.get('/assessments/:assessmentId/attack-surface', orchestratedController.getAttackSurface);
   // R3 — Target Dossier (classified surface + ranked hypotheses + findings, for manual/Parrot handoff)
   router.get('/assessments/:assessmentId/dossier', orchestratedController.getTargetDossier);
+  // R4 — Parrot Import Boundary (v0): untrusted file import, never auto-confirmed
+  router.post('/assessments/:assessmentId/parrot-import', orchestratedController.importParrotFile);
+  router.get(
+    '/assessments/:assessmentId/parrot-import',
+    orchestratedController.getParrotImportObservations
+  );
   // Milestone A3 — Attack Plans read model (advisory only)
   router.get('/assessments/:assessmentId/attack-plans', orchestratedController.getAttackPlans);
   // Operator A/B recommendations (deterministic; never auto-execute)

@@ -383,6 +383,13 @@ import { HypothesisSchedulerService } from '../hypothesis-scheduler/HypothesisSc
 import { HYPOTHESIS_SCHEDULER_CONTRACT_VERSION } from '../hypothesis-scheduler/HypothesisSchedulerContracts.js';
 import { buildTargetDossier } from '../dossier/TargetDossierBuilderService.js';
 import type { TargetDossier } from '../dossier/TargetDossierContracts.js';
+import { validateAndParseParrotImportFile } from '../parrot-import/ParrotImportContracts.js';
+import type {
+  ParrotImportedObservation,
+  ParrotImportResult,
+} from '../parrot-import/ParrotImportContracts.js';
+import type { ParrotImportRepository } from '../parrot-import/ParrotImportRepository.js';
+import { InMemoryParrotImportRepository } from '../parrot-import/InMemoryParrotImportRepository.js';
 import type { DefenseObservation } from '../test-validity/TestValidityContracts.js';
 import { TEST_VALIDITY_CONTRACT_VERSION } from '../test-validity/TestValidityContracts.js';
 import { factsFromCapturedRecon } from '../observation/CapturedHostFacts.js';
@@ -446,6 +453,8 @@ export interface OrchestratedAssessmentServiceDependencies {
   readonly lateralMovementService?: LateralMovementService;
   readonly impactAssessmentService?: ImpactAssessmentService;
   readonly activeInvestigationRuntime?: ActiveInvestigationRuntimeService;
+  /** R4 — Parrot import observation store (optional; defaults to in-memory). */
+  readonly parrotImportRepository?: ParrotImportRepository;
   /** Override default 25000ms heartbeat interval (tests only). */
   readonly heartbeatIntervalMs?: number;
   /** Override target session keep-alive interval (tests only). */
@@ -1350,6 +1359,7 @@ export class OrchestratedAssessmentApplicationService {
   private readonly lateralMovementService: LateralMovementService;
   private readonly impactAssessmentService: ImpactAssessmentService;
   private readonly activeInvestigationRuntime: ActiveInvestigationRuntimeService;
+  private readonly parrotImportRepository: ParrotImportRepository;
   private readonly activeAssessments = new Map<string, Promise<void>>();
   private readonly heartbeatIntervalMs: number;
   private readonly sessionKeepAliveIntervalMs: number;
@@ -1390,6 +1400,8 @@ export class OrchestratedAssessmentApplicationService {
       deps.impactAssessmentService ?? new ImpactAssessmentService();
     this.activeInvestigationRuntime =
       deps.activeInvestigationRuntime ?? new ActiveInvestigationRuntimeService();
+    this.parrotImportRepository =
+      deps.parrotImportRepository ?? new InMemoryParrotImportRepository();
     const isTestOrSmoke = isTestOrSmokeEnvironment();
     this.usingHermeticStubReconAdapters =
       deps.reconAdapters === undefined &&
@@ -2214,6 +2226,64 @@ export class OrchestratedAssessmentApplicationService {
       hypotheses,
       findings: record.findings,
     });
+  }
+
+  /**
+   * R4 — Parrot Import Boundary (v0). Validates an operator-supplied file
+   * as untrusted input (exact-key closed-world + forbidden-content scan,
+   * fail-closed, atomic — the whole file is rejected if any observation is
+   * invalid). On success, stores the resulting ParrotImportedObservation
+   * records — never a Finding, never auto-confirmed, always marked
+   * requiresHumanReview. importedBy/importedAt are server-assigned, never
+   * trusted from the file.
+   */
+  public async importParrotFile(args: {
+    readonly assessmentId: string;
+    readonly rawFile: unknown;
+    readonly importedBy: string;
+  }): Promise<ParrotImportResult> {
+    const { assessmentId, rawFile, importedBy } = args;
+    if (!assessmentId || typeof assessmentId !== 'string' || !isStrictSafeId(assessmentId)) {
+      throw new ApiValidationError('Field assessmentId must satisfy strict identifier format');
+    }
+    if (!importedBy || typeof importedBy !== 'string' || !isStrictSafeId(importedBy)) {
+      throw new ApiValidationError('Field importedBy must satisfy strict identifier format');
+    }
+
+    const record = await this.repository.findById(assessmentId);
+    if (!record) {
+      throw new SessionNotFoundError(
+        `Orchestrated assessment '${assessmentId}' was not found`,
+        assessmentId
+      );
+    }
+
+    const result = validateAndParseParrotImportFile(rawFile, {
+      expectedAssessmentId: record.assessmentId,
+      expectedScanId: record.scanId,
+      importedBy,
+      importedAt: new Date().toISOString(),
+    });
+
+    if (result.status === 'accepted' && result.observations.length > 0) {
+      await this.parrotImportRepository.appendObservations(assessmentId, result.observations);
+    }
+
+    return result;
+  }
+
+  /**
+   * R4 — lists previously accepted Parrot import observations for an
+   * assessment (read-only; these still require human review elsewhere
+   * before informing any Finding).
+   */
+  public async listParrotImportObservations(
+    assessmentId: string
+  ): Promise<readonly ParrotImportedObservation[]> {
+    if (!assessmentId || typeof assessmentId !== 'string' || !isStrictSafeId(assessmentId)) {
+      throw new ApiValidationError('Field assessmentId must satisfy strict identifier format');
+    }
+    return this.parrotImportRepository.listByAssessmentId(assessmentId);
   }
 
   /**

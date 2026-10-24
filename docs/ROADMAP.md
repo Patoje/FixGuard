@@ -1723,10 +1723,12 @@ All completed milestones are verified via active TypeScript contracts and the re
 - **Done when:** the export is self-contained, versioned, and legible enough that an operator could work entirely from it in Parrot without returning to the FixGuard UI.
 
 ### Milestone R4: Parrot Import Boundary (Untrusted Evidence Ingestion, v0)
-- **Status:** PROPOSED.
-- **Goal:** Versioned file import of Parrot's output back into FixGuard, treated as untrusted input: validated, provenance-tagged, routed through the same draft→review pipeline as any other evidence (ADR-003, ADR-005) — never auto-confirmed into a `Finding`.
-- **Depends on:** R3 (the export format this import should round-trip with).
-- **Non-goals:** no always-on VM bridge, no remote execution agent — file-based only, operator-triggered on both ends.
+- **Status:** IN PROGRESS — increment 1 landed (2026-10-24). New `worker/src/v2/parrot-import/` module: `ParrotImportContracts.ts` (`validateAndParseParrotImportFile` — exact-key closed-world at both file and observation level, ADR-002-style atomic all-or-nothing rejection, forbidden-content scan on free-text fields blocking severity/exploit/credential smuggling, `outcome` restricted to `confirmed`/`not_confirmed`/`inconclusive` only), `ParrotImportRepository` port + `InMemoryParrotImportRepository` (ADR-011 DB-free first). Round-trips with R3: observations reference a dossier's `hypothesisId`s.
+- **Architectural note (deviates from original phrasing on purpose):** does NOT route through the M45–M54 evidence-draft/promotion pipeline — that pipeline is built specifically around FixGuard's own `ResponseComparisonResult` from active probing, and forcing Parrot's external output through it would mean fabricating fake internal comparison objects just to satisfy its types. Instead this is its own dedicated, smaller trust boundary: validate → store as `ParrotImportedObservation` (`requiresHumanReview: true`, explicit `nonClaims`) → never a `Finding`. Wiring these observations into the formal promotion pipeline is a deliberately separate, not-yet-done next increment.
+- **Verified (not just typechecked):** 8 adversarial cases run directly against the validator — valid file (accepted), severity-smuggling free text (rejected), unexpected top-level key (rejected), cross-assessment `assessmentId` mismatch (rejected), forged `outcome` value (rejected), one bad observation in an otherwise-good batch (whole batch rejected — atomic), `null` input (rejected), non-object input (rejected).
+- **Exposed via:** `POST /api/v2/assessments/:assessmentId/parrot-import` (accepts `{ rawFile, importedBy }`) and `GET /api/v2/assessments/:assessmentId/parrot-import` (lists accepted observations).
+- **Depends on:** R3 (the export format this import should round-trip with). ✅ satisfied.
+- **Non-goals:** no always-on VM bridge, no remote execution agent — file-based only, operator-triggered on both ends. Honored — no network/process execution anywhere in this module.
 
 ### Milestone R5: Detector Confirmation-Discipline Audit
 - **Status:** COMPLETED (2026-10-24). See `docs/decisions/R5-detector-confirmation-audit.md`.
