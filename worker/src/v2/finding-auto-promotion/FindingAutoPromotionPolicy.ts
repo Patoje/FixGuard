@@ -468,6 +468,96 @@ function evaluateSignalGate(
       return null;
     }
 
+    case 'jwt_algorithm_confusion':
+      if (!ctx.manipulatedAlgorithm || !ctx.jwtProbeMechanism) {
+        return {
+          decision: 'keep_as_draft',
+          reasonCode: 'jwt_confusion_signal_incomplete',
+          rationale: 'JWT algorithm confusion draft missing manipulated algorithm or probe mechanism',
+        };
+      }
+      return null;
+
+    case 'sql_error_oracle':
+      if (
+        !ctx.sqlErrorFragment ||
+        ctx.sqlErrorFragment.length === 0 ||
+        !ctx.injectedProbe ||
+        ctx.injectedProbe.length === 0
+      ) {
+        return {
+          decision: 'keep_as_draft',
+          reasonCode: 'sql_error_oracle_signal_incomplete',
+          rationale: 'SQL error oracle draft missing injected probe or observed error fragment',
+        };
+      }
+      return null;
+
+    case 'subdomain_takeover':
+      if (
+        !ctx.cnameTarget ||
+        ctx.cnameTarget.length === 0 ||
+        !ctx.fingerprintMatch ||
+        ctx.fingerprintMatch.length === 0
+      ) {
+        return {
+          decision: 'keep_as_draft',
+          reasonCode: 'subdomain_takeover_fingerprint_missing',
+          rationale: 'Subdomain takeover draft missing dangling CNAME target or hosting fingerprint match',
+        };
+      }
+      return null;
+
+    case 'session_fixation':
+      if (
+        !ctx.sessionCookieName ||
+        !ctx.fixedSessionId ||
+        ctx.serverRegeneratedSession !== false
+      ) {
+        return {
+          decision: 'keep_as_draft',
+          reasonCode: 'session_fixation_regeneration_unconfirmed',
+          rationale:
+            'Session fixation draft missing cookie/session-id evidence, or server session regeneration was not observed to be false',
+        };
+      }
+      return null;
+
+    case 'cors_idor_compound':
+      if (!ctx.primaryFindingId || !ctx.secondaryFindingId || !ctx.sharedOrigin) {
+        return {
+          decision: 'keep_as_draft',
+          reasonCode: 'cors_idor_compound_context_missing',
+          rationale: 'CORS+IDOR compound draft missing constituent finding ids or shared origin context',
+        };
+      }
+      return null;
+
+    case 'cross_finding_chain':
+      if (
+        !ctx.constituentFindingIds ||
+        ctx.constituentFindingIds.length < 2 ||
+        !ctx.primaryVector ||
+        !ctx.secondaryVector
+      ) {
+        return {
+          decision: 'keep_as_draft',
+          reasonCode: 'cross_finding_chain_context_missing',
+          rationale: 'Cross-finding chain draft missing at least 2 constituent findings or primary/secondary vectors',
+        };
+      }
+      return null;
+
+    case 'dependency_vulnerability':
+      if (!ctx.packageName || !ctx.advisoryId || !ctx.installedVersion) {
+        return {
+          decision: 'keep_as_draft',
+          reasonCode: 'dependency_vulnerability_advisory_missing',
+          rationale: 'Dependency vulnerability draft missing package name, advisory id, or installed version',
+        };
+      }
+      return null;
+
     case 'parameter_integrity':
       if (ctx.boundaryEnforced === true) {
         return {

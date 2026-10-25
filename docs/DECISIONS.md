@@ -111,6 +111,21 @@
   - Never invent vulnerabilities or Critical/High severities without confirmed signal.
   - Never auto-execute AttackPlans.
   - Never promote discovery/fingerprint/hydration noise to Findings.
+
+### ADR-005 Addendum (2026-10-25, Hito 2 — Integridad de la clasificación)
+
+**Gap closed, ADR-005 unchanged.** Of the 24 `detectionKind`s in `AUTO_PROMOTE_ELIGIBLE` (`finding-auto-promotion/FindingAutoPromotionPolicy.ts`), 7 had no `case` in `evaluateSignalGate` — they fell to `default: return null`, meaning unconditional `auto_promote` the instant the kind was category-eligible, with zero check that the underlying evidence was actually complete. The other 17 kinds always had a real completeness gate (e.g. IDOR requires `resourceParamName` + dual hashes). Closed: `jwt_algorithm_confusion`, `sql_error_oracle`, `subdomain_takeover`, `session_fixation`, `cors_idor_compound`, `cross_finding_chain`, `dependency_vulnerability` — each now requires the exact fields its own `buildAutoFinding` conversion depends on (see `FindingAutoPromotionPolicy.ts` for the 7 new gates). This was evaluated against reversing ADR-005 entirely (requiring human approval for every promotion); the operator explicitly chose to keep ADR-005's auto-promotion for genuinely confirmed signals and close its internal gaps instead.
+
+**Epistemic vocabulary — three distinct systems, documented here so a future presentation layer has one reference instead of inventing its own translation.** Verified in code, 2026-10-25:
+
+| Vocabulary | Values | Where | What it represents |
+|---|---|---|---|
+| `VerificationState` | `observed_anomaly → suspected_vulnerability → validated_vulnerability → exploitability_confirmed → impact_confirmed` (forward-only; `refuteState` may only downgrade) | `core/VerificationStateContracts.ts`, on every `Finding` | How far a **specific Finding** has been pushed through FixGuard's own verification pipeline. This is the one that matters most for "can I trust this Finding." |
+| `HypothesisEpistemicStatus` | `'INFERRED' \| 'OBSERVED' \| 'RECOMMENDED'` | `hypothesis-scheduler/HypothesisSchedulerContracts.ts`, on every `SecurityHypothesis` | Whether a **not-yet-tested hypothesis** is grounded in a real observation (`OBSERVED`), a derived guess (`INFERRED`), or a recon-gap suggestion with nothing to confirm yet (`RECOMMENDED`). Applies before any probe has run — it is never used after a Finding exists. |
+| `EpistemicStatus` (Attack Surface Graph) | `'OBSERVED' \| 'INFERRED' \| 'VERIFIED' \| 'REFUTED' \| 'INCONCLUSIVE'` | `attack-surface/AttackSurfaceContracts.ts`, on every node/edge | How a **structural fact about the target** (an endpoint, a technology, an auth boundary) was established: seen directly (`OBSERVED`), derived from static code (`INFERRED`, always — code existing is never promoted to `OBSERVED` just because it's there), actively confirmed (`VERIFIED`), actively disproven (`REFUTED`), or tested with no decisive result (`INCONCLUSIVE`). |
+
+Rough equivalence for a presentation layer that needs to merge them into one confidence signal: `VerificationState` ⊇ `{observed_anomaly, suspected_vulnerability}` reads roughly as `HypothesisEpistemicStatus.OBSERVED` / ASG `OBSERVED`; `VerificationState` ⊇ `{validated_vulnerability, exploitability_confirmed, impact_confirmed}` reads roughly as ASG `VERIFIED`. `HypothesisEpistemicStatus.RECOMMENDED` and ASG `INCONCLUSIVE` both mean "nothing decisive yet," but are not interchangeable: the former is pre-probe (a suggestion), the latter is post-probe (a probe ran and didn't resolve). No code was changed to unify these three — that would be a larger refactor than this milestone's scope; this table is the authoritative mapping until/unless a real unification is undertaken.
+
 ---
 
 ## ADR-006: Dual Architecture Segregation (Freezing V1 vs Developing V2)

@@ -6,7 +6,11 @@
 
 ---
 
-## 0. El hallazgo que condiciona todo lo demás
+## 0. El hallazgo que condiciona todo lo demás — RESUELTO (2026-10-25, Hito 2)
+
+**Resolución**: no es un bug — es `ADR-005` (`docs/DECISIONS.md:92-113`), una decisión de producto ya documentada y vigente. Se le preguntó al usuario si revertirla (todo pasa por aprobación humana) o mantenerla y cerrar sus agujeros internos; eligió **mantener ADR-005**. El agujero real cerrado: de los 24 `detectionKind` elegibles, 7 no tenían ningún gate de completitud (`jwt_algorithm_confusion`, `sql_error_oracle`, `subdomain_takeover`, `session_fixation`, `cors_idor_compound`, `cross_finding_chain`, `dependency_vulnerability`) y promovían apenas eran elegibles por categoría, sin chequear que la evidencia estuviera completa. Ver `docs/DECISIONS.md` ADR-005 Addendum para el detalle de los 7 gates nuevos y la tabla de equivalencia de los 3 vocabularios epistémicos (segunda mitad de este hito). Verificado con 15 casos nuevos en `smoke:v2:finding-auto-promotion` + `typecheck:v2`, ambos en 0.
+
+El texto original del hallazgo queda abajo, sin editar, como registro de lo que se encontró antes de resolverlo:
 
 Antes de entrar en las 5 áreas pedidas, un hallazgo que no es sobre profundidad de recon sino sobre **confianza en el sistema de clasificación**, y que contamina cualquier conclusión de "0 hallazgos" si no se resuelve primero.
 

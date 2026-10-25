@@ -1759,7 +1759,15 @@ All completed milestones are verified via active TypeScript contracts and the re
 - **Verified:** `npm run smoke:v2:recon-health-observability` (6 cases) + `npm run typecheck:v2`, both exit 0.
 - **Depends on:** nothing. **Blocks:** nothing structurally, but Hito 2 (classification integrity) and Hito 3 (adaptive depth) both build on this milestone's signal — see the plan at the time this was implemented.
 
-**Suggested sequencing:** R1 and R2 first (in parallel, both low-risk and purely additive to existing passive data); R5 can run anytime alongside them since it's read-only; R3 once R1/R2 have real output to export; R4 only after R3; R6 whenever convenient, it blocks nothing else; R7 is independent of R1-R6, closes the recon-depth forensic finding.
+### Milestone R8: Classification Integrity (Hito 2 of the recon-depth roadmap)
+- **Status:** COMPLETED (2026-10-25). See `docs/DECISIONS.md` ADR-005 Addendum, and `docs/decisions/RECON-DEPTH-ANALYSIS-2026-10-25.md` section 0.
+- **Problem:** the section-0 finding from the recon-depth analysis — `finding-auto-promotion/FindingAutoPromotionPolicy.ts`'s `evaluateSignalGate` had no `case` for 7 of its 24 `AUTO_PROMOTE_ELIGIBLE` detection kinds, so they fell to `default: return null` → unconditional `auto_promote` with zero completeness check, unlike the other 17 kinds which all have a real gate.
+- **Operator decision:** keep ADR-005 (auto-promotion for genuinely confirmed signals is intentional product policy, not an oversight — see ADR-005 itself), close the 7 internal gaps rather than reverting the policy.
+- **Done:** 7 new gates in `evaluateSignalGate` for `jwt_algorithm_confusion`, `sql_error_oracle`, `subdomain_takeover`, `session_fixation`, `cors_idor_compound`, `cross_finding_chain`, `dependency_vulnerability` — each requires exactly the fields its own `buildAutoFinding` conversion depends on. `session_fixation`'s gate is a semantic fix, not just presence: `serverRegeneratedSession` must be observed `=== false`, not merely present. `cors_idor_compound`/`cross_finding_chain` now require real shared context (`sharedOrigin`, 2+ `constituentFindingIds`) instead of promoting on category membership alone — closing, at the one point it becomes a real Finding, the "cartesian product without shared-context check" weakness the recon-depth analysis flagged in `CrossFindingChainCorrelator`. Also documented (not refactored) the 3 distinct epistemic vocabularies in the codebase (`VerificationState`, `HypothesisEpistemicStatus`, Attack Surface Graph `EpistemicStatus`) with an equivalence table, in the ADR-005 Addendum.
+- **Verified:** extended the existing `npm run smoke:v2:finding-auto-promotion` (not a new script, per the single-consolidated-suite rule) with 15 new cases — both halves of each of the 7 kinds — plus `npm run typecheck:v2`, both exit 0.
+- **Depends on:** nothing. Builds on the recon-depth analysis's section-0 finding; independent of R7.
+
+**Suggested sequencing:** R1 and R2 first (in parallel, both low-risk and purely additive to existing passive data); R5 can run anytime alongside them since it's read-only; R3 once R1/R2 have real output to export; R4 only after R3; R6 whenever convenient, it blocks nothing else; R7 and R8 are independent of R1-R6 and of each other, both close recon-depth-analysis findings.
 
 ---
 

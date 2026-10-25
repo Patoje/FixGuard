@@ -267,6 +267,129 @@ function runSmokeTests(): void {
     'Valid static secret exposure with filePath and snippet must auto_promote'
   );
 
+  // 6c. Hito 2 (ADR-005 gap closure) — the 7 detectionKinds that previously had
+  // no case in evaluateSignalGate (fell to `default: return null` → unconditional
+  // auto_promote). Each must now require the real evidence its own
+  // buildAutoFinding conversion depends on.
+
+  const jwtIncomplete = baseDraft('dft_jwt_incomplete', 'jwt_algorithm_confusion', {
+    originalAlgorithm: 'HS256',
+  });
+  assert.equal(evaluateFindingAutoPromotion(jwtIncomplete).decision, 'keep_as_draft');
+  assert.equal(evaluateFindingAutoPromotion(jwtIncomplete).reasonCode, 'jwt_confusion_signal_incomplete');
+  const jwtComplete = baseDraft('dft_jwt_complete', 'jwt_algorithm_confusion', {
+    originalAlgorithm: 'HS256',
+    manipulatedAlgorithm: 'none',
+    jwtProbeMechanism: 'alg_none_header',
+  });
+  assert.equal(evaluateFindingAutoPromotion(jwtComplete).decision, 'auto_promote');
+
+  const sqlOracleIncomplete = baseDraft('dft_sqlo_incomplete', 'sql_error_oracle', {
+    databaseEngine: 'postgresql',
+  });
+  assert.equal(evaluateFindingAutoPromotion(sqlOracleIncomplete).decision, 'keep_as_draft');
+  assert.equal(
+    evaluateFindingAutoPromotion(sqlOracleIncomplete).reasonCode,
+    'sql_error_oracle_signal_incomplete'
+  );
+  const sqlOracleComplete = baseDraft('dft_sqlo_complete', 'sql_error_oracle', {
+    databaseEngine: 'postgresql',
+    sqlErrorFragment: 'syntax error at or near',
+    injectedProbe: "' OR '1'='1",
+  });
+  assert.equal(evaluateFindingAutoPromotion(sqlOracleComplete).decision, 'auto_promote');
+
+  const takeoverIncomplete = baseDraft('dft_takeover_incomplete', 'subdomain_takeover', {
+    subdomain: 'old.example.com',
+  });
+  assert.equal(evaluateFindingAutoPromotion(takeoverIncomplete).decision, 'keep_as_draft');
+  assert.equal(
+    evaluateFindingAutoPromotion(takeoverIncomplete).reasonCode,
+    'subdomain_takeover_fingerprint_missing'
+  );
+  const takeoverComplete = baseDraft('dft_takeover_complete', 'subdomain_takeover', {
+    subdomain: 'old.example.com',
+    cnameTarget: 'ghost-bucket.s3.amazonaws.com',
+    hostingProvider: 'aws_s3',
+    fingerprintMatch: 'NoSuchBucket',
+  });
+  assert.equal(evaluateFindingAutoPromotion(takeoverComplete).decision, 'auto_promote');
+
+  const sessionFixationMissing = baseDraft('dft_sf_missing', 'session_fixation', {
+    sessionCookieName: 'sid',
+  });
+  assert.equal(evaluateFindingAutoPromotion(sessionFixationMissing).decision, 'keep_as_draft');
+  assert.equal(
+    evaluateFindingAutoPromotion(sessionFixationMissing).reasonCode,
+    'session_fixation_regeneration_unconfirmed'
+  );
+  // Semantic case, not just presence: server DID regenerate → no vuln to claim.
+  const sessionFixationRegenerated = baseDraft('dft_sf_regenerated', 'session_fixation', {
+    sessionCookieName: 'sid',
+    fixedSessionId: 'abc123',
+    serverRegeneratedSession: true,
+  });
+  assert.equal(evaluateFindingAutoPromotion(sessionFixationRegenerated).decision, 'keep_as_draft');
+  assert.equal(
+    evaluateFindingAutoPromotion(sessionFixationRegenerated).reasonCode,
+    'session_fixation_regeneration_unconfirmed',
+    'serverRegeneratedSession=true must never auto-promote, even with other fields present'
+  );
+  const sessionFixationComplete = baseDraft('dft_sf_complete', 'session_fixation', {
+    sessionCookieName: 'sid',
+    fixedSessionId: 'abc123',
+    serverRegeneratedSession: false,
+  });
+  assert.equal(evaluateFindingAutoPromotion(sessionFixationComplete).decision, 'auto_promote');
+
+  const corsIdorIncomplete = baseDraft('dft_cic_incomplete', 'cors_idor_compound', {
+    primaryFindingId: 'fnd_cors_1',
+  });
+  assert.equal(evaluateFindingAutoPromotion(corsIdorIncomplete).decision, 'keep_as_draft');
+  assert.equal(
+    evaluateFindingAutoPromotion(corsIdorIncomplete).reasonCode,
+    'cors_idor_compound_context_missing'
+  );
+  const corsIdorComplete = baseDraft('dft_cic_complete', 'cors_idor_compound', {
+    primaryFindingId: 'fnd_cors_1',
+    secondaryFindingId: 'fnd_idor_1',
+    sharedOrigin: 'https://app.example.com',
+  });
+  assert.equal(evaluateFindingAutoPromotion(corsIdorComplete).decision, 'auto_promote');
+
+  const crossChainIncomplete = baseDraft('dft_xc_incomplete', 'cross_finding_chain', {
+    constituentFindingIds: ['fnd_1'],
+  });
+  assert.equal(evaluateFindingAutoPromotion(crossChainIncomplete).decision, 'keep_as_draft');
+  assert.equal(
+    evaluateFindingAutoPromotion(crossChainIncomplete).reasonCode,
+    'cross_finding_chain_context_missing'
+  );
+  const crossChainComplete = baseDraft('dft_xc_complete', 'cross_finding_chain', {
+    constituentFindingIds: ['fnd_1', 'fnd_2'],
+    primaryVector: 'cors_misconfiguration',
+    secondaryVector: 'information_disclosure',
+  });
+  assert.equal(evaluateFindingAutoPromotion(crossChainComplete).decision, 'auto_promote');
+
+  const depVulnIncomplete = baseDraft('dft_dv_incomplete', 'dependency_vulnerability', {
+    packageName: 'left-pad',
+  });
+  assert.equal(evaluateFindingAutoPromotion(depVulnIncomplete).decision, 'keep_as_draft');
+  assert.equal(
+    evaluateFindingAutoPromotion(depVulnIncomplete).reasonCode,
+    'dependency_vulnerability_advisory_missing'
+  );
+  const depVulnComplete = baseDraft('dft_dv_complete', 'dependency_vulnerability', {
+    packageName: 'left-pad',
+    installedVersion: '1.3.0',
+    vulnerableRange: '<1.3.1',
+    advisoryId: 'GHSA-xxxx-yyyy-zzzz',
+  });
+  assert.equal(evaluateFindingAutoPromotion(depVulnComplete).decision, 'auto_promote');
+
+  console.log('[+] Hito 2: all 7 previously-ungated kinds now require real evidence before auto_promote');
+
   // 7. applyFindingAutoPromotion partitions correctly
   const result = applyFindingAutoPromotion({
     drafts: [idorOk, idorNoise, idorBolaSameBody, headers, routes, reflOk],
