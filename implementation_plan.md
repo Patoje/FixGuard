@@ -101,7 +101,9 @@ detectors are sound).
 registration status.
 
 
-**Status:** DRAFT — awaiting operator approval before any file is touched.
+**Original status (2026-10-24, kept for history):** DRAFT — awaiting operator
+approval before any file is touched. **All 5 milestones below (P1–P5) have
+since been approved and completed** — see each one's own `**Status:**` line.
 **Scope:** the 5 gaps identified against the recon-first vision (deep recon →
 classify → find real gaps → hand off aggressive validation to Parrot). Each
 milestone below is independently shippable, in the stated order.
@@ -112,6 +114,13 @@ except where a milestone explicitly builds on it.
 ---
 
 ## Milestone P1 — Investigation loop consumes R1/R2 to prioritize (highest value)
+
+**Status:** COMPLETED (2026-10-24, commit `1dc8f92`). This file was never
+updated after execution — the "DRAFT, awaiting operator approval" line
+below is what it said before landing; see `docs/ROADMAP.md` R1 for the
+actual result (3 new `SecurityHypothesisKind` gap values, scoring rules fed
+by a new surface-gap signal projection, `InvestigationRuntimeCoordinator`'s
+`prioritizeUnclassifiedInventoryEntries()` reorder). Added 2026-10-25.
 
 **Problem:** `InvestigationRuntimeCoordinator` still spends its step budget
 sweeping discovered routes uniformly. `HypothesisSchedulerService` ranks
@@ -162,6 +171,14 @@ good.
 ---
 
 ## Milestone P2 — Classification depth: service/microservice boundaries + static-route graph integration
+
+**Status:** COMPLETED (2026-10-24–25, commits `e74beaa`, `0408d10`). Static
+routes now reach `AttackSurfaceGraphBuilder` as `INFERRED` `EndpointNode`s;
+a `service_boundary` node kind + `groups` edge kind group endpoints by path
+prefix; `ApplicationNode.metadata.detectedTechnologies` carries the full
+`DetectedTechnology[]` (name/category/confidence/signal), not just a
+flattened `string[]`. Live-verified against an authorized target. See
+`docs/ROADMAP.md` R2, increments 2 and 3. Added 2026-10-25.
 
 **Problem:** two concrete gaps, both verified against the actual code this
 session:
@@ -312,6 +329,12 @@ observations in the review UI, approve one, and see it appear as a
 
 ## Milestone P5 — Operator UI for everything landed this session (cross-cutting)
 
+**Status:** COMPLETED (2026-10-24, item 1 via commit `7e59fd1`; items 2
+and 3 already closed by P3 and P4 respectively). Item 1: a "diferido" badge
+plus a per-target cooldown on `deferredToManualValidation` recommendations,
+visible in `web/src/app/v2/attack/`. This file never got its own status
+block after execution — added 2026-10-25.
+
 **Problem:** none of ADR-013's `deferredToManualValidation` tagging, the
 dossier, or Parrot import are visible in `web/` yet — only reachable by
 calling the API directly.
@@ -338,8 +361,14 @@ the API).
 
 ## What I need from you before starting
 
-1. Confirm this order, or reprioritize.
-2. P3: JSON-only dossier file, or JSON + Markdown companion?
-3. Any naming objections to the new hypothesis kinds in P1 or the new
-   `AsgProvenanceSourceKind` in P2, before they're baked into contracts I'd
-   rather not rename later across already-wired call sites.
+**Closed out 2026-10-25 — all 3 were resolved in practice but never written
+back here:**
+
+1. **Order:** the suggested order (P1+P2, then P3+P4, then P5) was kept as
+   proposed — no reprioritization happened.
+2. **P3 dossier format:** JSON + Markdown companion (see P3's own status
+   block above).
+3. **Naming:** no objections surfaced; the hypothesis kinds from P1
+   (`endpoint_classification_gap`, `technology_unconfirmed`,
+   `auth_boundary_unmapped`) and P2's `AsgProvenanceSourceKind` extension
+   shipped exactly as proposed and are already wired into contracts.

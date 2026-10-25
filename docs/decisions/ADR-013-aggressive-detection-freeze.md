@@ -135,6 +135,55 @@ point of having an authorized path. Resolution:
   changed. This is purely closing a registration gap, not reopening the
   freeze.
 
+## Amendment 2 (2026-10-25, operator decision, found via R5 follow-up and a repo-health pass)
+
+Section 3's "already unreachable from production" list, and section 4's
+"active" list, were built by tracing only the two automatic paths
+(`ReadDetectionPass.ts`, `OrchestratedAssessmentApplicationService.ts`) —
+the same blind spot Amendment 1 found for capability *registration*, this
+time for the classification itself. A repo-health pass that also traced
+`attack-execution/capabilities/*` + `AttackCapabilityRegistry.ts` found:
+
+- Five services section 3 called inert are in fact reachable today via the
+  fully-authorized plan→authorize→execute path, each already wired by an
+  existing capability wrapper: `CredentialedCorsDetectionService`
+  (`CorsChainExploitCapability`), `JwtAlgorithmConfusionDetectionService`
+  (`JwtAlgNoneProbeCapability`), `SessionFixationDetectionService`
+  (`SessionFixationProbeCapability`), `NextServerActionDifferentialDetectionService`
+  (`NextServerActionDiffCapability`), `SupabaseBolaBflaWriteExpansionService`
+  (`SupabaseAuthzWriteMatrixCapability`). None of this is a freeze
+  violation — that path was always the intended, human-authorized route for
+  "aggressive" capabilities — but section 3's text was simply wrong about
+  reachability, and worth knowing before assuming these five are inert.
+- Section 4 called `SubdomainTakeoverDetectionService` "active" when at the
+  time it had zero call site outside its own smoke test — also wrong. It
+  gained a real wrapper (`SubdomainTakeoverProbeCapability`) the same day
+  this amendment was written, closing the same kind of registration gap
+  Amendment 1 closed for the other six; section 4's claim is accurate now,
+  for a different reason than originally stated.
+- `TlsConfigurationAnalysisService` is active (wired from
+  `OrchestratedAssessmentApplicationService.ts`) but was never listed in
+  section 4's enumeration — an omission, not a misclassification.
+- `ObjectMappingAnomalyDetectionService` and `StateTransitionAnomalyDetectionService`
+  were correctly classified as inert in section 3, and have since been
+  deleted outright (not merely re-labeled) per the R5 audit's "retire
+  permanently" verdict — see
+  [R5-detector-confirmation-audit.md](R5-detector-confirmation-audit.md)
+  and the retirement commit. They are no longer "frozen code kept for
+  future reactivation" under this ADR; there is nothing left to reactivate.
+- `JwtAlgorithmConfusionDetectionService`'s and
+  `NextServerActionDifferentialDetectionService`'s confirmation logic —
+  reachable per this amendment, not frozen — had the specific weaknesses R5
+  flagged (no baseline signature-enforcement control; a bare status-mismatch
+  branch unrelated to the differential it claimed) fixed the same day, by
+  separate commits, each with an added smoke case proving the old gap and
+  the new behavior.
+
+No code was changed by this amendment beyond what's already described
+above (the `subdomain_takeover_probe` wrapper, the two retirements, the two
+confirmation-logic fixes) — this section only corrects what sections 3 and
+4 claim, so a future reader doesn't plan against a false map.
+
 ## What NOT to do
 
 - Do not delete the frozen detector services, their contracts, or their

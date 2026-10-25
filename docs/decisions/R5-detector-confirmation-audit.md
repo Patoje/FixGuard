@@ -86,3 +86,32 @@ runtime behavior. Its value is the decision record for later: don't spend effort
 redesigning or re-enabling `ObjectMappingAnomaly`/`StateTransitionAnomaly` as-is;
 any future `AuthBypass`/`JwtAlgorithmConfusion` re-enable should first replace their
 current confirmation heuristic with a stronger structural/differential check.
+
+## Resolution pass (2026-10-25)
+
+Two corrections and three executed verdicts, found and closed in the same session
+while investigating an unrelated pre-existing smoke-test failure and then auditing
+`attack-execution/capabilities/*` for registration gaps (the same blind spot
+Amendment 1/2 of ADR-013 already found for other services):
+
+- **Correction:** this table's "Already unreachable in production" for
+  `JwtAlgorithmConfusionDetectionService` was wrong at the time it was written and
+  stayed wrong through this document's own follow-up pass — it is reachable today
+  via `JwtAlgNoneProbeCapability` → `AttackCapabilityRegistry.createDefault()`,
+  gated behind the same `AttackExecutionService` Gate 6 as
+  `NextServerActionDifferentialDetectionService` above. Both detectors' weaknesses
+  were therefore live, not purely theoretical backlog items.
+- **Executed — retire permanently:** `ObjectMappingAnomalyDetectionService` and
+  `StateTransitionAnomalyDetectionService` are deleted outright (service, contracts,
+  smoke test, every reference in the Finding-metadata union, auto-promotion policy,
+  plan generator, and cross-finding correlator) — not merely re-labeled.
+- **Executed — the two "needs stronger check" items above are fixed:**
+  `JwtAlgorithmConfusionDetectionService` now requires a control probe (original
+  algorithm, corrupted signature) to be rejected before trusting an accepted
+  `alg:none` probe as algorithm-confusion specifically, rather than "no signature
+  check at all". `NextServerActionDifferentialDetectionService`'s bare
+  status-mismatch branch is removed; `authzDifferential` is now exactly
+  `unauthAccepted === true`. Each fix has a smoke case proving the old gap and the
+  new behavior. `AuthBypassDetectionService` was left as-is — it stays frozen via
+  ADR-013 with no live reachability, so redesigning its heuristic now has no
+  behavioral payoff until it's ever reactivated.
