@@ -1,16 +1,34 @@
 import type { ParrotImportedObservation } from './ParrotImportContracts.js';
 import type { ParrotImportRepository } from './ParrotImportRepository.js';
+import { loadDevCacheArray, saveDevCacheArray } from '../storage/DevCachePersistence.js';
+
+const OBSERVATIONS_CACHE_FILE = 'parrot_import_observations.json';
 
 /**
  * In-memory ParrotImportRepository (ADR-011: DB-free first). Defensive deep
  * cloning on write and read prevents shared-reference mutation of stored
- * observations.
+ * observations. Dev-cache persistence (same gate as InMemoryAttackPlanRepository
+ * / InMemoryOrchestratedAssessmentRepository) survives a local dev-server
+ * restart — without it, observations pending human review were lost on every
+ * restart, a gap the R4 import-boundary milestone left open.
  */
 export class InMemoryParrotImportRepository implements ParrotImportRepository {
   private readonly byAssessment = new Map<string, ParrotImportedObservation[]>();
 
+  constructor() {
+    for (const observation of loadDevCacheArray<ParrotImportedObservation>(OBSERVATIONS_CACHE_FILE)) {
+      const existing = this.byAssessment.get(observation.assessmentId) ?? [];
+      existing.push(observation);
+      this.byAssessment.set(observation.assessmentId, existing);
+    }
+  }
+
   private clone<T>(value: T): T {
     return JSON.parse(JSON.stringify(value));
+  }
+
+  private persistDevCache(): void {
+    saveDevCacheArray(OBSERVATIONS_CACHE_FILE, [...this.byAssessment.values()].flat());
   }
 
   async appendObservations(
@@ -20,6 +38,7 @@ export class InMemoryParrotImportRepository implements ParrotImportRepository {
     const existing = this.byAssessment.get(assessmentId) ?? [];
     const cloned = observations.map((o) => this.clone(o));
     this.byAssessment.set(assessmentId, [...existing, ...cloned]);
+    this.persistDevCache();
   }
 
   async listByAssessmentId(
@@ -59,6 +78,7 @@ export class InMemoryParrotImportRepository implements ParrotImportRepository {
     const next = [...existing];
     next[index] = updated;
     this.byAssessment.set(assessmentId, next);
+    this.persistDevCache();
     return this.clone(updated);
   }
 }
