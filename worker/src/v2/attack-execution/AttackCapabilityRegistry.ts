@@ -40,6 +40,7 @@ import { createOpenRedirectProbeCapability } from './capabilities/OpenRedirectPr
 import { createGraphQLSurfaceProbeCapability } from './capabilities/GraphQLSurfaceProbeCapability.js';
 import { createSessionFixationProbeCapability } from './capabilities/SessionFixationProbeCapability.js';
 import { createCorsMisconfigurationProbeCapability } from './capabilities/CorsMisconfigurationProbeCapability.js';
+import { createSubdomainTakeoverProbeCapability } from './capabilities/SubdomainTakeoverProbeCapability.js';
 
 function succeeded(reasonCode: string, safeMessage: string, evidenceId?: string): AttackCapabilityExecutionResult {
   return {
@@ -159,6 +160,11 @@ export class AttackCapabilityRegistry {
         createGraphQLSurfaceProbeCapability(),
         createSessionFixationProbeCapability(),
         createCorsMisconfigurationProbeCapability(),
+        // P0 follow-up (R3 audit finding, 2026-10-25): subdomain_takeover_probe is
+        // minted by DeferredSurfaceProbePlans for every observed CNAME pair but had
+        // no wrapper here — same capability_not_implemented gap the amendment above
+        // closed for the other 6, left open for this one.
+        createSubdomainTakeoverProbeCapability(),
       ] as const);
     for (const port of initial) {
       this.ports.set(port.capability, port);
