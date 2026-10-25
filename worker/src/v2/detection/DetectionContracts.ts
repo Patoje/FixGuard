@@ -936,6 +936,13 @@ export interface JwtAlgorithmConfusionDetectionResult {
   readonly probeMechanism?: 'signature_stripping' | 'alg_none_header';
   readonly baselineStatusCode?: number;
   readonly forgedStatusCode?: number;
+  /**
+   * Status from a control probe: same algorithm as the original token, but
+   * with a corrupted signature. Confirms the endpoint enforces signature
+   * checking at all, so that an accepted alg:none probe can be attributed to
+   * algorithm confusion specifically rather than to no signature check at all.
+   */
+  readonly controlTamperedSignatureStatusCode?: number;
   readonly evidenceDraft?: EvidenceDraftEnvelope;
   readonly evidenceRecord?: EvidenceRecord;
   readonly promotedEvidenceResult?: HumanReviewedEvidencePromotionResult;

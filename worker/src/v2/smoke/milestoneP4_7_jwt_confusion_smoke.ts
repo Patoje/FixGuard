@@ -3,7 +3,10 @@
  * JWT Algorithm Confusion Probe (Milestone P4-7)
  *
  * Verifies:
- * 1. Detects signature bypass when endpoint accepts 'alg: none' JWT with 200 OK.
+ * 1. Detects signature bypass when endpoint accepts 'alg: none' JWT with 200 OK,
+ *    and the baseline algorithm's signature is independently confirmed enforced.
+ * 1b. Abstains instead of over-claiming when the target enforces no signature
+ *     checking at all (R5 audit finding, fixed 2026-10-25).
  * 2. Cleanly abstains (secure_target_abstained) when endpoint rejects 'alg: none' with 401/403.
  * 3. Cleanly abstains when identityA does not contain a JWT Bearer token (no_jwt_bearer_detected).
  * 4. Response snapshots and evidence fragments redact JWT tokens in headers and bodies.
@@ -128,29 +131,46 @@ async function runTests(): Promise<void> {
     cookies: {},
   };
 
+  // A realistic vulnerable endpoint: it DOES check the signature for any
+  // algorithm other than 'none' (rejects anything but the exact original
+  // signature), but fails to reject 'alg: none' tokens at all. This is what
+  // makes the algorithm-confusion claim attributable, not just "no signature
+  // check happens here" (see JwtAlgorithmConfusionDetectionService's control
+  // probe, added 2026-10-25 per the R5 audit).
+  const vulnerableAlgNoneTransport: IdorHttpProbeTransport = async (
+    req: HttpProbeRequest
+  ): Promise<HttpProbeResponse> => {
+    const auth = req.headers['authorization'] ?? req.headers['Authorization'] ?? '';
+    const token = auth.replace(/^Bearer\s+/i, '');
+    const parts = token.split('.');
+    let alg = 'HS256';
+    try {
+      alg = JSON.parse(Buffer.from(parts[0] ?? '', 'base64url').toString('utf8')).alg ?? 'HS256';
+    } catch {
+      // keep default
+    }
+    const accepted = alg === 'none' || parts[2] === sampleSignature;
+    if (accepted) {
+      return {
+        statusCode: 200,
+        headers: { 'content-type': 'application/json' },
+        bodyText: JSON.stringify({ message: 'Welcome user', user: 'usr_123' }),
+        responseTimeMs: 20,
+      };
+    }
+    return {
+      statusCode: 401,
+      headers: { 'content-type': 'application/json' },
+      bodyText: JSON.stringify({ error: 'Unauthorized' }),
+      responseTimeMs: 20,
+    };
+  };
+
   // -------------------------------------------------------------------------
   // Test 1: Detects signature bypass when endpoint accepts 'alg: none' JWT
   // -------------------------------------------------------------------------
   console.log('--- Test 1: Detects signature bypass when endpoint accepts alg: none JWT ---');
   {
-    const mockTransport: IdorHttpProbeTransport = async (req: HttpProbeRequest): Promise<HttpProbeResponse> => {
-      const auth = req.headers['authorization'] ?? req.headers['Authorization'] ?? '';
-      if (auth.includes('Bearer')) {
-        return {
-          statusCode: 200,
-          headers: { 'content-type': 'application/json' },
-          bodyText: JSON.stringify({ message: 'Welcome user', user: 'usr_123' }),
-          responseTimeMs: 20,
-        };
-      }
-      return {
-        statusCode: 401,
-        headers: { 'content-type': 'application/json' },
-        bodyText: JSON.stringify({ error: 'Unauthorized' }),
-        responseTimeMs: 20,
-      };
-    };
-
     const result = await runJwtAlgorithmConfusionDetection({
       contractVersion: DETECTION_CONTRACT_VERSION,
       kind: 'jwt_algorithm_confusion_detection_request',
@@ -165,7 +185,7 @@ async function runTests(): Promise<void> {
       identityAContext: validJwtIdentityContext,
       verifiedAuthorizationDecision: authDecision,
       scopeGrant,
-      transport: mockTransport,
+      transport: vulnerableAlgNoneTransport,
       humanReviewDecision: {
         reviewerId: 'usr_secops_lead',
         reviewedAt: new Date().toISOString(),
@@ -175,6 +195,14 @@ async function runTests(): Promise<void> {
 
     if (result.status !== 'vulnerability_detected') {
       throw new Error(`Test 1 Failed: Expected status 'vulnerability_detected', got '${result.status}'`);
+    }
+    if (
+      typeof result.controlTamperedSignatureStatusCode !== 'number' ||
+      result.controlTamperedSignatureStatusCode < 400
+    ) {
+      throw new Error(
+        `Test 1 Failed: Expected control probe (corrupted signature, original alg) to be rejected, got status ${result.controlTamperedSignatureStatusCode}`
+      );
     }
     if (result.originalAlgorithm !== 'HS256' || result.manipulatedAlgorithm !== 'none') {
       throw new Error(`Test 1 Failed: Expected HS256 -> none, got ${result.originalAlgorithm} -> ${result.manipulatedAlgorithm}`);
@@ -188,6 +216,56 @@ async function runTests(): Promise<void> {
     }
 
     console.log('✓ Test 1 Passed: Signature bypass with alg: none correctly identified');
+  }
+
+  // -------------------------------------------------------------------------
+  // Test 1b: Abstains (does not claim algorithm confusion) when the target
+  // accepts ANY bearer token regardless of signature — R5 audit finding:
+  // the old logic conflated "no signature check at all" with "alg:none
+  // confusion specifically". Added 2026-10-25.
+  // -------------------------------------------------------------------------
+  console.log('--- Test 1b: Abstains when target enforces no signature checking at all ---');
+  {
+    const noSignatureCheckTransport: IdorHttpProbeTransport = async (): Promise<HttpProbeResponse> => ({
+      statusCode: 200,
+      headers: { 'content-type': 'application/json' },
+      bodyText: JSON.stringify({ message: 'Welcome user', user: 'usr_123' }),
+      responseTimeMs: 20,
+    });
+
+    const result = await runJwtAlgorithmConfusionDetection({
+      contractVersion: DETECTION_CONTRACT_VERSION,
+      kind: 'jwt_algorithm_confusion_detection_request',
+      detectionId: 'det_test_p47_no_sig_check',
+      assessmentId: lineage.assessmentId,
+      scanId: lineage.scanId,
+      authorizationGrantId: lineage.authorizationGrantId,
+      authorizationDecisionId: lineage.authorizationDecisionId,
+      actorId: lineage.actorId,
+      endpointUrl: 'https://api.example.com/api/user/profile',
+      httpMethod: 'GET',
+      identityAContext: validJwtIdentityContext,
+      verifiedAuthorizationDecision: authDecision,
+      scopeGrant,
+      transport: noSignatureCheckTransport,
+      humanReviewDecision: {
+        reviewerId: 'usr_secops_lead',
+        reviewedAt: new Date().toISOString(),
+        decision: 'approve_evidence',
+      },
+    });
+
+    if (result.status !== 'secure_target_abstained') {
+      throw new Error(`Test 1b Failed: Expected status 'secure_target_abstained', got '${result.status}'`);
+    }
+    if (result.reasonCode !== 'baseline_signature_enforcement_not_confirmed') {
+      throw new Error(`Test 1b Failed: Expected reasonCode 'baseline_signature_enforcement_not_confirmed', got '${result.reasonCode}'`);
+    }
+    if (result.finding) {
+      throw new Error('Test 1b Failed: Must not fabricate a finding when signature enforcement was never confirmed');
+    }
+
+    console.log('✓ Test 1b Passed: Correctly abstained instead of over-claiming algorithm-confusion-specific bypass');
   }
 
   // -------------------------------------------------------------------------
@@ -284,12 +362,12 @@ async function runTests(): Promise<void> {
   // -------------------------------------------------------------------------
   console.log('--- Test 4: Anti-leak verification in evidence fragment ---');
   {
-    const mockTransport: IdorHttpProbeTransport = async (): Promise<HttpProbeResponse> => {
+    const mockTransport: IdorHttpProbeTransport = async (req: HttpProbeRequest): Promise<HttpProbeResponse> => {
+      const base = await vulnerableAlgNoneTransport(req);
+      if (base.statusCode !== 200) return base;
       return {
-        statusCode: 200,
-        headers: { 'content-type': 'application/json' },
+        ...base,
         bodyText: JSON.stringify({ status: 'ok', tokenRefreshed: legitimateJwt }),
-        responseTimeMs: 20,
       };
     };
 
@@ -400,7 +478,7 @@ async function runTests(): Promise<void> {
     console.log('✓ Test 5 Passed: Phase 1 assessment does not auto-emit JWT confusion drafts or findings');
   }
 
-  console.log('\n[milestoneP4_7_jwt_confusion_smoke] ALL 5 TESTS PASSED SUCCESSFULLY! (100% compliant)');
+  console.log('\n[milestoneP4_7_jwt_confusion_smoke] ALL 6 TESTS PASSED SUCCESSFULLY! (100% compliant)');
 }
 
 runTests().catch((err) => {

@@ -97,7 +97,10 @@ export async function runJwtAlgorithmConfusionDetection(
 
   const rawJwt = rawAuthHeader.replace(/^Bearer\s+/i, '').trim();
   const jwtParts = rawJwt.split('.');
-  if (jwtParts.length < 2) {
+  // A real signed JWT has 3 parts. Fewer than 3 means there is no original
+  // signature to corrupt for the control probe below, so algorithm-confusion
+  // cannot be isolated from "this token was never signed to begin with".
+  if (jwtParts.length < 3) {
     return {
       contractVersion: DETECTION_CONTRACT_VERSION,
       kind: 'jwt_algorithm_confusion_detection_result',
@@ -115,7 +118,7 @@ export async function runJwtAlgorithmConfusionDetection(
     };
   }
 
-  const [headerB64, payloadB64] = jwtParts;
+  const [headerB64, payloadB64, originalSignatureB64] = jwtParts;
   let originalAlgorithm = 'RS256';
   try {
     const decodedHeader = JSON.parse(base64UrlDecode(headerB64));
@@ -129,6 +132,17 @@ export async function runJwtAlgorithmConfusionDetection(
   // 2. Token Manipulation: Create 'alg: none' token with stripped signature
   const forgedHeader = base64UrlEncode(JSON.stringify({ alg: 'none', typ: 'JWT' }));
   const forgedJwt = `${forgedHeader}.${payloadB64}.`;
+
+  // Control token: original algorithm and payload, signature corrupted by a
+  // single deterministic character change. If the target rejects this, it
+  // proves signature checking happens at all for this algorithm, so an
+  // accepted alg:none probe below is attributable to algorithm confusion
+  // specifically rather than to no signature enforcement whatsoever.
+  const corruptedSignature =
+    originalSignatureB64.length === 0
+      ? 'AA'
+      : (originalSignatureB64[0] === 'A' ? 'B' : 'A') + originalSignatureB64.slice(1);
+  const tamperedJwt = `${headerB64}.${payloadB64}.${corruptedSignature}`;
 
   // 3. SSRF Preflight
   const preflight = await runAdapterPreflight({
@@ -186,7 +200,29 @@ export async function runJwtAlgorithmConfusionDetection(
     // assume baseline ok
   }
 
-  // B. Forged probe with manipulated 'alg: none' token
+  // B. Control probe: same algorithm, corrupted signature. Establishes
+  // whether the target enforces signature checking at all.
+  let controlTamperedSignatureStatusCode: number | undefined;
+  try {
+    const controlReq: HttpProbeRequest = {
+      url: request.endpointUrl,
+      method: httpMethod,
+      headers: {
+        ...headers,
+        [authHeaderKey ?? 'authorization']: `Bearer ${tamperedJwt}`,
+        accept: 'application/json, text/plain, */*',
+        'user-agent': 'Mozilla/5.0 (FixGuard Defensive Auditor)',
+      },
+      timeoutMs: 5000,
+    };
+    const controlResp = await transport(controlReq);
+    controlTamperedSignatureStatusCode = controlResp.statusCode;
+  } catch {
+    // Dispatch failure leaves controlTamperedSignatureStatusCode undefined,
+    // handled as "enforcement not confirmed" below (fail closed, no claim).
+  }
+
+  // C. Forged probe with manipulated 'alg: none' token
   const forgedHeaders = {
     ...headers,
     [authHeaderKey ?? 'authorization']: `Bearer ${forgedJwt}`,
@@ -230,8 +266,41 @@ export async function runJwtAlgorithmConfusionDetection(
 
   const forgedStatusCode = forgedResp.statusCode;
 
-  // If forged probe is accepted (200 OK or same status as baseline 2xx), signature bypass confirmed!
-  if (forgedStatusCode === 200 || (baselineStatus >= 200 && baselineStatus < 300 && forgedStatusCode === baselineStatus)) {
+  const forgedAccepted =
+    forgedStatusCode === 200 || (baselineStatus >= 200 && baselineStatus < 300 && forgedStatusCode === baselineStatus);
+  // Signature enforcement is confirmed only if the control probe (same
+  // algorithm, corrupted signature) was rejected. If it also succeeded, the
+  // target isn't checking signatures at all, and an accepted alg:none probe
+  // cannot be attributed to algorithm confusion specifically.
+  const controlConfirmsSignatureEnforced =
+    typeof controlTamperedSignatureStatusCode === 'number' &&
+    !(controlTamperedSignatureStatusCode >= 200 && controlTamperedSignatureStatusCode < 300);
+
+  if (forgedAccepted && !controlConfirmsSignatureEnforced) {
+    return {
+      contractVersion: DETECTION_CONTRACT_VERSION,
+      kind: 'jwt_algorithm_confusion_detection_result',
+      detectionId: request.detectionId,
+      scanId: request.scanId,
+      assessmentId: request.assessmentId,
+      authorizationGrantId: request.authorizationGrantId,
+      authorizationDecisionId: request.authorizationDecisionId,
+      actorId: request.actorId,
+      status: 'secure_target_abstained',
+      reasonCode: 'baseline_signature_enforcement_not_confirmed',
+      lineage,
+      endpointUrl: request.endpointUrl,
+      httpMethod,
+      originalAlgorithm,
+      manipulatedAlgorithm: 'none',
+      probeMechanism: 'alg_none_header',
+      baselineStatusCode: baselineStatus,
+      forgedStatusCode,
+      controlTamperedSignatureStatusCode,
+    };
+  }
+
+  if (forgedAccepted) {
     const draftId = `dft_jwt_${safeSeed}`;
     const candidateId = `cnd_jwt_${safeSeed}`;
     const evidenceRecordId = `evd_jwt_${safeSeed}`;
@@ -302,6 +371,7 @@ export async function runJwtAlgorithmConfusionDetection(
           probeMechanism: 'alg_none_header',
           baselineStatusCode: baselineStatus,
           forgedStatusCode,
+          controlTamperedSignatureStatusCode,
           finding,
         };
       }
@@ -326,6 +396,7 @@ export async function runJwtAlgorithmConfusionDetection(
           probeMechanism: 'alg_none_header',
           baselineStatusCode: baselineStatus,
           forgedStatusCode,
+          controlTamperedSignatureStatusCode,
         };
       }
     }
@@ -369,6 +440,7 @@ export async function runJwtAlgorithmConfusionDetection(
       probeMechanism: 'alg_none_header',
       baselineStatusCode: baselineStatus,
       forgedStatusCode,
+      controlTamperedSignatureStatusCode,
       evidenceDraft,
     };
   }
@@ -393,6 +465,7 @@ export async function runJwtAlgorithmConfusionDetection(
     probeMechanism: 'alg_none_header',
     baselineStatusCode: baselineStatus,
     forgedStatusCode,
+    controlTamperedSignatureStatusCode,
   };
 }
 
