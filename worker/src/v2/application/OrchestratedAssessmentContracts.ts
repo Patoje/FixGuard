@@ -153,8 +153,6 @@ export interface DifferentialEvidenceContext {
     | 'dependency_confusion'
     | 'manifest_exposure'
     | 'parameter_integrity'
-    | 'object_mapping_anomaly'
-    | 'state_transition_anomaly'
     | 'attack_surface_delta'
     | 'cross_finding_chain'
     | 'static_secret_exposure'
@@ -287,12 +285,6 @@ export interface DifferentialEvidenceContext {
   readonly injectedProbePattern?: string;
   readonly boundaryEnforced?: boolean;
   readonly sanitizedExcerpt?: string;
-  readonly injectedProperties?: readonly string[];
-  readonly bindingAccepted?: boolean;
-  readonly sanitizedEchoResponse?: string;
-  readonly expectedPrerequisiteSteps?: readonly string[];
-  readonly bypassedSuccessfully?: boolean;
-  readonly responseExcerpt?: string;
   readonly baselineAssessmentId?: string;
   readonly newEndpointsCount?: number;
   readonly removedEndpointsCount?: number;

@@ -74,8 +74,6 @@ export function isPrimaryAccessVector(finding: Finding): boolean {
     metaKind === 'broken_access_control_metadata' ||
     metaKind === 'auth_bypass_metadata' ||
     metaKind === 'http_method_manipulation_metadata' ||
-    metaKind === 'state_transition_anomaly_metadata' ||
-    metaKind === 'object_mapping_anomaly_metadata' ||
     metaKind === 'jwt_algorithm_confusion_metadata' ||
     metaKind === 'session_fixation_metadata' ||
     metaKind === 'credentialed_cors_metadata' ||

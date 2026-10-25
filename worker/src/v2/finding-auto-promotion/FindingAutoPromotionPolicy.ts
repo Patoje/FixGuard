@@ -84,8 +84,6 @@ const KEEP_AS_DRAFT: ReadonlySet<DetectionKind> = new Set([
   'graphql_surface',
   'api_versioning_sprawl',
   'manifest_exposure',
-  'object_mapping_anomaly',
-  'state_transition_anomaly',
   'custom_difference',
 ]);
 

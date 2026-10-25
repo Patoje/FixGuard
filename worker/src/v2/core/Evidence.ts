@@ -381,32 +381,10 @@ export interface ParameterIntegrityMetadata {
   readonly lineage?: string | Record<string, unknown>;
 }
 
-export interface ObjectMappingAnomalyMetadata {
-  readonly kind: 'object_mapping_anomaly_metadata';
-  readonly category: 'BROKEN_ACCESS_CONTROL';
-  readonly endpointUrl: string;
-  readonly httpMethod: string;
-  readonly injectedProperties: readonly string[]; // e.g. ['isAdmin', 'role']
-  readonly bindingAccepted: boolean;
-  readonly sanitizedEchoResponse?: string; // max 128 chars
-  readonly observedAt: string;
-  readonly candidateId?: string;
-  readonly evidenceRecordId?: string;
-  readonly lineage?: string | Record<string, unknown>;
-}
-
-export interface StateTransitionAnomalyMetadata {
-  readonly kind: 'state_transition_anomaly_metadata';
-  readonly category: 'BUSINESS_LOGIC_BYPASS';
-  readonly endpointUrl: string;
-  readonly expectedPrerequisiteSteps: readonly string[];
-  readonly bypassedSuccessfully: boolean;
-  readonly responseExcerpt?: string; // max 128 chars
-  readonly observedAt: string;
-  readonly candidateId?: string;
-  readonly evidenceRecordId?: string;
-  readonly lineage?: string | Record<string, unknown>;
-}
+// ObjectMappingAnomalyMetadata and StateTransitionAnomalyMetadata were
+// removed 2026-10-25 (R5 audit verdict: retire permanently — structurally
+// unsound confirmation logic, already unreachable from production). See
+// docs/decisions/R5-detector-confirmation-audit.md.
 
 export interface AttackSurfaceDeltaMetadata {
   readonly kind: 'attack_surface_delta_metadata';
@@ -553,8 +531,6 @@ export type FindingMetadata =
   | DependencyConfusionMetadata
   | ManifestExposureMetadata
   | ParameterIntegrityMetadata
-  | ObjectMappingAnomalyMetadata
-  | StateTransitionAnomalyMetadata
   | AttackSurfaceDeltaMetadata
   | CrossFindingChainMetadata
   | StaticSecretExposureMetadata

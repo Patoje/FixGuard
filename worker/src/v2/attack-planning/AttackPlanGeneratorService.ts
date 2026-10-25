@@ -604,9 +604,7 @@ function draftCapabilityMapping(
     kind === 'wordpress_surface' ||
     kind === 'graphql_surface' ||
     kind === 'api_versioning_sprawl' ||
-    kind === 'manifest_exposure' ||
-    kind === 'object_mapping_anomaly' ||
-    kind === 'state_transition_anomaly'
+    kind === 'manifest_exposure'
   ) {
     return null;
   }
