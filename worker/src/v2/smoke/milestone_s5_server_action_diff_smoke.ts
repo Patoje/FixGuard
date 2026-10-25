@@ -162,6 +162,38 @@ async function main(): Promise<void> {
   assert.equal(closed.status, 'secure_target_abstained');
   console.log('[+] dual 401 → secure_target_abstained');
 
+  // R5 audit fix (2026-10-25): an unauth/auth status MISMATCH where neither
+  // side was actually accepted (e.g. a validation 400 vs an unrelated 500)
+  // must not be labeled an authz differential — it's unrelated noise, not
+  // evidence either side succeeded.
+  const mismatchNoiseTransport = async (
+    req: HttpProbeRequest
+  ): Promise<HttpProbeResponse> => {
+    const isAuth = typeof req.headers['authorization'] === 'string';
+    return isAuth
+      ? { statusCode: 500, headers: {}, bodyText: 'Internal Server Error', responseTimeMs: 5 }
+      : { statusCode: 400, headers: {}, bodyText: 'Bad Request', responseTimeMs: 5 };
+  };
+  const mismatchNoise = await runNextServerActionDifferential({
+    contractVersion: NEXT_SERVER_ACTION_DIFF_CONTRACT_VERSION,
+    kind: 'next_server_action_diff_request',
+    detectionId: 'det_s5_mismatch_noise',
+    ...lineage,
+    verifiedAuthorizationDecision: auth.decision!,
+    scopeGrant,
+    endpointUrl: 'https://app.example.com/perfil',
+    actionId: 'fedcba9876543210fedcba9876543210',
+    authenticatedContext: {
+      identityId: 'id_a',
+      headers: { authorization: 'Bearer eyJhbGciOiJIUzI1NiJ9.e30.sig' },
+    },
+    transport: mismatchNoiseTransport,
+    dnsResolver: async () => ['93.184.216.34'],
+  });
+  assert.equal(mismatchNoise.status, 'secure_target_abstained');
+  assert.equal(mismatchNoise.reasonCode, 'no_server_action_authz_differential');
+  console.log('[+] unrelated unauth/auth status mismatch (400 vs 500) → abstain, not differential');
+
   // Loopback preflight denied
   const denied = await runNextServerActionDifferential({
     contractVersion: NEXT_SERVER_ACTION_DIFF_CONTRACT_VERSION,

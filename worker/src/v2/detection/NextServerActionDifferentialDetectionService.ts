@@ -162,10 +162,12 @@ export async function runNextServerActionDifferential(
 
     const unauthAccepted = actionAccepted(unauthRes.statusCode, unauthRes.bodyText);
 
-    // Differential: unauth accepts action (authz bypass signal) OR unauth≠auth status.
-    const authzDifferential =
-      unauthAccepted === true ||
-      (typeof authStatus === 'number' && unauthRes.statusCode !== authStatus);
+    // Differential: the unauthenticated request alone got the Server Action
+    // executed (authz bypass signal). A bare unauth-vs-auth status mismatch
+    // (e.g. unauth=400 vs auth=500, two unrelated failures) used to also
+    // trigger this — removed per R5 audit (2026-10-25): it labeled noise as
+    // an authz differential without either side ever actually succeeding.
+    const authzDifferential = unauthAccepted === true;
 
     return {
       contractVersion: NEXT_SERVER_ACTION_DIFF_CONTRACT_VERSION,
@@ -175,9 +177,7 @@ export async function runNextServerActionDifferential(
         ? 'differential_observed'
         : 'secure_target_abstained',
       reasonCode: authzDifferential
-        ? unauthAccepted
-          ? 'unauth_server_action_accepted'
-          : 'server_action_status_differential'
+        ? 'unauth_server_action_accepted'
         : 'no_server_action_authz_differential',
       lineage,
       endpointUrl,
