@@ -26,6 +26,26 @@ COEP). This is the first real, substantive output FixGuard V2 has produced
 end-to-end this session — recon → classification → authorized execution →
 evidence pending human review, exactly as designed, nothing auto-confirmed.
 
+**Re-verified against all 3 original targets (2026-10-25, Ruta G of the
+strategic review, after the ADR-013 reclassification, the subdomain-takeover
+capability fix, the two detector retirements/fixes, and the dev-cache
+isolation fix — real production pipeline, no mocks):**
+
+| Target | Endpoints classified | Hypotheses | Attack plans | Evidence drafts | Auto findings |
+|---|---|---|---|---|---|
+| `firma-nu.vercel.app` | 87 (0% unknown) | 50 | 96 | 3 | 0 |
+| `inmobiliaria-cornejo-web-rho.vercel.app` | 36 (0% unknown) | 16 | 26 | 4 | 0 |
+| `negocios-inmobiliarios.vercel.app` | 190 (0% unknown) | 50 | 58 | 1 | 0 |
+
+Classification counts match the original 190/87/36 exactly (R2 was never
+broken). Everything downstream of it — hypotheses, attack plans, evidence
+drafts — went from 0/0/0 (the bug this milestone fixed) to real, specific
+output: `missing_security_headers` on all 3, plus `api_versioning_sprawl`
+(legacy `/api/v1/*` exposed alongside v2) on 2 of them. 0 auto findings on
+all 3 is correct, not a regression — CORS/open-redirect/etc. stay frozen
+per ADR-013, and these specific drafts are soft/cosmetic signals that stay
+drafts for optional human review by design, never auto-promoted.
+
 **How this was found:** ran real assessments against 3 authorized Vercel
 sites (`firma-nu.vercel.app`, `inmobiliaria-cornejo-web-rho.vercel.app`,
 `negocios-inmobiliarios.vercel.app`, 2026-10-24). Recon + R2 classification
