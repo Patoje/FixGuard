@@ -13,11 +13,18 @@ import { PersistenceConflictError, RecordNotFoundError } from '../storage/Storag
 const DEV_CACHE_DIR = path.join(process.cwd(), '.dev_cache');
 const PLANS_CACHE_FILE = path.join(DEV_CACHE_DIR, 'attack_plans.json');
 
+function isRunningFromSmokeOrTestScript(): boolean {
+  return process.argv.some(
+    (arg) => typeof arg === 'string' && (arg.includes('smoke') || arg.includes('test') || arg.includes('spec'))
+  );
+}
+
 function isDevPersistenceEnabled(): boolean {
   return (
     process.env.NODE_ENV !== 'test' &&
     process.env.FIXGUARD_V2_HERMETIC_RECON !== '1' &&
-    process.env.FIXGUARD_DISABLE_DEV_CACHE !== '1'
+    process.env.FIXGUARD_DISABLE_DEV_CACHE !== '1' &&
+    !isRunningFromSmokeOrTestScript()
   );
 }
 
