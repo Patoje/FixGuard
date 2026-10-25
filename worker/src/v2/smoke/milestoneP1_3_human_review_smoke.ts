@@ -4,8 +4,19 @@
  * Product correction: confirmed attack-valuable detections auto-promote to Findings.
  * HITL remains for leftover soft/cosmetic drafts and for AttackPlan execute.
  *
+ * Per ADR-013 (docs/decisions/ADR-013-aggressive-detection-freeze.md), the
+ * active/injection-style detectors — including CORS misconfiguration and
+ * parameter reflection — are frozen out of the automatic read-investigation
+ * loop (ReadDetectionPass). They no longer produce Findings or evidence
+ * drafts through the orchestrated pipeline exercised below; "aggressive"
+ * confirmation is deferred to manual, operator-driven tooling (Parrot).
+ * Their own auto-promotion logic is still covered by the detector-level
+ * smoke tests that call the services directly.
+ *
  * Verifies:
- * 1. CORS + parameter reflection with confirmed signals auto-promote to Findings.
+ * 1. CORS + parameter reflection are frozen from auto-invocation (no
+ *    Findings, no evidence drafts) and the CORS attack plan is seeded
+ *    non-executing.
  * 2. Soft drafts (e.g. missing security headers) remain pending for optional HITL.
  * 3. GET evidence-drafts returns leftover drafts with differential context.
  * 4. POST review approve_evidence promotes a soft draft to Finding.
@@ -321,13 +332,13 @@ async function runSmokeTests(): Promise<void> {
     assert(corsPlan, 'Pipeline must seed a non-executing CORS plan');
     assert.equal(corsPlan.executable, false);
     assert(
-      autoFindings.some(
+      !autoFindings.some(
         (f) =>
           f.metadata.kind === 'input_validation_flaw_metadata' ||
           f.type === 'INPUT_VALIDATION_FLAW' ||
           f.type === 'PARAMETER_REFLECTION'
       ),
-      'Parameter reflection should be auto-promoted to autoFindings with observed_anomaly state'
+      'ADR-013: parameter reflection is frozen from the automatic read-investigation loop and must not auto-promote'
     );
     assert.ok(
       autoFindings.every((f) => f.verificationState !== 'exploitability_confirmed'),
@@ -341,11 +352,11 @@ async function runSmokeTests(): Promise<void> {
     );
     assert(
       !pendingDrafts.some((d) => d.differentialContext?.detectionKind === 'cors_misconfiguration'),
-      'CORS must not be auto-drafted by the pipeline'
+      'ADR-013: CORS is frozen from the automatic read-investigation loop and must not be drafted either'
     );
     assert(
       !pendingDrafts.some((d) => d.differentialContext?.detectionKind === 'parameter_reflection'),
-      'Parameter reflection must not remain as pending draft after auto-promotion'
+      'ADR-013: parameter reflection is frozen from the automatic read-investigation loop and must not be drafted either'
     );
 
     const softDrafts = pendingDrafts.filter(

@@ -231,13 +231,32 @@ async function main(): Promise<void> {
     assert.equal(pass.status, 'completed');
     assert.ok(pass.detectorCallCount > 0);
     assert.ok(pass.invokedDetectors.includes('security_header'));
-    assert.ok(pass.invokedDetectors.includes('open_redirect'));
     assert.ok(pass.invokedDetectors.includes('information_disclosure'));
-    assert.ok(pass.invokedDetectors.includes('cors_misconfiguration'));
-    assert.ok(pass.invokedDetectors.includes('parameter_reflection'));
     assert.equal(pass.invokedDetectors.includes('graphql_surface'), false);
+    // ADR-013 (docs/decisions/ADR-013-aggressive-detection-freeze.md): the
+    // active/injection-style detectors are frozen out of the automatic
+    // read-investigation loop. open_redirect/cors_misconfiguration/
+    // parameter_reflection need no identity and hit the freeze gate directly
+    // (reasonCode 'aggressive_layer_frozen'); auth_bypass/idor_differential
+    // are skipped here for the pre-existing, unconditional "no identity
+    // supplied" reasons (checked before the freeze gate is ever reached).
+    assert.equal(pass.invokedDetectors.includes('open_redirect'), false);
+    assert.equal(pass.invokedDetectors.includes('cors_misconfiguration'), false);
+    assert.equal(pass.invokedDetectors.includes('parameter_reflection'), false);
     assert.equal(pass.invokedDetectors.includes('auth_bypass'), false);
     assert.equal(pass.invokedDetectors.includes('idor_differential'), false);
+    for (const frozenDetector of [
+      'open_redirect',
+      'cors_misconfiguration',
+      'parameter_reflection',
+    ] as const) {
+      assert.ok(
+        pass.skipped.some(
+          (skip) => skip.detector === frozenDetector && skip.reasonCode === 'aggressive_layer_frozen'
+        ),
+        `${frozenDetector} must be recorded as frozen in skipped`
+      );
+    }
     assert.ok(
       pass.skipped.some(
         (skip) =>

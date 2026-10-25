@@ -575,7 +575,12 @@ async function main(): Promise<void> {
   assert.equal(defaults.get('sql_injection_verification')?.capability, 'sql_injection_verification');
   assert.equal(defaults.get('parameter_reflection_probe')?.capability, 'parameter_reflection_probe');
   assert.equal(defaults.get('sql_error_oracle_probe'), null);
-  assert.equal(defaults.get('session_fixation_probe'), null);
+  // ADR-013 amendment (docs/decisions/ADR-013-aggressive-detection-freeze.md):
+  // session_fixation_probe is one of the 6 passive capabilities now bridged
+  // to its existing SessionFixationDetectionService so the fully-authorized
+  // AttackPlan -> authorize -> execute path has somewhere to go; it is
+  // reachable only behind that explicit authorization, never auto-invoked.
+  assert.equal(defaults.get('session_fixation_probe')?.capability, 'session_fixation_probe');
   assert.equal(defaults.get('method_manipulation_probe'), null);
   const stub = await createNotImplementedCapability('sql_error_oracle_probe').execute(
     invocation({

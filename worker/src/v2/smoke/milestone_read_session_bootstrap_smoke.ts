@@ -252,9 +252,25 @@ async function detectionUsesIdentityA(): Promise<void> {
     identityA: identityA(),
   });
   assert.equal(pass.status, 'completed');
-  assert.equal(pass.invokedDetectors.includes('auth_bypass'), true);
-  assert.equal(pass.invokedDetectors.includes('auth_boundary_differential'), true);
+  // ADR-013 (docs/decisions/ADR-013-aggressive-detection-freeze.md):
+  // auth_bypass/auth_boundary_differential are frozen out of the automatic
+  // read-investigation loop even with identityA present; the session is
+  // still used (and the marker header still sent) by the passive detectors
+  // (security_header, information_disclosure) that remain active.
+  assert.equal(pass.invokedDetectors.includes('auth_bypass'), false);
+  assert.equal(pass.invokedDetectors.includes('auth_boundary_differential'), false);
   assert.equal(pass.invokedDetectors.includes('idor_differential'), false);
+  assert.ok(
+    pass.skipped.some(
+      (skip) => skip.detector === 'auth_bypass' && skip.reasonCode === 'aggressive_layer_frozen'
+    )
+  );
+  assert.ok(
+    pass.skipped.some(
+      (skip) =>
+        skip.detector === 'auth_boundary_differential' && skip.reasonCode === 'aggressive_layer_frozen'
+    )
+  );
   assert.equal(
     counted.calls.some((request) => headerBlob(request).includes(HEADER_MARKER)),
     true
@@ -306,7 +322,14 @@ async function bothIdentitiesCallIdorWhenResourceIsObserved(): Promise<void> {
     identityA: identityA(),
     identityB,
   });
-  assert.equal(pass.invokedDetectors.includes('idor_differential'), true);
+  // ADR-013: idor_differential is frozen out of the automatic loop even
+  // when both identities are present and a resource id is observed.
+  assert.equal(pass.invokedDetectors.includes('idor_differential'), false);
+  assert.ok(
+    pass.skipped.some(
+      (skip) => skip.detector === 'idor_differential' && skip.reasonCode === 'aggressive_layer_frozen'
+    )
+  );
   const plain = countingTransport();
   const noId = await runReadDetectionPass({
     probeInventory: inventory('/health'),
