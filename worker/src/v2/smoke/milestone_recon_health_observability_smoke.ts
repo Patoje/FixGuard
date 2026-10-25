@@ -77,7 +77,34 @@ async function main(): Promise<void> {
   });
   assert.equal(capped.status, 'insufficiently_explored');
   assert.deepEqual(capped.reasonCodes, ['crawl_request_budget_exhausted']);
+  assert.equal(capped.suggestedNextConfig, undefined, 'no budgetUsed → no guessed suggestion');
   console.log('[+] crawl stopped by request budget → insufficiently_explored');
+
+  // 3b. Milestone R9 (Hito 3) — suggestion is derived from the real budget used, never guessed.
+  const cappedWithBudget = ReconHealthClassificationService.classify({
+    stages: CLEAN_STAGES,
+    signals: {
+      unresolvedChallengeHosts: [],
+      resolvedChallengeHosts: [],
+      crawlStoppedByBudgetCap: true,
+      crawlRequestBudgetUsed: 150,
+    },
+  });
+  assert.deepEqual(cappedWithBudget.suggestedNextConfig, { crawlRequestBudget: 300 });
+  console.log('[+] insufficiently_explored with budgetUsed=150 → suggests 300 (never applied automatically)');
+
+  // 3c. Suggestion respects the hard ceiling — doubling never runs away unbounded.
+  const cappedNearCeiling = ReconHealthClassificationService.classify({
+    stages: CLEAN_STAGES,
+    signals: {
+      unresolvedChallengeHosts: [],
+      resolvedChallengeHosts: [],
+      crawlStoppedByBudgetCap: true,
+      crawlRequestBudgetUsed: 400,
+    },
+  });
+  assert.deepEqual(cappedNearCeiling.suggestedNextConfig, { crawlRequestBudget: 600 });
+  console.log('[+] insufficiently_explored with budgetUsed=400 → suggests 600, not 800 (ceiling respected)');
 
   // 4. Clean run: frontier exhausted naturally, no challenge, no cap → complete.
   const clean = ReconHealthClassificationService.classify({

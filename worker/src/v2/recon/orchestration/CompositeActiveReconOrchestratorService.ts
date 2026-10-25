@@ -460,6 +460,10 @@ export class CompositeActiveReconOrchestratorService {
     const unresolvedChallengeHosts = new Set<string>();
     const resolvedChallengeHosts = new Set<string>();
     let crawlStoppedByBudgetCap = false;
+    // Milestone R9 (Hito 3) — the real budget used, only meaningful once
+    // crawlStoppedByBudgetCap is true; lets the classifier suggest a next
+    // value instead of guessing a default.
+    let crawlRequestBudgetUsed: number | undefined;
     function buildReconHealthSignals(): ReconHealthSignals {
       // Raw sets, unfiltered: ReconHealthClassificationService owns the rule
       // that a later resolution overrides an earlier unresolved mark.
@@ -467,6 +471,7 @@ export class CompositeActiveReconOrchestratorService {
         unresolvedChallengeHosts: Object.freeze([...unresolvedChallengeHosts]),
         resolvedChallengeHosts: Object.freeze([...resolvedChallengeHosts]),
         crawlStoppedByBudgetCap,
+        ...(crawlRequestBudgetUsed !== undefined ? { crawlRequestBudgetUsed } : {}),
       };
     }
 
@@ -1213,6 +1218,7 @@ export class CompositeActiveReconOrchestratorService {
         if (httpInspectedUrls.size >= crawlRequestBudget) {
           crawlStopReason = `Crawl frontier reached request budget of ${crawlRequestBudget} requests`;
           crawlStoppedByBudgetCap = true;
+          crawlRequestBudgetUsed = crawlRequestBudget;
           break;
         }
 

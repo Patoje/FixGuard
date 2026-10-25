@@ -1767,7 +1767,15 @@ All completed milestones are verified via active TypeScript contracts and the re
 - **Verified:** extended the existing `npm run smoke:v2:finding-auto-promotion` (not a new script, per the single-consolidated-suite rule) with 15 new cases — both halves of each of the 7 kinds — plus `npm run typecheck:v2`, both exit 0.
 - **Depends on:** nothing. Builds on the recon-depth analysis's section-0 finding; independent of R7.
 
-**Suggested sequencing:** R1 and R2 first (in parallel, both low-risk and purely additive to existing passive data); R5 can run anytime alongside them since it's read-only; R3 once R1/R2 have real output to export; R4 only after R3; R6 whenever convenient, it blocks nothing else; R7 and R8 are independent of R1-R6 and of each other, both close recon-depth-analysis findings.
+### Milestone R9: Adaptive Depth — Coverage Measurement + Budget Suggestion (Hito 3 of the recon-depth roadmap)
+- **Status:** COMPLETED (2026-10-25). See `docs/decisions/RECON-DEPTH-ANALYSIS-2026-10-25.md` sections 4 and 8 (improvement #2).
+- **Problem:** the recon-depth analysis found that `AttackSurfaceGraphBuilder` already groups endpoints by `service_boundary` (path prefix) and `AttackSurfaceQueryService.groupEndpointsByServiceBoundary()` already exposes that grouping — but nothing cross-referenced it against what was actually investigated. "The data exists, the computation doesn't."
+- **Done:** new `OrchestratedAssessmentApplicationService.getCoverageSummary(assessmentId)` — read-only, reuses `groupEndpointsByServiceBoundary()` unchanged, cross-references each boundary's endpoints against the real `AttackPlan.targetUrl` list, returns `ServiceBoundaryCoverage[]` sorted ascending by `coverageRatio` (least-investigated zones first). Fail-closed to an empty list when `attackSurfaceGraph` is absent — never a fabricated number. Also extended `ReconHealthSignals`/`ReconHealthAssessment` (Milestone R7) with `crawlRequestBudgetUsed` and `suggestedNextConfig` — when a run is `insufficiently_explored`, the real budget used is doubled (capped at 600, 4× the 150 default) and surfaced as a suggestion next to `reconHealthStatus`. Never applied automatically, never triggers a re-run — the operator decides.
+- **Explicitly deferred, to avoid combining into one large refactor:** authentication/login crawling (the single largest, costliest item in the analysis — deserves its own milestone), new recon engines (nmap, WAF/CDN fingerprinting, GraphQL schema walk).
+- **Verified:** new `npm run smoke:v2:coverage-by-boundary` + extended `npm run smoke:v2:recon-health-observability` (2 new cases) + `npm run typecheck:v2`, all exit 0.
+- **Depends on:** R7 (reuses `ReconHealthSignals`/`ReconHealthAssessment`). Independent of R8.
+
+**Suggested sequencing:** R1 and R2 first (in parallel, both low-risk and purely additive to existing passive data); R5 can run anytime alongside them since it's read-only; R3 once R1/R2 have real output to export; R4 only after R3; R6 whenever convenient, it blocks nothing else; R7 and R8 are independent of R1-R6 and of each other, both close recon-depth-analysis findings; R9 builds on R7 and closes the recon-depth analysis's remaining coverage-measurement finding.
 
 ---
 

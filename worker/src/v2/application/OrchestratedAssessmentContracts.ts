@@ -489,6 +489,26 @@ export interface OrchestratedAssessmentSummaryDto {
   readonly reconHealthStatus?: ReconHealthAssessment;
 }
 
+/**
+ * Milestone R9 (Hito 3 — Profundidad adaptativa). Read-only projection of
+ * AttackSurfaceQueryService.groupEndpointsByServiceBoundary() cross-referenced
+ * against the real AttackPlan list — "how much of what we discovered did we
+ * actually investigate," per structural service boundary.
+ */
+export interface ServiceBoundaryCoverage {
+  readonly pathPrefix: string;
+  readonly totalEndpoints: number;
+  readonly investigatedEndpoints: number;
+  /** investigatedEndpoints / totalEndpoints. 0 when nothing was investigated. */
+  readonly coverageRatio: number;
+}
+
+/** Sorted ascending by coverageRatio — least-investigated boundaries first. */
+export interface CoverageSummaryDto {
+  readonly assessmentId: string;
+  readonly boundaries: readonly ServiceBoundaryCoverage[];
+}
+
 export interface AttachSessionIdentityBResult {
   readonly assessmentId: string;
   readonly identityCount: 2;

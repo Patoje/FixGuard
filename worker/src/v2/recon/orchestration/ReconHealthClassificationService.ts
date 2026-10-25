@@ -1,5 +1,6 @@
 /**
- * FixGuard V2 — Recon Health Classification Service (Milestone R7, Hito 1).
+ * FixGuard V2 — Recon Health Classification Service (Milestone R7, Hito 1;
+ * extended by Milestone R9, Hito 3 — suggestedNextConfig).
  *
  * Classifies whether a recon run is complete or degraded, using only signals
  * already captured during orchestration — never a fabricated or inferred
@@ -13,6 +14,7 @@ import type {
 } from './ActiveReconOrchestrationContracts.js';
 
 const RECON_HEALTH_CONTRACT_VERSION = 'fixguard-recon-health/v0' as const;
+const MAX_SUGGESTED_CRAWL_REQUEST_BUDGET = 600;
 
 export interface ReconHealthClassificationInput {
   readonly stages: readonly ReconStageExecutionResult[];
@@ -36,10 +38,16 @@ export class ReconHealthClassificationService {
     }
 
     if (input.signals?.crawlStoppedByBudgetCap === true) {
+      const budgetUsed = input.signals.crawlRequestBudgetUsed;
+      const suggestedNextConfig =
+        typeof budgetUsed === 'number' && budgetUsed > 0
+          ? { crawlRequestBudget: Math.min(budgetUsed * 2, MAX_SUGGESTED_CRAWL_REQUEST_BUDGET) }
+          : undefined;
       return {
         contractVersion: RECON_HEALTH_CONTRACT_VERSION,
         status: 'insufficiently_explored',
         reasonCodes: ['crawl_request_budget_exhausted'],
+        ...(suggestedNextConfig ? { suggestedNextConfig } : {}),
       };
     }
 

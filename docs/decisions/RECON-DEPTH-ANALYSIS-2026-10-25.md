@@ -129,6 +129,8 @@ No comparten lógica de scoring ni estado, y nada en el código los valida entre
 
 **El dato de cobertura ya existe, el cálculo no**: `AttackSurfaceGraphBuilder` ya agrupa endpoints por `service_boundary` (prefijo de path). Un grep de "coverage"/"unexplored" en todo `src/v2` da **cero resultados reales** (solo un comentario suelto). Nada calcula, por ejemplo, "`/admin` tiene 12 endpoints, solo 3 fueron probados" — aunque el grafo ya tiene la agrupación necesaria para hacerlo. Es una mejora estructuralmente barata: el dato está, falta la función que lo recorra.
 
+> **IMPLEMENTADO (2026-10-25, Hito 3)**: `OrchestratedAssessmentApplicationService.getCoverageSummary()` cierra exactamente esto — ver Milestone R9 en `docs/ROADMAP.md`.
+
 **La secuencia de recon es fija, no adaptativa**: las 5 etapas de `CompositeActiveReconOrchestratorService` siempre corren salvo que el *llamador* las salte explícitamente (`config.skipStages`) — no hay ramificación interna tipo "encontré un endpoint GraphQL en la etapa 3 → disparo un probe GraphQL más profundo dentro de esta misma pasada". Toda la adaptividad real del sistema vive río abajo, dentro del loop de hipótesis, que reacciona a superficie ya descubierta pero **no puede disparar una nueva etapa de recon** — solo puede pedir `AttackPlan`s ya registrables sobre lo que ya se encontró.
 
 ---
@@ -184,7 +186,7 @@ Estas no son mutuamente excluyentes — se pueden combinar y secuenciar.
 | # | Mejora | Impacto | Esfuerzo | Depende de | Estrategia |
 |---|---|---|---|---|---|
 | 1 | Cerrar o documentar explícitamente el gap de auto-promoción sin revisión humana | Crítico (gobernanza/confianza) | Bajo | — | A/D |
-| 2 | Calcular cobertura por `service_boundary` desde el grafo ya existente | Alto | Bajo | — | D |
+| 2 | Calcular cobertura por `service_boundary` desde el grafo ya existente | Alto | Bajo | — | D — **IMPLEMENTADO 2026-10-25 (Hito 3/R9)** |
 | 3 | Subir topes de crawl/fuzzing/Playwright (ya soportado por config) | Medio-alto | Bajo | — | A |
 | 4 | Canonicalizar query-params en dedup de URLs | Medio | Bajo | — | A |
 | 5 | Reconciliar los 2 schedulers de hipótesis (o documentar y testear por qué coexisten) | Medio | Medio | — | D |

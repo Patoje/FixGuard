@@ -427,6 +427,8 @@ import type {
   OperatorPlanView,
   Phase1ReadLoopRecord,
   Phase1ReadLoopView,
+  CoverageSummaryDto,
+  ServiceBoundaryCoverage,
 } from './OrchestratedAssessmentContracts.js';
 import { observeGraphqlAuthDelta } from '../observation/GraphqlAuthDeltaObservation.js';
 import { LOCAL_PUBLIC_ADVISORIES, observePublicAdvisory } from '../observation/PublicAdvisoryObservation.js';
@@ -2432,6 +2434,56 @@ export class OrchestratedAssessmentApplicationService {
       plans,
       lineage: record.lineage,
     };
+  }
+
+  /**
+   * Milestone R9 (Hito 3 — Profundidad adaptativa). How much of the discovered
+   * surface was actually investigated, per structural service boundary.
+   * Read-only: reads AttackSurfaceQueryService.groupEndpointsByServiceBoundary()
+   * (no graph recomputation) cross-referenced against the real AttackPlan list.
+   * Fail-closed: no attackSurfaceGraph (recon never completed) → empty list,
+   * never a fabricated number.
+   */
+  public async getCoverageSummary(assessmentId: string): Promise<CoverageSummaryDto> {
+    if (!assessmentId || typeof assessmentId !== 'string' || !isStrictSafeId(assessmentId)) {
+      throw new ApiValidationError('Field assessmentId must satisfy strict identifier format');
+    }
+
+    const record = await this.repository.findById(assessmentId);
+    if (!record) {
+      throw new SessionNotFoundError(
+        `Orchestrated assessment '${assessmentId}' was not found`,
+        assessmentId
+      );
+    }
+
+    if (!record.attackSurfaceGraph) {
+      return { assessmentId: record.assessmentId, boundaries: [] };
+    }
+
+    const plans = await this.attackPlanRepository.listByAssessmentId(assessmentId);
+    const investigatedUrls = new Set(
+      plans.filter((p) => typeof p.targetUrl === 'string').map((p) => p.targetUrl as string)
+    );
+
+    const query = new AttackSurfaceQueryService(record.attackSurfaceGraph);
+    const boundaries: ServiceBoundaryCoverage[] = query
+      .groupEndpointsByServiceBoundary()
+      .map(({ boundary, endpoints }) => {
+        const totalEndpoints = endpoints.length;
+        const investigatedEndpoints = endpoints.filter((e) =>
+          investigatedUrls.has(e.metadata.url)
+        ).length;
+        return {
+          pathPrefix: boundary.metadata.pathPrefix,
+          totalEndpoints,
+          investigatedEndpoints,
+          coverageRatio: totalEndpoints > 0 ? investigatedEndpoints / totalEndpoints : 0,
+        };
+      })
+      .sort((a, b) => a.coverageRatio - b.coverageRatio);
+
+    return { assessmentId: record.assessmentId, boundaries: Object.freeze(boundaries) };
   }
 
   /**

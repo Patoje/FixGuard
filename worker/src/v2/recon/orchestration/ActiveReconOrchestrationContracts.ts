@@ -131,6 +131,12 @@ export interface ReconHealthSignals {
   readonly resolvedChallengeHosts: readonly string[];
   /** True only when the crawl frontier stopped because it hit crawlRequestBudget with frontier still non-empty — not on natural exhaustion or duplicate saturation. */
   readonly crawlStoppedByBudgetCap: boolean;
+  /**
+   * Milestone R9 (Hito 3) — the real crawlRequestBudget value used this run,
+   * captured only when crawlStoppedByBudgetCap is true. Lets the classifier
+   * suggest a next value instead of guessing a default.
+   */
+  readonly crawlRequestBudgetUsed?: number;
 }
 
 /**
@@ -157,6 +163,15 @@ export interface ReconHealthAssessment {
   readonly status: ReconHealthStatus;
   /** Reason codes grounded in real signals already observed during this run. */
   readonly reasonCodes: readonly string[];
+  /**
+   * Milestone R9 (Hito 3) — a suggested config value for a re-run, present
+   * only when status === 'insufficiently_explored' and the real budget used
+   * is known. Never applied automatically; surfaced for the operator to
+   * decide. Computed as min(budgetUsed * 2, 600).
+   */
+  readonly suggestedNextConfig?: {
+    readonly crawlRequestBudget: number;
+  };
 }
 
 export interface OrchestratedReconEvidenceDraft {
