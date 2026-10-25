@@ -58,6 +58,7 @@ import type {
   OrchestratedReconEvidenceDraft,
   AggregatedReconObservations,
   ReconStageName,
+  ReconHealthSignals,
 } from './ActiveReconOrchestrationContracts.js';
 import {
   ACTIVE_RECON_ORCHESTRATION_CONTRACT_VERSION,
@@ -453,6 +454,22 @@ export class CompositeActiveReconOrchestratorService {
       (request.degradedBinaries ?? []).map((b) => b.trim().toLowerCase()).filter((b) => b.length > 0)
     );
 
+    // Milestone R7 (Hito 1) — structured why-degraded signals, hoisted above
+    // buildCircuitBrokenResult (below) so every early-return circuit-break path
+    // can read them safely, not just the final success return.
+    const unresolvedChallengeHosts = new Set<string>();
+    const resolvedChallengeHosts = new Set<string>();
+    let crawlStoppedByBudgetCap = false;
+    function buildReconHealthSignals(): ReconHealthSignals {
+      // Raw sets, unfiltered: ReconHealthClassificationService owns the rule
+      // that a later resolution overrides an earlier unresolved mark.
+      return {
+        unresolvedChallengeHosts: Object.freeze([...unresolvedChallengeHosts]),
+        resolvedChallengeHosts: Object.freeze([...resolvedChallengeHosts]),
+        crawlStoppedByBudgetCap,
+      };
+    }
+
     function degradedNotice(binary: string): string {
       return `degraded_mode_missing_binary: ${binary}`;
     }
@@ -571,6 +588,7 @@ export class CompositeActiveReconOrchestratorService {
       ...(degradedCapabilityNotices.size > 0
         ? { degradedCapabilities: Object.freeze(Array.from(degradedCapabilityNotices).sort()) }
         : {}),
+      reconHealthSignals: buildReconHealthSignals(),
     });
 
     // =========================================================================
@@ -941,6 +959,7 @@ export class CompositeActiveReconOrchestratorService {
 
                     if (request.sessionSanctuary) {
                       if (challengeContinuationsAttempted >= maxChallengeContinuations) {
+                        unresolvedChallengeHosts.add(parsed.hostname);
                         stage3Warnings.push(
                           `Challenge continuation budget exhausted (limit ${maxChallengeContinuations}) on ${targetUrl}`
                         );
@@ -967,6 +986,7 @@ export class CompositeActiveReconOrchestratorService {
                             continuationRes.state === 'validated' &&
                             continuationRes.applicationReachable
                           ) {
+                            resolvedChallengeHosts.add(parsed.hostname);
                             stage3Warnings.push(
                               `Edge challenge successfully resolved via browser continuation on ${targetUrl} (captured cookies: ${continuationRes.capturedCookieNames.join(', ') || 'none'})`
                             );
@@ -1007,13 +1027,25 @@ export class CompositeActiveReconOrchestratorService {
                             stage3Warnings.push(
                               `Edge challenge requires operator interaction on ${targetUrl}: ${continuationRes.operatorMessage}`
                             );
+                          } else if (
+                            continuationRes.state === 'failed' ||
+                            continuationRes.state === 'expired'
+                          ) {
+                            unresolvedChallengeHosts.add(parsed.hostname);
+                            stage3Warnings.push(
+                              `Edge challenge NOT resolved on ${targetUrl} (${continuationRes.state}): ${continuationRes.reasonCode}${continuationRes.operatorMessage ? ' :: ' + continuationRes.operatorMessage : ''}`
+                            );
                           }
                         } catch (progErr) {
+                          unresolvedChallengeHosts.add(parsed.hostname);
                           stage3Warnings.push(
                             `Browser challenge progression attempt failed on ${targetUrl}: ${progErr instanceof Error ? progErr.message : String(progErr)}`
                           );
                         }
                       }
+                    } else {
+                      // No session sanctuary available — the challenge is detected but never attempted, so it stays unresolved.
+                      unresolvedChallengeHosts.add(parsed.hostname);
                     }
                   }
                 }
@@ -1180,6 +1212,7 @@ export class CompositeActiveReconOrchestratorService {
       while (priorityFrontier.hasMore()) {
         if (httpInspectedUrls.size >= crawlRequestBudget) {
           crawlStopReason = `Crawl frontier reached request budget of ${crawlRequestBudget} requests`;
+          crawlStoppedByBudgetCap = true;
           break;
         }
 
@@ -1233,6 +1266,7 @@ export class CompositeActiveReconOrchestratorService {
 
                   if (request.sessionSanctuary) {
                     if (challengeContinuationsAttempted >= maxChallengeContinuations) {
+                      unresolvedChallengeHosts.add(parsed.hostname);
                       stage3Warnings.push(
                         `Challenge continuation budget exhausted (limit ${maxChallengeContinuations}) on ${next.url}`
                       );
@@ -1259,6 +1293,7 @@ export class CompositeActiveReconOrchestratorService {
                           continuationRes.state === 'validated' &&
                           continuationRes.applicationReachable
                         ) {
+                          resolvedChallengeHosts.add(parsed.hostname);
                           stage3Warnings.push(
                             `Edge challenge resolved via browser continuation on crawl URL ${next.url} (captured cookies: ${continuationRes.capturedCookieNames.join(', ') || 'none'})`
                           );
@@ -1346,12 +1381,28 @@ export class CompositeActiveReconOrchestratorService {
                             }
                             absorbObservedFacts(crawlReprobeResult.observedFacts);
                           }
+                        } else if (continuationRes.state === 'waiting_for_operator') {
+                          stage3Warnings.push(
+                            `Edge challenge requires operator interaction on crawl URL ${next.url}: ${continuationRes.operatorMessage}`
+                          );
+                        } else if (
+                          continuationRes.state === 'failed' ||
+                          continuationRes.state === 'expired'
+                        ) {
+                          unresolvedChallengeHosts.add(parsed.hostname);
+                          stage3Warnings.push(
+                            `Edge challenge NOT resolved on crawl URL ${next.url} (${continuationRes.state}): ${continuationRes.reasonCode}${continuationRes.operatorMessage ? ' :: ' + continuationRes.operatorMessage : ''}`
+                          );
                         }
                       } catch (progErr) {
+                        unresolvedChallengeHosts.add(parsed.hostname);
                         stage3Warnings.push(
                           `Browser continuation failed on crawl URL ${next.url}: ${progErr instanceof Error ? progErr.message : String(progErr)}`
                         );
                       }
+                    } else {
+                      // No session sanctuary available — the challenge is detected but never attempted, so it stays unresolved.
+                      unresolvedChallengeHosts.add(parsed.hostname);
                     }
                   }
                 }
@@ -2693,6 +2744,7 @@ export class CompositeActiveReconOrchestratorService {
       ...(degradedCapabilityNotices.size > 0
         ? { degradedCapabilities: Object.freeze(Array.from(degradedCapabilityNotices).sort()) }
         : {}),
+      reconHealthSignals: buildReconHealthSignals(),
     };
   }
 }

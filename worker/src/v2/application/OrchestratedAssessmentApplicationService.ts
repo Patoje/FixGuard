@@ -33,6 +33,7 @@ import type {
   AggregatedReconObservations,
 } from '../recon/orchestration/ActiveReconOrchestrationContracts.js';
 import { CompositeActiveReconOrchestratorService } from '../recon/orchestration/CompositeActiveReconOrchestratorService.js';
+import { ReconHealthClassificationService } from '../recon/orchestration/ReconHealthClassificationService.js';
 import {
   WEB_INSPECTION_NON_CLAIMS,
   WEB_INSPECTION_CONTRACT_VERSION,
@@ -2150,6 +2151,7 @@ export class OrchestratedAssessmentApplicationService {
       ...(record.error ? { error: record.error } : {}),
       ...(record.reasonCode ? { reasonCode: record.reasonCode } : {}),
       ...(record.transcript ? { transcript: record.transcript } : {}),
+      ...(record.reconHealthStatus ? { reconHealthStatus: record.reconHealthStatus } : {}),
     };
   }
 
@@ -2205,6 +2207,7 @@ export class OrchestratedAssessmentApplicationService {
       ...(record.error ? { error: record.error } : {}),
       ...(record.reasonCode ? { reasonCode: record.reasonCode } : {}),
       ...(record.transcript ? { transcript: record.transcript } : {}),
+      ...(record.reconHealthStatus ? { reconHealthStatus: record.reconHealthStatus } : {}),
     };
   }
 
@@ -5897,6 +5900,10 @@ export class OrchestratedAssessmentApplicationService {
           ...(reconResult.degradedCapabilities && reconResult.degradedCapabilities.length > 0
             ? { degradedCapabilities: reconResult.degradedCapabilities }
             : {}),
+          reconHealthStatus: ReconHealthClassificationService.classify({
+            stages: reconResult.stages,
+            signals: reconResult.reconHealthSignals,
+          }),
           ...(persistedObservedFacts.length > 0
             ? { observedFacts: persistedObservedFacts }
             : {}),
@@ -7140,6 +7147,10 @@ export class OrchestratedAssessmentApplicationService {
           },
           error: `Target circuit breaker tripped on '${record.targetDomain}'. Vulnerability probing safely halted.`,
           warningCount: prev.warningCount + 1,
+          reconHealthStatus: ReconHealthClassificationService.classify({
+            stages: reconResult.stages,
+            signals: reconResult.reconHealthSignals,
+          }),
           ...(persistedObservedFacts.length > 0
             ? { observedFacts: persistedObservedFacts }
             : {}),
@@ -7183,6 +7194,10 @@ export class OrchestratedAssessmentApplicationService {
           durationMs: Date.now() - startTime,
         },
         ...(mergedDegraded.length > 0 ? { degradedCapabilities: mergedDegraded } : {}),
+        reconHealthStatus: ReconHealthClassificationService.classify({
+          stages: reconResult.stages,
+          signals: reconResult.reconHealthSignals,
+        }),
         ...(persistedObservedFacts.length > 0
           ? { observedFacts: persistedObservedFacts }
           : {}),

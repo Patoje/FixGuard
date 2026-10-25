@@ -118,6 +118,47 @@ export interface ReconStageExecutionResult {
   readonly warnings?: readonly string[];
 }
 
+/**
+ * Milestone R7 (Hito 1 — Observabilidad) — structured signals for why a run was
+ * degraded, captured at the exact point they occur instead of being lost inside
+ * free-text stage warnings. Never inferred after the fact; set only from real
+ * challenge-continuation outcomes and real crawl-stop reasons.
+ */
+export interface ReconHealthSignals {
+  /** Hosts where an edge browser challenge was detected and never resolved within budget. */
+  readonly unresolvedChallengeHosts: readonly string[];
+  /** Hosts where an edge browser challenge was detected and successfully resolved. */
+  readonly resolvedChallengeHosts: readonly string[];
+  /** True only when the crawl frontier stopped because it hit crawlRequestBudget with frontier still non-empty — not on natural exhaustion or duplicate saturation. */
+  readonly crawlStoppedByBudgetCap: boolean;
+}
+
+/**
+ * Milestone R7 (Hito 1 — Observabilidad del reconocimiento).
+ * - 'complete': no blocking signal observed; crawl frontier exhausted naturally
+ *   or by duplicate saturation.
+ * - 'degraded_blocked': an edge browser challenge was detected and never
+ *   resolved within the continuation budget on at least one host.
+ * - 'insufficiently_explored': the crawl frontier stopped because it hit the
+ *   configured request budget while unvisited frontier remained — a resource
+ *   ceiling, not a natural stop.
+ * - 'degraded_unexplained': a stage reported partial_failure with none of the
+ *   above signals present. Deliberately not a claimed cause — AGENTS.md
+ *   forbids fabricating an explanation that isn't grounded in a real signal.
+ */
+export type ReconHealthStatus =
+  | 'complete'
+  | 'degraded_blocked'
+  | 'insufficiently_explored'
+  | 'degraded_unexplained';
+
+export interface ReconHealthAssessment {
+  readonly contractVersion: 'fixguard-recon-health/v0';
+  readonly status: ReconHealthStatus;
+  /** Reason codes grounded in real signals already observed during this run. */
+  readonly reasonCodes: readonly string[];
+}
+
 export interface OrchestratedReconEvidenceDraft {
   readonly draftId: string;
   readonly stage: ReconStageName;
@@ -300,6 +341,8 @@ export type ActiveReconOrchestrationResult =
       readonly durationMs: number;
       /** Phase D1 Step 2 — explicit degradation notices (never silent empty success). */
       readonly degradedCapabilities?: readonly string[];
+      /** Milestone R7 (Hito 1) — structured why-degraded signals. Absent on paths that predate this field. */
+      readonly reconHealthSignals?: ReconHealthSignals;
     }
   | {
       readonly status: 'circuit_broken';
@@ -314,6 +357,8 @@ export type ActiveReconOrchestrationResult =
       readonly lineage: AuthorizedActiveReconRequestLineage;
       readonly durationMs: number;
       readonly degradedCapabilities?: readonly string[];
+      /** Milestone R7 (Hito 1) — structured why-degraded signals. Absent on paths that predate this field. */
+      readonly reconHealthSignals?: ReconHealthSignals;
     }
   | {
       readonly status: 'preflight_denied';

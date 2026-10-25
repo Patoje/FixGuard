@@ -8,6 +8,7 @@
 import type {
   ActiveReconOrchestrationConfig,
   ReconStageExecutionResult,
+  ReconHealthAssessment,
 } from '../recon/orchestration/ActiveReconOrchestrationContracts.js';
 import type { AuthorizedActiveReconRequestLineage } from '../lineage/AuthorizedExecutionLineageContracts.js';
 import type { TargetProfile, TargetRecommendation } from '../intelligence/IntelligenceContracts.js';
@@ -369,6 +370,12 @@ export interface OrchestratedAssessmentRecord {
   readonly phase1ReadLoop?: Phase1ReadLoopRecord;
   readonly error?: string;
   readonly reasonCode?: string;
+  /**
+   * Milestone R7 (Hito 1) — why this run is complete/degraded, derived only
+   * from real stage signals. Absent on records written before this field
+   * existed.
+   */
+  readonly reconHealthStatus?: ReconHealthAssessment;
 }
 
 /** Advisory plan row returned with assessment status and summary. */
@@ -442,6 +449,8 @@ export interface OrchestratedAssessmentStatusDto {
   readonly identityBMissingPlanIds: readonly string[];
   /** Phase 6 transcript. Absent on records written before the field existed. */
   readonly transcript?: AssessmentTranscript;
+  /** Milestone R7 (Hito 1). Absent on records written before this field existed. */
+  readonly reconHealthStatus?: ReconHealthAssessment;
 }
 
 export interface OrchestratedAssessmentSummaryDto {
@@ -476,6 +485,8 @@ export interface OrchestratedAssessmentSummaryDto {
   readonly identityBMissingPlanIds: readonly string[];
   /** Phase 6 transcript. Absent on records written before the field existed. */
   readonly transcript?: AssessmentTranscript;
+  /** Milestone R7 (Hito 1). Absent on records written before this field existed. */
+  readonly reconHealthStatus?: ReconHealthAssessment;
 }
 
 export interface AttachSessionIdentityBResult {
