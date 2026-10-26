@@ -59,6 +59,8 @@ Además, el dedup de URLs en la fase de crawling (`CompositeActiveReconOrchestra
 
 `CrossFindingChainCorrelator.ts`, en cambio, es **más débil de lo que su nombre sugiere**: hace un producto cartesiano de categorías (`PRIMARY_ACCESS_VECTORS` × `SECONDARY_DISCLOSURE_VECTORS`, líneas 39-69) agrupando por `finding.metadata.kind`/`finding.type` únicamente — empareja **todo** primario con **todo** secundario sin chequear si comparten endpoint, origen o parámetro. Un CORS en `/login` y un disclosure sin relación en `/sitemap.xml` se encadenan como "ruta de ataque compuesta" sin ningún contexto compartido real. Cuando un humano aprueba (`approve_evidence`), el Finding resultante recibe `severity: 'critical'`, `confidence: 1.0`, `compoundImpactScore: 0.95` **hardcodeado** (líneas 185-189) — no derivado de los datos reales emparejados.
 
+> **IMPLEMENTADO (2026-10-26, Hito/R10)**: el correlacionador ya exige que ambos `target` normalicen (`normalizeOriginFromUrl`, mismo patrón que `CorsIdorChainCorrelator`) a un origen no-nulo e igual antes de formar el par — un CORS en `/login` y un disclosure en otro origen ya no se encadenan. `FindingAutoPromotionPolicy`'s gate `cross_finding_chain` exige además que ese `sharedOrigin` sobreviva y sea un origen normalizado válido (`reasonCode: 'cross_finding_chain_shared_origin_missing'` si no). **Límite explícito, sin resolver**: mismo origen no prueba relación causal ni explotable — es la precondición mínima verificable con los datos que estos findings traen, nada más. El `severity: 'critical'`/`confidence: 1.0` hardcodeado mencionado arriba **sigue sin cambiar y sin validarse** por este hito. Ver Milestone R10 en `docs/ROADMAP.md`.
+
 ### 1.4 Confianza / reducción de falsos positivos — VERIFICADO, categorizado
 
 De los ~30 detectores bajo `worker/src/v2/detection/`:
@@ -82,6 +84,8 @@ Pipeline real: `CompositeActiveReconOrchestratorService.ts` (2698 líneas), **5 
 **Etapa 2 — Puertos**: Naabu únicamente, `rate: 100` hardcodeado (`:777`). **No hay nmap en ningún lugar de `src/v2`** (grep confirmado — "nmap" solo aparece en nombres de archivos de smoke tests, nunca en un adapter real). Sin fingerprinting de versión de servicio (`-sV`), sin scripts NSE, sin UDP.
 
 **Etapa 3 — HTTP/TLS**: Httpx + Tlsx, más un frontier de crawling adaptativo (`PriorityReconFrontierService`) que extrae links/rutas de HTML y hace BFS. Límites reales y concretos: presupuesto de 150 requests por assessment (líneas 1113-1116); profundidad configurada en 3 pero **el código fuerza un tope real de 2 saltos** — hay un comentario explícito ("no third hop") y la lógica en líneas 1296-1299/1332 lo hace cumplir sin importar el valor de config; máximo 500 rutas por salto 1 y por salto 2; corte por saturación tras 10 duplicados. Maneja challenges/CAPTCHA (403/503/429) con reintento vía browser, tope de 3 continuaciones por assessment.
+
+> **IMPLEMENTADO (2026-10-26, Hito/R10)**: el tope de 2 saltos no se tocó (sigue hardcodeado), pero ahora deja señal. `ReconHealthSignals` tiene `crawlTruncatedByDepthCap`/`depthCappedPagesNotMinedCount`, contados solo cuando el body **efectivo** (el de la página real post-challenge-resuelto, nunca el HTML del challenge/interstitial en sí) es no vacío y el gate de profundidad lo bloqueó — a lo sumo un conteo por URL del frontier, nunca por un challenge sin resolver. `ReconHealthClassificationService` agrega `crawl_depth_cap_reached` a `reasonCodes` (sin status nuevo), y el texto de advertencia ya no afirma "todas las rutas alcanzables descubiertas" cuando esto ocurrió. Nunca sugiere subir `crawlMaxDepth` — el gate hardcodeado lo ignoraría igual. Ver Milestone R10 en `docs/ROADMAP.md`.
 
 **Etapa 4 — Crawling/parámetros**: Katana (depth 3) + Gau en paralelo — **Gau ya cubre URLs históricas/wayback** (fuente `archive_legacy`), no falta un adapter separado de wayback. Ffuf+Arjun (fuzzing de contenido/parámetros) solo contra **máximo 3 URLs raíz por assessment** (`MAX_LEGACY_FUZZ_ROOTS = 3`) — no contra todo el inventario de endpoints descubiertos. Arjun tiene un timeout tope de 45s sin importar config. Jsluice (minería de JS) tope de 16 archivos/assessment en 2 pasadas; extracción de sourcemaps tope de 4 archivos — para una SPA con decenas de chunks, la mayoría nunca se analiza.
 
@@ -129,7 +133,7 @@ No comparten lógica de scoring ni estado, y nada en el código los valida entre
 
 **El dato de cobertura ya existe, el cálculo no**: `AttackSurfaceGraphBuilder` ya agrupa endpoints por `service_boundary` (prefijo de path). Un grep de "coverage"/"unexplored" en todo `src/v2` da **cero resultados reales** (solo un comentario suelto). Nada calcula, por ejemplo, "`/admin` tiene 12 endpoints, solo 3 fueron probados" — aunque el grafo ya tiene la agrupación necesaria para hacerlo. Es una mejora estructuralmente barata: el dato está, falta la función que lo recorra.
 
-> **IMPLEMENTADO (2026-10-25, Hito 3)**: `OrchestratedAssessmentApplicationService.getCoverageSummary()` cierra exactamente esto — ver Milestone R9 en `docs/ROADMAP.md`.
+> **IMPLEMENTADO (2026-10-25, Hito 3), corregido 2026-10-25**: `OrchestratedAssessmentApplicationService.getPlanningActivitySummary()` (renombrado desde `getCoverageSummary` tras la auditoría — el nombre original implicaba cobertura de investigación/ejecución real que el sistema no puede demostrar) cierra la medición de "zonas menos planificadas". Mide actividad de planificación (`plannedEndpoints` vs `actionableEndpoints`, excluyendo `rejected`/`superseded` solo de este último), nunca investigación o ejecución real — no existe un registro de ejecución persistente para demostrar eso. Ver Milestone R9 en `docs/ROADMAP.md`.
 
 **La secuencia de recon es fija, no adaptativa**: las 5 etapas de `CompositeActiveReconOrchestratorService` siempre corren salvo que el *llamador* las salte explícitamente (`config.skipStages`) — no hay ramificación interna tipo "encontré un endpoint GraphQL en la etapa 3 → disparo un probe GraphQL más profundo dentro de esta misma pasada". Toda la adaptividad real del sistema vive río abajo, dentro del loop de hipótesis, que reacciona a superficie ya descubierta pero **no puede disparar una nueva etapa de recon** — solo puede pedir `AttackPlan`s ya registrables sobre lo que ya se encontró.
 
@@ -151,9 +155,9 @@ Hoy no existe ninguna metodología de medición de cobertura/profundidad en el c
 
 **VERIFICADAS (leídas directo del código, archivo:línea citado arriba)**:
 - Auto-promoción de 24 tipos de finding sin revisión humana, fuera del alcance del audit R5 (sección 0).
-- Tope real de crawl de 2 saltos (no 3), 150 requests/assessment, fuzzing solo en 3 URLs raíz, Playwright sin interacción real, sin nmap, sin bruteforce de subdominios, sin login propio.
+- Tope real de crawl de 2 saltos (no 3), 150 requests/assessment, fuzzing solo en 3 URLs raíz, Playwright sin interacción real, sin nmap, sin bruteforce de subdominios, sin login propio. *(El tope en sí sigue igual; desde R10 queda observable — ver sección 2.)*
 - Dedup solo por match exacto (URL completa o planId/nodo) — sin canonicalización semántica.
-- `CrossFindingChainCorrelator` hace producto cartesiano por categoría, no correlación estructural, y hardcodea severidad/confianza del resultado combinado.
+- `CrossFindingChainCorrelator` hace producto cartesiano por categoría, no correlación estructural, y hardcodea severidad/confianza del resultado combinado. *(Desde R10, el emparejamiento exige mismo origen normalizado — la severidad/confianza hardcodeada sigue sin cambiar; ver sección 1.3.)*
 - Dos schedulers de hipótesis no reconciliados.
 - Cero métrica de cobertura, aunque el dato para calcularla ya existe en el grafo.
 - Pipeline de recon fijo, sin ramificación adaptativa interna.
@@ -263,6 +267,8 @@ Guardar, junto al warning de bloqueo, un corte antes/después: cuántas rutas se
 ### Próximo hito recomendado
 
 No es "subir el presupuesto de reintentos de 3 a un número mayor" — eso sería adivinar. El próximo paso de menor esfuerzo y mayor valor informativo es instrumentar `ChallengeBrowserContinuationService` para loguear, por cada uno de los 3 intentos, qué pasó específicamente (timeout, challenge todavía presente después de capturar cookies, error de navegación). Esto no ejecuta ningún escaneo nuevo por sí mismo — es logging — pero es lo único que convertiría las incertidumbres de arriba en hechos verificables la próxima vez que se corra contra un target real, y es prerequisito honesto antes de decidir si vale la pena invertir en un `reconHealthStatus` más elaborado o en mejorar el perfil stealth de Playwright.
+
+> **Estado (2026-10-26), tras R7/R8/R9/R10**: esta instrumentación por-intento de `ChallengeBrowserContinuationService` **sigue sin implementarse**. Ninguno de los hitos completados hasta ahora la cubre — R7 clasifica salud de corrida a nivel de host (`unresolvedChallengeHosts`/`resolvedChallengeHosts`), no a nivel de intento individual; R8 cerró gates de auto-promoción; R9 midió actividad de planificación; R10 agregó observabilidad de tope de profundidad y el requisito de mismo-origen en correlación — ninguno toca `ChallengeBrowserContinuationService` ni loguea qué pasó en cada uno de los 3 intentos. Sigue siendo el próximo hito de investigación recomendado, tal como se propuso arriba: no se recomienda subir el número de reintentos antes de tener esa evidencia por-intento.
 
 ### Hito 1 — IMPLEMENTADO (2026-10-25)
 
