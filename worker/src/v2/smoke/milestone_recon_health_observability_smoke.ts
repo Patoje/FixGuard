@@ -133,6 +133,53 @@ async function main(): Promise<void> {
   assert.deepEqual(unexplained.reasonCodes, ['stage_partial_failure:stage_1_domain_zone']);
   console.log('[+] partial_failure with no known cause → degraded_unexplained (no fabricated cause)');
 
+  // 5b. Audit correction (2026-10-25): a circuit breaker trip is a KNOWN
+  // cause — must read degraded_blocked, not degraded_unexplained — and
+  // stageNeverStarted must distinguish "never began" from "began and
+  // tripped mid-execution," structurally, not via text parsing.
+  const neverStartedStages: readonly ReconStageExecutionResult[] = [
+    stage({
+      stage: 'stage_1_domain_zone',
+      status: 'partial_failure',
+      stageNeverStarted: true,
+      observationsCount: 0,
+      warnings: ['Stage never started: circuit breaker already open...'],
+    }),
+  ];
+  const blockedBeforeStart = ReconHealthClassificationService.classify({
+    stages: neverStartedStages,
+    signals: {
+      unresolvedChallengeHosts: [],
+      resolvedChallengeHosts: [],
+      crawlStoppedByBudgetCap: false,
+      circuitBroken: true,
+    },
+  });
+  assert.equal(blockedBeforeStart.status, 'degraded_blocked');
+  assert.deepEqual(blockedBeforeStart.reasonCodes, ['circuit_breaker_blocked_before_start:stage_1_domain_zone']);
+  console.log('[+] circuit breaker before any stage started → degraded_blocked (known cause), stageNeverStarted distinguished');
+
+  const trippedDuringStages: readonly ReconStageExecutionResult[] = [
+    stage({
+      stage: 'stage_3_web_tls',
+      status: 'partial_failure',
+      observationsCount: 7,
+      warnings: ['Circuit breaker tripped on app.example.com'],
+    }),
+  ];
+  const trippedDuring = ReconHealthClassificationService.classify({
+    stages: trippedDuringStages,
+    signals: {
+      unresolvedChallengeHosts: [],
+      resolvedChallengeHosts: [],
+      crawlStoppedByBudgetCap: false,
+      circuitBroken: true,
+    },
+  });
+  assert.equal(trippedDuring.status, 'degraded_blocked');
+  assert.deepEqual(trippedDuring.reasonCodes, ['circuit_breaker_tripped_during:stage_3_web_tls']);
+  console.log('[+] circuit breaker tripped mid-stage (observationsCount=7, no stageNeverStarted) → degraded_blocked with "tripped_during", distinct from "blocked_before_start"');
+
   // 6. Backward compatibility: no signals at all (older record shape) must not throw,
   // and must fall back to stage-only classification.
   const noSignals = ReconHealthClassificationService.classify({ stages: CLEAN_STAGES });

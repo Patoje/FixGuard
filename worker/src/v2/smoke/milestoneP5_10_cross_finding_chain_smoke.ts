@@ -17,6 +17,7 @@ import {
 import type { Finding } from '../core/Evidence.js';
 import { OrchestratedAssessmentApplicationService } from '../application/OrchestratedAssessmentApplicationService.js';
 import { InMemoryOrchestratedAssessmentRepository } from '../storage/InMemoryOrchestratedAssessmentRepository.js';
+import { evaluateFindingAutoPromotion } from '../finding-auto-promotion/FindingAutoPromotionPolicy.js';
 
 async function runSmokeTests() {
   console.log('=== Milestone P5-10: Cross-Finding Chain Correlation Smoke Suite ===');
@@ -112,6 +113,35 @@ async function runSmokeTests() {
       throw new Error('[TEST 1] Draft must require human review and have strong strength');
     }
     console.log(`[TEST 1] PASS: Flagged cross-finding chain draft: ${draft.draftId}, rationale: ${draft.safeRationale}`);
+
+    // Audit regression check (2026-10-25): the draft must now carry the real
+    // primary/secondary pair as differentialContext — this is the exact
+    // evidence FindingAutoPromotionPolicy's cross_finding_chain gate requires.
+    // Before this fix, correlateCrossFindingChains discarded these ids, so
+    // every real cross_finding_chain draft was permanently stuck as
+    // keep_as_draft regardless of how strong the correlation was.
+    const ctx = draft.differentialContext;
+    if (
+      !ctx ||
+      ctx.detectionKind !== 'cross_finding_chain' ||
+      !ctx.constituentFindingIds ||
+      ctx.constituentFindingIds.length !== 2 ||
+      ctx.constituentFindingIds[0] !== idorFinding.id ||
+      ctx.constituentFindingIds[1] !== manifestFinding.id ||
+      ctx.primaryVector !== idorFinding.title ||
+      ctx.secondaryVector !== manifestFinding.title
+    ) {
+      throw new Error(
+        '[TEST 1] Draft must carry the real primary/secondary finding ids and titles as differentialContext'
+      );
+    }
+    const promotionEval = evaluateFindingAutoPromotion(draft);
+    if (promotionEval.decision !== 'auto_promote') {
+      throw new Error(
+        `[TEST 1] A draft with real shared context (2 constituent findings + both vectors) must pass the cross_finding_chain gate, got decision=${promotionEval.decision} (${promotionEval.reasonCode})`
+      );
+    }
+    console.log('[TEST 1] PASS: Real constituentFindingIds/primaryVector/secondaryVector propagated; cross_finding_chain gate now auto_promotes genuine chains.');
   }
 
   // -------------------------------------------------------------------------

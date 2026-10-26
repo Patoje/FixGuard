@@ -21,6 +21,7 @@ import type {
   DifferentialEvidenceContext,
   EnrichedEvidenceDraft,
 } from '../application/OrchestratedAssessmentContracts.js';
+import { normalizeOriginFromUrl } from '../intelligence/correlation/CorsIdorChainCorrelator.js';
 
 export type FindingAutoPromotionDecision =
   | 'auto_promote'
@@ -468,6 +469,13 @@ function evaluateSignalGate(
       return null;
     }
 
+    // Audit note (2026-10-25): not reachable via applyFindingAutoPromotion
+    // today — JwtAlgorithmConfusionDetectionService is not called by
+    // ReadDetectionPass.ts (grep-verified, zero occurrences), so no draft
+    // of this kind reaches this function in the automatic pipeline. The
+    // real human-approval path for it today is reviewEvidenceDraft()
+    // (OrchestratedAssessmentApplicationService.ts). This gate is correct
+    // and exercised by its own smoke test, but currently inert in production.
     case 'jwt_algorithm_confusion':
       if (!ctx.manipulatedAlgorithm || !ctx.jwtProbeMechanism) {
         return {
@@ -478,6 +486,10 @@ function evaluateSignalGate(
       }
       return null;
 
+    // Audit note (2026-10-25): not reachable via applyFindingAutoPromotion
+    // today — same reason as jwt_algorithm_confusion above: SqlErrorOracleDetectionService
+    // is not called by ReadDetectionPass.ts. Real human-approval path is
+    // reviewEvidenceDraft(). Gate is correct, currently inert in production.
     case 'sql_error_oracle':
       if (
         !ctx.sqlErrorFragment ||
@@ -493,6 +505,10 @@ function evaluateSignalGate(
       }
       return null;
 
+    // Audit note (2026-10-25): not reachable via applyFindingAutoPromotion
+    // today — same reason as jwt_algorithm_confusion above: SubdomainTakeoverDetectionService
+    // is not called by ReadDetectionPass.ts. Real human-approval path is
+    // reviewEvidenceDraft(). Gate is correct, currently inert in production.
     case 'subdomain_takeover':
       if (
         !ctx.cnameTarget ||
@@ -508,6 +524,10 @@ function evaluateSignalGate(
       }
       return null;
 
+    // Audit note (2026-10-25): not reachable via applyFindingAutoPromotion
+    // today — same reason as jwt_algorithm_confusion above: SessionFixationDetectionService
+    // is not called by ReadDetectionPass.ts. Real human-approval path is
+    // reviewEvidenceDraft(). Gate is correct, currently inert in production.
     case 'session_fixation':
       if (
         !ctx.sessionCookieName ||
@@ -523,6 +543,10 @@ function evaluateSignalGate(
       }
       return null;
 
+    // Audit note (2026-10-25): reachable in production via CorsIdorChainCorrelator.ts,
+    // which only builds this draft's differentialContext after confirming the
+    // two findings share the exact same normalized origin — this gate is a
+    // redundant safety net here, not the primary check.
     case 'cors_idor_compound':
       if (!ctx.primaryFindingId || !ctx.secondaryFindingId || !ctx.sharedOrigin) {
         return {
@@ -533,6 +557,20 @@ function evaluateSignalGate(
       }
       return null;
 
+    // Audit note (2026-10-25): reachable in production via CrossFindingChainCorrelator.ts.
+    // Fixed 2026-10-25: that correlator now propagates the real
+    // constituentFindingIds/primaryVector/secondaryVector it already computes
+    // internally — before that fix, its draft never carried this context, so
+    // this gate blocked 100% of real cross_finding_chain promotions
+    // regardless of correlation strength (not a selective filter in practice).
+    // Audit fix (2026-10-26): presence of ids/vectors alone is not evidence
+    // of a real relationship — the correlator now only forms a pair when
+    // both findings share a normalized origin (CrossFindingChainCorrelator.ts),
+    // so this gate also requires that sharedOrigin survived into the draft
+    // and is itself a well-formed origin, not an arbitrary string. This does
+    // NOT prove the constituent findings are causally or exploitably
+    // related — same-origin is the minimum grounded precondition available
+    // from the data these findings carry, nothing more.
     case 'cross_finding_chain':
       if (
         !ctx.constituentFindingIds ||
@@ -546,8 +584,18 @@ function evaluateSignalGate(
           rationale: 'Cross-finding chain draft missing at least 2 constituent findings or primary/secondary vectors',
         };
       }
+      if (!ctx.sharedOrigin || normalizeOriginFromUrl(ctx.sharedOrigin) !== ctx.sharedOrigin) {
+        return {
+          decision: 'keep_as_draft',
+          reasonCode: 'cross_finding_chain_shared_origin_missing',
+          rationale: 'Cross-finding chain draft missing a valid shared normalized origin between the constituent findings',
+        };
+      }
       return null;
 
+    // Audit note (2026-10-25): reachable in production via DependencyVulnerabilityScanService.ts,
+    // which only builds a draft after matching a dependency against a real
+    // advisory by name — this gate is a redundant safety net here too.
     case 'dependency_vulnerability':
       if (!ctx.packageName || !ctx.advisoryId || !ctx.installedVersion) {
         return {

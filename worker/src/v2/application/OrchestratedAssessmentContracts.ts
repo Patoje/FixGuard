@@ -490,23 +490,35 @@ export interface OrchestratedAssessmentSummaryDto {
 }
 
 /**
- * Milestone R9 (Hito 3 — Profundidad adaptativa). Read-only projection of
- * AttackSurfaceQueryService.groupEndpointsByServiceBoundary() cross-referenced
- * against the real AttackPlan list — "how much of what we discovered did we
- * actually investigate," per structural service boundary.
+ * Milestone R9 (Hito 3 — Profundidad adaptativa), corrected 2026-10-25 audit pass.
+ * Read-only projection of AttackSurfaceQueryService.groupEndpointsByServiceBoundary()
+ * cross-referenced against the real AttackPlan list, per structural service boundary.
+ *
+ * Audit correction: this is PLANNING activity, not investigation or execution
+ * coverage. FixGuard has no persisted AttackExecutionRecord/stepRecords
+ * repository today — AttackAuthorizationService and AttackExecutionService
+ * never write anything back onto the stored AttackPlan (verified by code
+ * reading, 2026-10-25) — so there is no durable signal distinguishing
+ * "authorized" from "executed" from "execution outcome." The only durable,
+ * queryable signal is AttackPlan.status itself (ready_for_authorization |
+ * prerequisite_missing | authorized | rejected | superseded). See
+ * docs/decisions/RECON-DEPTH-ANALYSIS-2026-10-25.md sections 2/3.
  */
-export interface ServiceBoundaryCoverage {
+export interface ServiceBoundaryPlanningActivity {
   readonly pathPrefix: string;
   readonly totalEndpoints: number;
-  readonly investigatedEndpoints: number;
-  /** investigatedEndpoints / totalEndpoints. 0 when nothing was investigated. */
-  readonly coverageRatio: number;
+  /** Endpoints with at least one AttackPlan generated for them, regardless of status — includes rejected and superseded. A raw "was a plan ever generated" count, not a quality signal. */
+  readonly plannedEndpoints: number;
+  /** Endpoints with at least one AttackPlan whose status is NOT 'rejected' and NOT 'superseded' (i.e. ready_for_authorization | prerequisite_missing | authorized) — plans that are still live/actionable. Still does not mean authorized, executed, or confirmed. */
+  readonly actionableEndpoints: number;
+  /** actionableEndpoints / totalEndpoints. A planning-activity ratio only — never investigation coverage, never execution coverage, never "real" coverage. 0 when totalEndpoints is 0. */
+  readonly actionablePlanRatio: number;
 }
 
-/** Sorted ascending by coverageRatio — least-investigated boundaries first. */
-export interface CoverageSummaryDto {
+/** Sorted ascending by actionablePlanRatio — boundaries with the fewest live/actionable plans first. */
+export interface PlanningActivitySummaryDto {
   readonly assessmentId: string;
-  readonly boundaries: readonly ServiceBoundaryCoverage[];
+  readonly boundaries: readonly ServiceBoundaryPlanningActivity[];
 }
 
 export interface AttachSessionIdentityBResult {

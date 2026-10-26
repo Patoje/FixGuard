@@ -427,8 +427,8 @@ import type {
   OperatorPlanView,
   Phase1ReadLoopRecord,
   Phase1ReadLoopView,
-  CoverageSummaryDto,
-  ServiceBoundaryCoverage,
+  PlanningActivitySummaryDto,
+  ServiceBoundaryPlanningActivity,
 } from './OrchestratedAssessmentContracts.js';
 import { observeGraphqlAuthDelta } from '../observation/GraphqlAuthDeltaObservation.js';
 import { LOCAL_PUBLIC_ADVISORIES, observePublicAdvisory } from '../observation/PublicAdvisoryObservation.js';
@@ -2437,14 +2437,21 @@ export class OrchestratedAssessmentApplicationService {
   }
 
   /**
-   * Milestone R9 (Hito 3 — Profundidad adaptativa). How much of the discovered
-   * surface was actually investigated, per structural service boundary.
-   * Read-only: reads AttackSurfaceQueryService.groupEndpointsByServiceBoundary()
+   * Milestone R9 (Hito 3 — Profundidad adaptativa), corrected 2026-10-25 audit pass.
+   * Planning activity per structural service boundary — NOT investigation or
+   * execution coverage. FixGuard has no persisted execution-outcome record
+   * today (verified: AttackAuthorizationService/AttackExecutionService never
+   * write back onto the stored AttackPlan), so the only durable signal
+   * available is AttackPlan.status itself. Distinguishes plans generated
+   * (plannedEndpoints, any status) from plans still live/actionable
+   * (actionableEndpoints, excludes 'rejected' and 'superseded' — those are
+   * explicit "will not be investigated" outcomes and must not count as
+   * activity). Read-only: reads AttackSurfaceQueryService.groupEndpointsByServiceBoundary()
    * (no graph recomputation) cross-referenced against the real AttackPlan list.
    * Fail-closed: no attackSurfaceGraph (recon never completed) → empty list,
    * never a fabricated number.
    */
-  public async getCoverageSummary(assessmentId: string): Promise<CoverageSummaryDto> {
+  public async getPlanningActivitySummary(assessmentId: string): Promise<PlanningActivitySummaryDto> {
     if (!assessmentId || typeof assessmentId !== 'string' || !isStrictSafeId(assessmentId)) {
       throw new ApiValidationError('Field assessmentId must satisfy strict identifier format');
     }
@@ -2462,26 +2469,36 @@ export class OrchestratedAssessmentApplicationService {
     }
 
     const plans = await this.attackPlanRepository.listByAssessmentId(assessmentId);
-    const investigatedUrls = new Set(
+    const plannedUrls = new Set(
       plans.filter((p) => typeof p.targetUrl === 'string').map((p) => p.targetUrl as string)
+    );
+    const actionableUrls = new Set(
+      plans
+        .filter(
+          (p) =>
+            typeof p.targetUrl === 'string' && p.status !== 'rejected' && p.status !== 'superseded'
+        )
+        .map((p) => p.targetUrl as string)
     );
 
     const query = new AttackSurfaceQueryService(record.attackSurfaceGraph);
-    const boundaries: ServiceBoundaryCoverage[] = query
+    const boundaries: ServiceBoundaryPlanningActivity[] = query
       .groupEndpointsByServiceBoundary()
       .map(({ boundary, endpoints }) => {
         const totalEndpoints = endpoints.length;
-        const investigatedEndpoints = endpoints.filter((e) =>
-          investigatedUrls.has(e.metadata.url)
+        const plannedEndpoints = endpoints.filter((e) => plannedUrls.has(e.metadata.url)).length;
+        const actionableEndpoints = endpoints.filter((e) =>
+          actionableUrls.has(e.metadata.url)
         ).length;
         return {
           pathPrefix: boundary.metadata.pathPrefix,
           totalEndpoints,
-          investigatedEndpoints,
-          coverageRatio: totalEndpoints > 0 ? investigatedEndpoints / totalEndpoints : 0,
+          plannedEndpoints,
+          actionableEndpoints,
+          actionablePlanRatio: totalEndpoints > 0 ? actionableEndpoints / totalEndpoints : 0,
         };
       })
-      .sort((a, b) => a.coverageRatio - b.coverageRatio);
+      .sort((a, b) => a.actionablePlanRatio - b.actionablePlanRatio);
 
     return { assessmentId: record.assessmentId, boundaries: Object.freeze(boundaries) };
   }
@@ -6638,19 +6655,15 @@ export class OrchestratedAssessmentApplicationService {
             findings,
           });
 
+          // Audit fix (2026-10-25): correlateCrossFindingChains now returns a
+          // real differentialContext per draft (constituentFindingIds/
+          // primaryVector/secondaryVector from the actual pair) — push as-is,
+          // same pattern already used for cors_idor_compound above. The
+          // previous re-wrap here discarded that real context and rebuilt an
+          // incomplete one, which left the auto-promotion gate with nothing
+          // to check.
           for (const xDraft of crossChainResult.compoundDrafts) {
-            const enrichedDraft: EnrichedEvidenceDraft = {
-              ...xDraft,
-              differentialContext: {
-                endpointUrl: `https://${record.targetDomain}/`,
-                detectionKind: 'cross_finding_chain',
-                chainKind: 'cross_finding_compound',
-                chainTitle: xDraft.safeRationale,
-                compoundImpactScore: 0.95,
-                validationStatusCode: 200,
-              },
-            };
-            pendingEvidenceDrafts.push(enrichedDraft);
+            pendingEvidenceDrafts.push(xDraft);
           }
           for (const xFinding of crossChainResult.compoundFindings) {
             findings.push(xFinding);

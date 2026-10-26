@@ -116,6 +116,16 @@ export interface ReconStageExecutionResult {
   readonly durationMs: number;
   readonly observationsCount: number;
   readonly warnings?: readonly string[];
+  /**
+   * Audit correction (2026-10-25). Structural, non-text-parsed distinction
+   * within status === 'partial_failure': true only when this stage never
+   * began at all (e.g. the circuit breaker was already open before it could
+   * start — zero requests attempted). Absent/false for a stage that began
+   * and failed partway through (e.g. a real tool/network error mid-stage,
+   * which already has real durationMs/observationsCount). Never set for
+   * 'completed' or 'skipped'.
+   */
+  readonly stageNeverStarted?: boolean;
 }
 
 /**
@@ -137,19 +147,58 @@ export interface ReconHealthSignals {
    * suggest a next value instead of guessing a default.
    */
   readonly crawlRequestBudgetUsed?: number;
+  /**
+   * Audit correction (2026-10-25). True when the orchestrator's own top-level
+   * result for this run was 'circuit_broken' — i.e. FixGuard itself detected
+   * and reacted to a tripped circuit breaker. This is a KNOWN, structural
+   * cause (not an unexplained failure): every circuit_broken path already
+   * returns this exact signal, so the classifier never needs to parse
+   * warning text to recognize it.
+   */
+  readonly circuitBroken?: boolean;
+  /**
+   * Milestone R10 — true when the hardcoded depth-2 mining gate in
+   * CompositeActiveReconOrchestratorService.ts prevented link extraction
+   * from at least one page with a non-empty body. Never set from an empty
+   * body — that is not a depth-cap loss, there was nothing to mine. Does
+   * not claim any number of endpoints was actually missed, only that
+   * mining was skipped on real content. Optional for backward
+   * compatibility with signal literals built before this field existed
+   * (e.g. existing smoke fixtures); absent is treated as false.
+   */
+  readonly crawlTruncatedByDepthCap?: boolean;
+  /**
+   * Milestone R10 — count of pages matching crawlTruncatedByDepthCap above.
+   * Present only when greater than zero.
+   */
+  readonly depthCappedPagesNotMinedCount?: number;
 }
 
 /**
- * Milestone R7 (Hito 1 — Observabilidad del reconocimiento).
+ * Milestone R7 (Hito 1 — Observabilidad del reconocimiento). Broadened
+ * 2026-10-25 (audit correction): 'degraded_blocked' now covers every case
+ * where the run was blocked by a KNOWN, structurally-identified cause — not
+ * only an edge challenge. A circuit breaker trip is exactly this kind of
+ * known cause (FixGuard's own coordinator detected and reacted to it), so it
+ * must never fall into 'degraded_unexplained'. No new status value was added;
+ * 'degraded_blocked' already meant "we know what blocked us," which is
+ * equally true for a circuit breaker as for an edge challenge — only the
+ * reasonCodes differ (prefixed `edge_challenge_unresolved:` vs
+ * `circuit_breaker_*`).
  * - 'complete': no blocking signal observed; crawl frontier exhausted naturally
  *   or by duplicate saturation.
- * - 'degraded_blocked': an edge browser challenge was detected and never
- *   resolved within the continuation budget on at least one host.
+ * - 'degraded_blocked': a known external/internal defense blocked the run —
+ *   either an edge browser challenge never resolved within the continuation
+ *   budget on at least one host, or FixGuard's own circuit breaker tripped
+ *   (before a stage could start, or mid-stage).
  * - 'insufficiently_explored': the crawl frontier stopped because it hit the
- *   configured request budget while unvisited frontier remained — a resource
- *   ceiling, not a natural stop.
+ *   configured request budget while unvisited frontier remained, or the
+ *   hardcoded depth-2 mining gate skipped link extraction on real content
+ *   — either way a resource/structural ceiling, not a natural stop. Both
+ *   reasonCodes may be present together when both signals fired in the
+ *   same run.
  * - 'degraded_unexplained': a stage reported partial_failure with none of the
- *   above signals present. Deliberately not a claimed cause — AGENTS.md
+ *   above KNOWN causes present. Deliberately not a claimed cause — AGENTS.md
  *   forbids fabricating an explanation that isn't grounded in a real signal.
  */
 export type ReconHealthStatus =

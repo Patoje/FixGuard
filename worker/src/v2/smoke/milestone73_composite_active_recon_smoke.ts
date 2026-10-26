@@ -7,6 +7,9 @@
  * 3. Continuous lineage tuple integrity and explicit non-claims across all staged evidence drafts.
  * 4. Atomic preflight, SSRF containment, and session expiration fail-closed with strictly 0 tool invocations.
  * 5. inspectWeb HTTP 429 is retried by status pacing without opening the circuit.
+ * 6. Audit fix (2026-10-25): a circuit already open before a stage starts is recorded
+ *    as partial_failure (not silently absent), so ReconHealthClassificationService
+ *    never misclassifies an aborted run as 'complete'.
  */
 
 import assert from 'node:assert';
@@ -18,6 +21,7 @@ import type { AuthorizedScopeGrant } from '../scope/AuthorizedScopeContracts.js'
 import type { AuthorizedActiveReconRequestLineage } from '../lineage/AuthorizedExecutionLineageContracts.js';
 import type { TargetSessionState } from '../core/SessionLifecycleContracts.js';
 import { TargetExecutionCoordinator } from '../runtime/TargetExecutionCoordinator.js';
+import { ReconHealthClassificationService } from '../recon/orchestration/ReconHealthClassificationService.js';
 
 import type {
   ReconToolAdapters,
@@ -605,7 +609,78 @@ async function runMilestone73SmokeSuite(): Promise<void> {
     console.log('    [PASS] inspectWeb 429 retried once, circuit stayed CLOSED, maxConcurrency unchanged');
   }
 
-  console.log('\n>>> ALL 5 MILESTONE 73 ASSERTIONS PASSED SUCCESSFULLY! <<<');
+  // -------------------------------------------------------------------------
+  // Assertion 6: Audit fix — circuit already open before stage 1 is recorded,
+  // never silently absent, so reconHealthStatus can never read 'complete'.
+  // -------------------------------------------------------------------------
+  {
+    console.log('\n[+] Assertion 6: circuit already open before any stage starts is recorded, not silently absent...');
+
+    const tracker = { count: 0 };
+    const adapters = createMockAdapters(tracker);
+    const service = new CompositeActiveReconOrchestratorService(adapters);
+
+    const coordinator = new TargetExecutionCoordinator({
+      maxConcurrency: 2,
+      requestsPerSecond: 20,
+      circuitBreakerConfig: {
+        consecutive5xxThreshold: 3,
+        consecutiveErrorThreshold: 3,
+        halfOpenSuccessThreshold: 2,
+        openCooldownMs: 100,
+      },
+    });
+    // Same pattern as milestoneF8_circuit_breaker_smoke.ts: 3 consecutive
+    // 5xx responses trip the circuit to OPEN before orchestrate() is ever called.
+    coordinator.recordTargetResponse('example.com', 503);
+    coordinator.recordTargetResponse('example.com', 500);
+    coordinator.recordTargetResponse('example.com', 502);
+    assert.strictEqual(coordinator.isCircuitOpen('example.com'), true, 'Circuit must already be OPEN before orchestrate() runs');
+
+    const result = await service.orchestrate({
+      targetDomain: 'example.com',
+      verifiedAuthorizationDecision: authDecision,
+      authorizedScopeGrant: scopeGrant,
+      lineage: canonicalLineage,
+      coordinator,
+      dnsResolver: async () => ['93.184.216.34'],
+    });
+
+    assert.strictEqual(result.status, 'circuit_broken');
+    assert.strictEqual(tracker.count, 0, 'No tool adapter should have been invoked — the circuit was open before stage 1 could start');
+    assert.strictEqual(result.stages.length, 1, 'The never-started stage must be recorded, not absent');
+    assert.strictEqual(result.stages[0]!.stage, 'stage_1_domain_zone');
+    assert.strictEqual(result.stages[0]!.status, 'partial_failure');
+    assert.strictEqual(
+      result.stages[0]!.stageNeverStarted,
+      true,
+      'Structural flag must distinguish "never started" from a mid-stage failure'
+    );
+    assert.ok(
+      result.stages[0]!.warnings?.some((w) => w.includes('never started')),
+      'Warning must state the stage never started, not a mid-stage failure'
+    );
+    assert.strictEqual(
+      result.status === 'circuit_broken' ? result.reconHealthSignals?.circuitBroken : undefined,
+      true,
+      'circuitBroken signal must be set on the circuit_broken result'
+    );
+
+    const health = ReconHealthClassificationService.classify({
+      stages: result.stages,
+      signals: result.status === 'circuit_broken' ? result.reconHealthSignals : undefined,
+    });
+    assert.notStrictEqual(health.status, 'complete', 'A run aborted before any stage ran must never classify as complete');
+    // Audit correction (2026-10-25): the circuit breaker is a KNOWN cause —
+    // FixGuard's own coordinator detected and reacted to it — so this must
+    // read degraded_blocked, never degraded_unexplained.
+    assert.strictEqual(health.status, 'degraded_blocked');
+    assert.deepStrictEqual(health.reasonCodes, ['circuit_breaker_blocked_before_start:stage_1_domain_zone']);
+
+    console.log('    [PASS] Pre-stage-1 circuit break recorded as partial_failure with stageNeverStarted=true; reconHealthStatus correctly reads degraded_blocked (known cause), never complete or unexplained');
+  }
+
+  console.log('\n>>> ALL 6 MILESTONE 73 ASSERTIONS PASSED SUCCESSFULLY! <<<');
 }
 
 runMilestone73SmokeSuite().catch((err) => {

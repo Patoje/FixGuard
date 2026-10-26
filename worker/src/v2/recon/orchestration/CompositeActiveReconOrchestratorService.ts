@@ -464,7 +464,15 @@ export class CompositeActiveReconOrchestratorService {
     // crawlStoppedByBudgetCap is true; lets the classifier suggest a next
     // value instead of guessing a default.
     let crawlRequestBudgetUsed: number | undefined;
-    function buildReconHealthSignals(): ReconHealthSignals {
+    // Milestone R10 — count of pages whose body was non-empty but whose
+    // links were never mined because the hardcoded depth-2 gate blocked it.
+    // Never incremented for an empty body — that is not a depth-cap loss.
+    let depthCappedPagesNotMinedCount = 0;
+    // Audit correction (2026-10-25): circuitBroken is a known, structural
+    // cause — passed explicitly by the one caller (buildCircuitBrokenResult)
+    // that knows the top-level result is 'circuit_broken'. Defaults to false
+    // for the 'success' result, which can never be circuit_broken.
+    function buildReconHealthSignals(circuitBroken = false): ReconHealthSignals {
       // Raw sets, unfiltered: ReconHealthClassificationService owns the rule
       // that a later resolution overrides an earlier unresolved mark.
       return {
@@ -472,6 +480,9 @@ export class CompositeActiveReconOrchestratorService {
         resolvedChallengeHosts: Object.freeze([...resolvedChallengeHosts]),
         crawlStoppedByBudgetCap,
         ...(crawlRequestBudgetUsed !== undefined ? { crawlRequestBudgetUsed } : {}),
+        ...(circuitBroken ? { circuitBroken: true } : {}),
+        crawlTruncatedByDepthCap: depthCappedPagesNotMinedCount > 0,
+        ...(depthCappedPagesNotMinedCount > 0 ? { depthCappedPagesNotMinedCount } : {}),
       };
     }
 
@@ -524,6 +535,33 @@ export class CompositeActiveReconOrchestratorService {
           // Non-blocking containment
         }
       }
+    }
+
+    // Audit fix (2026-10-25): the between-stage `isCircuitOpen` gates below
+    // used to return buildCircuitBrokenResult() without recording anything
+    // for the stage that was about to start, leaving it absent (not
+    // 'completed', not 'partial_failure') from `stages`. ReconHealthClassificationService
+    // only inspects stage.status === 'partial_failure' on entries that
+    // exist — an absent stage was invisible to it, so a run aborted before
+    // any stage ran (or between two stages) could be misclassified as
+    // 'complete'. `status: 'partial_failure'` is still the closest accurate
+    // value (no richer status exists in ReconStageExecutionResult), but the
+    // warning text is explicit that the stage never began at all — this is
+    // not the same as a mid-stage failure (which already records its own,
+    // separate partial_failure with real observationsCount, e.g. line ~1113).
+    async function recordStageNeverStartedDueToCircuitBreaker(
+      stage: ReconStageName
+    ): Promise<void> {
+      await recordStageResult({
+        stage,
+        status: 'partial_failure',
+        durationMs: 0,
+        observationsCount: 0,
+        stageNeverStarted: true,
+        warnings: [
+          `Stage never started: circuit breaker already open on ${request.targetDomain} before ${stage} could begin (not a mid-stage failure — zero requests were attempted for this stage).`,
+        ],
+      });
     }
 
     async function notifyStageStart(stage: ReconStageName): Promise<void> {
@@ -593,13 +631,14 @@ export class CompositeActiveReconOrchestratorService {
       ...(degradedCapabilityNotices.size > 0
         ? { degradedCapabilities: Object.freeze(Array.from(degradedCapabilityNotices).sort()) }
         : {}),
-      reconHealthSignals: buildReconHealthSignals(),
+      reconHealthSignals: buildReconHealthSignals(true),
     });
 
     // =========================================================================
     // Stage 1: Domain & Zone Enumeration (Subfinder + Dnsx)
     // =========================================================================
     if (coordinator.isCircuitOpen(request.targetDomain)) {
+      await recordStageNeverStartedDueToCircuitBreaker('stage_1_domain_zone');
       return buildCircuitBrokenResult(request.targetDomain);
     }
 
@@ -763,6 +802,7 @@ export class CompositeActiveReconOrchestratorService {
     // Stage 2: Port & Service Discovery (Naabu)
     // =========================================================================
     if (coordinator.isCircuitOpen(request.targetDomain)) {
+      await recordStageNeverStartedDueToCircuitBreaker('stage_2_port_service');
       return buildCircuitBrokenResult(request.targetDomain);
     }
 
@@ -843,6 +883,7 @@ export class CompositeActiveReconOrchestratorService {
     // Stage 3: HTTP & TLS Inspection (Httpx + Tlsx)
     // =========================================================================
     if (coordinator.isCircuitOpen(request.targetDomain)) {
+      await recordStageNeverStartedDueToCircuitBreaker('stage_3_web_tls');
       return buildCircuitBrokenResult(request.targetDomain);
     }
 
@@ -1249,6 +1290,12 @@ export class CompositeActiveReconOrchestratorService {
           );
 
           let newRoutesYielded = 0;
+          // Corrective pass — count at most once per next.url, from whichever
+          // observation is the effective page content (the post-reprobe body
+          // when a challenge resolved, the original body otherwise). Never
+          // incremented directly inline; the global counter only advances
+          // once, after this URL's whole observation loop finishes.
+          let depthCapOmittedThisUrl = false;
           if (webResult.status === 'success') {
             for (const obs of webResult.observations) {
               webObservations.push(obs);
@@ -1383,6 +1430,17 @@ export class CompositeActiveReconOrchestratorService {
                                     }
                                   }
                                 }
+                              } else if (
+                                next.depth >= 2 &&
+                                typeof postObs.bodyText === 'string' &&
+                                postObs.bodyText.length > 0
+                              ) {
+                                // Corrective pass — postObs is the effective, resolved page
+                                // (not the original challenge HTML): this is the only body
+                                // that should ever decide a depth-cap omission for this URL.
+                                // Flag only; the global counter advances once, after the
+                                // whole observation loop for next.url finishes below.
+                                depthCapOmittedThisUrl = true;
                               }
                             }
                             absorbObservedFacts(crawlReprobeResult.observedFacts);
@@ -1464,7 +1522,24 @@ export class CompositeActiveReconOrchestratorService {
                     }
                   }
                 }
+              } else if (
+                next.depth >= 2 &&
+                obs.statusCode !== 403 &&
+                obs.statusCode !== 503 &&
+                obs.statusCode !== 429 &&
+                typeof obs.bodyText === 'string' &&
+                obs.bodyText.length > 0
+              ) {
+                // Corrective pass — explicitly excludes any challenge-triggering
+                // status. A resolved challenge is already counted above from the
+                // effective postObs; an unresolved one must never count merely
+                // because its interstitial HTML happens to be non-empty — that
+                // HTML is never the target page's meaningful content.
+                depthCapOmittedThisUrl = true;
               }
+            }
+            if (depthCapOmittedThisUrl) {
+              depthCappedPagesNotMinedCount++;
             }
             absorbObservedFacts(webResult.observedFacts);
           } else if (webResult.status === 'preflight_denied' || webResult.status === 'execution_failed') {
@@ -1503,8 +1578,24 @@ export class CompositeActiveReconOrchestratorService {
 
       if (crawlStopReason) {
         stage3Warnings.push(crawlStopReason);
+        // Corrective pass — the original stop reason (budget/saturation) is
+        // preserved above; this is an independent, additional fact, not a
+        // replacement. No specific endpoint count is implied as lost, only
+        // that some real content past the depth ceiling was never looked at.
+        if (depthCappedPagesNotMinedCount > 0) {
+          stage3Warnings.push(
+            `Crawl stopped for the reason above, but ${depthCappedPagesNotMinedCount} page(s) at the depth ceiling were also never mined for further links — this does not mean no further endpoints exist, only that none were looked for past that point`
+          );
+        }
       } else if (priorityFrontier.size() === 0) {
-        stage3Warnings.push('Crawl frontier exhausted: all reachable in-scope HTML routes discovered');
+        // Milestone R10 — an empty frontier does not mean full exploration
+        // when the hardcoded depth-2 gate skipped real content: links past
+        // that gate were never looked for, not confirmed absent.
+        stage3Warnings.push(
+          depthCappedPagesNotMinedCount > 0
+            ? `Crawl frontier emptied, but ${depthCappedPagesNotMinedCount} page(s) at the depth ceiling were never mined for further links — emptiness does not imply full exploration`
+            : 'Crawl frontier exhausted: all reachable in-scope HTML routes discovered'
+        );
       }
 
       // -----------------------------------------------------------------
@@ -1697,6 +1788,7 @@ export class CompositeActiveReconOrchestratorService {
     // Stage 4: Surface Crawling & Parameter Discovery (Composite URL + Ffuf + Arjun)
     // =========================================================================
     if (coordinator.isCircuitOpen(request.targetDomain)) {
+      await recordStageNeverStartedDueToCircuitBreaker('stage_4_crawling_parameters');
       return buildCircuitBrokenResult(request.targetDomain);
     }
 
@@ -2376,6 +2468,7 @@ export class CompositeActiveReconOrchestratorService {
     // Stage Deep Recon — method kit (fail-soft; budget/heartbeat hints)
     // =========================================================================
     if (coordinator.isCircuitOpen(request.targetDomain)) {
+      await recordStageNeverStartedDueToCircuitBreaker('stage_deep_recon');
       return buildCircuitBrokenResult(request.targetDomain);
     }
 
@@ -2635,6 +2728,7 @@ export class CompositeActiveReconOrchestratorService {
     // Stage 5: Secret & Credential Inspection (Trufflehog)
     // =========================================================================
     if (coordinator.isCircuitOpen(request.targetDomain)) {
+      await recordStageNeverStartedDueToCircuitBreaker('stage_5_secret_inspection');
       return buildCircuitBrokenResult(request.targetDomain);
     }
 

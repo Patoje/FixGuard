@@ -13,8 +13,9 @@
  */
 
 import type { Finding } from '../../core/Evidence.js';
-import type { EvidenceDraftEnvelope } from '../../evidence-mapping/ComparisonEvidenceMappingContracts.js';
+import type { EnrichedEvidenceDraft } from '../../application/OrchestratedAssessmentContracts.js';
 import { sanitizeEvidenceFragment } from '../../core/EvidenceSanitizer.js';
+import { normalizeOriginFromUrl } from './CorsIdorChainCorrelator.js';
 
 export interface CrossFindingChainCorrelatorRequest {
   readonly assessmentId: string;
@@ -32,7 +33,16 @@ export interface CrossFindingChainCorrelatorResult {
   readonly contractVersion: 'fixguard-detection-expansion/v0';
   readonly kind: 'cross_finding_chain_correlator_result';
   readonly hasChains: boolean;
-  readonly compoundDrafts: readonly EvidenceDraftEnvelope[];
+  /**
+   * Audit fix (2026-10-25): now EnrichedEvidenceDraft, carrying a real
+   * differentialContext (constituentFindingIds/primaryVector/secondaryVector
+   * from the actual primary/secondary pair) instead of a bare
+   * EvidenceDraftEnvelope — those ids were already computed below
+   * (chainTitle/rationale) but previously discarded before returning,
+   * which left FindingAutoPromotionPolicy's cross_finding_chain gate with
+   * nothing real to check.
+   */
+  readonly compoundDrafts: readonly EnrichedEvidenceDraft[];
   readonly compoundFindings: readonly Finding[];
 }
 
@@ -144,7 +154,7 @@ export function correlateCrossFindingChains(
     };
   }
 
-  const compoundDrafts: EvidenceDraftEnvelope[] = [];
+  const compoundDrafts: EnrichedEvidenceDraft[] = [];
   const compoundFindings: Finding[] = [];
 
   // Group pairs (up to 3 primary x secondary pairs max per assessment)
@@ -152,6 +162,17 @@ export function correlateCrossFindingChains(
   for (const primary of primaryFindings) {
     for (const secondary of secondaryFindings) {
       if (primary.id === secondary.id) continue;
+
+      // Audit fix (2026-10-26): same pattern as CorsIdorChainCorrelator —
+      // require both finding targets to normalize to a non-null, equal
+      // origin before a pair is even formed. Same-origin is not proof of a
+      // causal or exploitable chain; it is the minimum grounded precondition
+      // this correlator can check from the data it actually has. A pair that
+      // fails this is simply never formed — not flagged, not promoted.
+      const sharedOrigin = normalizeOriginFromUrl(primary.target);
+      const secondaryOrigin = normalizeOriginFromUrl(secondary.target);
+      if (!sharedOrigin || !secondaryOrigin || sharedOrigin !== secondaryOrigin) continue;
+
       if (chainCounter >= 3) break;
 
       chainCounter++;
@@ -204,7 +225,11 @@ export function correlateCrossFindingChains(
         };
         compoundFindings.push(finding);
       } else {
-        const draft: EvidenceDraftEnvelope = {
+        // Audit fix (2026-10-25): propagate the real primary/secondary pair
+        // already computed above (chainTitle/rationale) into differentialContext,
+        // instead of discarding it — this is the exact evidence the
+        // cross_finding_chain auto-promotion gate requires, not a fabricated value.
+        const draft: EnrichedEvidenceDraft = {
           draftKind: 'non_persisted_comparison_evidence_draft',
           draftId,
           suggestedEvidenceType: 'http_difference',
@@ -221,6 +246,21 @@ export function correlateCrossFindingChains(
           notForExternalDelivery: true,
           notM45EvidenceRecord: true,
           safeRationale: rationale,
+          differentialContext: {
+            endpointUrl: primary.target,
+            detectionKind: 'cross_finding_chain',
+            chainKind: 'cross_finding_compound',
+            chainTitle,
+            // Audit fix (2026-10-26): real normalized origin shared by both
+            // constituent findings — not proof of a causal/exploitable
+            // relationship, only the grounded precondition that let this
+            // pair form at all. See the sharedOrigin gate above.
+            sharedOrigin,
+            constituentFindingIds: [primary.id, secondary.id],
+            primaryVector: primary.title,
+            secondaryVector: secondary.title,
+            compoundImpactScore: 0.95,
+          },
         };
         compoundDrafts.push(draft);
       }
