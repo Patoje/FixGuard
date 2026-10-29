@@ -555,7 +555,21 @@ function evaluateSignalGate(
           rationale: 'CORS+IDOR compound draft missing constituent finding ids or shared origin context',
         };
       }
-      return null;
+      // Policy decision (approved, same temporary policy already applied to
+      // cross_finding_chain): a shared normalized origin is a useful
+      // consistency check, but it is not proof of a causal or exploitable
+      // relationship between the CORS and IDOR constituent findings. Until a
+      // stronger, evidence-backed relationship criterion exists,
+      // cors_idor_compound never auto-promotes either — it always returns to
+      // human review with its full constituent-finding/evidence context
+      // intact. This does not change severity/confidence policy, the
+      // individual cors_misconfiguration/idor policies, or the correlator's
+      // matching logic.
+      return {
+        decision: 'keep_as_draft',
+        reasonCode: 'cors_idor_compound_requires_human_review',
+        rationale: 'CORS+IDOR compound draft has a valid shared origin, but shared origin alone is not sufficient evidence of a causal or exploitable relationship — requires explicit human review before promotion',
+      };
 
     // Audit note (2026-10-25): reachable in production via CrossFindingChainCorrelator.ts.
     // Fixed 2026-10-25: that correlator now propagates the real

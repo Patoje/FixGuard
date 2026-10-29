@@ -350,12 +350,20 @@ function runSmokeTests(): void {
     evaluateFindingAutoPromotion(corsIdorIncomplete).reasonCode,
     'cors_idor_compound_context_missing'
   );
+  // Policy decision (approved, same temporary policy as cross_finding_chain):
+  // shared origin alone is not proof of a causal/exploitable relationship —
+  // cors_idor_compound never auto-promotes either, even with full valid
+  // context. Always keep_as_draft.
   const corsIdorComplete = baseDraft('dft_cic_complete', 'cors_idor_compound', {
     primaryFindingId: 'fnd_cors_1',
     secondaryFindingId: 'fnd_idor_1',
     sharedOrigin: 'https://app.example.com',
   });
-  assert.equal(evaluateFindingAutoPromotion(corsIdorComplete).decision, 'auto_promote');
+  assert.equal(evaluateFindingAutoPromotion(corsIdorComplete).decision, 'keep_as_draft');
+  assert.equal(
+    evaluateFindingAutoPromotion(corsIdorComplete).reasonCode,
+    'cors_idor_compound_requires_human_review'
+  );
 
   const crossChainIncomplete = baseDraft('dft_xc_incomplete', 'cross_finding_chain', {
     constituentFindingIds: ['fnd_1'],

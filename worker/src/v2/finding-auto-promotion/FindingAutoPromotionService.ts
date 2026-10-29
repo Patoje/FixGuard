@@ -376,11 +376,30 @@ function buildAutoFinding(
         },
       };
 
-    case 'blind_ssrf':
+    case 'blind_ssrf': {
+      // Audit fix (2026-10-30): severity and metadata.exposureSeverity were
+      // two independent literals ('high' vs 'critical') describing the same
+      // dimension — the Finding disagreed with its own metadata. Evidence
+      // that they describe the same concept and that 'critical' is the
+      // correct value: (1) BlindSsrfDetectionMetadata.exposureSeverity is
+      // typed as the literal singleton 'critical' (core/Evidence.ts) — a
+      // confirmed blind SSRF has exactly one possible exposureSeverity by
+      // contract; (2) the real producer (BlindSsrfDetectionService.ts) always
+      // sets exposureSeverity: 'critical' on the draft, so ctx.exposureSeverity
+      // already carries this real signal; (3) every other site in this
+      // codebase that has both fields sets severity directly from
+      // exposureSeverity (ManifestExposureDetectionService.ts,
+      // StaticSecretScanningService.ts, DependencyVulnerabilityScanService.ts,
+      // and the manual-review branches in OrchestratedAssessmentApplicationService.ts)
+      // — this case was the one outlier using two independent literals instead.
+      // metadata.exposureSeverity is a fixed 'critical' literal by contract
+      // (BlindSsrfDetectionMetadata), so severity is set to the identical
+      // literal rather than re-reading ctx — this guarantees the two fields
+      // can never disagree, which is the actual defect being fixed.
       return {
         id: `fnd_bssrf_${suffix}`,
         type: 'SERVER_SIDE_REQUEST_FORGERY',
-        severity: 'high',
+        severity: 'critical',
         title: `Observed Blind SSRF Callback on ${target}`,
         description: `Confirmed OOB canary interaction for parameter '${ctx.parameterName ?? 'url'}' (auto-promoted).`,
         target,
@@ -403,6 +422,7 @@ function buildAutoFinding(
           lineage,
         },
       };
+    }
 
     case 'blind_xss':
       return {
