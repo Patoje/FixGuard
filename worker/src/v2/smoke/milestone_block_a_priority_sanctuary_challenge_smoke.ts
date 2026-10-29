@@ -39,6 +39,10 @@ import { URL_DISCOVERY_NON_CLAIMS } from '../recon/adapters/UrlDiscoveryContract
 import { CONTENT_DISCOVERY_NON_CLAIMS } from '../recon/adapters/ContentDiscoveryContracts.js';
 import { PARAMETER_DISCOVERY_NON_CLAIMS } from '../recon/adapters/ParameterDiscoveryContracts.js';
 import { SECRET_DISCOVERY_NON_CLAIMS } from '../recon/adapters/SecretDiscoveryContracts.js';
+import {
+  OBSERVED_FACT_CONTRACT_VERSION,
+  type ObservedFact,
+} from '../observation/ObservedFactContracts.js';
 
 const TARGET_DOMAIN = 'target.example.com';
 const ORIGIN_URL = `https://${TARGET_DOMAIN}/`;
@@ -1009,6 +1013,391 @@ async function runBlockASmokeSuite(): Promise<void> {
   );
 
   console.log('  [PASS] 5.8 (Test H): Full composition integration test verified end-to-end (403 → browser → session → re-probe 200 → crawl reuse).');
+
+  // =========================================================================
+  // SECTION 6: R11 REGRESSION COVERAGE — EXCEPTION-SCOPE CORRECTIONS
+  // =========================================================================
+  console.log('\n[+] Section 6: R11 Challenge-Attempt Diagnostics Regression Coverage...');
+
+  const caseALauncher: PlaywrightBrowserLauncher = {
+    launch: async () => ({
+      newContext: async () => ({
+        newPage: async () => ({
+          goto: async () => {},
+          waitForTimeout: async () => {},
+          title: async () => 'Dashboard',
+          route: async () => {},
+          on: () => {},
+          waitForLoadState: async () => {},
+          evaluate: async <T>(fn: () => T | Promise<T>): Promise<T> => Promise.resolve(fn()),
+          close: async () => {},
+        }),
+        cookies: async () => [
+          { name: 'cf_clearance', value: 'case_a_token', domain: TARGET_DOMAIN },
+        ],
+        close: async () => {},
+      }),
+      close: async () => {},
+    }),
+  };
+
+  // 6.1 (Test I): Case A — successful continuation, then the HTTP re-probe itself throws.
+  {
+    let caseAProbePhase: 'initial_403' | 'post_reprobe' = 'initial_403';
+
+    const caseAAdapters: ReconToolAdapters = {
+      subdomainTool: {
+        async discoverSubdomains(req) {
+          return { status: 'success', contractVersion: 'fixguard-subdomain-discovery/v0', targetDomain: req.targetDomain, observations: [], explicitNonClaims: SUBDOMAIN_DISCOVERY_NON_CLAIMS, lineage: req.lineage, durationMs: 5 };
+        },
+      },
+      dnsTool: {
+        async resolveDns(req) {
+          return { status: 'success', contractVersion: 'fixguard-dns-resolution/v0', targetDomain: req.targetDomain, observations: [], explicitNonClaims: DNS_RESOLUTION_NON_CLAIMS, lineage: req.lineage, durationMs: 5 };
+        },
+      },
+      portTool: {
+        async discoverPorts(req) {
+          return { status: 'success', contractVersion: 'fixguard-port-discovery/v0', targetHostOrIp: req.targetHostOrIp, observations: [], explicitNonClaims: PORT_DISCOVERY_NON_CLAIMS, lineage: req.lineage, durationMs: 5 };
+        },
+      },
+      webTool: {
+        async inspectWeb(req) {
+          if (req.targetUrl === `https://${TARGET_DOMAIN}` || req.targetUrl === `https://${TARGET_DOMAIN}/`) {
+            if (caseAProbePhase === 'initial_403') {
+              caseAProbePhase = 'post_reprobe';
+              return {
+                status: 'success',
+                contractVersion: 'fixguard-web-inspection/v0',
+                targetUrl: req.targetUrl,
+                observations: [
+                  {
+                    url: req.targetUrl,
+                    method: 'GET',
+                    statusCode: 403,
+                    technologies: [],
+                    headers: { 'cf-ray': 'cf_case_a' },
+                    bodyText: '<html><title>Just a moment...</title>cf-browser-verification</html>',
+                    discoveredAt: new Date().toISOString(),
+                  },
+                ],
+                explicitNonClaims: WEB_INSPECTION_NON_CLAIMS,
+                lineage: req.lineage,
+                durationMs: 25,
+              };
+            }
+            // This is the re-probe (contextKind: 'challenge_validation') that follows a
+            // successful continuation — throw to simulate a real HTTP re-probe failure.
+            throw new Error('simulated re-probe network failure (Case A)');
+          }
+          throw new Error(`Unexpected URL probed in Case A: ${req.targetUrl}`);
+        },
+      },
+      tlsTool: {
+        async inspectTls(req) {
+          return { status: 'success', contractVersion: 'fixguard-tls-inspection/v0', targetHost: req.targetHostOrUrl, observations: [], explicitNonClaims: TLS_INSPECTION_NON_CLAIMS, lineage: req.lineage, durationMs: 5 };
+        },
+      },
+      urlTool: {
+        async discoverUrls(req) {
+          return { status: 'success', contractVersion: 'fixguard-url-discovery/v0', targetUrlOrDomain: req.targetUrlOrDomain, observations: [], explicitNonClaims: URL_DISCOVERY_NON_CLAIMS, lineage: req.lineage, durationMs: 5 };
+        },
+      },
+      contentTool: {
+        async discoverContent(req) {
+          return { status: 'success', contractVersion: 'fixguard-content-discovery/v0', targetUrl: req.targetUrl, wordlistPath: req.wordlistPath, observations: [], explicitNonClaims: CONTENT_DISCOVERY_NON_CLAIMS, lineage: req.lineage, durationMs: 5 };
+        },
+      },
+      parameterTool: {
+        async discoverParameters(req) {
+          return { status: 'success', contractVersion: 'fixguard-parameter-discovery/v0', targetUrl: req.targetUrl, observations: [], explicitNonClaims: PARAMETER_DISCOVERY_NON_CLAIMS, lineage: req.lineage, durationMs: 5 };
+        },
+      },
+      secretTool: {
+        async scanSecrets(req) {
+          return { status: 'success', contractVersion: 'fixguard-secret-discovery/v0', targetUrlOrPath: req.targetUrlOrPath, observations: [], explicitNonClaims: SECRET_DISCOVERY_NON_CLAIMS, lineage: req.lineage, durationMs: 5 };
+        },
+      },
+    };
+
+    const caseAOrchestrator = new CompositeActiveReconOrchestratorService(caseAAdapters);
+    const caseACoord = new TargetExecutionCoordinator({ requestsPerSecond: 10, maxConcurrency: 2 });
+    const caseASanctuary = new SessionSanctuaryService({ targetDomain: TARGET_DOMAIN, originUrl: ORIGIN_URL });
+
+    const caseAResult = await caseAOrchestrator.orchestrate({
+      targetDomain: TARGET_DOMAIN,
+      verifiedAuthorizationDecision: verifiedDecision,
+      authorizedScopeGrant: scopeGrant,
+      lineage,
+      coordinator: caseACoord,
+      sessionSanctuary: caseASanctuary,
+      browserLauncher: caseALauncher,
+      config: {
+        skipStages: ['stage_1_domain_zone', 'stage_2_port_service', 'stage_4_crawling_parameters', 'stage_5_secret_inspection'],
+      },
+    });
+
+    assert.equal(caseAResult.status, 'success');
+
+    const caseADiagnostics = caseAResult.status === 'success' ? caseAResult.challengeAttemptDiagnostics ?? [] : [];
+    assert.equal(caseADiagnostics.length, 1, 'Case A: exactly one diagnostic for the one real continuation invocation, not two');
+    assert.equal(caseADiagnostics[0]?.state, 'validated', 'Case A: diagnostic must reflect the real successful continuation, not a synthetic failure');
+    assert.notEqual(caseADiagnostics[0]?.outcomeKind, 'unknown_continuation_error', 'Case A: a failed re-probe must never relabel a successful continuation as unknown_continuation_error');
+
+    const caseAReconHealth = caseAResult.status === 'success' ? caseAResult.reconHealthSignals : undefined;
+    assert.ok(caseAReconHealth?.resolvedChallengeHosts.includes(TARGET_DOMAIN), 'Case A: host must be recorded as resolved');
+    assert.equal(caseAReconHealth?.unresolvedChallengeHosts.includes(TARGET_DOMAIN), false, 'Case A: a failed re-probe must not mark a resolved challenge as unresolved');
+
+    const caseAStage3 = caseAResult.stages.find((s) => s.stage === 'stage_3_web_tls');
+    const caseAWarnings = caseAStage3?.warnings ?? [];
+    assert.ok(
+      caseAWarnings.some((w) => w.includes('Post-challenge re-probe failed')),
+      'Case A: a distinct re-probe-failure warning must be emitted'
+    );
+    assert.ok(
+      !caseAWarnings.some((w) => w.includes('Browser challenge progression attempt failed')),
+      'Case A: the re-probe failure must never be misattributed to the continuation call itself'
+    );
+
+    console.log('  [PASS] 6.1 (Test I — Case A): Successful continuation + failed HTTP re-probe → exactly 1 diagnostic, real outcome preserved, host stays resolved, distinct warning, no misattribution.');
+  }
+
+  // 6.2 (Test J): Case B — successful continuation and HTTP re-probe, then processing
+  // one of the returned observations fails (a getter that throws on access to bodyText —
+  // an existing test seam: the mock controls what a "malformed observation" looks like,
+  // no production code or contract is touched to make this injectable).
+  {
+    const caseBAssessmentLineage = { ...lineage };
+    const caseBFact: ObservedFact = {
+      contractVersion: OBSERVED_FACT_CONTRACT_VERSION,
+      kind: 'observed_fact',
+      factId: 'fact_case_b_001',
+      factKind: 'observed_object_id',
+      assessmentId: caseBAssessmentLineage.assessmentId,
+      scanId: caseBAssessmentLineage.scanId,
+      epistemicStatus: 'OBSERVED',
+      value: 'case_b_test_value',
+      sourceUrl: `https://${TARGET_DOMAIN}/challenged`,
+      observationKind: 'url',
+      lineage: caseBAssessmentLineage,
+      observedAt: new Date().toISOString(),
+    };
+
+    let caseBChallengeProbed = false;
+
+    const caseBAdapters: ReconToolAdapters = {
+      subdomainTool: {
+        async discoverSubdomains(req) {
+          return { status: 'success', contractVersion: 'fixguard-subdomain-discovery/v0', targetDomain: req.targetDomain, observations: [], explicitNonClaims: SUBDOMAIN_DISCOVERY_NON_CLAIMS, lineage: req.lineage, durationMs: 5 };
+        },
+      },
+      dnsTool: {
+        async resolveDns(req) {
+          return { status: 'success', contractVersion: 'fixguard-dns-resolution/v0', targetDomain: req.targetDomain, observations: [], explicitNonClaims: DNS_RESOLUTION_NON_CLAIMS, lineage: req.lineage, durationMs: 5 };
+        },
+      },
+      portTool: {
+        async discoverPorts(req) {
+          return { status: 'success', contractVersion: 'fixguard-port-discovery/v0', targetHostOrIp: req.targetHostOrIp, observations: [], explicitNonClaims: PORT_DISCOVERY_NON_CLAIMS, lineage: req.lineage, durationMs: 5 };
+        },
+      },
+      webTool: {
+        async inspectWeb(req) {
+          if (req.targetUrl === `https://${TARGET_DOMAIN}` || req.targetUrl === `https://${TARGET_DOMAIN}/`) {
+            return {
+              status: 'success',
+              contractVersion: 'fixguard-web-inspection/v0',
+              targetUrl: req.targetUrl,
+              observations: [
+                {
+                  url: req.targetUrl,
+                  method: 'GET',
+                  statusCode: 200,
+                  technologies: [],
+                  headers: { 'content-type': 'text/html' },
+                  bodyText: `<html><body><a href="https://${TARGET_DOMAIN}/challenged">Protected Area</a></body></html>`,
+                  discoveredAt: new Date().toISOString(),
+                },
+              ],
+              explicitNonClaims: WEB_INSPECTION_NON_CLAIMS,
+              lineage: req.lineage,
+              durationMs: 15,
+            };
+          }
+
+          if (req.targetUrl === `https://${TARGET_DOMAIN}/challenged`) {
+            if (!caseBChallengeProbed) {
+              caseBChallengeProbed = true;
+              return {
+                status: 'success',
+                contractVersion: 'fixguard-web-inspection/v0',
+                targetUrl: req.targetUrl,
+                observations: [
+                  {
+                    url: req.targetUrl,
+                    method: 'GET',
+                    statusCode: 403,
+                    technologies: [],
+                    headers: { 'cf-ray': 'cf_case_b' },
+                    bodyText: '<html><title>Just a moment...</title>cf-browser-verification</html>',
+                    discoveredAt: new Date().toISOString(),
+                  },
+                ],
+                explicitNonClaims: WEB_INSPECTION_NON_CLAIMS,
+                lineage: req.lineage,
+                durationMs: 25,
+              };
+            }
+
+            // Re-probe (contextKind: 'challenge_validation') succeeds with 2 observations:
+            // the first is malformed (throws when its body is read), the second is healthy
+            // and carries a further link to prove the loop keeps going past the failure.
+            const malformedObservation = {
+              url: `https://${TARGET_DOMAIN}/challenged`,
+              method: 'GET',
+              statusCode: 200,
+              technologies: [],
+              headers: { 'content-type': 'text/html' },
+              discoveredAt: new Date().toISOString(),
+              get bodyText(): string {
+                throw new Error('simulated malformed observation body (Case B)');
+              },
+            };
+
+            return {
+              status: 'success',
+              contractVersion: 'fixguard-web-inspection/v0',
+              targetUrl: req.targetUrl,
+              observations: [
+                malformedObservation,
+                {
+                  url: `https://${TARGET_DOMAIN}/challenged-followup`,
+                  method: 'GET',
+                  statusCode: 200,
+                  technologies: [],
+                  headers: { 'content-type': 'text/html' },
+                  bodyText: `<html><body><a href="https://${TARGET_DOMAIN}/second-link">Second Link</a></body></html>`,
+                  discoveredAt: new Date().toISOString(),
+                },
+              ],
+              observedFacts: [caseBFact],
+              explicitNonClaims: WEB_INSPECTION_NON_CLAIMS,
+              lineage: req.lineage,
+              durationMs: 20,
+            };
+          }
+
+          return {
+            status: 'success',
+            contractVersion: 'fixguard-web-inspection/v0',
+            targetUrl: req.targetUrl,
+            observations: [
+              {
+                url: req.targetUrl,
+                method: 'GET',
+                statusCode: 200,
+                technologies: [],
+                headers: { 'content-type': 'text/html' },
+                bodyText: '<html><body>ok</body></html>',
+                discoveredAt: new Date().toISOString(),
+              },
+            ],
+            explicitNonClaims: WEB_INSPECTION_NON_CLAIMS,
+            lineage: req.lineage,
+            durationMs: 10,
+          };
+        },
+      },
+      tlsTool: {
+        async inspectTls(req) {
+          return { status: 'success', contractVersion: 'fixguard-tls-inspection/v0', targetHost: req.targetHostOrUrl, observations: [], explicitNonClaims: TLS_INSPECTION_NON_CLAIMS, lineage: req.lineage, durationMs: 5 };
+        },
+      },
+      urlTool: {
+        async discoverUrls(req) {
+          return { status: 'success', contractVersion: 'fixguard-url-discovery/v0', targetUrlOrDomain: req.targetUrlOrDomain, observations: [], explicitNonClaims: URL_DISCOVERY_NON_CLAIMS, lineage: req.lineage, durationMs: 5 };
+        },
+      },
+      contentTool: {
+        async discoverContent(req) {
+          return { status: 'success', contractVersion: 'fixguard-content-discovery/v0', targetUrl: req.targetUrl, wordlistPath: req.wordlistPath, observations: [], explicitNonClaims: CONTENT_DISCOVERY_NON_CLAIMS, lineage: req.lineage, durationMs: 5 };
+        },
+      },
+      parameterTool: {
+        async discoverParameters(req) {
+          return { status: 'success', contractVersion: 'fixguard-parameter-discovery/v0', targetUrl: req.targetUrl, observations: [], explicitNonClaims: PARAMETER_DISCOVERY_NON_CLAIMS, lineage: req.lineage, durationMs: 5 };
+        },
+      },
+      secretTool: {
+        async scanSecrets(req) {
+          return { status: 'success', contractVersion: 'fixguard-secret-discovery/v0', targetUrlOrPath: req.targetUrlOrPath, observations: [], explicitNonClaims: SECRET_DISCOVERY_NON_CLAIMS, lineage: req.lineage, durationMs: 5 };
+        },
+      },
+    };
+
+    const caseBOrchestrator = new CompositeActiveReconOrchestratorService(caseBAdapters);
+    const caseBCoord = new TargetExecutionCoordinator({ requestsPerSecond: 10, maxConcurrency: 2 });
+    const caseBSanctuary = new SessionSanctuaryService({ targetDomain: TARGET_DOMAIN, originUrl: ORIGIN_URL });
+
+    const caseBResult = await caseBOrchestrator.orchestrate({
+      targetDomain: TARGET_DOMAIN,
+      verifiedAuthorizationDecision: verifiedDecision,
+      authorizedScopeGrant: scopeGrant,
+      lineage,
+      coordinator: caseBCoord,
+      sessionSanctuary: caseBSanctuary,
+      browserLauncher: caseALauncher,
+      config: {
+        skipStages: ['stage_1_domain_zone', 'stage_2_port_service', 'stage_4_crawling_parameters', 'stage_5_secret_inspection'],
+      },
+    });
+
+    assert.equal(caseBResult.status, 'success');
+
+    const caseBDiagnostics = caseBResult.status === 'success' ? caseBResult.challengeAttemptDiagnostics ?? [] : [];
+    assert.equal(caseBDiagnostics.length, 1, 'Case B: exactly one diagnostic for the one real continuation invocation');
+    assert.equal(caseBDiagnostics[0]?.state, 'validated', 'Case B: diagnostic must reflect the real successful continuation');
+    assert.notEqual(caseBDiagnostics[0]?.outcomeKind, 'unknown_continuation_error', 'Case B: a later processing failure must never relabel a successful continuation');
+
+    const caseBReconHealth = caseBResult.status === 'success' ? caseBResult.reconHealthSignals : undefined;
+    assert.ok(caseBReconHealth?.resolvedChallengeHosts.includes(TARGET_DOMAIN), 'Case B: host must be recorded as resolved');
+    assert.equal(caseBReconHealth?.unresolvedChallengeHosts.includes(TARGET_DOMAIN), false, 'Case B: a processing failure must not mark a resolved challenge as unresolved');
+
+    const caseBStage3 = caseBResult.stages.find((s) => s.stage === 'stage_3_web_tls');
+    const caseBWarnings = caseBStage3?.warnings ?? [];
+    assert.ok(
+      caseBWarnings.some((w) => w.includes('Post-challenge observation processing failed')),
+      'Case B: a distinct observation-processing-failure warning must be emitted'
+    );
+    assert.ok(
+      !caseBWarnings.some((w) => w.includes('Post-challenge re-probe failed')),
+      'Case B: the re-probe itself succeeded — the failure must not be attributed to it'
+    );
+    assert.ok(
+      !caseBWarnings.some((w) => w.includes('Browser continuation failed')),
+      'Case B: the failure must never be attributed to the continuation call itself'
+    );
+
+    const caseBObservedFacts = caseBResult.status === 'success' ? caseBResult.aggregatedObservations.observedFacts ?? [] : [];
+    assert.ok(
+      caseBObservedFacts.some((f) => f.factId === 'fact_case_b_001'),
+      'Case B: observedFacts from the successful re-probe must be absorbed despite the later processing failure'
+    );
+
+    const caseBWebObservations = caseBResult.status === 'success' ? caseBResult.aggregatedObservations.webObservations : [];
+    assert.ok(
+      caseBWebObservations.some((o) => o.url.includes('challenged-followup') && o.statusCode === 200),
+      'Case B: the healthy observation after the malformed one must still be pushed'
+    );
+
+    const caseBUrls = caseBResult.status === 'success' ? caseBResult.aggregatedObservations.urls : [];
+    assert.ok(
+      caseBUrls.some((u) => u.url.includes('second-link')),
+      'Case B: the link mined from the healthy observation after the malformed one must still be discovered'
+    );
+
+    console.log('  [PASS] 6.2 (Test J — Case B): Successful re-probe + one malformed observation → facts absorbed, remaining observations still processed, distinct processing-failure warning, no misattribution.');
+  }
 
   console.log('\n>>> ALL BLOCK A AND A.1 ASSERTIONS PASSED SUCCESSFULLY! <<<\n');
 }
