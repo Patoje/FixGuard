@@ -591,7 +591,18 @@ function evaluateSignalGate(
           rationale: 'Cross-finding chain draft missing a valid shared normalized origin between the constituent findings',
         };
       }
-      return null;
+      // Policy decision (approved, not a completeness gate): a shared normalized
+      // origin is a useful consistency check, but it is not proof of a causal or
+      // exploitable relationship between the two constituent findings. Until a
+      // stronger, evidence-backed relationship criterion exists, cross_finding_chain
+      // never auto-promotes — it always returns to human review with its full
+      // constituent-finding/evidence context intact. This does not change
+      // severity/confidence policy or any other detection kind.
+      return {
+        decision: 'keep_as_draft',
+        reasonCode: 'cross_finding_chain_requires_human_review',
+        rationale: 'Cross-finding chain draft has a valid shared origin, but shared origin alone is not sufficient evidence of a causal or exploitable relationship — requires explicit human review before promotion',
+      };
 
     // Audit note (2026-10-25): reachable in production via DependencyVulnerabilityScanService.ts,
     // which only builds a draft after matching a dependency against a real

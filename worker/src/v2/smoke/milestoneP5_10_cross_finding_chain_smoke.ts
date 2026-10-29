@@ -135,13 +135,20 @@ async function runSmokeTests() {
         '[TEST 1] Draft must carry the real primary/secondary finding ids and titles as differentialContext'
       );
     }
+    // Policy decision (2026-10-29, approved): shared origin is a useful
+    // consistency check, but not proof of a causal or exploitable relationship
+    // between the constituent findings — cross_finding_chain never auto-promotes,
+    // even with full, valid context. It must always return to human review.
     const promotionEval = evaluateFindingAutoPromotion(draft);
-    if (promotionEval.decision !== 'auto_promote') {
+    if (
+      promotionEval.decision !== 'keep_as_draft' ||
+      promotionEval.reasonCode !== 'cross_finding_chain_requires_human_review'
+    ) {
       throw new Error(
-        `[TEST 1] A draft with real shared context (2 constituent findings + both vectors) must pass the cross_finding_chain gate, got decision=${promotionEval.decision} (${promotionEval.reasonCode})`
+        `[TEST 1] A cross_finding_chain draft must always require human review, even with full valid shared-origin context, got decision=${promotionEval.decision} (${promotionEval.reasonCode})`
       );
     }
-    console.log('[TEST 1] PASS: Real constituentFindingIds/primaryVector/secondaryVector propagated; cross_finding_chain gate now auto_promotes genuine chains.');
+    console.log('[TEST 1] PASS: Real constituentFindingIds/primaryVector/secondaryVector propagated; cross_finding_chain never auto-promotes on shared-origin alone, draft retained for human review.');
   }
 
   // -------------------------------------------------------------------------

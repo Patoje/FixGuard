@@ -365,12 +365,20 @@ function runSmokeTests(): void {
     evaluateFindingAutoPromotion(crossChainIncomplete).reasonCode,
     'cross_finding_chain_context_missing'
   );
+  // Policy decision (2026-10-29, approved): shared origin alone is not proof
+  // of a causal/exploitable relationship — cross_finding_chain never
+  // auto-promotes, even with full valid context. Always keep_as_draft.
   const crossChainComplete = baseDraft('dft_xc_complete', 'cross_finding_chain', {
     constituentFindingIds: ['fnd_1', 'fnd_2'],
     primaryVector: 'cors_misconfiguration',
     secondaryVector: 'information_disclosure',
+    sharedOrigin: 'https://app.example.com',
   });
-  assert.equal(evaluateFindingAutoPromotion(crossChainComplete).decision, 'auto_promote');
+  assert.equal(evaluateFindingAutoPromotion(crossChainComplete).decision, 'keep_as_draft');
+  assert.equal(
+    evaluateFindingAutoPromotion(crossChainComplete).reasonCode,
+    'cross_finding_chain_requires_human_review'
+  );
 
   const depVulnIncomplete = baseDraft('dft_dv_incomplete', 'dependency_vulnerability', {
     packageName: 'left-pad',
