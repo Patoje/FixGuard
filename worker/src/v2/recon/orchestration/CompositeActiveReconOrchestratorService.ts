@@ -49,6 +49,12 @@ import {
 import { PriorityReconFrontierService } from '../frontier/PriorityReconFrontierService.js';
 import { ChallengeClassifierService } from '../../challenge/ChallengeClassifierService.js';
 import { ChallengeBrowserContinuationService } from '../../challenge/ChallengeBrowserContinuationService.js';
+import {
+  CHALLENGE_CONTINUATION_CONTRACT_VERSION,
+  type ChallengeContinuationResult,
+  type ChallengeAttemptDiagnostic,
+  type ChallengeAttemptOutcomeKind,
+} from '../../challenge/ChallengeContinuationContracts.js';
 
 import type {
   ActiveReconOrchestrationRequest,
@@ -486,6 +492,59 @@ export class CompositeActiveReconOrchestratorService {
       };
     }
 
+    // Milestone R11 — per-attempt challenge-continuation diagnostics, hoisted
+    // the same way as the signals above so both caller sites (initial
+    // inspect loop and crawl frontier) share one array and one attempt
+    // counter. Persisted metadata, never read by ReconHealthClassificationService.
+    const challengeAttemptDiagnostics: ChallengeAttemptDiagnostic[] = [];
+
+    // Pure mapping from the already-structured state/reasonCode to the
+    // closed outcomeKind set — never inspects operatorMessage or any other
+    // free text, so it can never "discover" a distinction the result
+    // doesn't already carry structurally.
+    function classifyChallengeAttemptOutcome(
+      result: ChallengeContinuationResult
+    ): ChallengeAttemptOutcomeKind {
+      switch (result.reasonCode) {
+        case 'interactive_challenge_pending':
+          return 'waiting_for_operator';
+        case 'browser_challenge_unresolved':
+          return 'challenge_unresolved';
+        case 'browser_progression_succeeded':
+          return 'browser_progression_succeeded';
+        case 'still_challenged_after_browser_progression':
+          return 'still_challenged_after_progression';
+        case 'application_unreachable_after_browser_progression':
+          return 'application_unreachable_after_progression';
+        case 'canary_failed_after_browser_progression':
+          return 'canary_validation_failed';
+        case 'browser_continuation_error':
+          return 'unknown_continuation_error';
+        default:
+          // The two early-return branches in evaluateAndProgress() reuse
+          // ChallengeClassifierService's own reasonCode, which varies by
+          // classification — state is the one structural fact they share.
+          return result.state === 'validated' ? 'validated_without_browser' : 'blocked_without_browser';
+      }
+    }
+
+    function recordChallengeAttemptDiagnostic(
+      attemptNumber: number,
+      host: string,
+      result: ChallengeContinuationResult
+    ): void {
+      challengeAttemptDiagnostics.push({
+        contractVersion: CHALLENGE_CONTINUATION_CONTRACT_VERSION,
+        attemptNumber,
+        host,
+        state: result.state,
+        reasonCode: result.reasonCode,
+        outcomeKind: classifyChallengeAttemptOutcome(result),
+        ...(result.cookieExtractionFailed ? { cookieExtractionFailed: true } : {}),
+        attemptedAt: new Date().toISOString(),
+      });
+    }
+
     function degradedNotice(binary: string): string {
       return `degraded_mode_missing_binary: ${binary}`;
     }
@@ -632,6 +691,9 @@ export class CompositeActiveReconOrchestratorService {
         ? { degradedCapabilities: Object.freeze(Array.from(degradedCapabilityNotices).sort()) }
         : {}),
       reconHealthSignals: buildReconHealthSignals(true),
+      ...(challengeAttemptDiagnostics.length > 0
+        ? { challengeAttemptDiagnostics: Object.freeze([...challengeAttemptDiagnostics]) }
+        : {}),
     });
 
     // =========================================================================
@@ -1012,8 +1074,13 @@ export class CompositeActiveReconOrchestratorService {
                       } else if (!challengedUrlsAttempted.has(targetUrl)) {
                         challengedUrlsAttempted.add(targetUrl);
                         challengeContinuationsAttempted++;
+                        // Corrective pass — split the invocation itself from everything
+                        // that happens after a result comes back. Only this inner
+                        // try/catch may produce the synthetic browser_continuation_error
+                        // diagnostic, and only when evaluateAndProgress() itself throws.
+                        let continuationRes: ChallengeContinuationResult | undefined;
                         try {
-                          const continuationRes =
+                          continuationRes =
                             await ChallengeBrowserContinuationService.evaluateAndProgress({
                               challengeUrl: targetUrl,
                               signals: {
@@ -1027,6 +1094,33 @@ export class CompositeActiveReconOrchestratorService {
                               transport: request.probeTransport,
                               timeoutMs: request.config?.timeoutMs,
                             });
+                        } catch (progErr) {
+                          unresolvedChallengeHosts.add(parsed.hostname);
+                          stage3Warnings.push(
+                            `Browser challenge progression attempt failed on ${targetUrl}: ${progErr instanceof Error ? progErr.message : String(progErr)}`
+                          );
+                          // Milestone R11 — evaluateAndProgress() has its own internal
+                          // try/catch and should not throw; this is a defensive fallback
+                          // for a truly unexpected failure, with no structured result to
+                          // reuse. Never carries progErr's message — only a closed code.
+                          recordChallengeAttemptDiagnostic(challengeContinuationsAttempted, parsed.hostname, {
+                            state: 'failed',
+                            challengeUrl: targetUrl,
+                            reasonCode: 'browser_continuation_error',
+                            applicationReachable: false,
+                            capturedCookieNames: Object.freeze([]),
+                          });
+                        }
+
+                        if (continuationRes) {
+                          // Milestone R11 — recorded exactly once per real invocation,
+                          // unconditionally, before any branch below (or any later
+                          // re-probe failure) can react to it.
+                          recordChallengeAttemptDiagnostic(
+                            challengeContinuationsAttempted,
+                            parsed.hostname,
+                            continuationRes
+                          );
 
                           if (
                             continuationRes.state === 'validated' &&
@@ -1037,37 +1131,48 @@ export class CompositeActiveReconOrchestratorService {
                               `Edge challenge successfully resolved via browser continuation on ${targetUrl} (captured cookies: ${continuationRes.capturedCookieNames.join(', ') || 'none'})`
                             );
 
-                            // Block A.1 Part 5: Immediate re-probe SAME target URL using acquired session
-                            const reprobeHeaders = getEffectiveSessionHeaders();
-                            const reprobeResult = await executeObservingHttpStatus(
-                              coordinator,
-                              parsed.hostname,
-                              () =>
-                                this.tools.webTool.inspectWeb({
-                                  targetUrl,
-                                  verifiedAuthorizationDecision: request.verifiedAuthorizationDecision,
-                                  authorizedScopeGrant: request.authorizedScopeGrant,
-                                  lineage: request.lineage,
-                                  timeoutMs: request.config?.timeoutMs,
-                                  contextKind: 'challenge_validation',
-                                  sessionHeaders: reprobeHeaders,
-                                }),
-                              httpStatusFromWebInspection,
-                            );
+                            // Corrective pass — this try/catch covers only post-continuation
+                            // processing (the re-probe and its own handling). A failure here
+                            // must never be attributed to evaluateAndProgress(): the challenge
+                            // itself WAS resolved, so the host stays out of
+                            // unresolvedChallengeHosts and no second diagnostic is recorded.
+                            try {
+                              // Block A.1 Part 5: Immediate re-probe SAME target URL using acquired session
+                              const reprobeHeaders = getEffectiveSessionHeaders();
+                              const reprobeResult = await executeObservingHttpStatus(
+                                coordinator,
+                                parsed.hostname,
+                                () =>
+                                  this.tools.webTool.inspectWeb({
+                                    targetUrl,
+                                    verifiedAuthorizationDecision: request.verifiedAuthorizationDecision,
+                                    authorizedScopeGrant: request.authorizedScopeGrant,
+                                    lineage: request.lineage,
+                                    timeoutMs: request.config?.timeoutMs,
+                                    contextKind: 'challenge_validation',
+                                    sessionHeaders: reprobeHeaders,
+                                  }),
+                                httpStatusFromWebInspection,
+                              );
 
-                            if (reprobeResult.status === 'success') {
-                              for (const postObs of reprobeResult.observations) {
-                                const augmentedObs: DiscoveredWebObservation = {
-                                  ...postObs,
-                                  postChallengeForObservation: {
-                                    originalStatusCode: obs.statusCode,
-                                    challengeReasonCode: challengeClassification.reasonCode,
-                                    resolvedAt: continuationRes.validatedAt ?? new Date().toISOString(),
-                                  },
-                                };
-                                webObservations.push(augmentedObs);
+                              if (reprobeResult.status === 'success') {
+                                for (const postObs of reprobeResult.observations) {
+                                  const augmentedObs: DiscoveredWebObservation = {
+                                    ...postObs,
+                                    postChallengeForObservation: {
+                                      originalStatusCode: obs.statusCode,
+                                      challengeReasonCode: challengeClassification.reasonCode,
+                                      resolvedAt: continuationRes.validatedAt ?? new Date().toISOString(),
+                                    },
+                                  };
+                                  webObservations.push(augmentedObs);
+                                }
+                                absorbObservedFacts(reprobeResult.observedFacts);
                               }
-                              absorbObservedFacts(reprobeResult.observedFacts);
+                            } catch (reprobeErr) {
+                              stage3Warnings.push(
+                                `Post-challenge re-probe failed on ${targetUrl} (challenge itself was resolved): ${reprobeErr instanceof Error ? reprobeErr.message : String(reprobeErr)}`
+                              );
                             }
                           } else if (continuationRes.state === 'waiting_for_operator') {
                             stage3Warnings.push(
@@ -1082,11 +1187,6 @@ export class CompositeActiveReconOrchestratorService {
                               `Edge challenge NOT resolved on ${targetUrl} (${continuationRes.state}): ${continuationRes.reasonCode}${continuationRes.operatorMessage ? ' :: ' + continuationRes.operatorMessage : ''}`
                             );
                           }
-                        } catch (progErr) {
-                          unresolvedChallengeHosts.add(parsed.hostname);
-                          stage3Warnings.push(
-                            `Browser challenge progression attempt failed on ${targetUrl}: ${progErr instanceof Error ? progErr.message : String(progErr)}`
-                          );
                         }
                       }
                     } else {
@@ -1326,8 +1426,13 @@ export class CompositeActiveReconOrchestratorService {
                     } else if (!challengedUrlsAttempted.has(next.url)) {
                       challengedUrlsAttempted.add(next.url);
                       challengeContinuationsAttempted++;
+                      // Corrective pass — split the invocation itself from everything
+                      // that happens after a result comes back. Only this inner
+                      // try/catch may produce the synthetic browser_continuation_error
+                      // diagnostic, and only when evaluateAndProgress() itself throws.
+                      let continuationRes: ChallengeContinuationResult | undefined;
                       try {
-                        const continuationRes =
+                        continuationRes =
                           await ChallengeBrowserContinuationService.evaluateAndProgress({
                             challengeUrl: next.url,
                             signals: {
@@ -1341,6 +1446,31 @@ export class CompositeActiveReconOrchestratorService {
                             transport: request.probeTransport,
                             timeoutMs: request.config?.timeoutMs,
                           });
+                      } catch (progErr) {
+                        unresolvedChallengeHosts.add(parsed.hostname);
+                        stage3Warnings.push(
+                          `Browser continuation failed on crawl URL ${next.url}: ${progErr instanceof Error ? progErr.message : String(progErr)}`
+                        );
+                        // Milestone R11 — same defensive fallback as the other call site;
+                        // never carries progErr's message, only a closed code.
+                        recordChallengeAttemptDiagnostic(challengeContinuationsAttempted, parsed.hostname, {
+                          state: 'failed',
+                          challengeUrl: next.url,
+                          reasonCode: 'browser_continuation_error',
+                          applicationReachable: false,
+                          capturedCookieNames: Object.freeze([]),
+                        });
+                      }
+
+                      if (continuationRes) {
+                        // Milestone R11 — recorded exactly once per real invocation,
+                        // unconditionally, before any branch below (or any later
+                        // re-probe failure) can react to it.
+                        recordChallengeAttemptDiagnostic(
+                          challengeContinuationsAttempted,
+                          parsed.hostname,
+                          continuationRes
+                        );
 
                         if (
                           continuationRes.state === 'validated' &&
@@ -1351,99 +1481,127 @@ export class CompositeActiveReconOrchestratorService {
                             `Edge challenge resolved via browser continuation on crawl URL ${next.url} (captured cookies: ${continuationRes.capturedCookieNames.join(', ') || 'none'})`
                           );
 
-                          // Block A.1 Part 5 & 7: Immediate re-probe & feed into pipeline
-                          const crawlReprobeHeaders = getEffectiveSessionHeaders();
-                          const crawlReprobeResult = await executeObservingHttpStatus(
-                            coordinator,
-                            parsed.hostname,
-                            () =>
-                              this.tools.webTool.inspectWeb({
-                                targetUrl: next.url,
-                                verifiedAuthorizationDecision: request.verifiedAuthorizationDecision,
-                                authorizedScopeGrant: request.authorizedScopeGrant,
-                                lineage: request.lineage,
-                                timeoutMs: request.config?.timeoutMs,
-                                contextKind: 'challenge_validation',
-                                sessionHeaders: crawlReprobeHeaders,
-                              }),
-                            httpStatusFromWebInspection,
-                          );
-
-                          if (crawlReprobeResult.status === 'success') {
-                            for (const postObs of crawlReprobeResult.observations) {
-                              const augmentedObs: DiscoveredWebObservation = {
-                                ...postObs,
-                                postChallengeForObservation: {
-                                  originalStatusCode: obs.statusCode,
-                                  challengeReasonCode: challengeClassification.reasonCode,
-                                  resolvedAt: continuationRes.validatedAt ?? new Date().toISOString(),
-                                },
-                              };
-                              webObservations.push(augmentedObs);
-
-                              // Part 7: Mine links from post-challenge application body (no third hop)
-                              if (
-                                next.depth < 2 &&
-                                next.depth < crawlMaxDepth &&
-                                typeof postObs.bodyText === 'string' &&
-                                postObs.bodyText.length > 0
-                              ) {
-                                const postExtracted = htmlExtractor.extract({
-                                  bodyText: postObs.bodyText,
-                                  baseUrl: postObs.url,
-                                  targetDomain: request.targetDomain,
+                          // Corrective pass — the HTTP re-probe itself is now isolated from
+                          // everything that processes its result. A failure here is a real
+                          // re-probe failure; it must never be attributed to
+                          // evaluateAndProgress() (the challenge itself WAS resolved, so the
+                          // host stays out of unresolvedChallengeHosts and no second
+                          // diagnostic is recorded either way).
+                          let crawlReprobeResult: WebInspectionResult | undefined;
+                          try {
+                            // Block A.1 Part 5 & 7: Immediate re-probe & feed into pipeline
+                            const crawlReprobeHeaders = getEffectiveSessionHeaders();
+                            crawlReprobeResult = await executeObservingHttpStatus(
+                              coordinator,
+                              parsed.hostname,
+                              () =>
+                                this.tools.webTool.inspectWeb({
+                                  targetUrl: next.url,
+                                  verifiedAuthorizationDecision: request.verifiedAuthorizationDecision,
                                   authorizedScopeGrant: request.authorizedScopeGrant,
-                                  maxResults: request.config?.maxHop2Routes ?? 500,
-                                });
+                                  lineage: request.lineage,
+                                  timeoutMs: request.config?.timeoutMs,
+                                  contextKind: 'challenge_validation',
+                                  sessionHeaders: crawlReprobeHeaders,
+                                }),
+                              httpStatusFromWebInspection,
+                            );
+                          } catch (reprobeErr) {
+                            stage3Warnings.push(
+                              `Post-challenge re-probe failed on crawl URL ${next.url} (challenge itself was resolved): ${reprobeErr instanceof Error ? reprobeErr.message : String(reprobeErr)}`
+                            );
+                          }
 
-                                const postExtractedAt = new Date().toISOString();
-                                for (const subCandidate of postExtracted.accepted) {
-                                  if (subCandidate.kind === 'static_bundle') continue;
-                                  if (!knownUrlInventory.has(subCandidate.url)) {
-                                    knownUrlInventory.add(subCandidate.url);
-                                    newRoutesYielded++;
-                                    urls.push({
-                                      url: subCandidate.url,
-                                      host: subCandidate.host,
-                                      path: subCandidate.path,
-                                      ...(subCandidate.query !== undefined ? { query: subCandidate.query } : {}),
-                                      sources: Object.freeze([HTML_LINK_EXTRACTION_SOURCE]),
-                                      discoveredAt: postExtractedAt,
-                                      collectedAt: postExtractedAt,
-                                      freshness: 'live',
-                                      sourceReliability: 'direct_observation',
-                                    });
+                          if (crawlReprobeResult && crawlReprobeResult.status === 'success') {
+                            // Corrective pass — absorbed immediately once the re-probe itself
+                            // succeeded, regardless of what happens below while mining links
+                            // from individual observations: these are real, already-obtained
+                            // facts, not something a later mining failure should discard.
+                            absorbObservedFacts(crawlReprobeResult.observedFacts);
 
-                                    if (
-                                      subCandidate.kind === 'app_endpoint' &&
-                                      !httpInspectedUrls.has(subCandidate.url) &&
-                                      next.depth + 1 < crawlMaxDepth
-                                    ) {
-                                      priorityFrontier.enqueue({
+                            for (const postObs of crawlReprobeResult.observations) {
+                              // Corrective pass — narrowest scope: one malformed observation
+                              // or one link-mining exception must not discard the rest of
+                              // this loop. The warning below names processing, never the
+                              // re-probe, which already succeeded to reach this point.
+                              try {
+                                const augmentedObs: DiscoveredWebObservation = {
+                                  ...postObs,
+                                  postChallengeForObservation: {
+                                    originalStatusCode: obs.statusCode,
+                                    challengeReasonCode: challengeClassification.reasonCode,
+                                    resolvedAt: continuationRes.validatedAt ?? new Date().toISOString(),
+                                  },
+                                };
+                                webObservations.push(augmentedObs);
+
+                                // Part 7: Mine links from post-challenge application body (no third hop)
+                                if (
+                                  next.depth < 2 &&
+                                  next.depth < crawlMaxDepth &&
+                                  typeof postObs.bodyText === 'string' &&
+                                  postObs.bodyText.length > 0
+                                ) {
+                                  const postExtracted = htmlExtractor.extract({
+                                    bodyText: postObs.bodyText,
+                                    baseUrl: postObs.url,
+                                    targetDomain: request.targetDomain,
+                                    authorizedScopeGrant: request.authorizedScopeGrant,
+                                    maxResults: request.config?.maxHop2Routes ?? 500,
+                                  });
+
+                                  const postExtractedAt = new Date().toISOString();
+                                  for (const subCandidate of postExtracted.accepted) {
+                                    if (subCandidate.kind === 'static_bundle') continue;
+                                    if (!knownUrlInventory.has(subCandidate.url)) {
+                                      knownUrlInventory.add(subCandidate.url);
+                                      newRoutesYielded++;
+                                      urls.push({
                                         url: subCandidate.url,
                                         host: subCandidate.host,
                                         path: subCandidate.path,
-                                        query: subCandidate.query,
-                                        source: HTML_LINK_EXTRACTION_SOURCE,
-                                        depth: next.depth + 1,
+                                        ...(subCandidate.query !== undefined ? { query: subCandidate.query } : {}),
+                                        sources: Object.freeze([HTML_LINK_EXTRACTION_SOURCE]),
+                                        discoveredAt: postExtractedAt,
+                                        collectedAt: postExtractedAt,
+                                        freshness: 'live',
+                                        sourceReliability: 'direct_observation',
                                       });
+
+                                      if (
+                                        subCandidate.kind === 'app_endpoint' &&
+                                        !httpInspectedUrls.has(subCandidate.url) &&
+                                        next.depth + 1 < crawlMaxDepth
+                                      ) {
+                                        priorityFrontier.enqueue({
+                                          url: subCandidate.url,
+                                          host: subCandidate.host,
+                                          path: subCandidate.path,
+                                          query: subCandidate.query,
+                                          source: HTML_LINK_EXTRACTION_SOURCE,
+                                          depth: next.depth + 1,
+                                        });
+                                      }
                                     }
                                   }
+                                } else if (
+                                  next.depth >= 2 &&
+                                  typeof postObs.bodyText === 'string' &&
+                                  postObs.bodyText.length > 0
+                                ) {
+                                  // Corrective pass — postObs is the effective, resolved page
+                                  // (not the original challenge HTML): this is the only body
+                                  // that should ever decide a depth-cap omission for this URL.
+                                  // Flag only; the global counter advances once, after the
+                                  // whole observation loop for next.url finishes below.
+                                  depthCapOmittedThisUrl = true;
                                 }
-                              } else if (
-                                next.depth >= 2 &&
-                                typeof postObs.bodyText === 'string' &&
-                                postObs.bodyText.length > 0
-                              ) {
-                                // Corrective pass — postObs is the effective, resolved page
-                                // (not the original challenge HTML): this is the only body
-                                // that should ever decide a depth-cap omission for this URL.
-                                // Flag only; the global counter advances once, after the
-                                // whole observation loop for next.url finishes below.
-                                depthCapOmittedThisUrl = true;
+                              } catch (processingErr) {
+                                stage3Warnings.push(
+                                  `Post-challenge observation processing failed on crawl URL ${next.url} (re-probe itself succeeded): ${processingErr instanceof Error ? processingErr.message : String(processingErr)}`
+                                );
                               }
                             }
-                            absorbObservedFacts(crawlReprobeResult.observedFacts);
                           }
                         } else if (continuationRes.state === 'waiting_for_operator') {
                           stage3Warnings.push(
@@ -1458,11 +1616,6 @@ export class CompositeActiveReconOrchestratorService {
                             `Edge challenge NOT resolved on crawl URL ${next.url} (${continuationRes.state}): ${continuationRes.reasonCode}${continuationRes.operatorMessage ? ' :: ' + continuationRes.operatorMessage : ''}`
                           );
                         }
-                      } catch (progErr) {
-                        unresolvedChallengeHosts.add(parsed.hostname);
-                        stage3Warnings.push(
-                          `Browser continuation failed on crawl URL ${next.url}: ${progErr instanceof Error ? progErr.message : String(progErr)}`
-                        );
                       }
                     } else {
                       // No session sanctuary available — the challenge is detected but never attempted, so it stays unresolved.
@@ -2845,6 +2998,9 @@ export class CompositeActiveReconOrchestratorService {
         ? { degradedCapabilities: Object.freeze(Array.from(degradedCapabilityNotices).sort()) }
         : {}),
       reconHealthSignals: buildReconHealthSignals(),
+      ...(challengeAttemptDiagnostics.length > 0
+        ? { challengeAttemptDiagnostics: Object.freeze([...challengeAttemptDiagnostics]) }
+        : {}),
     };
   }
 }

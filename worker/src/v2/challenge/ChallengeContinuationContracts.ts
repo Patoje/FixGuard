@@ -61,10 +61,52 @@ export interface ChallengeContinuationResult {
   readonly capturedCookieNames: readonly string[];
   readonly validatedAt?: string;
   readonly operatorMessage?: string;
+  /**
+   * Milestone R11 — secondary diagnostic, independent of the final outcome
+   * above: true only when the browser-mediated flow progressed far enough
+   * to attempt cookie extraction, and that extraction itself threw. Never
+   * overwrites `state`/`reasonCode`/`applicationReachable` — a continuation
+   * can still validate successfully even when this is true. Absent when
+   * extraction was never attempted or succeeded.
+   */
+  readonly cookieExtractionFailed?: boolean;
 }
 
 export interface OperatorChallengeCallbackInput {
   readonly challengeId: string;
   readonly operatorNotes?: string;
   readonly confirmedCookies?: Readonly<Record<string, string>>;
+}
+
+/**
+ * Milestone R11 — per-attempt diagnostic for a single
+ * ChallengeBrowserContinuationService.evaluateAndProgress() call, meant to
+ * be persisted (unlike the ephemeral ReconHealthSignals). Deliberately
+ * minimal: no raw messages, no full URLs, no cookie or header values — see
+ * outcomeKind below for the closed set of distinctions the current
+ * implementation can actually establish.
+ */
+export type ChallengeAttemptOutcomeKind =
+  | 'validated_without_browser'
+  | 'blocked_without_browser'
+  | 'waiting_for_operator'
+  | 'challenge_unresolved'
+  | 'browser_progression_succeeded'
+  | 'still_challenged_after_progression'
+  | 'application_unreachable_after_progression'
+  | 'canary_validation_failed'
+  | 'unknown_continuation_error';
+
+export interface ChallengeAttemptDiagnostic {
+  readonly contractVersion: ChallengeContinuationContractVersion;
+  /** One-based ordinal of the actual continuation call within the assessment, shared across both caller sites. Range 1-3 under the existing budget. */
+  readonly attemptNumber: number;
+  /** Normalized hostname only — never a full URL, which may carry sensitive query parameters. */
+  readonly host: string;
+  readonly state: ChallengeContinuationState;
+  readonly reasonCode: string;
+  readonly outcomeKind: ChallengeAttemptOutcomeKind;
+  /** Secondary diagnostic — see ChallengeContinuationResult.cookieExtractionFailed. Never changes outcomeKind. */
+  readonly cookieExtractionFailed?: boolean;
+  readonly attemptedAt: string;
 }

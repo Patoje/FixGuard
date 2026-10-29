@@ -10,6 +10,7 @@ import type {
   ReconStageExecutionResult,
   ReconHealthAssessment,
 } from '../recon/orchestration/ActiveReconOrchestrationContracts.js';
+import type { ChallengeAttemptDiagnostic } from '../challenge/ChallengeContinuationContracts.js';
 import type { AuthorizedActiveReconRequestLineage } from '../lineage/AuthorizedExecutionLineageContracts.js';
 import type { TargetProfile, TargetRecommendation } from '../intelligence/IntelligenceContracts.js';
 import type { Finding } from '../core/Evidence.js';
@@ -376,6 +377,14 @@ export interface OrchestratedAssessmentRecord {
    * existed.
    */
   readonly reconHealthStatus?: ReconHealthAssessment;
+  /**
+   * Milestone R11 — per-attempt challenge-continuation diagnostics (at most
+   * 3, same budget as reconHealthStatus's challenge signals). Persisted
+   * metadata alongside reconHealthStatus; never consumed by
+   * ReconHealthClassificationService. Absent on records written before
+   * this field existed.
+   */
+  readonly challengeAttemptDiagnostics?: readonly ChallengeAttemptDiagnostic[];
 }
 
 /** Advisory plan row returned with assessment status and summary. */
@@ -451,6 +460,8 @@ export interface OrchestratedAssessmentStatusDto {
   readonly transcript?: AssessmentTranscript;
   /** Milestone R7 (Hito 1). Absent on records written before this field existed. */
   readonly reconHealthStatus?: ReconHealthAssessment;
+  /** Milestone R11 — per-attempt challenge-continuation diagnostics. Absent on records written before this field existed. */
+  readonly challengeAttemptDiagnostics?: readonly ChallengeAttemptDiagnostic[];
 }
 
 export interface OrchestratedAssessmentSummaryDto {
@@ -487,6 +498,8 @@ export interface OrchestratedAssessmentSummaryDto {
   readonly transcript?: AssessmentTranscript;
   /** Milestone R7 (Hito 1). Absent on records written before this field existed. */
   readonly reconHealthStatus?: ReconHealthAssessment;
+  /** Milestone R11 — per-attempt challenge-continuation diagnostics. Absent on records written before this field existed. */
+  readonly challengeAttemptDiagnostics?: readonly ChallengeAttemptDiagnostic[];
 }
 
 /**

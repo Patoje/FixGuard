@@ -2154,6 +2154,9 @@ export class OrchestratedAssessmentApplicationService {
       ...(record.reasonCode ? { reasonCode: record.reasonCode } : {}),
       ...(record.transcript ? { transcript: record.transcript } : {}),
       ...(record.reconHealthStatus ? { reconHealthStatus: record.reconHealthStatus } : {}),
+      ...(record.challengeAttemptDiagnostics && record.challengeAttemptDiagnostics.length > 0
+        ? { challengeAttemptDiagnostics: record.challengeAttemptDiagnostics }
+        : {}),
     };
   }
 
@@ -2210,6 +2213,9 @@ export class OrchestratedAssessmentApplicationService {
       ...(record.reasonCode ? { reasonCode: record.reasonCode } : {}),
       ...(record.transcript ? { transcript: record.transcript } : {}),
       ...(record.reconHealthStatus ? { reconHealthStatus: record.reconHealthStatus } : {}),
+      ...(record.challengeAttemptDiagnostics && record.challengeAttemptDiagnostics.length > 0
+        ? { challengeAttemptDiagnostics: record.challengeAttemptDiagnostics }
+        : {}),
     };
   }
 
@@ -5973,6 +5979,9 @@ export class OrchestratedAssessmentApplicationService {
             stages: reconResult.stages,
             signals: reconResult.reconHealthSignals,
           }),
+          ...(reconResult.challengeAttemptDiagnostics && reconResult.challengeAttemptDiagnostics.length > 0
+            ? { challengeAttemptDiagnostics: reconResult.challengeAttemptDiagnostics }
+            : {}),
           ...(persistedObservedFacts.length > 0
             ? { observedFacts: persistedObservedFacts }
             : {}),
@@ -7216,6 +7225,9 @@ export class OrchestratedAssessmentApplicationService {
             stages: reconResult.stages,
             signals: reconResult.reconHealthSignals,
           }),
+          ...(reconResult.challengeAttemptDiagnostics && reconResult.challengeAttemptDiagnostics.length > 0
+            ? { challengeAttemptDiagnostics: reconResult.challengeAttemptDiagnostics }
+            : {}),
           ...(persistedObservedFacts.length > 0
             ? { observedFacts: persistedObservedFacts }
             : {}),
@@ -7263,6 +7275,9 @@ export class OrchestratedAssessmentApplicationService {
           stages: reconResult.stages,
           signals: reconResult.reconHealthSignals,
         }),
+        ...(reconResult.challengeAttemptDiagnostics && reconResult.challengeAttemptDiagnostics.length > 0
+          ? { challengeAttemptDiagnostics: reconResult.challengeAttemptDiagnostics }
+          : {}),
         ...(persistedObservedFacts.length > 0
           ? { observedFacts: persistedObservedFacts }
           : {}),

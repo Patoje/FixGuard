@@ -140,11 +140,16 @@ export class ChallengeBrowserContinuationService {
 
       // Extract cookies from browser context BEFORE closing it
       let capturedCookies: readonly BrowserCookieRecord[] = Object.freeze([]);
+      // Milestone R11 — previously silent: this catch left zero trace that
+      // extraction was even attempted and failed, indistinguishable from
+      // "there were no cookies." Now exposed as a secondary diagnostic only
+      // — it never changes the continuation's own state/reasonCode below.
+      let cookieExtractionFailed = false;
       if (typeof context.cookies === 'function') {
         try {
           capturedCookies = await context.cookies(options.challengeUrl);
         } catch {
-          // Best-effort cookie extraction
+          cookieExtractionFailed = true;
         }
       }
 
@@ -201,6 +206,7 @@ export class ChallengeBrowserContinuationService {
         capturedCookieNames: importedCookieNames,
         validatedAt,
         operatorMessage,
+        ...(cookieExtractionFailed ? { cookieExtractionFailed: true } : {}),
       };
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);

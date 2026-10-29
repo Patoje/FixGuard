@@ -12,6 +12,7 @@ import type { AuthorizedActiveReconRequestLineage } from '../../lineage/Authoriz
 import type { TargetSessionState } from '../../core/SessionLifecycleContracts.js';
 import type { TargetExecutionCoordinator } from '../../runtime/TargetExecutionCoordinator.js';
 import type { DeepReconSchemaObservation } from '../deep/DeepReconContracts.js';
+import type { ChallengeAttemptDiagnostic } from '../../challenge/ChallengeContinuationContracts.js';
 
 import type {
   SubdomainDiscoveryTool,
@@ -407,6 +408,8 @@ export type ActiveReconOrchestrationResult =
       readonly degradedCapabilities?: readonly string[];
       /** Milestone R7 (Hito 1) — structured why-degraded signals. Absent on paths that predate this field. */
       readonly reconHealthSignals?: ReconHealthSignals;
+      /** Milestone R11 — per-attempt challenge-continuation diagnostics (at most 3, same budget as today). Metadata alongside reconHealthSignals, never consumed by ReconHealthClassificationService. */
+      readonly challengeAttemptDiagnostics?: readonly ChallengeAttemptDiagnostic[];
     }
   | {
       readonly status: 'circuit_broken';
@@ -423,6 +426,8 @@ export type ActiveReconOrchestrationResult =
       readonly degradedCapabilities?: readonly string[];
       /** Milestone R7 (Hito 1) — structured why-degraded signals. Absent on paths that predate this field. */
       readonly reconHealthSignals?: ReconHealthSignals;
+      /** Milestone R11 — per-attempt challenge-continuation diagnostics (at most 3, same budget as today). Metadata alongside reconHealthSignals, never consumed by ReconHealthClassificationService. */
+      readonly challengeAttemptDiagnostics?: readonly ChallengeAttemptDiagnostic[];
     }
   | {
       readonly status: 'preflight_denied';
