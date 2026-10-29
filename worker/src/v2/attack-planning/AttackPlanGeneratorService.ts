@@ -459,12 +459,13 @@ function buildCredentialReusePlan(args: {
     credentialReferencePresentPrereq(args.credentialId, args.hasCredential),
   ];
   const status = resolveStatus(prereqs);
+  const resolvedPlanId = stablePlanId(args.assessmentId, 'credential_reuse', args.sourceKey);
   // Advisory plan-scope uses domain_wide; human authorization must mint
   // AttackAuthorizationToken with BlastRadiusClass credential_use.
   return {
     contractVersion: ATTACK_PLANNING_CONTRACT_VERSION,
     kind: 'attack_plan',
-    planId: stablePlanId(args.assessmentId, 'credential_reuse', args.sourceKey),
+    planId: resolvedPlanId,
     assessmentId: args.assessmentId,
     scanId: args.scanId,
     capability: 'credential_reuse',
@@ -479,7 +480,7 @@ function buildCredentialReusePlan(args: {
     prerequisites: prereqs,
     steps: [
       {
-        stepId: `${args.sourceKey}_cred_reuse_step_1`,
+        stepId: `${resolvedPlanId}_cred_reuse_step_1`,
         ordinal: 1,
         title: 'Authorize credential reuse probe',
         description:

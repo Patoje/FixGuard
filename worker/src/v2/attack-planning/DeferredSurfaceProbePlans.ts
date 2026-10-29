@@ -54,10 +54,11 @@ function advisoryPlan(input: {
   readonly status?: AttackPlan['status'];
   readonly stepStatus?: 'blocked' | 'ready';
 }): AttackPlan {
+  const resolvedPlanId = planId(input.generator.assessmentId, input.capability, input.sourceKey);
   return {
     contractVersion: ATTACK_PLANNING_CONTRACT_VERSION,
     kind: 'attack_plan',
-    planId: planId(input.generator.assessmentId, input.capability, input.sourceKey),
+    planId: resolvedPlanId,
     assessmentId: input.generator.assessmentId,
     scanId: input.generator.scanId,
     capability: input.capability,
@@ -78,7 +79,7 @@ function advisoryPlan(input: {
     ],
     steps: [
       {
-        stepId: `${input.sourceKey}_step_1`,
+        stepId: `${resolvedPlanId}_step_1`,
         ordinal: 1,
         title: 'Authorize probe',
         description: 'Human authorization is required before any request for this step.',

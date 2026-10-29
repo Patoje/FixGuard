@@ -17,6 +17,7 @@ import {
   identityHasJwtHeuristic,
 } from '../attack-planning/AttackPlanGeneratorService.js';
 import type { AttackCapabilityKind } from '../attack-planning/AttackPlanContracts.js';
+import type { AuthorizedScopeGrant } from '../scope/AuthorizedScopeContracts.js';
 import { InMemoryAttackPlanRepository } from '../attack-planning/InMemoryAttackPlanRepository.js';
 import { InMemoryOrchestratedAssessmentRepository } from '../storage/InMemoryOrchestratedAssessmentRepository.js';
 import { ORCHESTRATED_ASSESSMENT_CONTRACT_VERSION } from '../application/OrchestratedAssessmentContracts.js';
@@ -774,6 +775,127 @@ async function runSmokeTests(): Promise<void> {
   const savedDup = await dupRepo.savePlans(collisionResult.plans);
   assert.equal(savedDup.length, collisionResult.plans.length);
   console.log('✓ Test 6 Passed: Colliding finding ids → unique planIds; savePlans succeeds');
+
+  // --- Test 7: Public stepId values satisfy the strict-safe-id contract ---
+  // Regression for the deferred-surface-probe and credential_reuse stepId defect:
+  // both used to interpolate a raw sourceKey (a full URL, a raw hostname, or an
+  // internal \u001f-separated disambiguator) directly into the public stepId.
+  const STRICT_SAFE_ID = /^[A-Za-z0-9_-]{1,64}$/;
+  const scopeGrantForStepIdTest: AuthorizedScopeGrant = {
+    contractVersion: 'fixguard-authorized-scope-policy/v0',
+    kind: 'authorized_scope_grant',
+    grantId: 'grn_smoke_a3_stepid',
+    scanId,
+    issuedAt: '2026-09-23T17:00:00.000Z',
+    expiresAt: '2026-09-24T17:00:00.000Z',
+    subject: { targetKind: 'domain', domain: targetHost },
+    authorizationBasis: {
+      basisKind: 'internal_asset_record',
+      recordedBy: 'human_user',
+      authorizationText: 'Authorized stepId strict-safe-id smoke',
+    },
+    permissionSet: {
+      passiveRecon: true,
+      technologyFingerprinting: true,
+      endpointDiscovery: true,
+      activeCrawling: true,
+      authenticatedTesting: true,
+      lightValidation: true,
+      activeValidation: true,
+      aggressiveValidation: false,
+      oobTesting: false,
+      destructiveOperations: false,
+    },
+    boundaries: {
+      allowedDomains: [targetHost],
+      allowedHosts: [targetHost],
+      allowedOrigins: [`https://${targetHost}`],
+      allowedMethods: ['GET', 'HEAD', 'OPTIONS'],
+    },
+    constraints: {
+      allowLoginRequiredAreas: false,
+      allowStateChangingRequests: false,
+      allowCredentialUse: false,
+      allowOobCallbacks: false,
+      allowThirdPartyTargets: false,
+    },
+    classification: {
+      createsRealFindings: false,
+      createsPersistedEvidence: false,
+      confirmsVulnerabilities: false,
+      makesRiskClaims: false,
+      makesSeverityClaims: false,
+      makesImpactClaims: false,
+      executesNetwork: false,
+      executesTools: false,
+      persistsData: false,
+    },
+  };
+
+  const stepIdResult = generator.generate({
+    assessmentId: 'asm_smoke_a3_stepid',
+    scanId: 'scn_smoke_a3_stepid',
+    findings: [],
+    identities: [],
+    lineage: {
+      ...lineage,
+      assessmentId: 'asm_smoke_a3_stepid',
+      scanId: 'scn_smoke_a3_stepid',
+    },
+    generatedAt: nowIso,
+    // Reproduces the real defect: a multi-segment application URL (raw '/',
+    // ':' and '.' characters) feeding DeferredSurfaceProbePlans' per-URL
+    // advisory plans.
+    deferredSurfaceProbes: {
+      originUrl: `https://${targetHost}/`,
+      applicationUrls: [`https://${targetHost}/admin`],
+      scopeGrant: scopeGrantForStepIdTest,
+    },
+    // Reproduces the credential_reuse defect: a dotted hostname feeding
+    // AttackPlanGeneratorService's buildCredentialReusePlan sourceKey.
+    credentialReuseContext: {
+      authorizedLateralHosts: [targetHost],
+      inScopeHosts: [targetHost],
+      credentialHosts: [{ credentialId: 'cred_smoke_001', associatedHostname: targetHost }],
+    },
+  });
+
+  assert.ok(
+    stepIdResult.plans.some((p) => p.capability === 'information_disclosure_probe'),
+    'deferred surface probe plans must still be generated for the observed /admin route'
+  );
+  assert.ok(
+    stepIdResult.plans.some((p) => p.capability === 'credential_reuse'),
+    'credential_reuse plan must still be generated from lateral/credential context'
+  );
+
+  for (const plan of stepIdResult.plans) {
+    assert.ok(
+      STRICT_SAFE_ID.test(plan.planId),
+      `planId "${plan.planId}" for ${plan.capability} must satisfy ${STRICT_SAFE_ID}`
+    );
+    for (const step of plan.steps) {
+      assert.ok(
+        STRICT_SAFE_ID.test(step.stepId),
+        `stepId "${step.stepId}" for ${plan.capability} must satisfy ${STRICT_SAFE_ID}`
+      );
+    }
+  }
+
+  const stepIdPlanIds = stepIdResult.plans.map((p) => p.planId);
+  assert.equal(
+    new Set(stepIdPlanIds).size,
+    stepIdPlanIds.length,
+    'planIds must remain unique across deferred-surface-probe and credential_reuse plans'
+  );
+  const stepIdStepIds = stepIdResult.plans.flatMap((p) => p.steps.map((s) => s.stepId));
+  assert.equal(
+    new Set(stepIdStepIds).size,
+    stepIdStepIds.length,
+    'stepIds must remain unique across all generated plans'
+  );
+
+  console.log('✓ Test 7 Passed: Public stepId/planId values satisfy the strict-safe-id contract and stay unique');
 
   console.log('=== Milestone A3 Attack Planning: ALL TESTS PASSED ===');
 }
