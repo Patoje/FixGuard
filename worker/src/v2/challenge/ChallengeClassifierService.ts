@@ -16,6 +16,7 @@
 
 import {
   CHALLENGE_CONTINUATION_CONTRACT_VERSION,
+  type ChallengeProviderHint,
   type EdgeChallengeClassification,
   type EdgeChallengeClassificationVerdict,
 } from './ChallengeContinuationContracts.js';
@@ -27,6 +28,55 @@ const BROWSER_CHALLENGE_BODY_REGEX =
 
 const INTERACTIVE_CAPTCHA_REGEX =
   /turnstile|recaptcha|hcaptcha|solve\s+the\s+challenge|verify\s+you\s+are\s+human|complete\s+the\s+captcha/i;
+
+/**
+ * Milestone: Challenge Continuation Reliability — provider-neutral signature
+ * registry. Deliberately small and proportional to the number of providers
+ * FixGuard can currently distinguish with real evidence (two named vendors).
+ * Each pattern matches only markers exclusive to that vendor — generic,
+ * vendor-shared wording (e.g. "Just a moment", "Attention Required") stays
+ * out of this list on purpose: those phrases are reused across providers and
+ * asserting a vendor from them would be a guess, not a match.
+ */
+const VENDOR_EXCLUSIVE_SIGNATURES: readonly {
+  readonly hint: Exclude<ChallengeProviderHint, 'generic' | 'unknown'>;
+  readonly pattern: RegExp;
+}[] = Object.freeze([
+  {
+    hint: 'vercel',
+    pattern: /vercel\s*security\s*checkpoint|\.well-known\/vercel\/security|challenge\.v\d+\.wasm/i,
+  },
+  {
+    hint: 'cloudflare',
+    pattern: /cf-browser-verification|challenge-platform|_cf_chl\b|cf-chl-|cloudflare\s+ray\s+id/i,
+  },
+]);
+
+/**
+ * Derives a provider hint strictly from matching evidence in the supplied
+ * text (an HTTP body excerpt, or a browser-observed title/body sample).
+ * Returns 'generic' when some known challenge marker matched but none was
+ * vendor-exclusive, and 'unknown' when nothing matched at all — both are
+ * valid, honest outcomes, never a forced guess.
+ */
+export function detectChallengeProviderHint(text: string): ChallengeProviderHint {
+  for (const signature of VENDOR_EXCLUSIVE_SIGNATURES) {
+    if (signature.pattern.test(text)) {
+      return signature.hint;
+    }
+  }
+  return BROWSER_CHALLENGE_BODY_REGEX.test(text) ? 'generic' : 'unknown';
+}
+
+/**
+ * True when the supplied text contains any known challenge marker (vendor
+ * specific or generic). Shared by the HTTP-response classifier below and by
+ * the browser-side resolution check in ChallengeBrowserContinuationService,
+ * so "is this still a challenge" is decided by one signature set, not two.
+ */
+export function matchesAnyChallengeSignature(text: string): boolean {
+  return BROWSER_CHALLENGE_BODY_REGEX.test(text);
+}
 
 const APP_AUTHZ_DENIAL_BODY_REGEX =
   /["']?(?:error|message)["']?\s*:\s*["'](?:unauthorized|forbidden|access\s+denied|permission\s+denied|invalid\s+token|token\s+expired|insufficient\s+privileges)["']/i;
@@ -64,6 +114,7 @@ export class ChallengeClassifierService {
           reasonCode: 'rate_limited_with_browser_challenge',
           explanation: 'Target returned HTTP 429 along with an active bot/browser verification challenge',
           defenses,
+          providerHint: detectChallengeProviderHint(body),
         };
       }
       return {
@@ -75,6 +126,7 @@ export class ChallengeClassifierService {
         reasonCode: 'rate_limit_exceeded',
         explanation: 'Target returned HTTP 429 rate limit without interactive challenge',
         defenses,
+        providerHint: 'unknown',
       };
     }
 
@@ -94,6 +146,7 @@ export class ChallengeClassifierService {
             ? 'Edge defense presented an interactive challenge (Turnstile/CAPTCHA) requiring human completion'
             : 'Edge defense presented an automated JavaScript challenge (Cloudflare/Vercel) solvable via browser flow',
           defenses,
+          providerHint: detectChallengeProviderHint(body),
         };
       }
 
@@ -108,6 +161,7 @@ export class ChallengeClassifierService {
           reasonCode: 'application_authorization_denied',
           explanation: 'Target returned HTTP 403 from the application authorization layer, not an edge WAF challenge',
           defenses,
+          providerHint: 'unknown',
         };
       }
 
@@ -123,6 +177,7 @@ export class ChallengeClassifierService {
           reasonCode: 'waf_static_denial',
           explanation: 'Target returned HTTP 403 accompanied by explicit edge WAF headers',
           defenses,
+          providerHint: detectChallengeProviderHint(body),
         };
       }
 
@@ -135,6 +190,7 @@ export class ChallengeClassifierService {
         reasonCode: 'http_403_static_forbidden',
         explanation: 'Target returned HTTP 403 without decisive challenge markers',
         defenses,
+        providerHint: 'unknown',
       };
     }
 
@@ -155,6 +211,7 @@ export class ChallengeClassifierService {
         ? 'Application is reachable; edge WAF headers observed in passive inspection'
         : 'Application is reachable; no intermediate edge challenge observed',
       defenses,
+      providerHint: 'unknown',
     };
   }
 }

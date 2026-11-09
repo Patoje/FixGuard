@@ -168,6 +168,47 @@ export interface OrchestratedAssessmentStatusResponse {
   readonly sessionKeepAliveHint?: string;
   readonly error?: string;
   readonly transcript?: AssessmentTranscriptDto;
+  readonly reconHealthStatus?: ReconHealthAssessmentDto;
+  readonly challengeAttemptDiagnostics?: readonly ChallengeAttemptDiagnosticDto[];
+}
+
+/**
+ * Milestone: Challenge Continuation Reliability (mirrors worker
+ * ReconHealthAssessment / ChallengeAttemptDiagnostic). A
+ * 'degraded_blocked' status whose reasonCodes include an
+ * 'edge_challenge_requires_interactive_resolution:<host>' entry means
+ * automatic continuation already tried every configured strategy and the
+ * challenge still requires an interactive/owner-controlled mechanism
+ * FixGuard does not perform automatically — a coverage limitation to
+ * report, never a terminal failure, and never something that waits on a
+ * manual operator step.
+ */
+export interface ReconHealthAssessmentDto {
+  readonly contractVersion: string;
+  readonly status: 'complete' | 'degraded_blocked' | 'insufficiently_explored' | 'degraded_unexplained';
+  readonly reasonCodes: readonly string[];
+  readonly suggestedNextConfig?: { readonly crawlRequestBudget: number };
+}
+
+export interface ChallengeAttemptDiagnosticDto {
+  readonly contractVersion: string;
+  readonly attemptNumber: number;
+  readonly host: string;
+  readonly state:
+    | 'challenge_detected'
+    | 'waiting_for_operator'
+    | 'operator_completed'
+    | 'validation_pending'
+    | 'validated'
+    | 'failed'
+    | 'expired';
+  readonly reasonCode: string;
+  readonly outcomeKind: string;
+  readonly cookieExtractionFailed?: boolean;
+  readonly providerHint?: string;
+  readonly resolutionMethod?: string;
+  readonly strategyUsed?: 'fresh_context' | 'persistent_context' | 'operator_intervention';
+  readonly attemptedAt: string;
 }
 
 export interface DifferentialEvidenceContextDto {

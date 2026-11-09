@@ -61,6 +61,25 @@ export class ReconHealthClassificationService {
       reasonCodes.push(...unresolvedHosts.map((host) => `edge_challenge_unresolved:${host}`));
     }
 
+    // 2b. Milestone: Challenge Continuation Reliability (corrected) — hosts
+    // where automatic continuation already tried every configured strategy
+    // and the challenge still requires an interactive/owner-controlled
+    // mechanism FixGuard does not perform automatically (e.g. a
+    // Turnstile/CAPTCHA). Distinct reasonCode prefix from "unresolved"
+    // above: this is never a confirmed-blocked/failed result — it stays a
+    // recoverable state (automatic continuation retries it on the next
+    // run; nothing requires a manual resume step). Folded into the same
+    // degraded_blocked status so it is never silently reported as
+    // 'complete'.
+    const interactiveChallengeHostsList = input.signals?.interactiveChallengeHosts ?? [];
+    if (interactiveChallengeHostsList.length > 0) {
+      reasonCodes.push(
+        ...interactiveChallengeHostsList.map(
+          (host) => `edge_challenge_requires_interactive_resolution:${host}`
+        )
+      );
+    }
+
     // 3. Crawl request budget ceiling.
     const budgetCapped = input.signals?.crawlStoppedByBudgetCap === true;
     let suggestedNextConfig: { crawlRequestBudget: number } | undefined;
@@ -84,7 +103,7 @@ export class ReconHealthClassificationService {
     }
 
     // Status decision — priority unchanged from before this corrective pass.
-    if (circuitBroken || unresolvedHosts.length > 0) {
+    if (circuitBroken || unresolvedHosts.length > 0 || interactiveChallengeHostsList.length > 0) {
       return {
         contractVersion: RECON_HEALTH_CONTRACT_VERSION,
         status: 'degraded_blocked',

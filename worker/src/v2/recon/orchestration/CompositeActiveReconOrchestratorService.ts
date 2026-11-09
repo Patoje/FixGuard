@@ -48,9 +48,13 @@ import {
 } from '../../observation/DocumentMetadataReader.js';
 import { PriorityReconFrontierService } from '../frontier/PriorityReconFrontierService.js';
 import { ChallengeClassifierService } from '../../challenge/ChallengeClassifierService.js';
-import { ChallengeBrowserContinuationService } from '../../challenge/ChallengeBrowserContinuationService.js';
+import {
+  ChallengeBrowserContinuationService,
+  type PersistentChallengeContextHandle,
+} from '../../challenge/ChallengeBrowserContinuationService.js';
 import {
   CHALLENGE_CONTINUATION_CONTRACT_VERSION,
+  DEFAULT_CHALLENGE_CONTINUATION_STRATEGY_ORDER,
   type ChallengeContinuationResult,
   type ChallengeAttemptDiagnostic,
   type ChallengeAttemptOutcomeKind,
@@ -465,6 +469,13 @@ export class CompositeActiveReconOrchestratorService {
     // can read them safely, not just the final success return.
     const unresolvedChallengeHosts = new Set<string>();
     const resolvedChallengeHosts = new Set<string>();
+    // Milestone: Challenge Continuation Reliability (corrected) — distinct
+    // from unresolvedChallengeHosts: a host whose challenge genuinely
+    // requires an interactive or owner-controlled mechanism FixGuard does
+    // not perform automatically (automated strategies exhausted or
+    // inapplicable). Additive signal, never replaces unresolvedChallengeHosts
+    // — automatic continuation retries hosts in this set on the next run.
+    const interactiveChallengeHosts = new Set<string>();
     let crawlStoppedByBudgetCap = false;
     // Milestone R9 (Hito 3) — the real budget used, only meaningful once
     // crawlStoppedByBudgetCap is true; lets the classifier suggest a next
@@ -484,6 +495,9 @@ export class CompositeActiveReconOrchestratorService {
       return {
         unresolvedChallengeHosts: Object.freeze([...unresolvedChallengeHosts]),
         resolvedChallengeHosts: Object.freeze([...resolvedChallengeHosts]),
+        ...(interactiveChallengeHosts.size > 0
+          ? { interactiveChallengeHosts: Object.freeze([...interactiveChallengeHosts]) }
+          : {}),
         crawlStoppedByBudgetCap,
         ...(crawlRequestBudgetUsed !== undefined ? { crawlRequestBudgetUsed } : {}),
         ...(circuitBroken ? { circuitBroken: true } : {}),
@@ -520,6 +534,8 @@ export class CompositeActiveReconOrchestratorService {
           return 'canary_validation_failed';
         case 'browser_continuation_error':
           return 'unknown_continuation_error';
+        case 'resolution_evidence_insufficient':
+          return 'resolution_evidence_insufficient';
         default:
           // The two early-return branches in evaluateAndProgress() reuse
           // ChallengeClassifierService's own reasonCode, which varies by
@@ -541,6 +557,9 @@ export class CompositeActiveReconOrchestratorService {
         reasonCode: result.reasonCode,
         outcomeKind: classifyChallengeAttemptOutcome(result),
         ...(result.cookieExtractionFailed ? { cookieExtractionFailed: true } : {}),
+        ...(result.providerHint ? { providerHint: result.providerHint } : {}),
+        ...(result.resolutionMethod ? { resolutionMethod: result.resolutionMethod } : {}),
+        ...(result.strategyUsed ? { strategyUsed: result.strategyUsed } : {}),
         attemptedAt: new Date().toISOString(),
       });
     }
@@ -941,6 +960,56 @@ export class CompositeActiveReconOrchestratorService {
       });
     }
 
+    // Session awareness & context isolation (Block A.1 Part 2 & Part 8).
+    // Hoisted to function scope (not just Stage 3's block) so Stage 4's SPA
+    // discovery can also thread the same session continuity.
+    const effectiveContextKind: WebInspectionContextKind =
+      request.sessionSanctuary?.hasAuthenticatedContext() ? 'authenticated' : 'anonymous';
+
+    const getEffectiveSessionHeaders = (): Readonly<Record<string, string>> | undefined => {
+      if (request.sessionSanctuary) {
+        const headers = request.sessionSanctuary.createProbeHeaders(effectiveContextKind);
+        if (Object.keys(headers).length > 0) {
+          return Object.freeze(headers);
+        }
+      } else if (request.byotHarvestHeaders && Object.keys(request.byotHarvestHeaders).length > 0) {
+        return request.byotHarvestHeaders;
+      }
+      return undefined;
+    };
+
+    // Milestone: Challenge Continuation Reliability (corrected) — the
+    // browser-automation path needs cookies and other headers kept apart
+    // (so PlaywrightSpaAdapter can scope each to the approved origin
+    // separately — see BrowserAutomationContracts.sessionCredentials),
+    // unlike getEffectiveSessionHeaders() above, which flattens them into
+    // one header map for the single-URL httpx GET that has no subresource
+    // exposure to begin with.
+    const getEffectiveSessionCredentials = ():
+      | { origin: string; cookies?: Readonly<Record<string, string>>; headers?: Readonly<Record<string, string>> }
+      | undefined => {
+      if (request.sessionSanctuary) {
+        const ctx = request.sessionSanctuary.getContext(effectiveContextKind);
+        if (!ctx) return undefined;
+        // getLiveCookies(), not ctx.cookies directly: excludes any cookie
+        // past its own known expiry, or past a bounded TTL when the
+        // original expiry was never known — never extends validity.
+        const liveCookies = request.sessionSanctuary.getLiveCookies(effectiveContextKind);
+        const hasCookies = Object.keys(liveCookies).length > 0;
+        const hasHeaders = Object.keys(ctx.headers).length > 0;
+        if (!hasCookies && !hasHeaders) return undefined;
+        return {
+          origin: ctx.originUrl,
+          ...(hasCookies ? { cookies: liveCookies } : {}),
+          ...(hasHeaders ? { headers: ctx.headers } : {}),
+        };
+      }
+      if (request.byotHarvestHeaders && Object.keys(request.byotHarvestHeaders).length > 0) {
+        return { origin: `https://${request.targetDomain}`, headers: request.byotHarvestHeaders };
+      }
+      return undefined;
+    };
+
     // =========================================================================
     // Stage 3: HTTP & TLS Inspection (Httpx + Tlsx)
     // =========================================================================
@@ -998,26 +1067,15 @@ export class CompositeActiveReconOrchestratorService {
       // Hop-1 mines these bodies; hop-2 re-mines only hop-1 app_endpoint bodies (no third hop).
       const stage3PrimaryInspectUrls = new Set<string>(urlsToInspect);
 
-      // Session awareness & context isolation (Block A.1 Part 2 & Part 8)
-      const effectiveContextKind: WebInspectionContextKind =
-        request.sessionSanctuary?.hasAuthenticatedContext() ? 'authenticated' : 'anonymous';
-
-      const getEffectiveSessionHeaders = (): Readonly<Record<string, string>> | undefined => {
-        if (request.sessionSanctuary) {
-          const headers = request.sessionSanctuary.createProbeHeaders(effectiveContextKind);
-          if (Object.keys(headers).length > 0) {
-            return Object.freeze(headers);
-          }
-        } else if (request.byotHarvestHeaders && Object.keys(request.byotHarvestHeaders).length > 0) {
-          return request.byotHarvestHeaders;
-        }
-        return undefined;
-      };
-
       // Challenge continuation retry budget (Block A.1 Part 13)
       let challengeContinuationsAttempted = 0;
       const maxChallengeContinuations = 3;
       const challengedUrlsAttempted = new Set<string>();
+      // Milestone: Challenge Continuation Reliability — retry strategy
+      // order, spent from the SAME global budget above. Ceiling unchanged.
+      const challengeStrategyOrder =
+        request.config?.challengeContinuationStrategyOrder ??
+        DEFAULT_CHALLENGE_CONTINUATION_STRATEGY_ORDER;
 
       for (const targetUrl of urlsToInspect) {
         let currentHost = request.targetDomain;
@@ -1073,46 +1131,67 @@ export class CompositeActiveReconOrchestratorService {
                         );
                       } else if (!challengedUrlsAttempted.has(targetUrl)) {
                         challengedUrlsAttempted.add(targetUrl);
-                        challengeContinuationsAttempted++;
-                        // Corrective pass — split the invocation itself from everything
-                        // that happens after a result comes back. Only this inner
-                        // try/catch may produce the synthetic browser_continuation_error
-                        // diagnostic, and only when evaluateAndProgress() itself throws.
-                        let continuationRes: ChallengeContinuationResult | undefined;
-                        try {
-                          continuationRes =
-                            await ChallengeBrowserContinuationService.evaluateAndProgress({
-                              challengeUrl: targetUrl,
-                              signals: {
-                                statusCode: obs.statusCode,
-                                headers: obs.headers ?? {},
-                                bodyText: obs.bodyText ?? '',
-                                targetHost: parsed.hostname,
-                              },
-                              sessionSanctuary: request.sessionSanctuary,
-                              browserLauncher: request.browserLauncher,
-                              transport: request.probeTransport,
-                              timeoutMs: request.config?.timeoutMs,
-                            });
-                        } catch (progErr) {
-                          unresolvedChallengeHosts.add(parsed.hostname);
-                          stage3Warnings.push(
-                            `Browser challenge progression attempt failed on ${targetUrl}: ${progErr instanceof Error ? progErr.message : String(progErr)}`
-                          );
-                          // Milestone R11 — evaluateAndProgress() has its own internal
-                          // try/catch and should not throw; this is a defensive fallback
-                          // for a truly unexpected failure, with no structured result to
-                          // reuse. Never carries progErr's message — only a closed code.
-                          recordChallengeAttemptDiagnostic(challengeContinuationsAttempted, parsed.hostname, {
-                            state: 'failed',
-                            challengeUrl: targetUrl,
-                            reasonCode: 'browser_continuation_error',
-                            applicationReachable: false,
-                            capturedCookieNames: Object.freeze([]),
-                          });
-                        }
+                        // Milestone: Challenge Continuation Reliability — a
+                        // challenge is a recoverable state, not a terminal
+                        // one after one failed attempt: try each configured
+                        // strategy in order, still spending from the SAME
+                        // global budget (ceiling unchanged), until resolved,
+                        // operator intervention is required, or the budget
+                        // runs out.
+                        const persistentHandle: PersistentChallengeContextHandle = {};
+                        let urlResolved = false;
+                        let urlAwaitingOperator = false;
+                        let lastContinuationRes: ChallengeContinuationResult | undefined;
+                        let strategiesTried = 0;
 
-                        if (continuationRes) {
+                        for (const strategy of challengeStrategyOrder) {
+                          if (challengeContinuationsAttempted >= maxChallengeContinuations) break;
+                          challengeContinuationsAttempted++;
+                          strategiesTried++;
+                          // Corrective pass — split the invocation itself from everything
+                          // that happens after a result comes back. Only this inner
+                          // try/catch may produce the synthetic browser_continuation_error
+                          // diagnostic, and only when evaluateAndProgress() itself throws.
+                          let continuationRes: ChallengeContinuationResult | undefined;
+                          try {
+                            continuationRes =
+                              await ChallengeBrowserContinuationService.evaluateAndProgress({
+                                challengeUrl: targetUrl,
+                                signals: {
+                                  statusCode: obs.statusCode,
+                                  headers: obs.headers ?? {},
+                                  bodyText: obs.bodyText ?? '',
+                                  targetHost: parsed.hostname,
+                                },
+                                sessionSanctuary: request.sessionSanctuary,
+                                browserLauncher: request.browserLauncher,
+                                transport: request.probeTransport,
+                                timeoutMs: request.config?.timeoutMs,
+                                disableStealth: request.config?.disableChallengeStealth,
+                                resolutionTimeoutMs: request.config?.challengeResolutionTimeoutMs,
+                                strategy,
+                                persistentContextHandle:
+                                  strategy === 'persistent_context' ? persistentHandle : undefined,
+                              });
+                          } catch (progErr) {
+                            stage3Warnings.push(
+                              `Browser challenge progression attempt failed on ${targetUrl} (strategy: ${strategy}): ${progErr instanceof Error ? progErr.message : String(progErr)}`
+                            );
+                            // Milestone R11 — evaluateAndProgress() has its own internal
+                            // try/catch and should not throw; this is a defensive fallback
+                            // for a truly unexpected failure, with no structured result to
+                            // reuse. Never carries progErr's message — only a closed code.
+                            recordChallengeAttemptDiagnostic(challengeContinuationsAttempted, parsed.hostname, {
+                              state: 'failed',
+                              challengeUrl: targetUrl,
+                              reasonCode: 'browser_continuation_error',
+                              applicationReachable: false,
+                              capturedCookieNames: Object.freeze([]),
+                              strategyUsed: strategy,
+                            });
+                            continue; // try the next strategy, if any budget remains
+                          }
+
                           // Milestone R11 — recorded exactly once per real invocation,
                           // unconditionally, before any branch below (or any later
                           // re-probe failure) can react to it.
@@ -1121,14 +1200,16 @@ export class CompositeActiveReconOrchestratorService {
                             parsed.hostname,
                             continuationRes
                           );
+                          lastContinuationRes = continuationRes;
 
                           if (
                             continuationRes.state === 'validated' &&
                             continuationRes.applicationReachable
                           ) {
                             resolvedChallengeHosts.add(parsed.hostname);
+                            urlResolved = true;
                             stage3Warnings.push(
-                              `Edge challenge successfully resolved via browser continuation on ${targetUrl} (captured cookies: ${continuationRes.capturedCookieNames.join(', ') || 'none'})`
+                              `Edge challenge successfully resolved via browser continuation on ${targetUrl} (strategy: ${strategy}; captured cookies: ${continuationRes.capturedCookieNames.join(', ') || 'none'})`
                             );
 
                             // Corrective pass — this try/catch covers only post-continuation
@@ -1157,6 +1238,17 @@ export class CompositeActiveReconOrchestratorService {
 
                               if (reprobeResult.status === 'success') {
                                 for (const postObs of reprobeResult.observations) {
+                                  // Fix: Correct Challenge Resolution (Recovery milestone) —
+                                  // the later generic link-mining pass only mines
+                                  // webObservations whose url is already in
+                                  // stage3PrimaryInspectUrls. A redirect during this
+                                  // re-probe can make postObs.url differ from targetUrl,
+                                  // silently missing it there. Registering the actually
+                                  // observed URL here guarantees that later pass mines it
+                                  // regardless of any redirect — no separate inline
+                                  // mining/enqueue logic needed (priorityFrontier is not
+                                  // constructed yet at this point in the method).
+                                  stage3PrimaryInspectUrls.add(postObs.url);
                                   const augmentedObs: DiscoveredWebObservation = {
                                     ...postObs,
                                     postChallengeForObservation: {
@@ -1174,17 +1266,39 @@ export class CompositeActiveReconOrchestratorService {
                                 `Post-challenge re-probe failed on ${targetUrl} (challenge itself was resolved): ${reprobeErr instanceof Error ? reprobeErr.message : String(reprobeErr)}`
                               );
                             }
+                            break; // resolved — stop trying further strategies
                           } else if (continuationRes.state === 'waiting_for_operator') {
+                            // Milestone: Challenge Continuation Reliability —
+                            // interactive challenges stop burning automated
+                            // attempts immediately; this is a recoverable,
+                            // pending state, never a silently-accepted one.
+                            urlAwaitingOperator = true;
+                            interactiveChallengeHosts.add(parsed.hostname);
                             stage3Warnings.push(
-                              `Edge challenge requires operator interaction on ${targetUrl}: ${continuationRes.operatorMessage}`
+                              `Edge challenge on ${targetUrl} requires an interactive/owner-controlled mechanism automatic continuation cannot perform: ${continuationRes.operatorMessage}`
                             );
-                          } else if (
-                            continuationRes.state === 'failed' ||
-                            continuationRes.state === 'expired'
-                          ) {
-                            unresolvedChallengeHosts.add(parsed.hostname);
+                            break;
+                          }
+                          // else: failed / expired / validation_pending — try the next
+                          // strategy if one remains and budget allows (loop continues).
+                        }
+
+                        if (persistentHandle.browser) {
+                          await persistentHandle.browser.close().catch(() => {});
+                        }
+
+                        if (!urlResolved && !urlAwaitingOperator && lastContinuationRes) {
+                          unresolvedChallengeHosts.add(parsed.hostname);
+                          if (lastContinuationRes.state === 'validation_pending') {
+                            // Fix: Correct Challenge Resolution — genuinely inconclusive,
+                            // never a confirmed resolution; treated conservatively for
+                            // recon-health purposes without claiming the host is blocked.
                             stage3Warnings.push(
-                              `Edge challenge NOT resolved on ${targetUrl} (${continuationRes.state}): ${continuationRes.reasonCode}${continuationRes.operatorMessage ? ' :: ' + continuationRes.operatorMessage : ''}`
+                              `Edge challenge resolution inconclusive on ${targetUrl} after ${strategiesTried} strateg${strategiesTried === 1 ? 'y' : 'ies'}: ${lastContinuationRes.reasonCode}${lastContinuationRes.operatorMessage ? ' :: ' + lastContinuationRes.operatorMessage : ''}`
+                            );
+                          } else {
+                            stage3Warnings.push(
+                              `Edge challenge NOT resolved on ${targetUrl} after ${strategiesTried} strateg${strategiesTried === 1 ? 'y' : 'ies'} (${lastContinuationRes.state}): ${lastContinuationRes.reasonCode}${lastContinuationRes.operatorMessage ? ' :: ' + lastContinuationRes.operatorMessage : ''}`
                             );
                           }
                         }
@@ -1425,44 +1539,62 @@ export class CompositeActiveReconOrchestratorService {
                       );
                     } else if (!challengedUrlsAttempted.has(next.url)) {
                       challengedUrlsAttempted.add(next.url);
-                      challengeContinuationsAttempted++;
-                      // Corrective pass — split the invocation itself from everything
-                      // that happens after a result comes back. Only this inner
-                      // try/catch may produce the synthetic browser_continuation_error
-                      // diagnostic, and only when evaluateAndProgress() itself throws.
-                      let continuationRes: ChallengeContinuationResult | undefined;
-                      try {
-                        continuationRes =
-                          await ChallengeBrowserContinuationService.evaluateAndProgress({
-                            challengeUrl: next.url,
-                            signals: {
-                              statusCode: obs.statusCode,
-                              headers: obs.headers ?? {},
-                              bodyText: obs.bodyText ?? '',
-                              targetHost: parsed.hostname,
-                            },
-                            sessionSanctuary: request.sessionSanctuary,
-                            browserLauncher: request.browserLauncher,
-                            transport: request.probeTransport,
-                            timeoutMs: request.config?.timeoutMs,
-                          });
-                      } catch (progErr) {
-                        unresolvedChallengeHosts.add(parsed.hostname);
-                        stage3Warnings.push(
-                          `Browser continuation failed on crawl URL ${next.url}: ${progErr instanceof Error ? progErr.message : String(progErr)}`
-                        );
-                        // Milestone R11 — same defensive fallback as the other call site;
-                        // never carries progErr's message, only a closed code.
-                        recordChallengeAttemptDiagnostic(challengeContinuationsAttempted, parsed.hostname, {
-                          state: 'failed',
-                          challengeUrl: next.url,
-                          reasonCode: 'browser_continuation_error',
-                          applicationReachable: false,
-                          capturedCookieNames: Object.freeze([]),
-                        });
-                      }
+                      // Milestone: Challenge Continuation Reliability — try
+                      // each configured strategy in order before accepting
+                      // this URL as unresolved, still spending from the SAME
+                      // global budget (ceiling unchanged).
+                      const persistentHandle: PersistentChallengeContextHandle = {};
+                      let urlResolved = false;
+                      let urlAwaitingOperator = false;
+                      let lastContinuationRes: ChallengeContinuationResult | undefined;
+                      let strategiesTried = 0;
 
-                      if (continuationRes) {
+                      for (const strategy of challengeStrategyOrder) {
+                        if (challengeContinuationsAttempted >= maxChallengeContinuations) break;
+                        challengeContinuationsAttempted++;
+                        strategiesTried++;
+                        // Corrective pass — split the invocation itself from everything
+                        // that happens after a result comes back. Only this inner
+                        // try/catch may produce the synthetic browser_continuation_error
+                        // diagnostic, and only when evaluateAndProgress() itself throws.
+                        let continuationRes: ChallengeContinuationResult | undefined;
+                        try {
+                          continuationRes =
+                            await ChallengeBrowserContinuationService.evaluateAndProgress({
+                              challengeUrl: next.url,
+                              signals: {
+                                statusCode: obs.statusCode,
+                                headers: obs.headers ?? {},
+                                bodyText: obs.bodyText ?? '',
+                                targetHost: parsed.hostname,
+                              },
+                              sessionSanctuary: request.sessionSanctuary,
+                              browserLauncher: request.browserLauncher,
+                              transport: request.probeTransport,
+                              timeoutMs: request.config?.timeoutMs,
+                              disableStealth: request.config?.disableChallengeStealth,
+                              resolutionTimeoutMs: request.config?.challengeResolutionTimeoutMs,
+                              strategy,
+                              persistentContextHandle:
+                                strategy === 'persistent_context' ? persistentHandle : undefined,
+                            });
+                        } catch (progErr) {
+                          stage3Warnings.push(
+                            `Browser continuation failed on crawl URL ${next.url} (strategy: ${strategy}): ${progErr instanceof Error ? progErr.message : String(progErr)}`
+                          );
+                          // Milestone R11 — same defensive fallback as the other call site;
+                          // never carries progErr's message, only a closed code.
+                          recordChallengeAttemptDiagnostic(challengeContinuationsAttempted, parsed.hostname, {
+                            state: 'failed',
+                            challengeUrl: next.url,
+                            reasonCode: 'browser_continuation_error',
+                            applicationReachable: false,
+                            capturedCookieNames: Object.freeze([]),
+                            strategyUsed: strategy,
+                          });
+                          continue; // try the next strategy, if any budget remains
+                        }
+
                         // Milestone R11 — recorded exactly once per real invocation,
                         // unconditionally, before any branch below (or any later
                         // re-probe failure) can react to it.
@@ -1471,14 +1603,16 @@ export class CompositeActiveReconOrchestratorService {
                           parsed.hostname,
                           continuationRes
                         );
+                        lastContinuationRes = continuationRes;
 
                         if (
                           continuationRes.state === 'validated' &&
                           continuationRes.applicationReachable
                         ) {
                           resolvedChallengeHosts.add(parsed.hostname);
+                          urlResolved = true;
                           stage3Warnings.push(
-                            `Edge challenge resolved via browser continuation on crawl URL ${next.url} (captured cookies: ${continuationRes.capturedCookieNames.join(', ') || 'none'})`
+                            `Edge challenge resolved via browser continuation on crawl URL ${next.url} (strategy: ${strategy}; captured cookies: ${continuationRes.capturedCookieNames.join(', ') || 'none'})`
                           );
 
                           // Corrective pass — the HTTP re-probe itself is now isolated from
@@ -1603,17 +1737,39 @@ export class CompositeActiveReconOrchestratorService {
                               }
                             }
                           }
+                          break; // resolved — stop trying further strategies
                         } else if (continuationRes.state === 'waiting_for_operator') {
+                          // Milestone: Challenge Continuation Reliability —
+                          // interactive challenges stop burning automated
+                          // attempts immediately; this is a recoverable,
+                          // pending state, never a silently-accepted one.
+                          urlAwaitingOperator = true;
+                          interactiveChallengeHosts.add(parsed.hostname);
                           stage3Warnings.push(
-                            `Edge challenge requires operator interaction on crawl URL ${next.url}: ${continuationRes.operatorMessage}`
+                            `Edge challenge on crawl URL ${next.url} requires an interactive/owner-controlled mechanism automatic continuation cannot perform: ${continuationRes.operatorMessage}`
                           );
-                        } else if (
-                          continuationRes.state === 'failed' ||
-                          continuationRes.state === 'expired'
-                        ) {
-                          unresolvedChallengeHosts.add(parsed.hostname);
+                          break;
+                        }
+                        // else: failed / expired / validation_pending — try the next
+                        // strategy if one remains and budget allows (loop continues).
+                      }
+
+                      if (persistentHandle.browser) {
+                        await persistentHandle.browser.close().catch(() => {});
+                      }
+
+                      if (!urlResolved && !urlAwaitingOperator && lastContinuationRes) {
+                        unresolvedChallengeHosts.add(parsed.hostname);
+                        if (lastContinuationRes.state === 'validation_pending') {
+                          // Fix: Correct Challenge Resolution — genuinely inconclusive,
+                          // never a confirmed resolution; treated conservatively for
+                          // recon-health purposes without claiming the host is blocked.
                           stage3Warnings.push(
-                            `Edge challenge NOT resolved on crawl URL ${next.url} (${continuationRes.state}): ${continuationRes.reasonCode}${continuationRes.operatorMessage ? ' :: ' + continuationRes.operatorMessage : ''}`
+                            `Edge challenge resolution inconclusive on crawl URL ${next.url} after ${strategiesTried} strateg${strategiesTried === 1 ? 'y' : 'ies'}: ${lastContinuationRes.reasonCode}${lastContinuationRes.operatorMessage ? ' :: ' + lastContinuationRes.operatorMessage : ''}`
+                          );
+                        } else {
+                          stage3Warnings.push(
+                            `Edge challenge NOT resolved on crawl URL ${next.url} after ${strategiesTried} strateg${strategiesTried === 1 ? 'y' : 'ies'} (${lastContinuationRes.state}): ${lastContinuationRes.reasonCode}${lastContinuationRes.operatorMessage ? ' :: ' + lastContinuationRes.operatorMessage : ''}`
                           );
                         }
                       }
@@ -2109,6 +2265,8 @@ export class CompositeActiveReconOrchestratorService {
                     authorizedScopeGrant: request.authorizedScopeGrant,
                     lineage: request.lineage,
                     timeoutMs: request.config?.timeoutMs,
+                    contextKind: effectiveContextKind,
+                    sessionHeaders: getEffectiveSessionHeaders(),
                   }),
                 httpStatusFromContentDiscovery,
               );
@@ -2134,6 +2292,8 @@ export class CompositeActiveReconOrchestratorService {
                   authorizedScopeGrant: request.authorizedScopeGrant,
                   lineage: request.lineage,
                   timeoutMs: request.config?.timeoutMs,
+                  contextKind: effectiveContextKind,
+                  sessionHeaders: getEffectiveSessionHeaders(),
                 })
             );
 
@@ -2497,6 +2657,7 @@ export class CompositeActiveReconOrchestratorService {
                   lineage: request.lineage,
                   coordinator,
                   timeoutMs: request.config?.timeoutMs,
+                  sessionCredentials: getEffectiveSessionCredentials(),
                 })
             );
 

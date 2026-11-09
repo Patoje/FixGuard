@@ -9,12 +9,54 @@ import {
   AlertTriangle,
   Loader2,
   Terminal,
+  ShieldAlert,
 } from "lucide-react";
 import type {
   OrchestratedAssessmentStatusResponse,
   StageResultDto,
 } from "@/lib/v2Api";
 import { consoleLineClassFromText } from "@/lib/v2/consoleLineTone";
+
+const EDGE_CHALLENGE_REQUIRES_INTERACTIVE_RESOLUTION_PREFIX =
+  "edge_challenge_requires_interactive_resolution:";
+
+/**
+ * Milestone: Challenge Continuation Reliability — a challenge must never be
+ * an accepted dead end, and recovery is fully automatic: FixGuard already
+ * retried every configured continuation strategy on its own before this
+ * notice can appear. This is read-only reporting, not an action the
+ * operator is required to take — a genuinely interactive challenge
+ * (Turnstile/CAPTCHA) has no automated solving path, so this surfaces that
+ * limitation honestly instead of silently claiming success, while
+ * reconnaissance continues automatically on every other authorized
+ * resource.
+ */
+function AutomaticChallengeCoverageNotice({
+  hosts,
+}: {
+  hosts: readonly string[];
+}) {
+  return (
+    <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3.5 text-xs text-amber-200 space-y-1">
+      <div className="flex items-start gap-2">
+        <ShieldAlert className="h-4 w-4 shrink-0 mt-0.5 text-amber-400" />
+        <div>
+          <p className="font-medium text-amber-100">
+            Interactive challenge limits coverage on {hosts.join(", ")}
+          </p>
+          <p className="mt-0.5 text-amber-300/80">
+            Automatic continuation attempted every configured strategy and
+            could not resolve this edge challenge — it requires an
+            interactive or owner-controlled mechanism FixGuard does not
+            perform automatically. Reconnaissance continues on every other
+            authorized resource; coverage on this host stays limited until
+            the challenge clears or an authorized bypass is configured.
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 interface SessionStatusCardProps {
   status: OrchestratedAssessmentStatusResponse | null;
@@ -283,6 +325,9 @@ export function SessionStatusCard({
   const isFailed =
     status.status === "failed" || status.status === "preflight_denied";
   const canContinueToTriage = isReconDone || isFailed;
+  const unresolvedInteractiveChallengeHosts = (status.reconHealthStatus?.reasonCodes ?? [])
+    .filter((rc) => rc.startsWith(EDGE_CHALLENGE_REQUIRES_INTERACTIVE_RESOLUTION_PREFIX))
+    .map((rc) => rc.slice(EDGE_CHALLENGE_REQUIRES_INTERACTIVE_RESOLUTION_PREFIX.length));
   const totalObs = status.stages.reduce((n, s) => n + s.observationsCount, 0);
   const pipelineKeys = new Set<string>(PIPELINE_ORDER);
   const stagesDone = Math.min(
@@ -352,6 +397,10 @@ export function SessionStatusCard({
           <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
           <span>{status.error}</span>
         </div>
+      )}
+
+      {unresolvedInteractiveChallengeHosts.length > 0 && (
+        <AutomaticChallengeCoverageNotice hosts={unresolvedInteractiveChallengeHosts} />
       )}
 
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">

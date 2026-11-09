@@ -54,6 +54,7 @@ import type {
   PageInstance,
   PlaywrightBrowserLauncher,
   RouteInstance,
+  RouteFetchResponse,
   ResponseInstance,
   DiscoveredSpaObservation,
   DiscoveredSpaRouteObservation,
@@ -149,12 +150,26 @@ class PlaywrightPageWrapper implements PageInstance {
           url: () => rawRoute.request().url(),
           method: () => rawRoute.request().method(),
           resourceType: () => rawRoute.request().resourceType(),
+          headers: () => rawRoute.request().headers(),
         }),
         abort: async (errorCode?: string) => {
           await rawRoute.abort(errorCode);
         },
-        continue: async () => {
-          await rawRoute.continue();
+        continue: async (options?: { headers?: Record<string, string> }) => {
+          await rawRoute.continue(options?.headers ? { headers: options.headers } : undefined);
+        },
+        fetch: async (options?: {
+          url?: string;
+          method?: string;
+          headers?: Record<string, string>;
+          maxRedirects?: number;
+        }) => {
+          return await rawRoute.fetch(options);
+        },
+        fulfill: async (options: { response: RouteFetchResponse }) => {
+          await rawRoute.fulfill({
+            response: options.response as NonNullable<Parameters<typeof rawRoute.fulfill>[0]>['response'],
+          });
         },
       };
       await handler(routeWrapper);
@@ -251,6 +266,23 @@ class PlaywrightBrowserContextWrapper implements BrowserContextInstance {
             : {}),
         })
       )
+    );
+  }
+
+  async addCookies(cookies: readonly BrowserCookieRecord[]): Promise<void> {
+    await this.rawContext.addCookies(
+      cookies.map((c) => ({
+        name: c.name,
+        value: c.value,
+        ...(c.domain ? { domain: c.domain } : {}),
+        path: c.path ?? '/',
+        ...(typeof c.expires === 'number' ? { expires: c.expires } : {}),
+        ...(typeof c.httpOnly === 'boolean' ? { httpOnly: c.httpOnly } : {}),
+        ...(typeof c.secure === 'boolean' ? { secure: c.secure } : {}),
+        ...(c.sameSite === 'Strict' || c.sameSite === 'Lax' || c.sameSite === 'None'
+          ? { sameSite: c.sameSite }
+          : {}),
+      }))
     );
   }
 
@@ -719,9 +751,7 @@ export class PlaywrightSpaAdapter implements BrowserAutomationTool {
 
       if (request.cdpEndpoint) {
         // For real Chrome via CDP, context is created directly on the authenticated browser
-        context = await browser.newContext(
-          request.proxyConfig ? { proxy: request.proxyConfig } : {}
-        );
+        context = await browser.newContext(request.proxyConfig ? { proxy: request.proxyConfig } : {});
       } else {
         const profile = selectBrowserProfile(request.browserProfileId);
         const contextOptions = request.disableStealth
@@ -743,6 +773,59 @@ export class PlaywrightSpaAdapter implements BrowserAutomationTool {
           await applyPlaywrightStealth(context, profile);
         }
       }
+
+      // Milestone: Final Playwright Redirect & Cookie Fidelity Corrections —
+      // session credentials are never placed on the context's own
+      // extraHTTPHeaders (applies unconditionally to every request, including
+      // third-party CDN subresources Gate 2 below allows to load) AND never
+      // populated into the browser's own cookie jar via context.addCookies()
+      // — verified directly that a real browser's cookie jar has no port
+      // scoping (RFC 6265: cookies are scoped by domain, not domain+port), so
+      // a cookie added for one port on a hostname is sent to every other port
+      // on that same hostname by the browser's own native redirect-following,
+      // regardless of anything a route handler decides. Cookie and
+      // Authorization are therefore both carried in ONE combined header set,
+      // attached only per-hop inside the explicit redirect loop below, with
+      // exact scheme+host+port matching — the only mechanism in this file
+      // that can express that granularity for either credential type.
+      let sessionOrigin: string | null = null;
+      let sessionAttachHeaders: Record<string, string> | undefined;
+      if (request.sessionCredentials) {
+        try {
+          const parsedOrigin = new URL(request.sessionCredentials.origin);
+          if (parsedOrigin.hostname.toLowerCase() === targetHost.toLowerCase()) {
+            sessionOrigin = parsedOrigin.origin;
+          }
+        } catch {
+          sessionOrigin = null;
+        }
+        if (sessionOrigin) {
+          const cookieHeader = request.sessionCredentials.cookies
+            ? Object.entries(request.sessionCredentials.cookies)
+                .map(([name, value]) => `${name}=${value}`)
+                .join('; ')
+            : '';
+          sessionAttachHeaders = {
+            ...(request.sessionCredentials.headers ?? {}),
+            ...(cookieHeader ? { Cookie: cookieHeader } : {}),
+          };
+        }
+      }
+
+      // Milestone: Final Playwright Redirect & Cookie Fidelity Corrections —
+      // this state is deliberately hoisted OUTSIDE the route handler
+      // (shared across every invocation of it for this page), not local
+      // to one call. Fulfilling a redirect response makes the browser
+      // auto-navigate to its Location, which triggers a BRAND NEW,
+      // independent page.route() invocation with no memory of a
+      // same-invocation redirect loop — verified directly that a
+      // per-invocation-only hop/visited count does not bound the total
+      // number of real requests a genuine redirect loop produces (each
+      // fulfilled cycle just restarts the count in a fresh invocation).
+      // Sharing this state across invocations is what makes the cap real.
+      const MAX_TOTAL_REDIRECT_HOPS = 10;
+      const globallyVisitedRedirectUrls = new Set<string>();
+      let totalRedirectHopsUsed = 0;
 
       page = await context.newPage();
 
@@ -775,6 +858,149 @@ export class PlaywrightSpaAdapter implements BrowserAutomationTool {
         if (coordinator && coordinator.isCircuitOpen(targetHost)) {
           await route.abort('failed');
           return;
+        }
+
+        // Session credentials (Cookie + Authorization + any BYOT header) are
+        // attached only when THIS request's own origin exactly matches
+        // sessionOrigin. classification.decision === 'continue' alone
+        // (in_scope OR allow_to_load_static_cdn) is NOT sufficient: a
+        // request can be in-scope-to-load while still being a different
+        // origin than the session, and an allowed third-party CDN load
+        // must never receive them.
+        //
+        // Verified directly (not assumed, not from documentation alone)
+        // against a real two-origin redirect: page.route() fires exactly
+        // ONCE per intercepted request. Fulfilling a 3xx response does NOT
+        // give this handler a second interception opportunity for the hop
+        // the browser then auto-navigates to — so a credentialed hop can
+        // never be handed back to the browser mid-chain and trusted to
+        // come back through here. This loop instead follows every
+        // same-origin redirect hop itself via route.fetch({url, method,
+        // maxRedirects: 0}), re-validating origin before every single
+        // fetch — and the moment a hop's Location points elsewhere, it
+        // stops immediately: it never issues that cross-origin request
+        // itself, and fulfills with the last same-origin hop's own 3xx
+        // response instead (the destination is still observed; it is
+        // just never requested — let alone authenticated — by this code).
+        //
+        // Hop count and visited-URL tracking are shared across EVERY
+        // invocation of this handler (see globallyVisitedRedirectUrls /
+        // totalRedirectHopsUsed above `page.route(...)`), not reset per
+        // call: verified directly that fulfilling a redirect triggers a
+        // brand new, independent route() invocation with no memory of a
+        // same-invocation loop, so a per-invocation-only bound never
+        // actually caps the total real requests a genuine redirect loop
+        // produces. For the same reason, once bounded or once a loop is
+        // detected, this never fulfills with another redirect (which
+        // would just make the browser auto-navigate again, re-entering
+        // this handler) — it aborts instead, which cannot be auto-followed.
+        if (sessionOrigin && sessionAttachHeaders && new URL(reqUrl).origin === sessionOrigin) {
+          let currentUrl = reqUrl;
+          let currentMethod = req.method();
+          let lastSameOriginResponse: RouteFetchResponse | undefined;
+
+          while (true) {
+            let hopOrigin: string;
+            try {
+              hopOrigin = new URL(currentUrl).origin;
+            } catch {
+              await route.abort('blockedbyclient');
+              return;
+            }
+
+            if (hopOrigin !== sessionOrigin) {
+              // Never request a cross-origin hop ourselves. Serve the last
+              // same-origin hop's own redirect response unmodified — the
+              // destination stays an observation, never a credentialed
+              // request, and is never claimed to be authenticated. Safe
+              // to fulfill here even though it is a 3xx: its target is
+              // cross-origin, so the browser's auto-follow re-enters this
+              // handler with no credentials to attach regardless.
+              if (lastSameOriginResponse) {
+                await route.fulfill({ response: lastSameOriginResponse });
+              } else {
+                await route.continue();
+              }
+              return;
+            }
+
+            if (totalRedirectHopsUsed >= MAX_TOTAL_REDIRECT_HOPS) {
+              // Bounded, across every invocation this redirect saga has
+              // spanned. Never fulfill with another redirect from here —
+              // that would just be auto-followed into yet another
+              // invocation. A genuinely terminal (non-redirect) response
+              // already in hand is still safe to serve; otherwise abort.
+              if (lastSameOriginResponse && (lastSameOriginResponse.status() < 300 || lastSameOriginResponse.status() >= 400)) {
+                await route.fulfill({ response: lastSameOriginResponse });
+              } else {
+                await route.abort('blockedbyclient');
+              }
+              return;
+            }
+
+            if (globallyVisitedRedirectUrls.has(currentUrl)) {
+              // Redirect loop detected (cumulatively, across invocations).
+              // Abort rather than fulfill: fulfilling this hop's own
+              // (necessarily redirecting) response would just be
+              // auto-followed straight back into the cycle.
+              await route.abort('blockedbyclient');
+              return;
+            }
+            globallyVisitedRedirectUrls.add(currentUrl);
+            totalRedirectHopsUsed += 1;
+
+            let fetched: RouteFetchResponse;
+            try {
+              fetched = await route.fetch({
+                url: currentUrl === reqUrl ? undefined : currentUrl,
+                method: currentMethod,
+                headers: { ...(req.headers?.() ?? {}), ...sessionAttachHeaders },
+                maxRedirects: 0,
+              });
+            } catch {
+              await route.abort('failed');
+              return;
+            }
+
+            const status = fetched.status();
+            if (status < 300 || status >= 400) {
+              await route.fulfill({ response: fetched });
+              return;
+            }
+
+            const location = fetched.headers()['location'];
+            if (!location) {
+              // A 3xx with no Location is not a real redirect — serve as-is.
+              await route.fulfill({ response: fetched });
+              return;
+            }
+
+            let nextUrl: string;
+            try {
+              nextUrl = new URL(location, currentUrl).toString();
+            } catch {
+              await route.fulfill({ response: fetched });
+              return;
+            }
+
+            // HTTP redirect method semantics (no request body is ever sent
+            // by this adapter, so only the method needs to change): 303
+            // always converts to GET; 301/302 convert a non-GET/HEAD
+            // method to GET per long-standing browser behavior; 307/308
+            // preserve the original method.
+            if (status === 303) {
+              currentMethod = 'GET';
+            } else if (
+              (status === 301 || status === 302) &&
+              currentMethod !== 'GET' &&
+              currentMethod !== 'HEAD'
+            ) {
+              currentMethod = 'GET';
+            }
+
+            lastSameOriginResponse = fetched;
+            currentUrl = nextUrl;
+          }
         }
 
         await route.continue();

@@ -7,6 +7,7 @@
     "typecheck:v2": "tsc -p tsconfig.v2.json",
     "smoke:v2": "FIXGUARD_V2_HERMETIC_RECON=1 npm run smoke:v2:suite",
     "test:v2:integration": "tsx src/v2/integration/run_integration_suite.ts",
+    "test:v2:credential-redirect-integration": "tsx src/v2/smoke/milestone_credential_redirect_integration_smoke.ts",
     "live:charmarket": "tsx scripts/live_assessment_charmarket.ts",
     "smoke:v2:milestone-a7-native-capabilities": "tsx src/v2/smoke/milestoneA7_native_capabilities_smoke.ts",
     "smoke:v2:milestone-a8-nuclei": "tsx src/v2/smoke/milestoneA8_nuclei_adapter_smoke.ts",

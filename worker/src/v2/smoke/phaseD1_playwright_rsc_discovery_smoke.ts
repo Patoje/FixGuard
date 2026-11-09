@@ -544,6 +544,8 @@ async function runSmokeTests() {
       continue: async () => {
         cdnContinued = true;
       },
+      fetch: async () => { throw new Error('fetch() not exercised by this test'); },
+      fulfill: async () => { throw new Error('fulfill() not exercised by this test'); },
     });
     assert.strictEqual(cdnAborted, false, 'OOS CDN script must be allow-to-load');
     assert.strictEqual(cdnContinued, true, 'OOS CDN script must continue');
@@ -562,6 +564,8 @@ async function runSmokeTests() {
       continue: async () => {
         apiContinued = true;
       },
+      fetch: async () => { throw new Error('fetch() not exercised by this test'); },
+      fulfill: async () => { throw new Error('fulfill() not exercised by this test'); },
     });
     assert.strictEqual(apiAborted, true, 'OOS API xhr must abort-navigation');
     assert.strictEqual(apiContinued, false, 'OOS API xhr must not continue');

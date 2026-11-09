@@ -27,7 +27,18 @@ import {
   type SessionChallengeState,
   type SessionContextKind,
   type SessionHealthState,
+  type StoredCookieMeta,
 } from './SessionSanctuaryContracts.js';
+
+/**
+ * Milestone: Final Playwright Redirect & Cookie Fidelity Corrections —
+ * conservative bound applied only to a cookie whose original
+ * server-provided expiry is genuinely unknown (imported with no
+ * `expires` at all). This is NOT a replacement for a known expiry — a
+ * cookie with a real `expiresAtMs` is governed by that value alone,
+ * checked at use time, never extended past it.
+ */
+const UNKNOWN_EXPIRY_COOKIE_TTL_MS = 4 * 60 * 60 * 1000;
 import { observeDefensesFromHttpResponse } from '../test-validity/DefenseObservationService.js';
 import type { BrowserCookieRecord } from '../recon/adapters/BrowserAutomationContracts.js';
 
@@ -154,6 +165,40 @@ export class SessionSanctuaryService {
   }
 
   /**
+   * Milestone: Final Playwright Redirect & Cookie Fidelity Corrections —
+   * the cookies in `ctx.cookies` that are still live right now: a cookie
+   * past its own known `expiresAtMs` is excluded (never sent once
+   * expired, matching the original server-provided expiry — never
+   * extended). A cookie with no metadata at all (e.g. a BYOT
+   * constructor-supplied identity cookie) is unaffected by this check —
+   * only entries that went through the browser-extraction import path
+   * (`importBrowserCookies`) carry metadata, known or bounded-unknown.
+   */
+  public getLiveCookies(kind: SessionContextKind): Readonly<Record<string, string>> {
+    const ctx = this.contexts.get(kind);
+    if (!ctx) return Object.freeze({});
+    const nowMs = Date.now();
+    const live: Record<string, string> = {};
+    for (const [name, value] of Object.entries(ctx.cookies)) {
+      const meta = ctx.cookieMeta?.[name];
+      if (!meta) {
+        live[name] = value;
+        continue;
+      }
+      if (typeof meta.expiresAtMs === 'number') {
+        if (nowMs > meta.expiresAtMs) continue;
+        live[name] = value;
+        continue;
+      }
+      // Genuinely unknown expiry — bounded conservative TTL from import
+      // time, never claimed to be the original (unknown) server expiry.
+      if (nowMs - meta.importedAtMs > UNKNOWN_EXPIRY_COOKIE_TTL_MS) continue;
+      live[name] = value;
+    }
+    return Object.freeze(live);
+  }
+
+  /**
    * Generates probe headers with cookies & auth material for a specific context.
    * Completely isolated: anonymous context never gets auth headers/cookies.
    */
@@ -162,9 +207,10 @@ export class SessionSanctuaryService {
     if (!ctx) return {};
 
     const headers: Record<string, string> = { ...ctx.headers };
+    const liveCookies = this.getLiveCookies(kind);
 
-    if (Object.keys(ctx.cookies).length > 0) {
-      const cookieStr = Object.entries(ctx.cookies)
+    if (Object.keys(liveCookies).length > 0) {
+      const cookieStr = Object.entries(liveCookies)
         .map(([k, v]) => `${k}=${v}`)
         .join('; ');
       const existing = headers['Cookie'] ?? headers['cookie'];
@@ -387,7 +433,8 @@ export class SessionSanctuaryService {
   public updateChallengeState(
     kind: SessionContextKind,
     challengeState: SessionChallengeState,
-    newCookies?: Readonly<Record<string, string>>
+    newCookies?: Readonly<Record<string, string>>,
+    newCookieMeta?: Readonly<Record<string, StoredCookieMeta>>
   ): void {
     const ctx = this.contexts.get(kind);
     if (!ctx) return;
@@ -396,6 +443,9 @@ export class SessionSanctuaryService {
     const updatedCookies = newCookies
       ? Object.freeze({ ...ctx.cookies, ...newCookies })
       : ctx.cookies;
+    const updatedCookieMeta = newCookieMeta
+      ? Object.freeze({ ...(ctx.cookieMeta ?? {}), ...newCookieMeta })
+      : ctx.cookieMeta;
 
     // Epistemic health invariant (Part 12):
     // Resolving edge challenge restores edge access, but does NOT automatically
@@ -416,6 +466,7 @@ export class SessionSanctuaryService {
     this.updateContext(kind, {
       challengeState,
       cookies: updatedCookies,
+      ...(updatedCookieMeta ? { cookieMeta: updatedCookieMeta } : {}),
       healthState: nextHealth,
       lastValidatedAt: new Date().toISOString(),
       ...(challengeState === 'resolved' ? { lastHealthReason: 'Edge challenge resolved' } : {}),
@@ -438,16 +489,19 @@ export class SessionSanctuaryService {
 
     const normalizedTargetDomain = this.targetDomain.toLowerCase();
     const acceptedCookies: Record<string, string> = {};
+    const acceptedCookieMeta: Record<string, StoredCookieMeta> = {};
     const importedNames: string[] = [];
     const nowMs = Date.now();
 
     for (const cookie of cookies) {
       if (!cookie.name || typeof cookie.value !== 'string') continue;
 
-      // 1. Expiration check: drop expired cookies
+      // 1. Expiration check: drop expired cookies. Never imported, let
+      // alone re-sent, once past its own server-provided expiry.
+      let expiresAtMs: number | undefined;
       if (typeof cookie.expires === 'number' && cookie.expires > 0) {
-        const expiresMs = cookie.expires > 1e11 ? cookie.expires : cookie.expires * 1000;
-        if (expiresMs <= nowMs) {
+        expiresAtMs = cookie.expires > 1e11 ? cookie.expires : cookie.expires * 1000;
+        if (expiresAtMs <= nowMs) {
           // Expired cookie dropped
           continue;
         }
@@ -468,11 +522,32 @@ export class SessionSanctuaryService {
       }
 
       acceptedCookies[cookie.name] = cookie.value;
+      // Preserve the full extracted metadata — expiry (when the server set
+      // one; absent here means genuinely unknown, never "no expiry"),
+      // domain/path/secure/httpOnly/sameSite — rather than discarding it
+      // down to a bare value, so use-time checks (getLiveCookies) can
+      // enforce the original expiry rather than just the import-time one.
+      acceptedCookieMeta[cookie.name] = {
+        ...(expiresAtMs !== undefined ? { expiresAtMs } : {}),
+        importedAtMs: nowMs,
+        ...(cookie.domain ? { domain: cookie.domain } : {}),
+        ...(cookie.path ? { path: cookie.path } : {}),
+        ...(typeof cookie.secure === 'boolean' ? { secure: cookie.secure } : {}),
+        ...(typeof cookie.httpOnly === 'boolean' ? { httpOnly: cookie.httpOnly } : {}),
+        ...(cookie.sameSite === 'Strict' || cookie.sameSite === 'Lax' || cookie.sameSite === 'None'
+          ? { sameSite: cookie.sameSite }
+          : {}),
+      };
       importedNames.push(cookie.name);
     }
 
     if (importedNames.length > 0 || challengeState) {
-      this.updateChallengeState(kind, challengeState, Object.freeze(acceptedCookies));
+      this.updateChallengeState(
+        kind,
+        challengeState,
+        Object.freeze(acceptedCookies),
+        Object.freeze(acceptedCookieMeta)
+      );
     }
 
     return Object.freeze(importedNames);

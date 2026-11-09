@@ -107,6 +107,20 @@ export class FfufAdapter implements ContentDiscoveryTool {
       args.push('-mc', '200,204,301,302,307,401,403,405', '-fc', '404');
     }
 
+    if (request.sessionHeaders) {
+      for (const [rawKey, rawVal] of Object.entries(request.sessionHeaders)) {
+        const key = rawKey.trim();
+        const val = typeof rawVal === 'string' ? rawVal.trim() : '';
+        if (key.length > 0 && val.length > 0 && !/[\r\n]/.test(key) && !/[\r\n]/.test(val)) {
+          // Invariant: Do not attach authenticated credentials to anonymous requests
+          if (request.contextKind === 'anonymous' && /^(authorization|proxy-authorization)$/i.test(key)) {
+            continue;
+          }
+          args.push('-H', `${key}: ${val}`);
+        }
+      }
+    }
+
     const timeoutMs = Math.min(
       typeof request.timeoutMs === 'number' && request.timeoutMs > 0
         ? request.timeoutMs

@@ -70,6 +70,19 @@ export class HttpxInspectionAdapter implements WebInspectionTool {
 
     const targetHost = preflight.targetHost;
 
+    // Milestone: Final Credential Redirect Audit — verified by direct
+    // testing against a real cross-origin HTTP redirect (not assumed from
+    // documentation): httpx's -follow-redirects forwards Cookie AND
+    // Authorization headers to the Location host unconditionally,
+    // including a different host, and even -follow-host-redirects still
+    // follows across a PORT change on the same hostname. Neither flag
+    // strips sensitive headers on any redirect hop. When sessionHeaders
+    // carry a credential, this probe stays single-hop — the redirect
+    // itself is still observed (see redirectLocation below), but it is
+    // never auto-followed with the credential attached.
+    const hasSessionCredentials =
+      !!request.sessionHeaders && Object.keys(request.sessionHeaders).length > 0;
+
     // 7. Command Execution: Strictly via ProcessRunner with shell: false and isolated argument array
     const args = [
       '-u', rawTarget,
@@ -78,7 +91,7 @@ export class HttpxInspectionAdapter implements WebInspectionTool {
       '-title',
       '-tech-detect',
       '-status-code',
-      '-follow-redirects'
+      ...(hasSessionCredentials ? [] : ['-follow-redirects']),
     ];
 
     if (request.sessionHeaders) {
@@ -223,6 +236,8 @@ export class HttpxInspectionAdapter implements WebInspectionTool {
         .sort();
 
       const resolvedIp = typeof rec.ip === 'string' && rec.ip.trim() ? rec.ip.trim() : undefined;
+      const redirectLocation =
+        typeof rec.location === 'string' && rec.location.trim() ? rec.location.trim() : undefined;
 
       if (!observationsMap.has(observedUrl)) {
         observationsMap.set(observedUrl, {
@@ -233,6 +248,7 @@ export class HttpxInspectionAdapter implements WebInspectionTool {
           webServer,
           technologies,
           resolvedIp,
+          ...(redirectLocation ? { redirectLocation } : {}),
           discoveredAt: nowIso,
           collectedAt: nowIso,
           freshness: 'live',

@@ -83,6 +83,36 @@ export class ArjunAdapter implements ParameterDiscoveryTool {
       args.push('-d', String(request.delaySeconds));
     }
 
+    if (request.sessionHeaders) {
+      const headerLines: string[] = [];
+      for (const [rawKey, rawVal] of Object.entries(request.sessionHeaders)) {
+        const key = rawKey.trim();
+        const val = typeof rawVal === 'string' ? rawVal.trim() : '';
+        if (key.length === 0 || val.length === 0 || /[\r\n]/.test(key) || /[\r\n]/.test(val)) {
+          continue;
+        }
+        // Invariant: Do not attach authenticated credentials to anonymous requests
+        if (request.contextKind === 'anonymous' && /^(authorization|proxy-authorization)$/i.test(key)) {
+          continue;
+        }
+        headerLines.push(`${key}: ${val}`);
+      }
+      if (headerLines.length > 0) {
+        args.push('--headers', headerLines.join('\\n'));
+        // Milestone: Final Credential Redirect Audit — verified by direct
+        // testing against a real cross-origin HTTP redirect (not assumed
+        // from documentation): arjun follows redirects by default
+        // (python-requests, allow_redirects=True) and forwards both
+        // Cookie and Authorization to the redirect target unconditionally,
+        // including a different host, on every one of its chunked
+        // parameter-probe requests. --disable-redirects fully prevents
+        // this; arjun then correctly refuses to scan a URL that redirects
+        // ("doesn't seem to be a webpage") rather than silently treating
+        // the redirect target as authenticated.
+        args.push('--disable-redirects');
+      }
+    }
+
     args.push('-oJ', tempFilePath);
 
     const timeoutMs = Math.min(

@@ -42,6 +42,31 @@ export type SessionChallengeState =
   | 'resolved'
   | 'failed';
 
+/**
+ * Milestone: Final Playwright Redirect & Cookie Fidelity Corrections —
+ * per-cookie metadata, kept alongside (never replacing) the flat
+ * name=value `cookies` map so every existing reader of that map is
+ * unaffected. `expiresAtMs`, when known (the browser extraction path
+ * always provides it when the server set one), is the cookie's own
+ * server-provided expiry — used-time checks (not just import-time) must
+ * reject a cookie once this passes, never extend it. When the source
+ * only ever provided name=value (expiry genuinely unknown — e.g. a
+ * BYOT-supplied identity cookie), `expiresAtMs` is absent: that is NOT
+ * the same as "never expires" — readers must treat it as unknown and
+ * apply `importedAtMs` plus a bounded conservative TTL instead of
+ * assuming indefinite validity.
+ */
+export interface StoredCookieMeta {
+  /** Epoch ms. Absent means the original expiry is genuinely unknown — never treat as "no expiry". */
+  readonly expiresAtMs?: number;
+  readonly importedAtMs: number;
+  readonly domain?: string;
+  readonly path?: string;
+  readonly secure?: boolean;
+  readonly httpOnly?: boolean;
+  readonly sameSite?: 'Strict' | 'Lax' | 'None';
+}
+
 export interface AssessmentSessionContext {
   readonly contractVersion: SessionSanctuaryContractVersion;
   readonly contextId: string;
@@ -52,6 +77,14 @@ export interface AssessmentSessionContext {
   readonly headers: Readonly<Record<string, string>>;
   /** Raw cookies held in sanctuary. Never emitted in safe descriptors. */
   readonly cookies: Readonly<Record<string, string>>;
+  /**
+   * Metadata for entries in `cookies`, keyed by the same cookie name.
+   * Additive and optional: a cookie present in `cookies` with no entry
+   * here (e.g. a BYOT-constructor-supplied identity cookie) is treated
+   * as unknown-expiry under the same bounded-TTL policy — see
+   * SessionSanctuaryService.getLiveCookies().
+   */
+  readonly cookieMeta?: Readonly<Record<string, StoredCookieMeta>>;
   readonly healthState: SessionHealthState;
   readonly authenticationState: SessionAuthenticationState;
   readonly challengeState: SessionChallengeState;

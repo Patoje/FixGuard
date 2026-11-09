@@ -31,10 +31,23 @@ import type {
   PageInstance,
   PlaywrightBrowserLauncher,
   RouteInstance,
+  RouteFetchResponse,
   ResponseInstance,
   NetworkRequestInstance,
 } from '../recon/adapters/BrowserAutomationContracts.js';
 import { BROWSER_AUTOMATION_NON_CLAIMS } from '../recon/adapters/BrowserAutomationContracts.js';
+
+/** fetch()/fulfill() are unused by tests that never attach session credentials. */
+function unusedRouteFetchFulfillStubs() {
+  return {
+    fetch: async (): Promise<RouteFetchResponse> => {
+      throw new Error('fetch() not exercised by this test');
+    },
+    fulfill: async (): Promise<void> => {
+      throw new Error('fulfill() not exercised by this test');
+    },
+  };
+}
 
 function createScopeGrant(domain: string): AuthorizedScopeGrant {
   const now = new Date();
@@ -202,6 +215,13 @@ class MockPage implements PageInstance {
 class MockBrowserContext implements BrowserContextInstance {
   public closed = false;
   public lastCreatedPage?: MockPage;
+  public addedCookies: Array<{
+    name: string;
+    value: string;
+    domain?: string;
+    path?: string;
+    secure?: boolean;
+  }> = [];
 
   constructor(
     private readonly titleValue: string,
@@ -221,6 +241,12 @@ class MockBrowserContext implements BrowserContextInstance {
     return page;
   }
 
+  async addCookies(
+    cookies: readonly { name: string; value: string; domain?: string; path?: string; secure?: boolean }[]
+  ): Promise<void> {
+    this.addedCookies.push(...cookies);
+  }
+
   async close(): Promise<void> {
     this.closed = true;
   }
@@ -229,6 +255,7 @@ class MockBrowserContext implements BrowserContextInstance {
 class MockBrowser implements BrowserInstance {
   public closed = false;
   public lastCreatedContext?: MockBrowserContext;
+  public lastContextOptions?: Record<string, unknown>;
 
   constructor(
     private readonly titleValue: string,
@@ -243,6 +270,7 @@ class MockBrowser implements BrowserInstance {
   ) {}
 
   async newContext(_options?: Record<string, unknown>): Promise<BrowserContextInstance> {
+    this.lastContextOptions = _options;
     const ctx = new MockBrowserContext(this.titleValue, this.domPayload);
     this.lastCreatedContext = ctx;
     return ctx;
@@ -537,6 +565,7 @@ async function runSmokeTests() {
         continue: async () => {
           continueCalled = true;
         },
+        ...unusedRouteFetchFulfillStubs(),
       };
 
       await page!.routeHandler!(mockRoute);
@@ -562,6 +591,7 @@ async function runSmokeTests() {
       continue: async () => {
         legitimateContinue = true;
       },
+      ...unusedRouteFetchFulfillStubs(),
     };
 
     await page!.routeHandler!(legitRoute);
@@ -583,6 +613,7 @@ async function runSmokeTests() {
       continue: async () => {
         oosCdnContinue = true;
       },
+      ...unusedRouteFetchFulfillStubs(),
     };
     await page!.routeHandler!(oosCdnRoute);
     assert.strictEqual(oosCdnAbort, false, 'OOS CDN script must be allow-to-load (not aborted)');
@@ -603,6 +634,7 @@ async function runSmokeTests() {
       continue: async () => {
         oosApiContinue = true;
       },
+      ...unusedRouteFetchFulfillStubs(),
     };
     await page!.routeHandler!(oosApiRoute);
     assert.strictEqual(oosApiAbort, true, 'OOS API fetch must be aborted');
@@ -620,13 +652,258 @@ async function runSmokeTests() {
         oosNavAbort = true;
       },
       continue: async () => {},
+      ...unusedRouteFetchFulfillStubs(),
     };
     await page!.routeHandler!(oosNavRoute);
     assert.strictEqual(oosNavAbort, true, 'OOS document navigation must be aborted');
   }
   console.log('✓ Assertion 4 passed: Gate 2 allow-to-load CDN vs abort OOS API/nav + SSRF');
 
-  console.log('\n--- ALL 4 MILESTONE 7 ASSERTIONS PASSED SUCCESSFULLY ---');
+  // =========================================================================
+  // Assertion 5 — Milestone: Final Playwright Redirect & Cookie Fidelity
+  // Corrections. Verified directly against a real two-origin redirect
+  // that page.route() fires exactly once per intercepted request —
+  // fulfilling a 3xx does NOT give this handler a second interception
+  // opportunity for the browser's own auto-navigation to the Location.
+  // Session credentials (Cookie AND Authorization, combined into one
+  // header set) are therefore attached only inside an explicit, bounded
+  // redirect-following loop this handler drives itself via
+  // route.fetch({url, method, maxRedirects: 0}) — never via
+  // context.addCookies() (a real cookie jar has no port scoping, so a
+  // cookie added for one port leaks to every other port on that
+  // hostname) and never via continue({headers}) or a bare fulfilled 3xx
+  // handed back to the browser mid-chain.
+  // =========================================================================
+  console.log('[Assertion 5] Session credentials are origin-scoped via an explicit redirect loop, never the cookie jar...');
+  {
+    const target = 'session-thread.example.com';
+    const { scopeGrant, decision, lineage } = setupAuthorizedContext(target);
+
+    const launcher = new MockPlaywrightLauncher();
+    const adapter = new PlaywrightSpaAdapter(launcher, async () => ['93.184.216.34']);
+
+    const result = await adapter.discoverSpa({
+      targetUrlOrDomain: `https://${target}`,
+      verifiedAuthorizationDecision: decision,
+      authorizedScopeGrant: scopeGrant,
+      lineage,
+      sessionCredentials: {
+        origin: `https://${target}`,
+        cookies: { cf_clearance: 'operator_resolved_token' },
+        headers: { authorization: 'Bearer secret_session_token' },
+      },
+    });
+
+    // 7. Existing authorized SPA discovery still functions end to end.
+    assert.strictEqual(result.status, 'success', 'SPA discovery must still succeed with sessionCredentials supplied');
+
+    const context = launcher.lastCreatedBrowser?.lastCreatedContext;
+    const page = context?.lastCreatedPage;
+    assert.ok(page?.routeHandler, 'page.route() handler must have been registered');
+
+    // The cookie jar is never used for session credentials — a real
+    // cookie jar cannot express port-scoping, so this is the only way to
+    // guarantee exact-origin isolation for both credential types alike.
+    assert.deepStrictEqual(
+      context!.addedCookies,
+      [],
+      'context.addCookies() must never be called for session credentials'
+    );
+
+    // No sensitive session header present in context-level extraHTTPHeaders.
+    const contextOptions = launcher.lastCreatedBrowser?.lastContextOptions as
+      | { extraHTTPHeaders?: Record<string, string> }
+      | undefined;
+    assert.ok(contextOptions?.extraHTTPHeaders, 'stealth must still set its own extraHTTPHeaders');
+    assert.strictEqual(
+      contextOptions!.extraHTTPHeaders!['Cookie'],
+      undefined,
+      'Cookie must never appear in context-level extraHTTPHeaders'
+    );
+    assert.strictEqual(
+      contextOptions!.extraHTTPHeaders!['authorization'],
+      undefined,
+      'Authorization must never appear in context-level extraHTTPHeaders'
+    );
+    // Stealth fingerprint headers remain intact (unrelated to credential scoping).
+    assert.ok(
+      'sec-ch-ua' in contextOptions!.extraHTTPHeaders!,
+      'Stealth fingerprint headers must be untouched by credential scoping'
+    );
+
+    // Case 1: a same-origin request with no redirect — both Cookie and
+    // Authorization attached via fetch(), fulfilled with that one response.
+    {
+      let fetchCallCount = 0;
+      let fetchCalledWith: { url?: string; method?: string; headers?: Record<string, string>; maxRedirects?: number } | undefined;
+      let fulfillCalledWith: RouteFetchResponse | undefined;
+      const mockResponse: RouteFetchResponse = { status: () => 200, headers: () => ({}) };
+      const route: RouteInstance = {
+        request: () => ({
+          url: () => `https://${target}/api/account`,
+          method: () => 'GET',
+          resourceType: () => 'fetch',
+          headers: () => ({ accept: '*/*' }),
+        }),
+        abort: async () => { throw new Error('same-origin request must not be aborted'); },
+        continue: async () => { throw new Error('a session-origin-matched request must use the fetch loop, never continue({headers})'); },
+        fetch: async (options) => {
+          fetchCallCount += 1;
+          fetchCalledWith = options;
+          return mockResponse;
+        },
+        fulfill: async (options) => { fulfillCalledWith = options.response; },
+      };
+      await page!.routeHandler!(route);
+      assert.strictEqual(fetchCallCount, 1, 'a non-redirecting request must fetch exactly once');
+      assert.strictEqual(fetchCalledWith?.headers?.authorization, 'Bearer secret_session_token');
+      assert.strictEqual(fetchCalledWith?.headers?.Cookie, 'cf_clearance=operator_resolved_token');
+      assert.strictEqual(fetchCalledWith?.maxRedirects, 0);
+      assert.strictEqual(fetchCalledWith?.headers?.accept, '*/*', 'the request’s own existing headers must be preserved');
+      assert.strictEqual(fulfillCalledWith, mockResponse, 'the fetched response must be served via fulfill()');
+      console.log('  [case 1] no redirect: Cookie + Authorization attached in one fetch() call, fulfilled directly.');
+    }
+
+    // Case 2: a same-origin redirect chain (hop1 -> hop2, both same
+    // origin) — the loop must follow it itself, attaching credentials to
+    // EVERY hop, and fulfill with the FINAL non-redirect response.
+    {
+      let fetchCallCount = 0;
+      const fetchedUrls: (string | undefined)[] = [];
+      const fetchedHeaders: (Record<string, string> | undefined)[] = [];
+      let fulfillCalledWith: RouteFetchResponse | undefined;
+      const hop2Response: RouteFetchResponse = { status: () => 200, headers: () => ({}) };
+      const hop1Response: RouteFetchResponse = {
+        status: () => 302,
+        headers: () => ({ location: `https://${target}/dashboard` }),
+      };
+      const route: RouteInstance = {
+        request: () => ({
+          url: () => `https://${target}/login-redirect`,
+          method: () => 'GET',
+          resourceType: () => 'document',
+          headers: () => ({}),
+        }),
+        abort: async () => { throw new Error('must not abort'); },
+        continue: async () => { throw new Error('must not hand a same-origin redirect chain back to continue()'); },
+        fetch: async (options) => {
+          fetchCallCount += 1;
+          fetchedUrls.push(options?.url);
+          fetchedHeaders.push(options?.headers);
+          return fetchCallCount === 1 ? hop1Response : hop2Response;
+        },
+        fulfill: async (options) => { fulfillCalledWith = options.response; },
+      };
+      await page!.routeHandler!(route);
+      assert.strictEqual(fetchCallCount, 2, 'both hops of a same-origin redirect chain must be fetched');
+      assert.strictEqual(fetchedUrls[0], undefined, 'the first hop reuses the intercepted request’s own URL');
+      assert.strictEqual(fetchedUrls[1], `https://${target}/dashboard`, 'the second hop must target the redirect’s Location');
+      assert.strictEqual(fetchedHeaders[0]?.authorization, 'Bearer secret_session_token', 'hop 1 must receive credentials');
+      assert.strictEqual(fetchedHeaders[1]?.authorization, 'Bearer secret_session_token', 'hop 2 must also receive credentials — same origin');
+      assert.strictEqual(fetchedHeaders[1]?.Cookie, 'cf_clearance=operator_resolved_token');
+      assert.strictEqual(fulfillCalledWith, hop2Response, 'the FINAL (non-redirect) response must be the one fulfilled');
+      console.log('  [case 2] same-origin redirect chain: both hops fetched with credentials; final response fulfilled.');
+    }
+
+    // Case 3: a redirect to a DIFFERENT origin — the loop must stop
+    // immediately and must NEVER fetch the cross-origin destination
+    // itself; it fulfills with the last same-origin hop's own 3xx
+    // response instead (observation preserved, never requested with
+    // credentials, never claimed authenticated).
+    {
+      let fetchCallCount = 0;
+      const fetchedUrls: (string | undefined)[] = [];
+      let fulfillCalledWith: RouteFetchResponse | undefined;
+      const crossOriginRedirect: RouteFetchResponse = {
+        status: () => 302,
+        headers: () => ({ location: 'https://attacker.example.net/landing' }),
+      };
+      const route: RouteInstance = {
+        request: () => ({
+          url: () => `https://${target}/go-elsewhere`,
+          method: () => 'GET',
+          resourceType: () => 'document',
+          headers: () => ({}),
+        }),
+        abort: async () => { throw new Error('must not abort'); },
+        continue: async () => { throw new Error('must not hand off to continue()'); },
+        fetch: async (options) => {
+          fetchCallCount += 1;
+          fetchedUrls.push(options?.url);
+          return crossOriginRedirect;
+        },
+        fulfill: async (options) => { fulfillCalledWith = options.response; },
+      };
+      await page!.routeHandler!(route);
+      assert.strictEqual(fetchCallCount, 1, 'the loop must fetch only the same-origin hop, never the cross-origin target');
+      assert.strictEqual(fulfillCalledWith, crossOriginRedirect, 'the cross-origin-pointing 3xx is fulfilled as-is (observation preserved, not followed by this code)');
+      console.log('  [case 3] cross-origin redirect target: never fetched by this code; the redirect itself is still observed.');
+    }
+
+    // Case 4: a redirect loop (hop points back to an already-visited URL)
+    // must be detected and stopped, not followed forever.
+    {
+      let fetchCallCount = 0;
+      let fulfillCalled = false;
+      const loopingResponse: RouteFetchResponse = {
+        status: () => 302,
+        headers: () => ({ location: `https://${target}/loop-a` }),
+      };
+      const route: RouteInstance = {
+        request: () => ({
+          url: () => `https://${target}/loop-a`,
+          method: () => 'GET',
+          resourceType: () => 'document',
+          headers: () => ({}),
+        }),
+        abort: async () => { throw new Error('must not abort'); },
+        continue: async () => { throw new Error('must not hand off to continue()'); },
+        fetch: async () => {
+          fetchCallCount += 1;
+          return loopingResponse;
+        },
+        fulfill: async () => { fulfillCalled = true; },
+      };
+      await page!.routeHandler!(route);
+      assert.ok(fetchCallCount <= 11, `a redirect loop must be bounded, not infinite (got ${fetchCallCount} fetch calls)`);
+      assert.strictEqual(fulfillCalled, true, 'a detected loop must still resolve the route (fulfill), never hang');
+      console.log(`  [case 4] redirect loop: stopped after ${fetchCallCount} fetch call(s), route resolved.`);
+    }
+
+    // External CDN script (classification allows load, origin doesn't
+    // match) — unaffected by the credential loop, still plain continue().
+    let oosContinueCalled = false;
+    let oosContinueOptions: { headers?: Record<string, string> } | undefined;
+    let oosAbortCalled = false;
+    const oosCdnRoute: RouteInstance = {
+      request: () => ({
+        url: () => 'https://cdn.example.com/assets/app.js',
+        method: () => 'GET',
+        resourceType: () => 'script',
+        headers: () => ({ accept: '*/*' }),
+      }),
+      abort: async () => {
+        oosAbortCalled = true;
+      },
+      continue: async (options) => {
+        oosContinueCalled = true;
+        oosContinueOptions = options;
+      },
+      ...unusedRouteFetchFulfillStubs(),
+    };
+    await page!.routeHandler!(oosCdnRoute);
+    assert.strictEqual(oosAbortCalled, false, 'External CDN script must still be allowed to load');
+    assert.strictEqual(oosContinueCalled, true, 'External CDN script must still continue');
+    assert.strictEqual(
+      oosContinueOptions,
+      undefined,
+      'External CDN script must never receive a header override carrying session credentials'
+    );
+    console.log('  [case 5] external CDN script: unaffected, plain continue(), no credentials.');
+  }
+  console.log('✓ Assertion 5 passed: Cookie + Authorization both flow only through the explicit, bounded, per-hop-validated redirect loop — never the cookie jar, never context-level headers, never a credentialed hop handed back to the browser.');
+
+  console.log('\n--- ALL 5 MILESTONE 7 ASSERTIONS PASSED SUCCESSFULLY ---');
 }
 
 runSmokeTests().catch((err) => {

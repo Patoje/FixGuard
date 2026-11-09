@@ -18,7 +18,10 @@ import {
 import { PriorityReconFrontierService } from '../recon/frontier/PriorityReconFrontierService.js';
 import { runAuthDifferentialMatrix } from '../differential/AuthDifferentialMatrixService.js';
 import { ChallengeClassifierService } from '../challenge/ChallengeClassifierService.js';
-import { ChallengeBrowserContinuationService } from '../challenge/ChallengeBrowserContinuationService.js';
+import {
+  ChallengeBrowserContinuationService,
+  type PersistentChallengeContextHandle,
+} from '../challenge/ChallengeBrowserContinuationService.js';
 import { establishVerifiedAuthorizationDecision } from '../authorization/VerifiedAuthorizationDecisionService.js';
 import type { AuthorizedScopeGrant } from '../scope/AuthorizedScopeContracts.js';
 import type {
@@ -26,10 +29,14 @@ import type {
   HttpProbeRequest,
   HttpProbeResponse,
 } from '../detection/DetectionContracts.js';
-import type { PlaywrightBrowserLauncher } from '../recon/adapters/BrowserAutomationContracts.js';
+import type { PlaywrightBrowserLauncher, BrowserCookieRecord } from '../recon/adapters/BrowserAutomationContracts.js';
+import { STEALTH_CHROMIUM_LAUNCH_ARGS } from '../recon/adapters/PlaywrightStealth.js';
+import { DefaultPlaywrightBrowserLauncher } from '../recon/adapters/PlaywrightSpaAdapter.js';
+import { chromium } from 'playwright';
 import { CompositeActiveReconOrchestratorService } from '../recon/orchestration/CompositeActiveReconOrchestratorService.js';
 import { TargetExecutionCoordinator } from '../runtime/TargetExecutionCoordinator.js';
 import type { ReconToolAdapters } from '../recon/orchestration/ActiveReconOrchestrationContracts.js';
+import { ReconHealthClassificationService } from '../recon/orchestration/ReconHealthClassificationService.js';
 import { WEB_INSPECTION_NON_CLAIMS, type WebInspectionRequest } from '../recon/adapters/WebInspectionContracts.js';
 import { SUBDOMAIN_DISCOVERY_NON_CLAIMS } from '../recon/adapters/SubdomainDiscoveryContracts.js';
 import { DNS_RESOLUTION_NON_CLAIMS } from '../recon/adapters/DnsResolutionContracts.js';
@@ -231,6 +238,115 @@ async function runBlockASmokeSuite(): Promise<void> {
   const canaryRedirect = await sanctuary.validateSessionHealth('authenticated', loginRedirectTransport);
   assert.equal(canaryRedirect.healthState, 'expired');
   console.log('  [PASS] 1.5: Login redirect correctly identifies expired session.');
+
+  // 1.6: Milestone: Final Playwright Redirect & Cookie Fidelity Corrections —
+  // cookie metadata (domain/path/secure/httpOnly/sameSite, and expiry when
+  // the server set one) survives the browser-extraction import path rather
+  // than being discarded down to a bare value, and getLiveCookies()
+  // enforces that expiry at USE time (not just at import time).
+  {
+    const cookieMetaSanctuary = new SessionSanctuaryService({
+      targetDomain: TARGET_DOMAIN,
+      originUrl: ORIGIN_URL,
+    });
+    const futureExpirySeconds = Math.floor(Date.now() / 1000) + 3600; // 1h from now
+    const nearExpirySeconds = Math.floor(Date.now() / 1000) + 1; // ~1s from now
+    const imported = cookieMetaSanctuary.importBrowserCookies('anonymous', [
+      {
+        name: 'cf_clearance',
+        value: 'metadata_preserved_token',
+        domain: TARGET_DOMAIN,
+        path: '/admin',
+        secure: true,
+        httpOnly: true,
+        sameSite: 'Strict',
+        expires: futureExpirySeconds,
+      },
+      {
+        name: 'short_lived',
+        value: 'about_to_expire',
+        domain: TARGET_DOMAIN,
+        expires: nearExpirySeconds,
+      },
+      {
+        // No expires at all — genuinely unknown, not "no expiry".
+        name: 'unknown_expiry_cookie',
+        value: 'unknown_lifetime',
+        domain: TARGET_DOMAIN,
+      },
+    ]);
+    assert.deepEqual(
+      [...imported].sort(),
+      ['cf_clearance', 'short_lived', 'unknown_expiry_cookie'],
+      '1.6: all three cookies must be accepted at import time (none expired yet)'
+    );
+
+    const ctxAfterImport = cookieMetaSanctuary.getContext('anonymous');
+    const meta = ctxAfterImport?.cookieMeta?.['cf_clearance'];
+    assert.ok(meta, '1.6: cf_clearance must have stored metadata, not just a bare value');
+    assert.equal(meta!.domain, TARGET_DOMAIN, '1.6: domain must be preserved');
+    assert.equal(meta!.path, '/admin', '1.6: path must be preserved');
+    assert.equal(meta!.secure, true, '1.6: secure must be preserved');
+    assert.equal(meta!.httpOnly, true, '1.6: httpOnly must be preserved');
+    assert.equal(meta!.sameSite, 'Strict', '1.6: sameSite must be preserved');
+    assert.equal(
+      meta!.expiresAtMs,
+      futureExpirySeconds * 1000,
+      '1.6: the original server-provided expiry must be preserved exactly, in ms'
+    );
+
+    const unknownMeta = ctxAfterImport?.cookieMeta?.['unknown_expiry_cookie'];
+    assert.ok(unknownMeta, '1.6: even a cookie with no expires must have metadata recorded');
+    assert.equal(
+      unknownMeta!.expiresAtMs,
+      undefined,
+      '1.6: a cookie imported with no expires must record its expiry as unknown, never a fabricated value'
+    );
+    console.log('  [PASS] 1.6: cookie domain/path/secure/httpOnly/sameSite/expiry metadata survives the import path (not discarded to a bare value).');
+  }
+
+  // 1.7: A cookie must never be sent once its OWN server-provided expiry
+  // has passed, even though it was valid (and correctly accepted) at
+  // import time — i.e. this is checked at USE time, not just import time.
+  {
+    const useTimeSanctuary = new SessionSanctuaryService({
+      targetDomain: TARGET_DOMAIN,
+      originUrl: ORIGIN_URL,
+    });
+    const aboutToExpireSeconds = Math.floor(Date.now() / 1000) + 1;
+    useTimeSanctuary.importBrowserCookies('anonymous', [
+      { name: 'about_to_expire', value: 'will_expire_soon', domain: TARGET_DOMAIN, expires: aboutToExpireSeconds },
+      { name: 'long_lived', value: 'still_valid', domain: TARGET_DOMAIN, expires: aboutToExpireSeconds + 3600 },
+    ]);
+    assert.ok(
+      'about_to_expire' in useTimeSanctuary.getLiveCookies('anonymous'),
+      '1.7: immediately after import, the soon-to-expire cookie must still be live'
+    );
+
+    await new Promise((resolve) => setTimeout(resolve, 1200));
+
+    const liveAfterWait = useTimeSanctuary.getLiveCookies('anonymous');
+    assert.ok(
+      !('about_to_expire' in liveAfterWait),
+      '1.7: once its own expiry passes, the cookie must no longer be sent — checked at use time, not only at import time'
+    );
+    assert.ok(
+      'long_lived' in liveAfterWait,
+      '1.7: a cookie whose expiry has not yet passed must remain live'
+    );
+    const liveCookieHeader = useTimeSanctuary.createProbeHeaders('anonymous')['Cookie'] ?? '';
+    assert.equal(
+      liveCookieHeader.includes('about_to_expire'),
+      false,
+      '1.7: createProbeHeaders must also exclude the now-expired cookie from the Cookie header it builds'
+    );
+    assert.equal(
+      liveCookieHeader.includes('long_lived'),
+      true,
+      '1.7: createProbeHeaders must still include a cookie that has not expired'
+    );
+    console.log('  [PASS] 1.7: an expired cookie is excluded at use time (getLiveCookies/createProbeHeaders), never just at import time.');
+  }
 
   // =========================================================================
   // SECTION 2: PRIORITY RECON FRONTIER
@@ -565,11 +681,25 @@ async function runBlockASmokeSuite(): Promise<void> {
     }),
   };
 
+  // Fix: Correct Challenge Resolution — this mock's evaluate() rejects (no
+  // `document` in a plain Node harness), so the browser-side check alone is
+  // genuinely inconclusive; a transport is required for a 'validated'
+  // outcome, matching the always-supplied production wiring
+  // (OrchestratedAssessmentApplicationService sets probeTransport).
+  const autoProgTransport = async (_req: HttpProbeRequest): Promise<HttpProbeResponse> => ({
+    statusCode: 200,
+    headers: {},
+    bodyText: '<html>In-scope application</html>',
+    responseTimeMs: 10,
+  });
+
   const autoProgResult = await ChallengeBrowserContinuationService.evaluateAndProgress({
     challengeUrl: 'https://target.example.com/protected_route',
     signals: challengeSignals,
     sessionSanctuary: freshSanctuary,
     browserLauncher: mockLauncher,
+    transport: autoProgTransport,
+    resolutionTimeoutMs: 50,
   });
 
   assert.equal(autoProgResult.state, 'validated');
@@ -607,29 +737,17 @@ async function runBlockASmokeSuite(): Promise<void> {
 
   assert.equal(hitlProgResult.state, 'waiting_for_operator');
   assert.equal(hitlProgResult.applicationReachable, false);
-  assert.ok(hitlProgResult.operatorMessage?.includes('Operator assistance required'));
-  console.log('  [PASS] 4.7: Interactive challenge successfully paused at waiting_for_operator (HITL boundary).');
-
-  // 4.8: Operator completes challenge callback & resumes
-  const resumedResult = await ChallengeBrowserContinuationService.resumeAfterOperatorCompletion(
-    {
-      challengeId: 'chl_001',
-      confirmedCookies: { cf_clearance: 'cleared_token_abc' },
-      operatorNotes: 'Completed Turnstile in interactive session',
-    },
-    'https://target.example.com/turnstile_route',
-    freshSanctuary,
-    async () => ({
-      statusCode: 200,
-      headers: {},
-      bodyText: '<html>Welcome to Target App</html>',
-      responseTimeMs: 25,
-    })
+  assert.ok(
+    hitlProgResult.operatorMessage?.includes('no automated continuation strategy can complete')
   );
+  console.log('  [PASS] 4.7: Interactive challenge honestly reports waiting_for_operator (no automated strategy can solve it) without requiring a manual resume step.');
 
-  assert.equal(resumedResult.state, 'validated');
-  assert.equal(resumedResult.applicationReachable, true);
-  assert.equal(freshSanctuary.getContext('anonymous')?.cookies['cf_clearance'], 'cleared_token_abc');
+  // 4.8 (removed): the operator-cookie-paste resume path
+  // (resumeAfterOperatorCompletion) no longer exists — manual challenge
+  // resume was removed per the "fully automatic, no operator interaction"
+  // product requirement. Automatic recovery (Section 8) now covers
+  // resuming an interactive challenge's assessment without any operator
+  // callback; see Section 8 for the replacement coverage.
   // =========================================================================
   // SECTION 5: BLOCK A.1 RUNTIME SESSION CONTINUATION & COMPOSITION SUITE
   // =========================================================================
@@ -662,11 +780,22 @@ async function runBlockASmokeSuite(): Promise<void> {
     }),
   };
 
+  // Fix: Correct Challenge Resolution — evaluate() rejects in this mock (no
+  // `document`), so a transport is required for 'validated', matching
+  // production's always-supplied probeTransport.
+  const testATransport = async (_req: HttpProbeRequest): Promise<HttpProbeResponse> => ({
+    statusCode: 200,
+    headers: {},
+    bodyText: '<html>Application Home</html>',
+    responseTimeMs: 10,
+  });
   const testAProg = await ChallengeBrowserContinuationService.evaluateAndProgress({
     challengeUrl: 'https://target.example.com/protected',
     signals: challengeSignals,
     sessionSanctuary: testASanctuary,
     browserLauncher: mockLauncherA,
+    transport: testATransport,
+    resolutionTimeoutMs: 50,
   });
 
   assert.equal(testAProg.state, 'validated');
@@ -953,7 +1082,11 @@ async function runBlockASmokeSuite(): Promise<void> {
           route: async () => {},
           on: () => {},
           waitForLoadState: async () => {},
-          evaluate: async <T>(fn: () => T | Promise<T>): Promise<T> => Promise.resolve(fn()),
+          // Fix: Correct Challenge Resolution — returns real, non-challenge
+          // body content directly (no `document` exists in this Node
+          // harness) so the bounded poll resolves on its first sample
+          // instead of exhausting the full resolution timeout.
+          evaluate: async <T>(): Promise<T> => 'Protected Dashboard application content' as unknown as T,
           close: async () => {},
         }),
         cookies: async () => [
@@ -968,6 +1101,17 @@ async function runBlockASmokeSuite(): Promise<void> {
   const orchestrator = new CompositeActiveReconOrchestratorService(mockAdapters);
   const compositionCoord = new TargetExecutionCoordinator({ requestsPerSecond: 10, maxConcurrency: 2 });
 
+  // Fix: Correct Challenge Resolution — compositionLauncher's evaluate()
+  // rejects (no `document`), so a transport is required for the
+  // continuation to validate, matching production's always-supplied
+  // probeTransport (OrchestratedAssessmentApplicationService).
+  const compositionTransport = async (_req: HttpProbeRequest): Promise<HttpProbeResponse> => ({
+    statusCode: 200,
+    headers: {},
+    bodyText: '<html>Protected Dashboard</html>',
+    responseTimeMs: 15,
+  });
+
   const compResult = await orchestrator.orchestrate({
     targetDomain: TARGET_DOMAIN,
     verifiedAuthorizationDecision: verifiedDecision,
@@ -976,6 +1120,7 @@ async function runBlockASmokeSuite(): Promise<void> {
     coordinator: compositionCoord,
     sessionSanctuary: compositionSanctuary,
     browserLauncher: compositionLauncher,
+    probeTransport: compositionTransport,
     config: {
       skipStages: ['stage_1_domain_zone', 'stage_2_port_service', 'stage_4_crawling_parameters', 'stage_5_secret_inspection'],
     },
@@ -1019,6 +1164,9 @@ async function runBlockASmokeSuite(): Promise<void> {
   // =========================================================================
   console.log('\n[+] Section 6: R11 Challenge-Attempt Diagnostics Regression Coverage...');
 
+  // Fix: Correct Challenge Resolution — returns real, non-challenge body
+  // content directly (no `document` exists in this Node harness) so the
+  // bounded poll resolves on its first sample. Shared by Case A and Case B.
   const caseALauncher: PlaywrightBrowserLauncher = {
     launch: async () => ({
       newContext: async () => ({
@@ -1029,7 +1177,7 @@ async function runBlockASmokeSuite(): Promise<void> {
           route: async () => {},
           on: () => {},
           waitForLoadState: async () => {},
-          evaluate: async <T>(fn: () => T | Promise<T>): Promise<T> => Promise.resolve(fn()),
+          evaluate: async <T>(): Promise<T> => 'Protected Dashboard application content' as unknown as T,
           close: async () => {},
         }),
         cookies: async () => [
@@ -1040,6 +1188,16 @@ async function runBlockASmokeSuite(): Promise<void> {
       close: async () => {},
     }),
   };
+
+  // Fix: Correct Challenge Resolution — Case A/B's continuation now requires
+  // a transport for a 'validated' outcome, matching production's
+  // always-supplied probeTransport.
+  const caseAbTransport = async (_req: HttpProbeRequest): Promise<HttpProbeResponse> => ({
+    statusCode: 200,
+    headers: {},
+    bodyText: '<html>Protected Dashboard</html>',
+    responseTimeMs: 12,
+  });
 
   // 6.1 (Test I): Case A — successful continuation, then the HTTP re-probe itself throws.
   {
@@ -1132,6 +1290,7 @@ async function runBlockASmokeSuite(): Promise<void> {
       coordinator: caseACoord,
       sessionSanctuary: caseASanctuary,
       browserLauncher: caseALauncher,
+      probeTransport: caseAbTransport,
       config: {
         skipStages: ['stage_1_domain_zone', 'stage_2_port_service', 'stage_4_crawling_parameters', 'stage_5_secret_inspection'],
       },
@@ -1347,6 +1506,7 @@ async function runBlockASmokeSuite(): Promise<void> {
       coordinator: caseBCoord,
       sessionSanctuary: caseBSanctuary,
       browserLauncher: caseALauncher,
+      probeTransport: caseAbTransport,
       config: {
         skipStages: ['stage_1_domain_zone', 'stage_2_port_service', 'stage_4_crawling_parameters', 'stage_5_secret_inspection'],
       },
@@ -1397,6 +1557,1007 @@ async function runBlockASmokeSuite(): Promise<void> {
     );
 
     console.log('  [PASS] 6.2 (Test J — Case B): Successful re-probe + one malformed observation → facts absorbed, remaining observations still processed, distinct processing-failure warning, no misattribution.');
+  }
+
+  // =========================================================================
+  // SECTION 7: CHALLENGE CONTINUATION RELIABILITY (MILESTONE 1)
+  // Bounded condition-based resolution, provider-neutral diagnostics,
+  // configurable stealth. Deterministic mocks only — these do not prove
+  // compatibility with any real provider.
+  // =========================================================================
+  console.log('\n[+] Section 7: Challenge Continuation Reliability...');
+  {
+    interface ResolutionMockConfig {
+      /** Sampled by title() on each poll iteration; last entry repeats once exhausted. */
+      readonly titles: readonly string[];
+      /** Sampled by evaluate() on each poll iteration; last entry repeats once exhausted. */
+      readonly bodies: readonly string[];
+      /** When true, evaluate() rejects on every call instead of returning `bodies`. */
+      readonly evaluateThrows?: boolean;
+      readonly cookies?: readonly BrowserCookieRecord[];
+      /** Captures what launch()/newContext()/addInitScript() actually received. */
+      readonly capture?: {
+        launchArgs?: readonly string[] | undefined;
+        launchArgsCalled: boolean;
+        contextOptions?: Record<string, unknown>;
+        contextOptionsCalled: boolean;
+        initScriptApplied: boolean;
+      };
+    }
+
+    function makeResolutionMockLauncher(config: ResolutionMockConfig): PlaywrightBrowserLauncher {
+      let titleIdx = 0;
+      let bodyIdx = 0;
+      return {
+        launch: async (opts) => {
+          if (config.capture) {
+            config.capture.launchArgsCalled = true;
+            config.capture.launchArgs = opts?.args;
+          }
+          return {
+            newContext: async (contextOpts) => {
+              if (config.capture) {
+                config.capture.contextOptionsCalled = true;
+                config.capture.contextOptions = contextOpts;
+              }
+              return {
+                newPage: async () => ({
+                  goto: async () => {},
+                  waitForTimeout: async () => {},
+                  title: async () => {
+                    const t = config.titles[Math.min(titleIdx, config.titles.length - 1)] ?? '';
+                    titleIdx += 1;
+                    return t;
+                  },
+                  route: async () => {},
+                  on: () => {},
+                  waitForLoadState: async () => {},
+                  evaluate: async <T>(): Promise<T> => {
+                    if (config.evaluateThrows) {
+                      throw new Error('simulated evaluate() failure (no DOM access this sample)');
+                    }
+                    const b = config.bodies[Math.min(bodyIdx, config.bodies.length - 1)] ?? '';
+                    bodyIdx += 1;
+                    return b as unknown as T;
+                  },
+                  close: async () => {},
+                }),
+                addInitScript: async () => {
+                  if (config.capture) config.capture.initScriptApplied = true;
+                },
+                cookies: async () => config.cookies ?? [],
+                close: async () => {},
+              };
+            },
+            close: async () => {},
+          };
+        },
+      };
+    }
+
+    // 7.1: Vercel-style challenge — title alone never matches any known
+    // signature, only the in-browser body excerpt does. Proves the
+    // content-based check catches what the old title-only check could not.
+    const vercelSanctuary = new SessionSanctuaryService({
+      targetDomain: TARGET_DOMAIN,
+      originUrl: ORIGIN_URL,
+    });
+    const vercelHttpSignals = {
+      statusCode: 403,
+      headers: {},
+      bodyText: 'Vercel Security Checkpoint — please wait while we verify your browser.',
+    };
+    const vercelResult = await ChallengeBrowserContinuationService.evaluateAndProgress({
+      challengeUrl: 'https://target.example.com/vercel_protected',
+      signals: vercelHttpSignals,
+      sessionSanctuary: vercelSanctuary,
+      browserLauncher: makeResolutionMockLauncher({
+        titles: ['Verifying…'], // deliberately NOT a Cloudflare-shaped title
+        bodies: ['Vercel Security Checkpoint — verifying your browser, please wait.'],
+      }),
+      resolutionTimeoutMs: 50,
+    });
+    assert.equal(vercelResult.state, 'failed');
+    assert.equal(vercelResult.reasonCode, 'browser_challenge_unresolved');
+    assert.equal(vercelResult.providerHint, 'vercel');
+    assert.equal(vercelResult.resolutionMethod, 'title_and_content');
+    console.log('  [PASS] 7.1: Vercel-style challenge stays unresolved via body content even though the title does not match Cloudflare-shaped phrases.');
+
+    // 7.2: Cloudflare-style challenge remains unresolved — regression of
+    // prior behavior through the new bounded-poll code path.
+    const cfSanctuary = new SessionSanctuaryService({
+      targetDomain: TARGET_DOMAIN,
+      originUrl: ORIGIN_URL,
+    });
+    const cfResult = await ChallengeBrowserContinuationService.evaluateAndProgress({
+      challengeUrl: 'https://target.example.com/cf_protected',
+      signals: {
+        statusCode: 403,
+        headers: { server: 'cloudflare' },
+        bodyText: 'cf-browser-verification challenge-platform',
+      },
+      sessionSanctuary: cfSanctuary,
+      browserLauncher: makeResolutionMockLauncher({
+        titles: ['Just a moment...'],
+        bodies: ['Checking your browser before accessing. cf-browser-verification'],
+      }),
+      resolutionTimeoutMs: 50,
+    });
+    assert.equal(cfResult.state, 'failed');
+    assert.equal(cfResult.reasonCode, 'browser_challenge_unresolved');
+    assert.equal(cfResult.providerHint, 'cloudflare');
+    console.log('  [PASS] 7.2: Cloudflare-style challenge stays unresolved.');
+
+    // 7.3: Challenge clears after a variable number of polls (not the first
+    // sample) and exposes real application content; canary also passes.
+    const clearsSanctuary = new SessionSanctuaryService({
+      targetDomain: TARGET_DOMAIN,
+      originUrl: ORIGIN_URL,
+    });
+    const clearsTransport = async (_req: HttpProbeRequest): Promise<HttpProbeResponse> => ({
+      statusCode: 200,
+      headers: {},
+      bodyText: '<html>Welcome to the real application</html>',
+      responseTimeMs: 12,
+    });
+    const clearsResult = await ChallengeBrowserContinuationService.evaluateAndProgress({
+      challengeUrl: 'https://target.example.com/clears_eventually',
+      signals: {
+        statusCode: 403,
+        headers: { server: 'cloudflare' },
+        bodyText: 'cf-browser-verification',
+      },
+      sessionSanctuary: clearsSanctuary,
+      browserLauncher: makeResolutionMockLauncher({
+        // First two samples still show the challenge; the third is the real app.
+        titles: ['Just a moment...', 'Just a moment...', 'Real App Dashboard'],
+        bodies: ['cf-browser-verification', 'cf-browser-verification', 'Welcome to the real application'],
+      }),
+      transport: clearsTransport,
+      resolutionTimeoutMs: 2000,
+    });
+    assert.equal(clearsResult.state, 'validated');
+    assert.equal(clearsResult.applicationReachable, true);
+    assert.equal(clearsResult.resolutionMethod, 'canary_probe');
+    console.log('  [PASS] 7.3: Challenge clears after a variable wait and exposes real application content; canary confirms it.');
+
+    // 7.4: Title looks completely normal (no challenge-shaped wording) but
+    // the body still carries a generic challenge marker — must not be
+    // treated as success from the title alone.
+    const normalTitleSanctuary = new SessionSanctuaryService({
+      targetDomain: TARGET_DOMAIN,
+      originUrl: ORIGIN_URL,
+    });
+    const normalTitleResult = await ChallengeBrowserContinuationService.evaluateAndProgress({
+      challengeUrl: 'https://target.example.com/generic_protected',
+      signals: {
+        statusCode: 403,
+        headers: {},
+        bodyText: 'Please enable JavaScript and reload to continue.',
+      },
+      sessionSanctuary: normalTitleSanctuary,
+      browserLauncher: makeResolutionMockLauncher({
+        titles: ['Dashboard'], // looks like a real, resolved app title
+        bodies: ['Please enable JavaScript and reload to continue.'], // still a challenge
+      }),
+      resolutionTimeoutMs: 50,
+    });
+    assert.equal(normalTitleResult.state, 'failed');
+    assert.notEqual(normalTitleResult.state, 'validated');
+    assert.equal(normalTitleResult.providerHint, 'generic');
+    console.log('  [PASS] 7.4: Normal-looking title with challenge content still present is not treated as success.');
+
+    // 7.5: Successful browser continuation (title/body clear immediately)
+    // followed by a failed canary — must not be reported as validated.
+    const failedCanarySanctuary = new SessionSanctuaryService({
+      targetDomain: TARGET_DOMAIN,
+      originUrl: ORIGIN_URL,
+    });
+    const failedCanaryTransport = async (_req: HttpProbeRequest): Promise<HttpProbeResponse> => ({
+      statusCode: 403,
+      headers: { server: 'cloudflare' },
+      bodyText: 'cf-browser-verification challenge-platform',
+      responseTimeMs: 10,
+    });
+    const failedCanaryResult = await ChallengeBrowserContinuationService.evaluateAndProgress({
+      challengeUrl: 'https://target.example.com/canary_fails',
+      signals: {
+        statusCode: 403,
+        headers: { server: 'cloudflare' },
+        bodyText: 'cf-browser-verification',
+      },
+      sessionSanctuary: failedCanarySanctuary,
+      browserLauncher: makeResolutionMockLauncher({
+        titles: ['Application Home'],
+        bodies: ['Welcome back'],
+      }),
+      transport: failedCanaryTransport,
+      resolutionTimeoutMs: 50,
+    });
+    assert.equal(failedCanaryResult.state, 'failed');
+    assert.equal(failedCanaryResult.reasonCode, 'still_challenged_after_browser_progression');
+    assert.equal(failedCanaryResult.resolutionMethod, 'canary_probe');
+    console.log('  [PASS] 7.5: Browser-side resolution succeeded but failed HTTP canary is correctly reported as failed, not validated.');
+
+    // 7.6: Stealth configuration is threaded through BOTH the launch-args
+    // layer and the context/init-script layer, in both directions.
+    const stealthSanctuary = new SessionSanctuaryService({
+      targetDomain: TARGET_DOMAIN,
+      originUrl: ORIGIN_URL,
+    });
+    const stealthCapture: NonNullable<ResolutionMockConfig['capture']> = {
+      launchArgsCalled: false,
+      contextOptionsCalled: false,
+      initScriptApplied: false,
+    };
+    await ChallengeBrowserContinuationService.evaluateAndProgress({
+      challengeUrl: 'https://target.example.com/stealth_default',
+      signals: { statusCode: 403, headers: { server: 'cloudflare' }, bodyText: 'cf-browser-verification' },
+      sessionSanctuary: stealthSanctuary,
+      browserLauncher: makeResolutionMockLauncher({
+        titles: ['App Home'],
+        bodies: ['welcome'],
+        capture: stealthCapture,
+      }),
+      resolutionTimeoutMs: 50,
+      // disableStealth omitted — must preserve current stealth-enabled default.
+    });
+    assert.ok(stealthCapture.launchArgsCalled, 'stealth default: launch() must be called');
+    assert.deepEqual(
+      stealthCapture.launchArgs,
+      [...STEALTH_CHROMIUM_LAUNCH_ARGS],
+      'stealth default: launch args must include the stealth Chromium flags'
+    );
+    assert.ok(
+      stealthCapture.contextOptions && 'userAgent' in stealthCapture.contextOptions,
+      'stealth default: newContext() must receive the spoofed profile options'
+    );
+    assert.ok(stealthCapture.initScriptApplied, 'stealth default: init script must be applied');
+    console.log('  [PASS] 7.6a: Default (stealth-enabled) mode threads stealth launch args, context options, and init script.');
+
+    const plainSanctuary = new SessionSanctuaryService({
+      targetDomain: TARGET_DOMAIN,
+      originUrl: ORIGIN_URL,
+    });
+    const plainCapture: NonNullable<ResolutionMockConfig['capture']> = {
+      launchArgsCalled: false,
+      contextOptionsCalled: false,
+      initScriptApplied: false,
+    };
+    await ChallengeBrowserContinuationService.evaluateAndProgress({
+      challengeUrl: 'https://target.example.com/stealth_disabled',
+      signals: { statusCode: 403, headers: { server: 'cloudflare' }, bodyText: 'cf-browser-verification' },
+      sessionSanctuary: plainSanctuary,
+      browserLauncher: makeResolutionMockLauncher({
+        titles: ['App Home'],
+        bodies: ['welcome'],
+        capture: plainCapture,
+      }),
+      resolutionTimeoutMs: 50,
+      disableStealth: true,
+    });
+    assert.ok(plainCapture.launchArgsCalled, 'plain mode: launch() must be called');
+    // Fix: Correct Challenge Resolution — an explicit empty array, not
+    // `undefined`, is what actually disables stealth against the real
+    // DefaultPlaywrightBrowserLauncher (see 7.8 below, which exercises that
+    // real launcher directly rather than trusting this mock's own echo).
+    assert.deepEqual(plainCapture.launchArgs, [], 'plain mode: launch args must be an explicit empty array, not undefined');
+    assert.ok(plainCapture.contextOptionsCalled, 'plain mode: newContext() must be called');
+    assert.equal(
+      plainCapture.contextOptions,
+      undefined,
+      'plain mode: newContext() must not receive spoofed profile options'
+    );
+    assert.equal(plainCapture.initScriptApplied, false, 'plain mode: init script must not be applied');
+    console.log('  [PASS] 7.6b: disableStealth selects ordinary Playwright at both the launch-args and init-script layers.');
+
+    // 7.7: A WAF signal with no vendor/generic body marker anywhere — the
+    // provider hint must honestly resolve to 'unknown', never a guess, and
+    // the flow must complete safely (no throw, no fabricated vendor claim).
+    const unknownSanctuary = new SessionSanctuaryService({
+      targetDomain: TARGET_DOMAIN,
+      originUrl: ORIGIN_URL,
+    });
+    const unknownHttpSignals = {
+      statusCode: 403,
+      // Sucuri header triggers hasWafHeader/requiresBrowser without any
+      // challenge-shaped body text — the honest "inconclusive provider" case.
+      headers: { server: 'Sucuri/2.0' },
+      bodyText: 'Access denied by security policy.',
+    };
+    const unknownClassification = ChallengeClassifierService.classify(unknownHttpSignals);
+    assert.equal(unknownClassification.providerHint, 'unknown');
+    assert.equal(unknownClassification.requiresBrowser, true);
+    // Fix: Correct Challenge Resolution — content is clear (no signature
+    // matched) but with no transport this must stay 'validation_pending',
+    // never 'validated', per the central invariant: absence of detected
+    // challenge markers is not proof of successful application access.
+    const unknownResult = await ChallengeBrowserContinuationService.evaluateAndProgress({
+      challengeUrl: 'https://target.example.com/unknown_waf',
+      signals: unknownHttpSignals,
+      sessionSanctuary: unknownSanctuary,
+      browserLauncher: makeResolutionMockLauncher({
+        titles: ['Dashboard'],
+        bodies: ['welcome back'],
+      }),
+      resolutionTimeoutMs: 50,
+    });
+    assert.equal(unknownResult.state, 'validation_pending');
+    assert.equal(unknownResult.applicationReachable, false);
+    assert.equal(unknownResult.resolutionMethod, 'insufficient_evidence');
+    assert.equal(unknownResult.providerHint, 'unknown');
+    console.log('  [PASS] 7.7a: Unrecognized WAF signal with clear content but no canary stays validation_pending (honest "unknown" provider hint, no guess, no throw).');
+
+    // The same scenario WITH a passing canary must validate — genuine
+    // independent evidence is still accepted.
+    const unknownSanctuaryWithCanary = new SessionSanctuaryService({
+      targetDomain: TARGET_DOMAIN,
+      originUrl: ORIGIN_URL,
+    });
+    const unknownCanaryTransport = async (_req: HttpProbeRequest): Promise<HttpProbeResponse> => ({
+      statusCode: 200,
+      headers: {},
+      bodyText: '<html>welcome back</html>',
+      responseTimeMs: 9,
+    });
+    const unknownWithCanaryResult = await ChallengeBrowserContinuationService.evaluateAndProgress({
+      challengeUrl: 'https://target.example.com/unknown_waf',
+      signals: unknownHttpSignals,
+      sessionSanctuary: unknownSanctuaryWithCanary,
+      browserLauncher: makeResolutionMockLauncher({
+        titles: ['Dashboard'],
+        bodies: ['welcome back'],
+      }),
+      transport: unknownCanaryTransport,
+      resolutionTimeoutMs: 50,
+    });
+    assert.equal(unknownWithCanaryResult.state, 'validated');
+    assert.equal(unknownWithCanaryResult.resolutionMethod, 'canary_probe');
+    console.log('  [PASS] 7.7b: Same scenario with a passing canary validates — genuine independent evidence is still accepted.');
+
+    // 7.9: evaluate() throws on every sample, title is normal/non-matching,
+    // no transport — must never return validated. Central invariant: an
+    // unavailable body sample must never be treated as positive evidence.
+    const throwsNoCanarySanctuary = new SessionSanctuaryService({
+      targetDomain: TARGET_DOMAIN,
+      originUrl: ORIGIN_URL,
+    });
+    const throwsNoCanaryResult = await ChallengeBrowserContinuationService.evaluateAndProgress({
+      challengeUrl: 'https://target.example.com/evaluate_throws',
+      signals: { statusCode: 403, headers: { server: 'cloudflare' }, bodyText: 'cf-browser-verification' },
+      sessionSanctuary: throwsNoCanarySanctuary,
+      browserLauncher: makeResolutionMockLauncher({
+        titles: ['Normal App Title'],
+        bodies: [], // unused — evaluateThrows takes precedence
+        evaluateThrows: true,
+      }),
+      resolutionTimeoutMs: 50,
+    });
+    assert.notEqual(throwsNoCanaryResult.state, 'validated');
+    assert.equal(throwsNoCanaryResult.state, 'validation_pending');
+    assert.equal(throwsNoCanaryResult.resolutionMethod, 'insufficient_evidence');
+    console.log('  [PASS] 7.9: evaluate() throwing on every sample with a normal title and no canary never returns validated.');
+
+    // 7.10: evaluate() succeeds but returns empty content on every sample,
+    // title is normal/non-matching, no transport — same invariant, the
+    // positively-empty case must not be conflated with positively-confirmed.
+    const emptyNoCanarySanctuary = new SessionSanctuaryService({
+      targetDomain: TARGET_DOMAIN,
+      originUrl: ORIGIN_URL,
+    });
+    const emptyNoCanaryResult = await ChallengeBrowserContinuationService.evaluateAndProgress({
+      challengeUrl: 'https://target.example.com/evaluate_empty',
+      signals: { statusCode: 403, headers: { server: 'cloudflare' }, bodyText: 'cf-browser-verification' },
+      sessionSanctuary: emptyNoCanarySanctuary,
+      browserLauncher: makeResolutionMockLauncher({
+        titles: ['Normal App Title'],
+        bodies: [''],
+      }),
+      resolutionTimeoutMs: 50,
+    });
+    assert.notEqual(emptyNoCanaryResult.state, 'validated');
+    assert.equal(emptyNoCanaryResult.state, 'validation_pending');
+    assert.equal(emptyNoCanaryResult.resolutionMethod, 'insufficient_evidence');
+    console.log('  [PASS] 7.10: evaluate() returning empty content on every sample with a normal title and no canary never returns validated.');
+
+    // 7.11: evaluate() throws on every sample, but an independent canary
+    // positively confirms application access — the existing contract (a
+    // transport-backed canary is itself sufficient evidence) genuinely
+    // supports accepting this as validated.
+    const throwsWithCanarySanctuary = new SessionSanctuaryService({
+      targetDomain: TARGET_DOMAIN,
+      originUrl: ORIGIN_URL,
+    });
+    const throwsWithCanaryTransport = async (_req: HttpProbeRequest): Promise<HttpProbeResponse> => ({
+      statusCode: 200,
+      headers: {},
+      bodyText: '<html>Real application content</html>',
+      responseTimeMs: 11,
+    });
+    const throwsWithCanaryResult = await ChallengeBrowserContinuationService.evaluateAndProgress({
+      challengeUrl: 'https://target.example.com/evaluate_throws_canary_ok',
+      signals: { statusCode: 403, headers: { server: 'cloudflare' }, bodyText: 'cf-browser-verification' },
+      sessionSanctuary: throwsWithCanarySanctuary,
+      browserLauncher: makeResolutionMockLauncher({
+        titles: ['Normal App Title'],
+        bodies: [],
+        evaluateThrows: true,
+      }),
+      transport: throwsWithCanaryTransport,
+      resolutionTimeoutMs: 50,
+    });
+    assert.equal(throwsWithCanaryResult.state, 'validated');
+    assert.equal(throwsWithCanaryResult.applicationReachable, true);
+    assert.equal(throwsWithCanaryResult.resolutionMethod, 'canary_probe');
+    console.log('  [PASS] 7.11: evaluate() throwing on every sample but an independent passing canary still validates — genuine positive evidence from a different source is accepted.');
+
+    // 7.12: Real challenge-body persistence still prevents successful
+    // resolution — regression confirming Fix 1 did not weaken rule 2
+    // (a matched signature is always definitive, body-availability aside).
+    const stillPersistsSanctuary = new SessionSanctuaryService({
+      targetDomain: TARGET_DOMAIN,
+      originUrl: ORIGIN_URL,
+    });
+    const stillPersistsResult = await ChallengeBrowserContinuationService.evaluateAndProgress({
+      challengeUrl: 'https://target.example.com/still_challenged',
+      signals: { statusCode: 403, headers: { server: 'cloudflare' }, bodyText: 'cf-browser-verification' },
+      sessionSanctuary: stillPersistsSanctuary,
+      browserLauncher: makeResolutionMockLauncher({
+        titles: ['Just a moment...'],
+        bodies: ['cf-browser-verification challenge-platform'],
+      }),
+      transport: throwsWithCanaryTransport, // present, but must never be reached
+      resolutionTimeoutMs: 50,
+    });
+    assert.equal(stillPersistsResult.state, 'failed');
+    assert.equal(stillPersistsResult.reasonCode, 'browser_challenge_unresolved');
+    assert.notEqual(stillPersistsResult.resolutionMethod, 'canary_probe');
+    console.log('  [PASS] 7.12: Persistent challenge-body content still prevents successful resolution, even with a canary available.');
+
+    // 7.13: Real DefaultPlaywrightBrowserLauncher + its actual chromium.launch()
+    // call, monkey-patched as the "controlled fake Chromium implementation" —
+    // not a FixGuard-authored mock that merely echoes what it was given.
+    // Verifies the genuine fix for the audit's Finding 2, and documents
+    // (without touching) the pre-existing defect it works around.
+    {
+      const originalChromiumLaunch = chromium.launch.bind(chromium);
+      let capturedLaunchArgs: readonly string[] | undefined;
+      const fakeRawBrowser = {
+        close: async () => {},
+        isConnected: () => true,
+      };
+      (chromium as unknown as { launch: (opts?: { args?: readonly string[] }) => Promise<unknown> }).launch =
+        async (opts?: { args?: readonly string[] }) => {
+          capturedLaunchArgs = opts?.args;
+          return fakeRawBrowser;
+        };
+
+      try {
+        const realLauncher = new DefaultPlaywrightBrowserLauncher();
+
+        capturedLaunchArgs = undefined;
+        await realLauncher.launch({ headless: true, args: [] });
+        assert.deepEqual(
+          capturedLaunchArgs,
+          [],
+          '7.13a: the real launcher must pass an explicit empty args array through to chromium.launch() unchanged'
+        );
+
+        capturedLaunchArgs = undefined;
+        await realLauncher.launch({ headless: true });
+        assert.deepEqual(
+          capturedLaunchArgs,
+          [...STEALTH_CHROMIUM_LAUNCH_ARGS],
+          '7.13b: the real launcher must still default to stealth args when args is genuinely omitted (default stealth behavior unchanged)'
+        );
+
+        capturedLaunchArgs = undefined;
+        await realLauncher.launch({ headless: true, args: undefined });
+        assert.deepEqual(
+          capturedLaunchArgs,
+          [...STEALTH_CHROMIUM_LAUNCH_ARGS],
+          '7.13c: documents the pre-existing launcher defect (not modified here): args:undefined is indistinguishable from omitted and still yields stealth args — this is exactly why disableStealth must pass [] rather than undefined'
+        );
+      } finally {
+        (chromium as unknown as { launch: typeof chromium.launch }).launch = originalChromiumLaunch;
+      }
+      console.log('  [PASS] 7.13: Real DefaultPlaywrightBrowserLauncher genuinely preserves an explicit empty args array, and still defaults to stealth otherwise.');
+    }
+  }
+
+  // =========================================================================
+  // SECTION 8: CHALLENGE CONTINUATION RELIABILITY — RECOVERY, NOT TERMINAL STATE
+  // A challenge is a recoverable state, never a silently-accepted terminal
+  // one: multi-strategy retry within the existing budget, operator
+  // intervention stops burning automated attempts rather than being treated
+  // as a dead end, and the budget ceiling / once-per-URL / session-isolation
+  // rules are unchanged. SPA-adapter session threading and the operator
+  // re-entry/regeneration path land in later commits of this milestone —
+  // deterministic mocks only, these do not prove compatibility with any real
+  // provider.
+  // =========================================================================
+  console.log('\n[+] Section 8: Challenge Continuation Reliability — Recovery, Not Terminal State...');
+  {
+    // 8.1: 'persistent_context' strategy genuinely reuses the SAME
+    // browser+context across two evaluateAndProgress() calls sharing one
+    // PersistentChallengeContextHandle — a single real launch()/newContext()
+    // call, a fresh newPage() per attempt, and state (still-challenged on
+    // the first attempt, cleared on the second) carries across the reuse.
+    // Demonstrates requirement #2 (first failure doesn't terminate) and #3
+    // (an alternative/repeated strategy is genuinely attempted, not a no-op)
+    // at the mechanism level.
+    const persistSanctuary = new SessionSanctuaryService({
+      targetDomain: TARGET_DOMAIN,
+      originUrl: ORIGIN_URL,
+    });
+    let persistLaunchCount = 0;
+    let persistNewContextCount = 0;
+    let persistPageCount = 0;
+    let lastContextRef: unknown;
+    const persistLauncher: PlaywrightBrowserLauncher = {
+      launch: async () => {
+        persistLaunchCount += 1;
+        return {
+          newContext: async () => {
+            persistNewContextCount += 1;
+            const contextRef = { id: persistNewContextCount };
+            lastContextRef = contextRef;
+            return {
+              newPage: async () => {
+                persistPageCount += 1;
+                const attempt = persistPageCount; // 1 = first call, 2 = second call (reused context)
+                return {
+                  goto: async () => {},
+                  waitForTimeout: async () => {},
+                  title: async () => (attempt === 1 ? 'Just a moment...' : 'Real App Dashboard'),
+                  route: async () => {},
+                  on: () => {},
+                  waitForLoadState: async () => {},
+                  evaluate: async <T>(): Promise<T> =>
+                    (attempt === 1
+                      ? 'cf-browser-verification'
+                      : 'Welcome to the real application') as unknown as T,
+                  close: async () => {},
+                };
+              },
+              addInitScript: async () => {},
+              cookies: async () => [],
+              close: async () => {},
+              __ref: contextRef,
+            } as unknown as Awaited<ReturnType<Awaited<ReturnType<PlaywrightBrowserLauncher['launch']>>['newContext']>>;
+          },
+          close: async () => {},
+        };
+      },
+    };
+
+    const persistTransport = async (_req: HttpProbeRequest): Promise<HttpProbeResponse> => ({
+      statusCode: 200,
+      headers: {},
+      bodyText: '<html>Welcome to the real application</html>',
+      responseTimeMs: 9,
+    });
+    const persistHandle: PersistentChallengeContextHandle = {};
+    const persistAttempt1 = await ChallengeBrowserContinuationService.evaluateAndProgress({
+      challengeUrl: 'https://target.example.com/persist_reuse',
+      signals: { statusCode: 403, headers: { server: 'cloudflare' }, bodyText: 'cf-browser-verification' },
+      sessionSanctuary: persistSanctuary,
+      browserLauncher: persistLauncher,
+      strategy: 'persistent_context',
+      persistentContextHandle: persistHandle,
+      resolutionTimeoutMs: 50,
+    });
+    assert.equal(persistAttempt1.state, 'failed');
+    assert.equal(persistAttempt1.strategyUsed, 'persistent_context');
+    assert.equal(persistLaunchCount, 1, '8.1: first persistent_context attempt must launch a real browser');
+    assert.ok(persistHandle.browser && persistHandle.context, '8.1: handle must be populated after the first attempt');
+    const contextAfterFirst = lastContextRef;
+
+    const persistAttempt2 = await ChallengeBrowserContinuationService.evaluateAndProgress({
+      challengeUrl: 'https://target.example.com/persist_reuse',
+      signals: { statusCode: 403, headers: { server: 'cloudflare' }, bodyText: 'cf-browser-verification' },
+      sessionSanctuary: persistSanctuary,
+      browserLauncher: persistLauncher,
+      strategy: 'persistent_context',
+      persistentContextHandle: persistHandle,
+      transport: persistTransport,
+      resolutionTimeoutMs: 50,
+    });
+    assert.equal(persistAttempt2.state, 'validated');
+    assert.equal(persistAttempt2.strategyUsed, 'persistent_context');
+    assert.equal(
+      persistLaunchCount,
+      1,
+      '8.1: the second attempt must reuse the handle, never launching a second real browser'
+    );
+    assert.equal(persistNewContextCount, 1, '8.1: newContext() must likewise only be called once');
+    assert.equal(lastContextRef, contextAfterFirst, '8.1: the exact same context object must be reused');
+    assert.equal(persistPageCount, 2, '8.1: each attempt still gets its own fresh page on the reused context');
+    await persistHandle.browser?.close().catch(() => {});
+    console.log('  [PASS] 8.1: persistent_context strategy reuses the same browser+context across attempts; a first failure does not terminate continuation.');
+  }
+
+  // 8.2: Orchestrator-level composition — the retry loop genuinely tries the
+  // configured strategies in order against a real orchestrate() call (not
+  // just the service in isolation), a redirect during the re-probe is still
+  // mined thanks to the Section 4 fix, stealth stays on by default, and
+  // pre-existing observations (the original 403) are never lost.
+  {
+    const comp8Sanctuary = new SessionSanctuaryService({
+      targetDomain: TARGET_DOMAIN,
+      originUrl: ORIGIN_URL,
+    });
+
+    let comp8WebCallCount = 0;
+    const REDIRECTED_URL = `https://${TARGET_DOMAIN}/redirected-home`;
+    const comp8Adapters: ReconToolAdapters = {
+      subdomainTool: {
+        async discoverSubdomains(req) {
+          return { status: 'success', contractVersion: 'fixguard-subdomain-discovery/v0', targetDomain: req.targetDomain, observations: [], explicitNonClaims: SUBDOMAIN_DISCOVERY_NON_CLAIMS, lineage: req.lineage, durationMs: 5 };
+        },
+      },
+      dnsTool: {
+        async resolveDns(req) {
+          return { status: 'success', contractVersion: 'fixguard-dns-resolution/v0', targetDomain: req.targetDomain, observations: [], explicitNonClaims: DNS_RESOLUTION_NON_CLAIMS, lineage: req.lineage, durationMs: 5 };
+        },
+      },
+      portTool: {
+        async discoverPorts(req) {
+          return { status: 'success', contractVersion: 'fixguard-port-discovery/v0', targetHostOrIp: req.targetHostOrIp, observations: [], explicitNonClaims: PORT_DISCOVERY_NON_CLAIMS, lineage: req.lineage, durationMs: 5 };
+        },
+      },
+      webTool: {
+        async inspectWeb(req) {
+          if (req.targetUrl === `https://${TARGET_DOMAIN}` || req.targetUrl === ORIGIN_URL) {
+            comp8WebCallCount += 1;
+            if (comp8WebCallCount === 1) {
+              return {
+                status: 'success',
+                contractVersion: 'fixguard-web-inspection/v0',
+                targetUrl: req.targetUrl,
+                observations: [
+                  {
+                    url: req.targetUrl,
+                    method: 'GET',
+                    statusCode: 403,
+                    technologies: [],
+                    headers: { 'cf-ray': 'cf_comp8' },
+                    bodyText: '<html><title>Just a moment...</title>cf-browser-verification</html>',
+                    discoveredAt: new Date().toISOString(),
+                  },
+                ],
+                explicitNonClaims: WEB_INSPECTION_NON_CLAIMS,
+                lineage: req.lineage,
+                durationMs: 20,
+              };
+            }
+            // The re-probe follows a redirect: the observed url differs from
+            // the originally-requested targetUrl — exactly the case Section
+            // 4's fix exists for.
+            return {
+              status: 'success',
+              contractVersion: 'fixguard-web-inspection/v0',
+              targetUrl: req.targetUrl,
+              observations: [
+                {
+                  url: REDIRECTED_URL,
+                  method: 'GET',
+                  statusCode: 200,
+                  headers: { 'content-type': 'text/html' },
+                  bodyText: `<html><body><a href="https://${TARGET_DOMAIN}/mined-after-redirect">Mined Link</a></body></html>`,
+                  discoveredAt: new Date().toISOString(),
+                  technologies: ['Node.js'],
+                },
+              ],
+              explicitNonClaims: WEB_INSPECTION_NON_CLAIMS,
+              lineage: req.lineage,
+              durationMs: 15,
+            };
+          }
+          // Crawl frontier URL mined from the redirected page, or anything else probed.
+          return {
+            status: 'success',
+            contractVersion: 'fixguard-web-inspection/v0',
+            targetUrl: req.targetUrl,
+            observations: [
+              {
+                url: req.targetUrl,
+                method: 'GET',
+                statusCode: 200,
+                headers: { 'content-type': 'text/html' },
+                bodyText: '<html><body>ok</body></html>',
+                discoveredAt: new Date().toISOString(),
+                technologies: [],
+              },
+            ],
+            explicitNonClaims: WEB_INSPECTION_NON_CLAIMS,
+            lineage: req.lineage,
+            durationMs: 10,
+          };
+        },
+      },
+      tlsTool: {
+        async inspectTls(req) {
+          return { status: 'success', contractVersion: 'fixguard-tls-inspection/v0', targetHost: req.targetHostOrUrl, observations: [], explicitNonClaims: TLS_INSPECTION_NON_CLAIMS, lineage: req.lineage, durationMs: 5 };
+        },
+      },
+      urlTool: {
+        async discoverUrls(req) {
+          return { status: 'success', contractVersion: 'fixguard-url-discovery/v0', targetUrlOrDomain: req.targetUrlOrDomain, observations: [], explicitNonClaims: URL_DISCOVERY_NON_CLAIMS, lineage: req.lineage, durationMs: 5 };
+        },
+      },
+      contentTool: {
+        async discoverContent(req) {
+          return { status: 'success', contractVersion: 'fixguard-content-discovery/v0', targetUrl: req.targetUrl, wordlistPath: req.wordlistPath, observations: [], explicitNonClaims: CONTENT_DISCOVERY_NON_CLAIMS, lineage: req.lineage, durationMs: 5 };
+        },
+      },
+      parameterTool: {
+        async discoverParameters(req) {
+          return { status: 'success', contractVersion: 'fixguard-parameter-discovery/v0', targetUrl: req.targetUrl, observations: [], explicitNonClaims: PARAMETER_DISCOVERY_NON_CLAIMS, lineage: req.lineage, durationMs: 5 };
+        },
+      },
+      secretTool: {
+        async scanSecrets(req) {
+          return { status: 'success', contractVersion: 'fixguard-secret-discovery/v0', targetUrlOrPath: req.targetUrlOrPath, observations: [], explicitNonClaims: SECRET_DISCOVERY_NON_CLAIMS, lineage: req.lineage, durationMs: 5 };
+        },
+      },
+    };
+
+    let comp8PageCount = 0;
+    const comp8LaunchArgsPerAttempt: (readonly string[] | undefined)[] = [];
+    const comp8Launcher: PlaywrightBrowserLauncher = {
+      launch: async (opts) => {
+        comp8LaunchArgsPerAttempt.push(opts?.args);
+        return {
+          newContext: async () => ({
+            newPage: async () => {
+              comp8PageCount += 1;
+              const attempt = comp8PageCount;
+              return {
+                goto: async () => {},
+                waitForTimeout: async () => {},
+                title: async () => (attempt === 1 ? 'Just a moment...' : 'Real App Dashboard'),
+                route: async () => {},
+                on: () => {},
+                waitForLoadState: async () => {},
+                evaluate: async <T>(): Promise<T> =>
+                  (attempt === 1
+                    ? 'cf-browser-verification'
+                    : 'Welcome to the real application') as unknown as T,
+                close: async () => {},
+              };
+            },
+            addInitScript: async () => {},
+            cookies: async () => [{ name: 'cf_clearance', value: 'comp8_token', domain: TARGET_DOMAIN }],
+            close: async () => {},
+          }),
+          close: async () => {},
+        };
+      },
+    };
+
+    const comp8Transport = async (_req: HttpProbeRequest): Promise<HttpProbeResponse> => ({
+      statusCode: 200,
+      headers: {},
+      bodyText: '<html>Welcome to the real application</html>',
+      responseTimeMs: 9,
+    });
+
+    const comp8Orchestrator = new CompositeActiveReconOrchestratorService(comp8Adapters);
+    const comp8Coord = new TargetExecutionCoordinator({ requestsPerSecond: 10, maxConcurrency: 2 });
+
+    const comp8Result = await comp8Orchestrator.orchestrate({
+      targetDomain: TARGET_DOMAIN,
+      verifiedAuthorizationDecision: verifiedDecision,
+      authorizedScopeGrant: scopeGrant,
+      lineage,
+      coordinator: comp8Coord,
+      sessionSanctuary: comp8Sanctuary,
+      browserLauncher: comp8Launcher,
+      probeTransport: comp8Transport,
+      config: {
+        skipStages: ['stage_1_domain_zone', 'stage_2_port_service', 'stage_4_crawling_parameters', 'stage_5_secret_inspection'],
+        // disableChallengeStealth intentionally omitted — proves default stays stealth-on.
+        challengeResolutionTimeoutMs: 50,
+      },
+    });
+
+    assert.equal(comp8Result.status, 'success');
+    const comp8Diagnostics = comp8Result.status === 'success' ? comp8Result.challengeAttemptDiagnostics ?? [] : [];
+    assert.equal(comp8Diagnostics.length, 2, '8.2: exactly 2 attempts — fresh_context failed, persistent_context succeeded');
+    assert.equal(comp8Diagnostics[0]?.strategyUsed, 'fresh_context');
+    assert.equal(comp8Diagnostics[0]?.state, 'failed');
+    assert.equal(comp8Diagnostics[1]?.strategyUsed, 'persistent_context');
+    assert.equal(comp8Diagnostics[1]?.state, 'validated');
+    console.log('  [PASS] 8.2a: the retry loop genuinely tries fresh_context then persistent_context in order against a real orchestrate() call — the first failure did not terminate continuation.');
+
+    assert.equal(
+      comp8LaunchArgsPerAttempt.length,
+      2,
+      '8.2: both strategies launch a real browser in this scenario (persistent_context has nothing to reuse yet on a fresh retry sequence)'
+    );
+    for (const args of comp8LaunchArgsPerAttempt) {
+      assert.ok(
+        args && args.includes('--disable-blink-features=AutomationControlled'),
+        '8.2b: stealth launch args must be present on every attempt when disableChallengeStealth is omitted — stealth stays enabled by default'
+      );
+    }
+    console.log('  [PASS] 8.2b: stealth remains enabled by default across every retry attempt.');
+
+    const comp8WebObs = comp8Result.status === 'success' ? comp8Result.aggregatedObservations.webObservations : [];
+    const comp8OriginalChallengeObs = comp8WebObs.find((o) => o.statusCode === 403);
+    assert.ok(comp8OriginalChallengeObs, '8.2c: the original 403 challenge observation must not be lost');
+    console.log('  [PASS] 8.2c: the assessment does not lose the original pre-resolution observation.');
+
+    const comp8Urls = comp8Result.status === 'success' ? comp8Result.aggregatedObservations.urls : [];
+    assert.ok(
+      comp8Urls.some((u) => u.url.includes('mined-after-redirect')),
+      '8.2d: a link mined from the redirect-followed re-probe body must still be discovered, despite postObs.url differing from the originally-challenged targetUrl'
+    );
+    console.log('  [PASS] 8.2d: successful continuation resumes the original reconnaissance flow — a redirect during the post-challenge re-probe no longer silently drops newly-discovered links.');
+  }
+
+  // 8.3: Milestone: Challenge Continuation Reliability (corrected) — a
+  // genuinely interactive challenge (Turnstile/CAPTCHA) stops burning
+  // automated attempts immediately (bounded: never retried with a
+  // different strategy, since no strategy can solve it), is reported
+  // honestly via reconHealthSignals/reconHealthStatus without ever being
+  // claimed resolved, and — critically — never blocks the rest of the
+  // assessment: every other authorized resource is still investigated in
+  // the same orchestrate() run. No operator callback exists or is needed
+  // for any of this (the manual resume path this test previously covered
+  // was removed per the "fully automatic, no operator interaction"
+  // product requirement).
+  {
+    const hitlSanctuary = new SessionSanctuaryService({
+      targetDomain: TARGET_DOMAIN,
+      originUrl: ORIGIN_URL,
+    });
+
+    const CHALLENGED_URL = `https://${TARGET_DOMAIN}`;
+    let hitlWebCallCount = 0;
+    const hitlAdapters: ReconToolAdapters = {
+      subdomainTool: { async discoverSubdomains(req) { return { status: 'success', contractVersion: 'fixguard-subdomain-discovery/v0', targetDomain: req.targetDomain, observations: [], explicitNonClaims: SUBDOMAIN_DISCOVERY_NON_CLAIMS, lineage: req.lineage, durationMs: 5 }; } },
+      dnsTool: { async resolveDns(req) { return { status: 'success', contractVersion: 'fixguard-dns-resolution/v0', targetDomain: req.targetDomain, observations: [], explicitNonClaims: DNS_RESOLUTION_NON_CLAIMS, lineage: req.lineage, durationMs: 5 }; } },
+      portTool: { async discoverPorts(req) { return { status: 'success', contractVersion: 'fixguard-port-discovery/v0', targetHostOrIp: req.targetHostOrIp, observations: [], explicitNonClaims: PORT_DISCOVERY_NON_CLAIMS, lineage: req.lineage, durationMs: 5 }; } },
+      webTool: {
+        async inspectWeb(req) {
+          if (req.targetUrl === CHALLENGED_URL) {
+            hitlWebCallCount += 1;
+            return {
+              status: 'success',
+              contractVersion: 'fixguard-web-inspection/v0',
+              targetUrl: req.targetUrl,
+              observations: [
+                {
+                  url: req.targetUrl,
+                  method: 'GET',
+                  statusCode: 403,
+                  headers: { server: 'cloudflare' },
+                  bodyText: '<html><title>Attention Required</title><body>Please solve the challenge / Turnstile checkbox to proceed.</body></html>',
+                  discoveredAt: new Date().toISOString(),
+                  technologies: [],
+                },
+              ],
+              explicitNonClaims: WEB_INSPECTION_NON_CLAIMS,
+              lineage: req.lineage,
+              durationMs: 15,
+            };
+          }
+          // Every other authorized resource (e.g. the http:// root)
+          // resolves normally — the interactive challenge on one URL must
+          // never block investigation of the rest.
+          return {
+            status: 'success',
+            contractVersion: 'fixguard-web-inspection/v0',
+            targetUrl: req.targetUrl,
+            observations: [
+              {
+                url: req.targetUrl,
+                method: 'GET',
+                statusCode: 200,
+                headers: { 'content-type': 'text/html' },
+                bodyText: '<html><body>ok</body></html>',
+                discoveredAt: new Date().toISOString(),
+                technologies: [],
+              },
+            ],
+            explicitNonClaims: WEB_INSPECTION_NON_CLAIMS,
+            lineage: req.lineage,
+            durationMs: 10,
+          };
+        },
+      },
+      tlsTool: { async inspectTls(req) { return { status: 'success', contractVersion: 'fixguard-tls-inspection/v0', targetHost: req.targetHostOrUrl, observations: [], explicitNonClaims: TLS_INSPECTION_NON_CLAIMS, lineage: req.lineage, durationMs: 5 }; } },
+      urlTool: { async discoverUrls(req) { return { status: 'success', contractVersion: 'fixguard-url-discovery/v0', targetUrlOrDomain: req.targetUrlOrDomain, observations: [], explicitNonClaims: URL_DISCOVERY_NON_CLAIMS, lineage: req.lineage, durationMs: 5 }; } },
+      contentTool: { async discoverContent(req) { return { status: 'success', contractVersion: 'fixguard-content-discovery/v0', targetUrl: req.targetUrl, wordlistPath: req.wordlistPath, observations: [], explicitNonClaims: CONTENT_DISCOVERY_NON_CLAIMS, lineage: req.lineage, durationMs: 5 }; } },
+      parameterTool: { async discoverParameters(req) { return { status: 'success', contractVersion: 'fixguard-parameter-discovery/v0', targetUrl: req.targetUrl, observations: [], explicitNonClaims: PARAMETER_DISCOVERY_NON_CLAIMS, lineage: req.lineage, durationMs: 5 }; } },
+      secretTool: { async scanSecrets(req) { return { status: 'success', contractVersion: 'fixguard-secret-discovery/v0', targetUrlOrPath: req.targetUrlOrPath, observations: [], explicitNonClaims: SECRET_DISCOVERY_NON_CLAIMS, lineage: req.lineage, durationMs: 5 }; } },
+    };
+
+    let hitlLaunchCount = 0;
+    const hitlLauncher: PlaywrightBrowserLauncher = {
+      launch: async () => {
+        hitlLaunchCount += 1;
+        return {
+          newContext: async () => ({
+            newPage: async () => ({
+              goto: async () => {},
+              waitForTimeout: async () => {},
+              title: async () => 'Attention Required',
+              route: async () => {},
+              on: () => {},
+              waitForLoadState: async () => {},
+              evaluate: async <T>(): Promise<T> =>
+                'Please solve the challenge / Turnstile checkbox to proceed.' as unknown as T,
+              close: async () => {},
+            }),
+            addInitScript: async () => {},
+            cookies: async () => [],
+            close: async () => {},
+          }),
+          close: async () => {},
+        };
+      },
+    };
+
+    const hitlOrchestrator = new CompositeActiveReconOrchestratorService(hitlAdapters);
+    const hitlCoord = new TargetExecutionCoordinator({ requestsPerSecond: 10, maxConcurrency: 2 });
+
+    const hitlResult = await hitlOrchestrator.orchestrate({
+      targetDomain: TARGET_DOMAIN,
+      verifiedAuthorizationDecision: verifiedDecision,
+      authorizedScopeGrant: scopeGrant,
+      lineage,
+      coordinator: hitlCoord,
+      sessionSanctuary: hitlSanctuary,
+      browserLauncher: hitlLauncher,
+      config: {
+        skipStages: ['stage_1_domain_zone', 'stage_2_port_service', 'stage_4_crawling_parameters', 'stage_5_secret_inspection'],
+        challengeResolutionTimeoutMs: 50,
+      },
+    });
+
+    assert.equal(hitlResult.status, 'success', 'an interactive challenge on one URL must never abort the assessment');
+    console.log('  [PASS] 8.3a: an interactive challenge never aborts the assessment — it stays a recoverable, reported state.');
+
+    const hitlDiagnostics = hitlResult.status === 'success' ? hitlResult.challengeAttemptDiagnostics ?? [] : [];
+    assert.equal(
+      hitlDiagnostics.length,
+      1,
+      '8.3b: exactly 1 attempt — a genuinely interactive challenge is never retried with a different strategy, since no strategy can solve it (bounded, no identical-attempt repetition)'
+    );
+    assert.equal(hitlDiagnostics[0]?.state, 'waiting_for_operator');
+    assert.equal(hitlDiagnostics[0]?.strategyUsed, 'fresh_context');
+    assert.equal(hitlLaunchCount, 1, '8.3b: still only one real browser launch attempted, not an uncontrolled retry loop');
+    console.log('  [PASS] 8.3b: automatic continuation attempts exactly one bounded strategy against an interactive challenge, then stops — no uncontrolled retries.');
+
+    assert.equal(hitlWebCallCount, 1, 'the challenged URL must still have been probed exactly once by the initial inspect pass');
+    const hitlWebObs = hitlResult.status === 'success' ? hitlResult.aggregatedObservations.webObservations : [];
+    assert.ok(
+      hitlWebObs.some((o) => o.url === CHALLENGED_URL && o.statusCode === 403),
+      '8.3c: the original challenge observation on the stuck URL is preserved, never discarded'
+    );
+    assert.ok(
+      hitlWebObs.some((o) => o.url === `http://${TARGET_DOMAIN}` && o.statusCode === 200),
+      '8.3c: every other authorized resource (here, the http:// root) is still investigated in the same run — the stuck URL never blocks the rest of the assessment'
+    );
+    console.log('  [PASS] 8.3c: reconnaissance continues on every other authorized resource; no observation is lost.');
+
+    const hitlHealth = ReconHealthClassificationService.classify({
+      stages: hitlResult.status === 'success' ? hitlResult.stages : [],
+      signals: hitlResult.status === 'success' ? hitlResult.reconHealthSignals : undefined,
+    });
+    assert.equal(hitlHealth.status, 'degraded_blocked');
+    assert.ok(
+      hitlHealth.reasonCodes.some((rc) => rc === `edge_challenge_requires_interactive_resolution:${TARGET_DOMAIN}`),
+      '8.3d: the coverage limitation is reported under the renamed, non-operator-implying reasonCode — never silently reported as complete'
+    );
+    assert.ok(
+      !hitlHealth.reasonCodes.some((rc) => rc.includes('awaiting_operator')),
+      '8.3d: no reasonCode may imply the assessment is waiting on a manual operator step'
+    );
+    console.log('  [PASS] 8.3d: the unresolved interactive challenge is reported accurately via reconHealthStatus, without implying a pending operator action.');
   }
 
   console.log('\n>>> ALL BLOCK A AND A.1 ASSERTIONS PASSED SUCCESSFULLY! <<<\n');

@@ -75,7 +75,7 @@ import { buildDetectionTargetsFromRecon } from '../detection/DetectionTargetBrid
 import { acceptObservedFacts } from '../observation/ObservedFactCatalogService.js';
 import { buildProbeInventory } from '../investigation/ProbeInventory.js';
 import { classifyInventoryEntry } from '../investigation/InventoryRouteClass.js';
-import type { ProbeInventory } from '../investigation/ProbeInventoryContracts.js';
+import { type ProbeInventory } from '../investigation/ProbeInventoryContracts.js';
 import {
   graphqlEndpointsFromRecon,
   retainSourcemapDetectionResult,
@@ -88,11 +88,6 @@ import {
 import { observeAnonSessionGetDelta } from '../observation/AnonSessionGetDeltaObservation.js';
 import { SessionSanctuaryService } from '../session/SessionSanctuaryService.js';
 import { runAuthDifferentialMatrix } from '../differential/AuthDifferentialMatrixService.js';
-import { ChallengeBrowserContinuationService } from '../challenge/ChallengeBrowserContinuationService.js';
-import type {
-  ChallengeContinuationResult,
-  OperatorChallengeCallbackInput,
-} from '../challenge/ChallengeContinuationContracts.js';
 import type { DetectionSuppressionRecord } from '../detection/DetectionTargetBridge.js';
 import { analyzeTlsConfiguration } from '../detection/TlsConfigurationAnalysisService.js';
 import { runSourcemapExposureDetection } from '../detection/SourcemapExposureDetectionService.js';
@@ -3394,67 +3389,6 @@ export class OrchestratedAssessmentApplicationService {
       identityCount: 2,
       updatedPlanIds,
     };
-  }
-
-  /**
-   * Resumes an assessment waiting on an edge challenge after operator completion (HITL).
-   * Validates operator authorization, imports confirmed session state, runs canary validation,
-   * and records progress in the assessment record.
-   */
-  public async resumeOperatorChallenge(args: {
-    readonly assessmentId: string;
-    readonly operatorId: string;
-    readonly callback: OperatorChallengeCallbackInput;
-  }): Promise<ChallengeContinuationResult> {
-    const { assessmentId, operatorId, callback } = args;
-    if (!assessmentId || typeof assessmentId !== 'string' || !isStrictSafeId(assessmentId)) {
-      throw new ApiValidationError('Field assessmentId must satisfy strict identifier format');
-    }
-    if (!operatorId || typeof operatorId !== 'string' || !isStrictSafeId(operatorId)) {
-      throw new ApiValidationError('Field operatorId must satisfy strict identifier format');
-    }
-
-    const record = await this.repository.findById(assessmentId);
-    if (!record) {
-      throw new SessionNotFoundError(
-        `Orchestrated assessment '${assessmentId}' was not found`,
-        assessmentId
-      );
-    }
-    if (record.status === 'completed' || record.status === 'failed' || record.status === 'preflight_denied') {
-      throw new ApiValidationError(`Cannot resume challenge for assessment in terminal state '${record.status}'`);
-    }
-    if (operatorId !== record.lineage.actorId) {
-      throw new UnauthorizedGatewayError(
-        'Operator is not the assessment actor',
-        'operator_mismatch'
-      );
-    }
-
-    const sanctuary = new SessionSanctuaryService({
-      targetDomain: record.targetDomain,
-      originUrl: `https://${record.targetDomain}/`,
-    });
-
-    const challengeUrl = `https://${record.targetDomain}/`;
-    const result = await ChallengeBrowserContinuationService.resumeAfterOperatorCompletion(
-      callback,
-      challengeUrl,
-      sanctuary,
-      this.httpTransport
-    );
-
-    if (result.state === 'validated' && result.applicationReachable) {
-      await this.repository.update(assessmentId, (prev) => ({
-        ...prev,
-        degradedCapabilities: [
-          ...(prev.degradedCapabilities ?? []),
-          `operator_challenge_resolved: ${callback.challengeId ?? 'manual'}`,
-        ],
-      }));
-    }
-
-    return result;
   }
 
   /**

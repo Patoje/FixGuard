@@ -53,6 +53,18 @@ export interface ContentDiscoveryRequest {
   readonly authorizedScopeGrant: AuthorizedScopeGrant;
   readonly lineage: AuthorizedActiveReconRequestLineage;
   readonly timeoutMs?: number;
+  /** Explicit purpose/context of this probe (defaults to 'anonymous' if unspecified). */
+  readonly contextKind?: 'anonymous' | 'authenticated' | 'challenge_validation';
+  /**
+   * Explicit authorized session headers / cookies for session-aware or
+   * post-challenge content discovery. Safe to thread here (unlike the
+   * browser-automation path): every request ffuf makes stays on
+   * `targetUrl`'s own host — it substitutes FUZZ into that one URL
+   * template and has no concept of cross-origin subresources or page
+   * navigation, so there is no third-party destination these headers
+   * could reach.
+   */
+  readonly sessionHeaders?: Readonly<Record<string, string>>;
 }
 
 export type ContentDiscoveryResult =

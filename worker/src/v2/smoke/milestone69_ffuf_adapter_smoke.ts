@@ -523,6 +523,54 @@ async function runMilestone69SmokeTests() {
     console.log('    -> Clean zero observations on empty output and fail-closed malformed line resilience verified');
   }
 
+  // -------------------------------------------------------------------------
+  // Assertion 9 — Milestone: Challenge Continuation Reliability (corrected,
+  // session-continuity audit). ffuf only ever requests targetUrl/FUZZ on
+  // the target's own host (no cross-origin subresource concept), so
+  // session headers are safe to thread here via -H, unlike the browser
+  // automation path.
+  // -------------------------------------------------------------------------
+  console.log('[*] Assertion 9: Session headers thread into ffuf via -H, scoped by contextKind');
+  {
+    const runner = new MockProcessRunner();
+    const auth = setupAuthorizedContext();
+    const adapter = new FfufAdapter(runner);
+
+    await adapter.discoverContent({
+      targetUrl: 'https://example.com',
+      wordlistPath: 'wordlists/common.txt',
+      ...auth,
+      contextKind: 'authenticated',
+      sessionHeaders: { Cookie: 'session_id=abc123', Authorization: 'Bearer secret_token' },
+    });
+
+    assert.ok(runner.calls[0].args.includes('-H'), 'session headers must be attached via -H');
+    const headerArgs = runner.calls[0].args.filter((_, i) => runner.calls[0].args[i - 1] === '-H');
+    assert.ok(headerArgs.includes('Cookie: session_id=abc123'));
+    assert.ok(headerArgs.includes('Authorization: Bearer secret_token'));
+    console.log('    -> Authenticated context: Cookie and Authorization both attached via -H');
+
+    const runner2 = new MockProcessRunner();
+    const adapter2 = new FfufAdapter(runner2);
+    await adapter2.discoverContent({
+      targetUrl: 'https://example.com',
+      wordlistPath: 'wordlists/common.txt',
+      ...auth,
+      contextKind: 'anonymous',
+      sessionHeaders: { Cookie: 'cf_clearance=waf_token', Authorization: 'Bearer secret_token' },
+    });
+    const headerArgs2 = runner2.calls[0].args.filter((_, i) => runner2.calls[0].args[i - 1] === '-H');
+    assert.ok(
+      headerArgs2.includes('Cookie: cf_clearance=waf_token'),
+      'a WAF-clearance cookie must still reach an anonymous-context probe'
+    );
+    assert.ok(
+      !headerArgs2.some((h) => h.toLowerCase().startsWith('authorization:')),
+      'Authorization must never be attached to an anonymous-context request'
+    );
+    console.log('    -> Anonymous context: Authorization is excluded, a clearance cookie is still attached');
+  }
+
   console.log('\n[✔] ALL MILESTONE 69 CONTENT DISCOVERY ADAPTER SMOKE ASSERTIONS PASSED SUCCESSFULLY.');
 }
 

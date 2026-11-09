@@ -445,6 +445,79 @@ async function runMilestone72SmokeTests() {
     console.log('    -> Clean zero observations on empty output and fail-closed malformed line resilience verified');
   }
 
+  // -------------------------------------------------------------------------
+  // Assertion 9 — Milestone: Challenge Continuation Reliability (corrected,
+  // session-continuity audit). Arjun only ever varies parameters on
+  // targetUrl itself (no cross-origin subresource concept), so session
+  // headers are safe to thread here, unlike the browser automation path.
+  // -------------------------------------------------------------------------
+  console.log('[*] Assertion 9: Session headers thread into Arjun via --headers, scoped by contextKind');
+  {
+    const runner = new MockProcessRunner();
+    runner.arjunOutput = { stdout: JSON.stringify({}), stderr: '', exitCode: 0, durationMs: 10, timedOut: false };
+    const adapter = new ArjunAdapter(runner);
+    const auth = setupAuthorizedContext();
+
+    await adapter.discoverParameters({
+      targetUrl: 'https://example.com/api/search',
+      ...auth,
+      contextKind: 'authenticated',
+      sessionHeaders: { Cookie: 'session_id=abc123', Authorization: 'Bearer secret_token' },
+    });
+
+    const authArgs = runner.calls[0].args;
+    const headersIdx = authArgs.indexOf('--headers');
+    assert.ok(headersIdx !== -1, 'session headers must be attached via --headers');
+    assert.strictEqual(
+      authArgs[headersIdx + 1],
+      'Cookie: session_id=abc123\\nAuthorization: Bearer secret_token'
+    );
+    // Milestone: Final Credential Redirect Audit — verified by direct
+    // testing against a real cross-origin HTTP redirect (not assumed):
+    // arjun follows redirects by default and forwards both Cookie and
+    // Authorization to the redirect target unconditionally. Whenever
+    // session headers are attached, --disable-redirects must also be
+    // present so a redirect is observed as a failure, never silently
+    // followed with the credential attached.
+    assert.ok(
+      authArgs.includes('--disable-redirects'),
+      '--disable-redirects must be passed whenever session headers are attached'
+    );
+    console.log('    -> Authenticated context: Cookie and Authorization both attached via --headers, --disable-redirects present');
+
+    runner.calls = [];
+    await adapter.discoverParameters({
+      targetUrl: 'https://example.com/api/search',
+      ...auth,
+      contextKind: 'anonymous',
+      sessionHeaders: { Cookie: 'cf_clearance=waf_token', Authorization: 'Bearer secret_token' },
+    });
+    const anonArgs = runner.calls[0].args;
+    const anonHeadersIdx = anonArgs.indexOf('--headers');
+    assert.ok(anonHeadersIdx !== -1);
+    assert.strictEqual(
+      anonArgs[anonHeadersIdx + 1],
+      'Cookie: cf_clearance=waf_token',
+      'Authorization must never be attached to an anonymous-context request, even though a clearance cookie still is'
+    );
+    assert.ok(
+      anonArgs.includes('--disable-redirects'),
+      '--disable-redirects must still be present when only a clearance cookie (no Authorization) is attached'
+    );
+    console.log('    -> Anonymous context: Authorization is excluded, a clearance cookie is still attached, --disable-redirects present');
+
+    runner.calls = [];
+    await adapter.discoverParameters({
+      targetUrl: 'https://example.com/api/search',
+      ...auth,
+    });
+    assert.ok(
+      !runner.calls[0].args.includes('--disable-redirects'),
+      '--disable-redirects must never appear when no session headers are supplied — unchanged default behavior'
+    );
+    console.log('    -> No session headers: --disable-redirects is never added, default behavior unchanged');
+  }
+
   console.log('\n[✔] ALL MILESTONE 72 PARAMETER DISCOVERY ADAPTER SMOKE ASSERTIONS PASSED SUCCESSFULLY.');
 }
 

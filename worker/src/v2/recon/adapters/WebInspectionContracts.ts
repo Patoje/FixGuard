@@ -54,6 +54,17 @@ export interface DiscoveredWebObservation {
     readonly challengeReasonCode: string;
     readonly resolvedAt: string;
   };
+  /**
+   * The target's Location header on a 3xx response. Verified necessary
+   * (direct testing against a real cross-origin redirect, not assumed
+   * from documentation): when `sessionHeaders` are present, this adapter
+   * never auto-follows a redirect (httpx's own -follow-redirects carries
+   * Cookie/Authorization to the Location host unconditionally, including
+   * cross-origin). This field preserves the redirect as an observation
+   * without the probe ever reaching — let alone authenticating as —
+   * whatever is at that destination.
+   */
+  readonly redirectLocation?: string;
 }
 
 export type WebInspectionContextKind = 'anonymous' | 'authenticated' | 'challenge_validation';

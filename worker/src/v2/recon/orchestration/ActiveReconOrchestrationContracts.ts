@@ -12,7 +12,10 @@ import type { AuthorizedActiveReconRequestLineage } from '../../lineage/Authoriz
 import type { TargetSessionState } from '../../core/SessionLifecycleContracts.js';
 import type { TargetExecutionCoordinator } from '../../runtime/TargetExecutionCoordinator.js';
 import type { DeepReconSchemaObservation } from '../deep/DeepReconContracts.js';
-import type { ChallengeAttemptDiagnostic } from '../../challenge/ChallengeContinuationContracts.js';
+import type {
+  ChallengeAttemptDiagnostic,
+  ChallengeContinuationStrategyKind,
+} from '../../challenge/ChallengeContinuationContracts.js';
 
 import type {
   SubdomainDiscoveryTool,
@@ -140,6 +143,16 @@ export interface ReconHealthSignals {
   readonly unresolvedChallengeHosts: readonly string[];
   /** Hosts where an edge browser challenge was detected and successfully resolved. */
   readonly resolvedChallengeHosts: readonly string[];
+  /**
+   * Milestone: Challenge Continuation Reliability (corrected) — hosts
+   * whose edge challenge genuinely requires an interactive or
+   * owner-controlled mechanism FixGuard does not perform automatically
+   * (automated strategies exhausted or inapplicable). Distinct from, and
+   * additive to, unresolvedChallengeHosts: never a silently-accepted
+   * terminal state — automatic continuation retries these on the next
+   * run; nothing requires a manual resume step.
+   */
+  readonly interactiveChallengeHosts?: readonly string[];
   /** True only when the crawl frontier stopped because it hit crawlRequestBudget with frontier still non-empty — not on natural exhaustion or duplicate saturation. */
   readonly crawlStoppedByBudgetCap: boolean;
   /**
@@ -306,6 +319,23 @@ export interface ActiveReconOrchestrationConfig {
   readonly maxHop1Routes?: number;
   /** Legacy / optional caller override for hop-2 extracted routes limit. */
   readonly maxHop2Routes?: number;
+  /**
+   * Milestone: Challenge Continuation Reliability — explicit opt-out for
+   * stealth evasions during challenge-continuation browser attempts (default
+   * false — stealth stays enabled). Distinct from any SPA-discovery stealth
+   * toggle; names the challenge-continuation concern specifically.
+   */
+  readonly disableChallengeStealth?: boolean;
+  /** Bound (ms) for challenge-continuation post-navigation resolution polling. Default: DEFAULT_RESOLUTION_TIMEOUT_MS (8000) inside ChallengeBrowserContinuationService. */
+  readonly challengeResolutionTimeoutMs?: number;
+  /**
+   * Retry strategy order for challenge continuation, spent from the same
+   * global per-assessment budget (unchanged ceiling). Default:
+   * DEFAULT_CHALLENGE_CONTINUATION_STRATEGY_ORDER (['fresh_context',
+   * 'persistent_context']). Never includes 'owner_bypass_credential' — not
+   * implemented.
+   */
+  readonly challengeContinuationStrategyOrder?: readonly ChallengeContinuationStrategyKind[];
 }
 
 import type { PreSpawnDnsResolver } from '../adapters/AdapterPreflightPipeline.js';

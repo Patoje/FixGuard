@@ -429,6 +429,73 @@ async function runMilestone66SmokeTests() {
     console.log('    -> Non-HTTP schemes safely rejected before process spawning');
   }
 
+  // -------------------------------------------------------------------------
+  // Assertion 10 — Milestone: Final Credential Redirect Audit. Verified by
+  // direct testing against a real cross-origin HTTP redirect (not assumed
+  // from documentation): httpx's -follow-redirects forwards Cookie AND
+  // Authorization to the redirect target unconditionally, including a
+  // different host — and even -follow-host-redirects still follows across
+  // a port change on the same hostname. When session headers are present,
+  // -follow-redirects must never be passed; the redirect is still
+  // observed via the parsed `location` field (redirectLocation), never
+  // auto-followed with the credential attached.
+  // -------------------------------------------------------------------------
+  console.log('[*] Assertion 10: -follow-redirects omitted and redirectLocation preserved when session headers are present');
+  {
+    const runner = new MockProcessRunner();
+    runner.nextOutput = {
+      stdout: JSON.stringify({
+        url: 'https://example.com/start',
+        status_code: 302,
+        location: 'https://attacker.example.net/landing',
+        method: 'GET',
+      }),
+      stderr: '',
+      exitCode: 0,
+      durationMs: 30,
+      timedOut: false,
+    };
+    const adapter = new HttpxInspectionAdapter(runner);
+    const auth = setupAuthorizedContext();
+
+    const result = await adapter.inspectWeb({
+      targetUrl: 'https://example.com/start',
+      ...auth,
+      contextKind: 'authenticated',
+      sessionHeaders: { Cookie: 'session_id=abc123', Authorization: 'Bearer secret_token' },
+    });
+
+    assert.ok(
+      !runner.calls[0].args.includes('-follow-redirects'),
+      '-follow-redirects must never be passed when session headers carry a credential'
+    );
+    assert.ok(runner.calls[0].args.includes('-H'), 'session headers must still be attached to the single-hop probe');
+
+    assert.strictEqual(result.status, 'success');
+    if (result.status === 'success') {
+      assert.strictEqual(result.observations.length, 1);
+      assert.strictEqual(result.observations[0].statusCode, 302);
+      assert.strictEqual(
+        result.observations[0].redirectLocation,
+        'https://attacker.example.net/landing',
+        'the redirect target must still be observed, even though it is never auto-followed with credentials'
+      );
+    }
+    console.log('    -> Redirect never auto-followed when session headers are present; destination still observed via redirectLocation');
+
+    // Unchanged default: no session headers → -follow-redirects stays present.
+    runner.calls = [];
+    await adapter.inspectWeb({
+      targetUrl: 'https://example.com/start',
+      ...auth,
+    });
+    assert.ok(
+      runner.calls[0].args.includes('-follow-redirects'),
+      '-follow-redirects must still be passed by default when no session headers are supplied'
+    );
+    console.log('    -> No session headers: -follow-redirects is unchanged, still present by default');
+  }
+
   console.log('\n[✔] ALL MILESTONE 66 HTTPX ADAPTER SMOKE ASSERTIONS PASSED SUCCESSFULLY.');
 }
 

@@ -104,10 +104,48 @@ export interface DiscoveredSpaObservation {
   readonly sourceReliability?: 'direct_observation' | 'historical_archive' | 'inferred_relationship';
 }
 
+/** Minimal shape of the response `RouteInstance.fetch()` returns, round-tripped opaquely to `fulfill()`. */
+export interface RouteFetchResponse {
+  status(): number;
+  headers(): Record<string, string>;
+}
+
 export interface RouteInstance {
-  request(): { url(): string; method(): string; resourceType(): string };
+  request(): {
+    url(): string;
+    method(): string;
+    resourceType(): string;
+    /** Optional; the request's own headers before any override. */
+    headers?(): Record<string, string>;
+  };
   abort(errorCode?: string): Promise<void>;
-  continue(): Promise<void>;
+  /** `headers`, when given, replaces the request's outgoing headers entirely. */
+  continue(options?: { headers?: Record<string, string> }): Promise<void>;
+  /**
+   * Performs the request without fulfilling it, so the response can be
+   * inspected before deciding whether to serve it. `maxRedirects: 0`
+   * returns the hop's own response (e.g. a bare 3xx) without following it.
+   *
+   * Verified directly (not assumed, not from documentation alone) against
+   * a real two-origin redirect: the route handler fires exactly once per
+   * intercepted request — fulfilling a 3xx response does NOT give this
+   * handler a second interception opportunity for the hop the browser
+   * then auto-navigates to. `continue({headers})`'s header override is
+   * never carried into that auto-navigation either (it is scoped to the
+   * one request `fetch()`/`continue()` issues), but the caller must not
+   * rely on the handler re-firing to re-validate a later hop's origin —
+   * callers that need every hop of a redirect chain credential-checked
+   * must loop `fetch({url, method, maxRedirects: 0})` themselves and never
+   * `fulfill()` an in-flight credentialed hop back to the browser.
+   */
+  fetch(options?: {
+    url?: string;
+    method?: string;
+    headers?: Record<string, string>;
+    maxRedirects?: number;
+  }): Promise<RouteFetchResponse>;
+  /** Serves a previously-fetched response (from `fetch()`) to the page. */
+  fulfill(options: { response: RouteFetchResponse }): Promise<void>;
 }
 
 export interface ResponseInstance {
@@ -163,6 +201,8 @@ export interface BrowserContextInstance {
   newPage(): Promise<PageInstance>;
   addInitScript?(script: string | { content?: string; path?: string }): Promise<void>;
   cookies?(urls?: string | readonly string[]): Promise<readonly BrowserCookieRecord[]>;
+  /** Populates the browser's own cookie jar — scoped by domain/path/secure like a real browser. */
+  addCookies?(cookies: readonly BrowserCookieRecord[]): Promise<void>;
   close(): Promise<void>;
 }
 
@@ -201,6 +241,36 @@ export interface BrowserAutomationRequest {
   readonly browserProfileId?: string;
   /** Optional Chrome DevTools Protocol endpoint (e.g. 'http://127.0.0.1:9222') for HITL sessions. */
   readonly cdpEndpoint?: string;
+  /**
+   * Scoped session credentials (e.g. from a resolved challenge, or a BYOT
+   * identity) so SPA/JS route discovery resumes with the same session
+   * continuity the HTTP crawl loop already gets — WITHOUT ever sending
+   * them to a third-party origin the page happens to load a subresource
+   * from. `origin` is the exact scheme+host+port the credentials are
+   * valid for (never trusted blindly — discoverSpa() cross-checks it
+   * against the preflighted target host before using either field).
+   *
+   * `cookies` is injected via the browser's own cookie jar
+   * (BrowserContextInstance.addCookies()), host-scoped to `origin`'s
+   * hostname — the same mechanism a real browser uses, so the browser
+   * itself (not application code) decides per request, including every
+   * redirect hop, whether a given destination gets the cookie.
+   *
+   * `headers` (e.g. Authorization, or a BYOT-injected custom header) has
+   * no such browser-native scoping mechanism, so it is never placed on
+   * the context (Playwright's extraHTTPHeaders apply unconditionally to
+   * every request, including allowed third-party CDN subresource loads —
+   * that was the exact cross-origin leak this contract replaced). Instead
+   * it is attached per request, inside the existing Gate 2 route handler,
+   * only when that specific request's origin is an exact match for
+   * `origin` — re-evaluated on every request, including each hop of a
+   * redirect chain.
+   */
+  readonly sessionCredentials?: {
+    readonly origin: string;
+    readonly cookies?: Readonly<Record<string, string>>;
+    readonly headers?: Readonly<Record<string, string>>;
+  };
 }
 
 export type BrowserAutomationResult =

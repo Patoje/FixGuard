@@ -125,10 +125,6 @@ export function createV2Router(root: V2CompositionRoot): Router {
     '/orchestrated/assessments/:assessmentId/session-identity-b',
     orchestratedController.attachSessionIdentityB
   );
-  router.post(
-    '/orchestrated/assessments/:assessmentId/challenge/resume',
-    orchestratedController.resumeChallenge
-  );
   router.get('/orchestrated/assessments/:assessmentId/summary', orchestratedController.getSummary);
   router.get('/orchestrated/assessments/:assessmentId/status', orchestratedController.getStatus);
   router.get('/orchestrated/assessments/:assessmentId/evidence-drafts', orchestratedController.getEvidenceDrafts);

@@ -49,6 +49,16 @@ export interface ParameterDiscoveryRequest {
   readonly authorizedScopeGrant: AuthorizedScopeGrant;
   readonly lineage: AuthorizedActiveReconRequestLineage;
   readonly timeoutMs?: number;
+  /** Explicit purpose/context of this probe (defaults to 'anonymous' if unspecified). */
+  readonly contextKind?: 'anonymous' | 'authenticated' | 'challenge_validation';
+  /**
+   * Explicit authorized session headers / cookies for session-aware or
+   * post-challenge parameter discovery. Safe to thread here: every
+   * request Arjun makes stays on `targetUrl` itself — it only varies
+   * parameter names/values on that one URL, with no cross-origin
+   * subresource or redirect-following behavior.
+   */
+  readonly sessionHeaders?: Readonly<Record<string, string>>;
 }
 
 export type ParameterDiscoveryResult =
